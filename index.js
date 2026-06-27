@@ -131,6 +131,55 @@ app.get('/portal/stock', authCliente, async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Error al consultar stock' }); }
 });
 
+// Detalle de una venta: productos + boletas/facturas (validando que sea del cliente)
+app.get('/portal/venta/:codigo', authCliente, async (req, res) => {
+  try {
+    const [[venta]] = await prodPool.query(
+      `SELECT id, code, total, status, created_at FROM sales
+       WHERE code=? AND customer_id=? AND deleted_at IS NULL LIMIT 1`,
+      [req.params.codigo, req.cliente.customer_id]);
+    if (!venta) return res.status(404).json({ error: 'Venta no encontrada' });
+
+    const [items] = await prodPool.query(
+      `SELECT p.name AS producto, pv.sku, pv.name AS variacion,
+        si.quantity, si.unit_price, si.total
+       FROM sale_items si
+       JOIN product_variations pv ON pv.id=si.product_variation_id
+       JOIN products p ON p.id=pv.product_id
+       WHERE si.sale_id=?`, [venta.id]);
+
+    const [vouchers] = await prodPool.query(
+      `SELECT type, serie, number, emission_date, amount FROM sale_vouchers
+       WHERE sale_id=? ORDER BY emission_date`, [venta.id]);
+
+    res.json({ venta, items, vouchers });
+  } catch (e) { res.status(500).json({ error: 'Error al consultar el detalle' }); }
+});
+
+// Consignación enriquecida: entregado / vendido / disponible
+app.get('/portal/consignacion', authCliente, async (req, res) => {
+  if (!req.cliente.location_id) return res.json([]);
+  try {
+    const [rows] = await prodPool.query(
+      `SELECT p.name AS producto, pv.sku, pv.name AS variacion,
+        ls.quantity AS disponible,
+        ls.reserved_quantity AS reservado,
+        pv.sale_price AS precio,
+        COALESCE((
+          SELECT SUM(sm.quantity) FROM stock_movements sm
+          WHERE sm.product_variation_id=ls.product_variation_id
+            AND sm.location_to_id=ls.location_id AND sm.type='transfer'
+        ),0) AS entregado_hist
+       FROM location_stocks ls
+       JOIN product_variations pv ON pv.id=ls.product_variation_id
+       JOIN products p ON p.id=pv.product_id
+       WHERE ls.location_id=? AND ls.quantity>0
+         AND pv.deleted_at IS NULL AND p.deleted_at IS NULL
+       ORDER BY p.name`, [req.cliente.location_id]);
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: 'Error al consultar consignación' }); }
+});
+
 app.post('/portal/cambiar-password', authCliente, async (req, res) => {
   const { password_actual, password_nueva } = req.body;
   if (!password_actual || !password_nueva) return res.status(400).json({ error: 'Faltan datos' });
@@ -273,9 +322,46 @@ app.post('/admin/crear-todos', authAdmin, async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Error: ' + e.message }); }
 });
 
+// ─── Reporte de venta de consignación (NO toca la BD, solo notifica) ─────────
+app.post('/portal/reportar-venta', authCliente, async (req, res) => {
+  const { items } = req.body; // [{producto, sku, cantidad}]
+  if (!Array.isArray(items) || items.length === 0)
+    return res.status(400).json({ error: 'No hay items en el reporte' });
+
+  const lineas = items.map(i => `• ${i.cantidad} x ${i.producto}${i.sku ? ' ('+i.sku+')' : ''}`).join('\n');
+  const fecha = new Date().toLocaleString('es-PE', { timeZone: 'America/Lima' });
+  const cuerpo =
+    `Reporte de venta de consignación\n\n` +
+    `Cliente: ${req.cliente.nombre}\n` +
+    `Fecha: ${fecha}\n\n` +
+    `Productos vendidos reportados:\n${lineas}\n\n` +
+    `(El distribuidor reporta desde el portal. Registrar manualmente en el sistema.)`;
+
+  // Enviar correo vía Resend si está configurado
+  let correoOk = false;
+  if (process.env.RESEND_API_KEY) {
+    try {
+      const r = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          from: process.env.RESEND_FROM || 'Portal Kuranko <onboarding@resend.dev>',
+          to: process.env.VENTAS_EMAIL || 'ventas@kuranko.pe',
+          subject: `Reporte de venta consignación — ${req.cliente.nombre}`,
+          text: cuerpo
+        })
+      });
+      correoOk = r.ok;
+    } catch (e) { correoOk = false; }
+  }
+  res.json({ ok: true, correo_enviado: correoOk });
+});
+
 // ─── Health ──────────────────────────────────────────────────────────────────
 app.get('/health', (req, res) => res.json({ ok: true, servicio: 'portal-b2b' }));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Portal B2B en puerto ${PORT}`));
-

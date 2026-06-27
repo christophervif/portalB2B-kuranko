@@ -4,23 +4,26 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Portal de Clientes — Kuranko</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:system-ui,sans-serif;background:#0f1117;color:#e2e8f0;min-height:100vh}
-.header{background:#1a1d2e;border-bottom:1px solid #2d3148;padding:1rem 1.5rem;display:flex;justify-content:space-between;align-items:center}
+.header{background:#1a1d2e;border-bottom:1px solid #2d3148;padding:1rem 1.5rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
 .header h1{font-size:1rem;font-weight:600;color:#fff}
 .header .cli{font-size:12px;color:#94a3b8}
 .btn{background:#7c3aed;border:none;color:#fff;border-radius:8px;padding:8px 16px;font-size:13px;cursor:pointer;font-weight:500}
 .btn:hover{background:#6d28d9}
 .btn-sec{background:#1e2235;border:1px solid #2d3148}.btn-sm{padding:5px 10px;font-size:12px}
+.btn-green{background:#15803d}.btn-green:hover{background:#166534}
 .wrap{max-width:1000px;margin:0 auto;padding:1.5rem}
 .login-box{max-width:380px;margin:4rem auto;background:#1a1d2e;border:1px solid #2d3148;border-radius:12px;padding:2rem}
-.login-box .logo{font-size:1.4rem;font-weight:700;color:#fff;text-align:center;margin-bottom:.25rem}
+.login-box .logo{font-size:1.4rem;font-weight:700;color:#fff;text-align:center;margin-bottom:.25rem;letter-spacing:.05em}
 .login-box .tag{font-size:13px;color:#64748b;text-align:center;margin-bottom:1.5rem}
 .field{margin-bottom:12px}
 .field label{display:block;font-size:12px;color:#94a3b8;margin-bottom:4px}
-.field input{width:100%;background:#0f1117;border:1px solid #2d3148;color:#e2e8f0;border-radius:8px;padding:9px 12px;font-size:14px}
-.field input:focus{outline:none;border-color:#7c3aed}
+.field input,.field select{width:100%;background:#0f1117;border:1px solid #2d3148;color:#e2e8f0;border-radius:8px;padding:9px 12px;font-size:14px}
+.field input:focus,.field select:focus{outline:none;border-color:#7c3aed}
 .err{font-size:13px;color:#fca5a5;margin-top:8px;display:none}
 .hint{font-size:12px;color:#64748b;margin-top:10px;text-align:center;line-height:1.5}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:1.25rem}
@@ -28,26 +31,49 @@ body{font-family:system-ui,sans-serif;background:#0f1117;color:#e2e8f0;min-heigh
 .kpi.accent{border-color:#7c3aed}
 .kpi-label{font-size:11px;color:#64748b;text-transform:uppercase;margin-bottom:6px}
 .kpi-val{font-size:1.3rem;font-weight:600;color:#fff}
-.tabs{display:flex;gap:2px;border-bottom:1px solid #2d3148;margin-bottom:1.25rem;overflow-x:auto}
-.tab{font-size:13px;padding:8px 16px;cursor:pointer;border:none;background:none;color:#64748b;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
+.tabs{display:flex;gap:2px;border-bottom:1px solid #2d3148;margin-bottom:1.25rem;overflow-x:auto;-webkit-overflow-scrolling:touch}
+.tab{font-size:13px;padding:8px 16px;cursor:pointer;border:none;background:none;color:#64748b;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;flex-shrink:0}
 .tab.active{color:#fff;border-bottom-color:#7c3aed}
 .panel{display:none}.panel.active{display:block}
 .card{background:#1a1d2e;border:1px solid #2d3148;border-radius:12px;padding:1.25rem;margin-bottom:1rem}
-.card h3{font-size:13px;font-weight:600;margin-bottom:1rem}
+.card-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:8px}
+.card h3{font-size:13px;font-weight:600}
+.filtros{display:flex;gap:8px;margin-bottom:1rem;flex-wrap:wrap}
+.filtros input,.filtros select{background:#0f1117;border:1px solid #2d3148;color:#e2e8f0;border-radius:8px;padding:7px 10px;font-size:13px}
+.filtros input{flex:1;min-width:140px}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th{text-align:left;padding:8px;color:#94a3b8;font-weight:500;font-size:11px;border-bottom:1px solid #2d3148;text-transform:uppercase}
+th.num,td.num{text-align:right}
 td{padding:8px;border-bottom:1px solid #1e2235;color:#cbd5e1}
-tr:hover td{background:#1e2235}
-.badge{font-size:11px;padding:2px 8px;border-radius:20px;font-weight:500}
-.badge-ok{background:#14532d;color:#86efac}.badge-warn{background:#713f12;color:#fde68a}.badge-r{background:#7f1d1d;color:#fca5a5}
+tbody tr{cursor:pointer;transition:background .12s}
+tbody tr:hover td{background:#252a40}
+.badge{font-size:11px;padding:3px 9px;border-radius:20px;font-weight:600}
+.badge-ok{background:#14532d;color:#4ade80}.badge-warn{background:#854d0e;color:#fbbf24}.badge-r{background:#991b1b;color:#f87171}
 .right{text-align:right}.muted{color:#64748b}
 .loading{text-align:center;padding:2rem;color:#64748b}
-.toast{position:fixed;bottom:20px;right:20px;background:#14532d;color:#86efac;padding:12px 20px;border-radius:8px;font-size:13px;display:none;z-index:100}
+.toast{position:fixed;bottom:80px;right:20px;background:#14532d;color:#86efac;padding:12px 20px;border-radius:8px;font-size:13px;display:none;z-index:100;max-width:300px}
 .toast.err{background:#7f1d1d;color:#fca5a5}
-.modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:200}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:200;padding:1rem}
 .modal.show{display:flex}
-.modal-box{background:#1a1d2e;border:1px solid #2d3148;border-radius:12px;padding:1.5rem;max-width:380px;width:90%}
-.modal-box h3{font-size:1rem;margin-bottom:1rem}
+.modal-box{background:#1a1d2e;border:1px solid #2d3148;border-radius:12px;padding:1.5rem;max-width:520px;width:100%;max-height:85vh;overflow-y:auto}
+.modal-box h3{font-size:1rem;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center}
+.modal-close{cursor:pointer;color:#64748b;font-size:1.3rem;line-height:1}
+.wa-float{position:fixed;bottom:20px;right:20px;background:#25D366;width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,0,0,.4);cursor:pointer;z-index:90;text-decoration:none}
+.wa-float svg{width:30px;height:30px;fill:#fff}
+.stepper{display:flex;align-items:center;gap:8px}
+.stepper button{width:28px;height:28px;border-radius:6px;border:1px solid #2d3148;background:#1e2235;color:#fff;cursor:pointer;font-size:16px;line-height:1}
+.stepper button:hover{background:#2d3148}
+.stepper span{min-width:28px;text-align:center;font-weight:600}
+/* Responsive: tablas a tarjetas en móvil */
+@media(max-width:600px){
+  .kpis{grid-template-columns:1fr 1fr}
+  table thead{display:none}
+  table,table tbody,table tr,table td{display:block;width:100%}
+  table tr{background:#13162a;border:1px solid #2d3148;border-radius:10px;margin-bottom:8px;padding:6px}
+  table td{border:none;padding:5px 8px;display:flex;justify-content:space-between;align-items:center}
+  table td::before{content:attr(data-label);color:#64748b;font-size:11px;text-transform:uppercase;font-weight:500}
+  th.num,td.num{text-align:right}
+}
 </style>
 </head>
 <body>
@@ -77,36 +103,91 @@ tr:hover td{background:#1e2235}
     <div class="tabs">
       <button class="tab active" onclick="tab('ventas',this)">Mis ventas</button>
       <button class="tab" onclick="tab('pagos',this)">Mis pagos</button>
-      <button class="tab" id="tab-stock-btn" onclick="tab('stock',this)">Mi consignación</button>
+      <button class="tab" onclick="tab('stock',this)">Mi consignación</button>
     </div>
-    <div id="tab-ventas" class="panel active"><div class="card"><h3>Ventas registradas</h3><div id="ventas-tabla"><div class="loading">Cargando...</div></div></div></div>
+
+    <div id="tab-ventas" class="panel active">
+      <div class="card">
+        <div class="card-head">
+          <h3>Ventas registradas</h3>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-sec btn-sm" onclick="exportarExcel()">Excel</button>
+            <button class="btn btn-sec btn-sm" onclick="exportarPDF()">PDF</button>
+          </div>
+        </div>
+        <div class="filtros">
+          <input id="f-buscar" placeholder="Buscar por código..." oninput="renderVentas()">
+          <select id="f-estado" onchange="renderVentas()">
+            <option value="">Todos los estados</option>
+            <option value="paid">Pagadas</option>
+            <option value="confirmed">Confirmadas</option>
+            <option value="pending_payment">Pendientes</option>
+          </select>
+          <input type="date" id="f-desde" onchange="renderVentas()" title="Desde">
+          <input type="date" id="f-hasta" onchange="renderVentas()" title="Hasta">
+        </div>
+        <div id="ventas-tabla"><div class="loading">Cargando...</div></div>
+      </div>
+    </div>
+
     <div id="tab-pagos" class="panel"><div class="card"><h3>Pagos realizados</h3><div id="pagos-tabla"><div class="loading">Cargando...</div></div></div></div>
-    <div id="tab-stock" class="panel"><div class="card"><h3>Productos en consignación</h3><div id="stock-tabla"><div class="loading">Cargando...</div></div></div></div>
+
+    <div id="tab-stock" class="panel">
+      <div class="card">
+        <div class="card-head">
+          <h3>Productos en consignación</h3>
+          <button class="btn btn-green btn-sm" onclick="abrirReporte()">Reportar venta</button>
+        </div>
+        <div id="stock-tabla"><div class="loading">Cargando...</div></div>
+      </div>
+    </div>
   </div>
 </div>
 
-<div class="modal" id="modal-pass">
+<!-- Modal detalle de venta -->
+<div class="modal" id="modal-detalle">
   <div class="modal-box">
-    <h3>Cambiar contraseña</h3>
+    <h3><span id="det-titulo">Detalle</span> <span class="modal-close" onclick="cerrarModal('modal-detalle')">×</span></h3>
+    <div id="det-contenido"><div class="loading">Cargando...</div></div>
+  </div>
+</div>
+
+<!-- Modal reporte de consignación -->
+<div class="modal" id="modal-reporte">
+  <div class="modal-box">
+    <h3>Reportar venta de consignación <span class="modal-close" onclick="cerrarModal('modal-reporte')">×</span></h3>
+    <p class="muted" style="font-size:12px;margin-bottom:1rem">Marca cuántas unidades vendiste de cada producto. Al enviar, se notifica a Kuranko para registrar la venta. Esto no modifica tu inventario automáticamente.</p>
+    <div id="reporte-items"></div>
+    <button class="btn btn-green" style="width:100%;margin-top:1rem" onclick="enviarReporte()">Enviar reporte</button>
+  </div>
+</div>
+
+<!-- Modal cambio contraseña -->
+<div class="modal" id="modal-pass">
+  <div class="modal-box" style="max-width:380px">
+    <h3>Cambiar contraseña <span class="modal-close" onclick="cerrarModal('modal-pass')">×</span></h3>
     <div class="field"><label>Contraseña actual</label><input type="password" id="pass-actual"></div>
     <div class="field"><label>Nueva contraseña (mín. 6)</label><input type="password" id="pass-nueva"></div>
     <div class="err" id="pass-err"></div>
-    <div style="display:flex;gap:8px;margin-top:1rem">
-      <button class="btn" onclick="cambiarPass()">Guardar</button>
-      <button class="btn btn-sec" onclick="cerrarModal()">Cancelar</button>
-    </div>
+    <button class="btn" style="width:100%;margin-top:1rem" onclick="cambiarPass()">Guardar</button>
   </div>
 </div>
+
+<a class="wa-float" id="wa-soporte" target="_blank" title="Soporte por WhatsApp">
+  <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 0 0-8.6 15l-1.3 4.7 4.8-1.3A10 10 0 1 0 12 2zm0 18a8 8 0 0 1-4.1-1.1l-.3-.2-2.9.8.8-2.8-.2-.3A8 8 0 1 1 12 20zm4.4-6c-.2-.1-1.4-.7-1.6-.8s-.4-.1-.5.1-.6.8-.8 1-.3.2-.5.1a6.5 6.5 0 0 1-1.9-1.2 7.2 7.2 0 0 1-1.3-1.7c-.1-.2 0-.4.1-.5l.4-.4.2-.4v-.4c0-.1-.5-1.3-.7-1.7s-.4-.4-.5-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.8 11.8 0 0 0 4.6 4c.6.3 1.1.4 1.5.5a3.5 3.5 0 0 0 1.6.1c.5-.1 1.4-.6 1.6-1.1s.2-1 .1-1.1-.2-.2-.4-.3z"/></svg>
+</a>
 
 <div class="toast" id="toast"></div>
 
 <script>
-let TOKEN='',API='';
+let TOKEN='',API='',ventasCache=[],stockCache=[];
+const WA_SOPORTE='51949137526';
 const fmt=n=>new Intl.NumberFormat('es-PE',{style:'currency',currency:'PEN'}).format(n||0);
 const fmtFecha=s=>s?new Date(s).toLocaleDateString('es-PE'):'-';
 const STATUS_NOM={paid:'Pagada',confirmed:'Confirmada',pending_payment:'Pend. pago'};
+const statusBadge=s=>s==='paid'?'badge-ok':s==='pending_payment'?'badge-r':'badge-warn';
 
-function showToast(m,e){const t=document.getElementById('toast');t.textContent=m;t.className='toast'+(e?' err':'');t.style.display='block';setTimeout(()=>t.style.display='none',3000);}
+function showToast(m,e){const t=document.getElementById('toast');t.textContent=m;t.className='toast'+(e?' err':'');t.style.display='block';setTimeout(()=>t.style.display='none',3500);}
 async function apiCall(ep,method='GET',body){
   const opt={method,headers:{'Authorization':'Bearer '+TOKEN}};
   if(body){opt.headers['Content-Type']='application/json';opt.body=JSON.stringify(body);}
@@ -121,7 +202,6 @@ async function login(){
     const r=await fetch(API+'/portal/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({usuario:u,password:p})});
     const d=await r.json();if(!r.ok)throw new Error(d.error);
     TOKEN=d.token;sessionStorage.setItem('clitoken',TOKEN);
-    document.getElementById('cli-nombre').textContent=d.cliente.nombre;
     mostrarApp();
     if(d.cliente.debe_cambiar){showToast('Por seguridad, cambia tu contraseña inicial');setTimeout(abrirCambioPass,800);}
   }catch(err){e.textContent=err.message;e.style.display='block';}
@@ -132,12 +212,14 @@ function tab(id,btn){document.querySelectorAll('.panel').forEach(p=>p.classList.
 async function mostrarApp(){
   document.getElementById('login-screen').style.display='none';
   document.getElementById('app-screen').style.display='block';
+  document.getElementById('wa-soporte').href=`https://wa.me/${WA_SOPORTE}?text=${encodeURIComponent('Hola Kuranko, tengo una consulta sobre mi portal de cliente.')}`;
   await Promise.all([cargarSaldo(),cargarVentas(),cargarPagos(),cargarStock()]);
 }
 async function cargarSaldo(){
   try{
     const s=await apiCall('/portal/saldo');
     document.getElementById('cli-nombre').textContent=s.nombre;
+    window._nombreCliente=s.nombre;
     document.getElementById('kpis').innerHTML=[
       {l:'Total comprado',v:fmt(s.total_vendido),a:1},
       {l:'Total pagado',v:fmt(s.total_pagado)},
@@ -147,43 +229,143 @@ async function cargarSaldo(){
   }catch(e){showToast(e.message,true);}
 }
 async function cargarVentas(){
-  try{
-    const v=await apiCall('/portal/ventas');
-    const c=document.getElementById('ventas-tabla');
-    if(!v.length){c.innerHTML='<div class="muted">Sin ventas registradas.</div>';return;}
-    c.innerHTML=`<table><thead><tr><th>Código</th><th>Fecha</th><th>Estado</th><th class="right">Total</th><th class="right">Pagado</th><th class="right">Saldo</th></tr></thead><tbody>`+
-      v.map(r=>`<tr><td>${r.codigo}</td><td>${fmtFecha(r.fecha)}</td>
-        <td><span class="badge ${r.status==='paid'?'badge-ok':r.status==='pending_payment'?'badge-r':'badge-warn'}">${STATUS_NOM[r.status]||r.status}</span></td>
-        <td class="right">${fmt(r.total)}</td><td class="right">${fmt(r.pagado)}</td>
-        <td class="right">${r.saldo>0?'<span style="color:#fca5a5">'+fmt(r.saldo)+'</span>':fmt(0)}</td></tr>`).join('')+`</tbody></table>`;
-  }catch(e){showToast(e.message,true);}
+  try{ventasCache=await apiCall('/portal/ventas');renderVentas();}
+  catch(e){showToast(e.message,true);}
+}
+function ventasFiltradas(){
+  const q=(document.getElementById('f-buscar').value||'').toLowerCase();
+  const est=document.getElementById('f-estado').value;
+  const desde=document.getElementById('f-desde').value;
+  const hasta=document.getElementById('f-hasta').value;
+  return ventasCache.filter(v=>{
+    if(q&&!(v.codigo||'').toLowerCase().includes(q))return false;
+    if(est&&v.status!==est)return false;
+    if(desde&&new Date(v.fecha)<new Date(desde))return false;
+    if(hasta&&new Date(v.fecha)>new Date(hasta+'T23:59:59'))return false;
+    return true;
+  });
+}
+function renderVentas(){
+  const v=ventasFiltradas();
+  const c=document.getElementById('ventas-tabla');
+  if(!v.length){c.innerHTML='<div class="muted">Sin ventas que coincidan.</div>';return;}
+  c.innerHTML=`<table><thead><tr><th>Código</th><th>Fecha</th><th>Estado</th><th class="num">Total</th><th class="num">Pagado</th><th class="num">Saldo</th></tr></thead><tbody>`+
+    v.map(r=>`<tr onclick="verDetalle('${r.codigo}')">
+      <td data-label="Código">${r.codigo}</td>
+      <td data-label="Fecha">${fmtFecha(r.fecha)}</td>
+      <td data-label="Estado"><span class="badge ${statusBadge(r.status)}">${STATUS_NOM[r.status]||r.status}</span></td>
+      <td class="num" data-label="Total">${fmt(r.total)}</td>
+      <td class="num" data-label="Pagado">${fmt(r.pagado)}</td>
+      <td class="num" data-label="Saldo">${r.saldo>0?'<span style="color:#f87171">'+fmt(r.saldo)+'</span>':fmt(0)}</td>
+    </tr>`).join('')+`</tbody></table>`;
 }
 async function cargarPagos(){
   try{
     const p=await apiCall('/portal/pagos');
     const c=document.getElementById('pagos-tabla');
     if(!p.length){c.innerHTML='<div class="muted">Sin pagos registrados.</div>';return;}
-    c.innerHTML=`<table><thead><tr><th>Fecha</th><th>Venta</th><th>Método</th><th class="right">Monto</th></tr></thead><tbody>`+
-      p.map(r=>`<tr><td>${fmtFecha(r.fecha)}</td><td>${r.venta_codigo||'-'}</td><td>${r.metodo||'-'}</td><td class="right">${fmt(r.monto)}</td></tr>`).join('')+`</tbody></table>`;
+    c.innerHTML=`<table><thead><tr><th>Fecha</th><th>Venta</th><th>Método</th><th class="num">Monto</th></tr></thead><tbody>`+
+      p.map(r=>`<tr><td data-label="Fecha">${fmtFecha(r.fecha)}</td><td data-label="Venta">${r.venta_codigo||'-'}</td><td data-label="Método">${r.metodo||'-'}</td><td class="num" data-label="Monto">${fmt(r.monto)}</td></tr>`).join('')+`</tbody></table>`;
   }catch(e){showToast(e.message,true);}
 }
 async function cargarStock(){
   try{
-    const s=await apiCall('/portal/stock');
+    stockCache=await apiCall('/portal/consignacion');
     const c=document.getElementById('stock-tabla');
-    if(!s.length){c.innerHTML='<div class="muted">No tienes productos en consignación asignados, o aún no se ha vinculado tu punto. Consulta con Kuranko.</div>';return;}
-    c.innerHTML=`<table><thead><tr><th>Producto</th><th>SKU</th><th class="right">Cantidad</th><th class="right">Disponible</th></tr></thead><tbody>`+
-      s.map(r=>`<tr><td>${r.producto}${r.variacion&&r.variacion!==r.producto?' <span class="muted">('+r.variacion+')</span>':''}</td>
-        <td class="muted">${r.sku||'-'}</td><td class="right">${r.cantidad}</td><td class="right">${r.disponible}</td></tr>`).join('')+`</tbody></table>`;
+    if(!stockCache.length){c.innerHTML='<div class="muted">No tienes productos en consignación asignados, o aún no se ha vinculado tu punto. Consulta con Kuranko.</div>';return;}
+    c.innerHTML=`<table><thead><tr><th>Producto</th><th>SKU</th><th class="num">Disponible</th><th class="num">Precio</th></tr></thead><tbody>`+
+      stockCache.map(r=>`<tr><td data-label="Producto">${r.producto}${r.variacion&&r.variacion!==r.producto?' <span class="muted">('+r.variacion+')</span>':''}</td>
+        <td class="muted" data-label="SKU">${r.sku||'-'}</td><td class="num" data-label="Disponible">${r.disponible}</td><td class="num" data-label="Precio">${r.precio?fmt(r.precio):'-'}</td></tr>`).join('')+`</tbody></table>`;
   }catch(e){showToast(e.message,true);}
 }
 
+// ── Detalle de venta ──
+async function verDetalle(codigo){
+  document.getElementById('modal-detalle').classList.add('show');
+  document.getElementById('det-titulo').textContent='Venta '+codigo;
+  document.getElementById('det-contenido').innerHTML='<div class="loading">Cargando...</div>';
+  try{
+    const d=await apiCall('/portal/venta/'+encodeURIComponent(codigo));
+    let html=`<table><thead><tr><th>Producto</th><th class="num">Cant.</th><th class="num">P.Unit</th><th class="num">Total</th></tr></thead><tbody>`+
+      d.items.map(i=>`<tr><td>${i.producto}${i.variacion&&i.variacion!==i.producto?' <span class="muted">('+i.variacion+')</span>':''}</td><td class="num">${i.quantity}</td><td class="num">${fmt(i.unit_price)}</td><td class="num">${fmt(i.total)}</td></tr>`).join('')+`</tbody></table>`;
+    if(d.vouchers.length){
+      html+=`<h3 style="font-size:12px;margin:1rem 0 .5rem;color:#94a3b8">COMPROBANTES</h3>`+
+        d.vouchers.map(v=>`<div style="font-size:13px;padding:6px 0;border-bottom:1px solid #1e2235">${v.type==='invoice'?'Factura':v.type==='receipt'?'Boleta':v.type} ${v.serie}-${v.number} · ${fmtFecha(v.emission_date)} · ${fmt(v.amount)}</div>`).join('');
+    }
+    const saldo=ventasCache.find(x=>x.codigo===codigo)?.saldo||0;
+    if(saldo>0){
+      const msg=`🚴 Portal Kuranko - Reporte de Pago%0A%0ACliente: ${window._nombreCliente}%0ADocumento: ${codigo}%0AMonto Pendiente: ${fmt(saldo)}%0A%0A👉 Adjunto la captura de mi Yape/Transferencia.`;
+      html+=`<a class="btn btn-green" style="display:block;text-align:center;margin-top:1rem;text-decoration:none" href="https://wa.me/${WA_SOPORTE}?text=${msg}" target="_blank">Reportar pago de esta venta por WhatsApp</a>`;
+    }
+    document.getElementById('det-contenido').innerHTML=html;
+  }catch(e){document.getElementById('det-contenido').innerHTML='<div class="err" style="display:block">'+e.message+'</div>';}
+}
+
+// ── Reporte de consignación ──
+function abrirReporte(){
+  if(!stockCache.length){showToast('No tienes productos en consignación',true);return;}
+  document.getElementById('modal-reporte').classList.add('show');
+  document.getElementById('reporte-items').innerHTML=stockCache.map((s,i)=>`
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #1e2235">
+      <div style="font-size:13px">${s.producto}<br><span class="muted" style="font-size:11px">${s.sku||''} · disp: ${s.disponible}</span></div>
+      <div class="stepper"><button onclick="paso(${i},-1)">−</button><span id="rep-${i}">0</span><button onclick="paso(${i},1)">+</button></div>
+    </div>`).join('');
+  window._reporte=stockCache.map(()=>0);
+}
+function paso(i,d){
+  const max=stockCache[i].disponible;
+  window._reporte[i]=Math.max(0,Math.min(max,window._reporte[i]+d));
+  document.getElementById('rep-'+i).textContent=window._reporte[i];
+}
+async function enviarReporte(){
+  const items=stockCache.map((s,i)=>({producto:s.producto,sku:s.sku,cantidad:window._reporte[i]})).filter(x=>x.cantidad>0);
+  if(!items.length){showToast('Marca al menos un producto',true);return;}
+  try{
+    const r=await apiCall('/portal/reportar-venta','POST',{items});
+    // Abrir WhatsApp también
+    const lineas=items.map(i=>`• ${i.cantidad} x ${i.producto}`).join('%0A');
+    const msg=`📦 Portal Kuranko - Reporte de Venta Consignación%0A%0ACliente: ${window._nombreCliente}%0A%0AProductos vendidos:%0A${lineas}`;
+    window.open(`https://wa.me/${WA_SOPORTE}?text=${msg}`,'_blank');
+    cerrarModal('modal-reporte');
+    showToast(r.correo_enviado?'Reporte enviado ✓':'Reporte enviado por WhatsApp ✓');
+  }catch(e){showToast(e.message,true);}
+}
+
+// ── Exportar ──
+function exportarExcel(){
+  const v=ventasFiltradas();
+  if(!v.length){showToast('Nada que exportar',true);return;}
+  const datos=v.map(r=>({Código:r.codigo,Fecha:fmtFecha(r.fecha),Estado:STATUS_NOM[r.status]||r.status,Total:+r.total,Pagado:+r.pagado,Saldo:+r.saldo}));
+  const ws=XLSX.utils.json_to_sheet(datos);
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'Estado de cuenta');
+  XLSX.writeFile(wb,`EstadoCuenta_${window._nombreCliente||'Kuranko'}.xlsx`);
+}
+function exportarPDF(){
+  const v=ventasFiltradas();
+  if(!v.length){showToast('Nada que exportar',true);return;}
+  const {jsPDF}=window.jspdf;const doc=new jsPDF();
+  doc.setFontSize(14);doc.text('Estado de Cuenta - Kuranko',14,18);
+  doc.setFontSize(10);doc.text('Cliente: '+(window._nombreCliente||''),14,26);
+  doc.text('Fecha: '+new Date().toLocaleDateString('es-PE'),14,32);
+  let y=44;doc.setFontSize(9);
+  doc.text('Código',14,y);doc.text('Fecha',50,y);doc.text('Estado',80,y);doc.text('Total',120,y);doc.text('Saldo',160,y);
+  y+=2;doc.line(14,y,196,y);y+=6;
+  v.forEach(r=>{
+    if(y>280){doc.addPage();y=20;}
+    doc.text(String(r.codigo),14,y);doc.text(fmtFecha(r.fecha),50,y);
+    doc.text(STATUS_NOM[r.status]||r.status,80,y);
+    doc.text(fmt(r.total),120,y);doc.text(fmt(r.saldo),160,y);y+=6;
+  });
+  doc.save(`EstadoCuenta_${window._nombreCliente||'Kuranko'}.pdf`);
+}
+
 function abrirCambioPass(){document.getElementById('modal-pass').classList.add('show');}
-function cerrarModal(){document.getElementById('modal-pass').classList.remove('show');document.getElementById('pass-err').style.display='none';document.getElementById('pass-actual').value='';document.getElementById('pass-nueva').value='';}
+function cerrarModal(id){document.getElementById(id).classList.remove('show');}
 async function cambiarPass(){
   const a=document.getElementById('pass-actual').value,n=document.getElementById('pass-nueva').value;
   const e=document.getElementById('pass-err');e.style.display='none';
-  try{await apiCall('/portal/cambiar-password','POST',{password_actual:a,password_nueva:n});showToast('Contraseña actualizada ✓');cerrarModal();}
+  try{await apiCall('/portal/cambiar-password','POST',{password_actual:a,password_nueva:n});showToast('Contraseña actualizada ✓');cerrarModal('modal-pass');document.getElementById('pass-actual').value='';document.getElementById('pass-nueva').value='';}
   catch(err){e.textContent=err.message;e.style.display='block';}
 }
 

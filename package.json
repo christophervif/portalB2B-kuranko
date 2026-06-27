@@ -1,7 +1,7 @@
 {
   "name": "kuranko-portal-b2b",
-  "version": "1.0.0",
-  "description": "Portal B2B para clientes Kuranko - solo lectura, aislado",
+  "version": "2.0.0",
+  "description": "Portal B2B Kuranko - clientes + panel admin, todo en la nube",
   "main": "index.js",
   "scripts": { "start": "node index.js" },
   "dependencies": {

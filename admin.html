@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin — Portal B2B Kuranko</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:#0f1117;color:#e2e8f0;min-height:100vh}
+.header{background:#1a1d2e;border-bottom:1px solid #2d3148;padding:1rem 1.5rem;display:flex;justify-content:space-between;align-items:center}
+.header h1{font-size:1rem;font-weight:600;color:#fff}
+.header .sub{font-size:12px;color:#64748b}
+.btn{background:#7c3aed;border:none;color:#fff;border-radius:8px;padding:8px 16px;font-size:13px;cursor:pointer;font-weight:500}
+.btn:hover{background:#6d28d9}.btn:disabled{background:#374151;cursor:not-allowed}
+.btn-sec{background:#1e2235;border:1px solid #2d3148}
+.btn-sm{padding:5px 10px;font-size:12px}
+.btn-danger{background:#7f1d1d}.btn-danger:hover{background:#991b1b}
+.btn-ok{background:#14532d}.btn-ok:hover{background:#166534}
+.wrap{max-width:1100px;margin:0 auto;padding:1.5rem}
+.login-box{max-width:380px;margin:5rem auto;background:#1a1d2e;border:1px solid #2d3148;border-radius:12px;padding:2rem}
+.login-box h2{font-size:1.1rem;margin-bottom:.5rem}
+.login-box p{font-size:13px;color:#64748b;margin-bottom:1.5rem}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:12px;color:#94a3b8;margin-bottom:4px}
+.field input,.field select{width:100%;background:#0f1117;border:1px solid #2d3148;color:#e2e8f0;border-radius:8px;padding:9px 12px;font-size:14px}
+.field input:focus,.field select:focus{outline:none;border-color:#7c3aed}
+.err{font-size:13px;color:#fca5a5;margin-top:8px;display:none}
+.tabs{display:flex;gap:2px;border-bottom:1px solid #2d3148;margin-bottom:1.25rem}
+.tab{font-size:13px;padding:8px 16px;cursor:pointer;border:none;background:none;color:#64748b;border-bottom:2px solid transparent;margin-bottom:-1px}
+.tab.active{color:#fff;border-bottom-color:#7c3aed}
+.panel{display:none}.panel.active{display:block}
+.card{background:#1a1d2e;border:1px solid #2d3148;border-radius:12px;padding:1.25rem;margin-bottom:1rem}
+.card h3{font-size:13px;font-weight:600;margin-bottom:4px}
+.card .desc{font-size:12px;color:#64748b;margin-bottom:1rem;line-height:1.5}
+.vincular-row{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end}
+@media(max-width:640px){.vincular-row{grid-template-columns:1fr}}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:8px;color:#94a3b8;font-weight:500;font-size:11px;border-bottom:1px solid #2d3148;text-transform:uppercase}
+td{padding:8px;border-bottom:1px solid #1e2235;color:#cbd5e1}
+tr:hover td{background:#1e2235}
+.badge{font-size:11px;padding:2px 8px;border-radius:20px;font-weight:500}
+.badge-on{background:#14532d;color:#86efac}.badge-off{background:#7f1d1d;color:#fca5a5}
+.badge-warn{background:#713f12;color:#fde68a}
+.toast{position:fixed;bottom:20px;right:20px;background:#14532d;color:#86efac;padding:12px 20px;border-radius:8px;font-size:13px;display:none;z-index:100;border:1px solid #166534}
+.toast.err{background:#7f1d1d;color:#fca5a5;border-color:#991b1b}
+.search{width:100%;background:#0f1117;border:1px solid #2d3148;color:#e2e8f0;border-radius:8px;padding:8px 12px;font-size:13px;margin-bottom:10px}
+.muted{color:#64748b;font-size:12px}
+.loading{text-align:center;padding:2rem;color:#64748b}
+</style>
+</head>
+<body>
+
+<div id="login-screen">
+  <div class="login-box">
+    <h2>🔐 Panel de Administración</h2>
+    <p>Portal B2B Kuranko — acceso solo para administrador</p>
+    <div class="field"><label>Usuario</label><input type="text" id="adm-user" autocomplete="username"></div>
+    <div class="field"><label>Contraseña</label><input type="password" id="adm-pass" autocomplete="current-password"></div>
+    <button class="btn" style="width:100%" onclick="loginAdmin()">Ingresar</button>
+    <div class="err" id="login-err"></div>
+  </div>
+</div>
+
+<div id="app-screen" style="display:none">
+  <div class="header">
+    <div><h1>Panel de Administración</h1><div class="sub">Portal B2B Kuranko</div></div>
+    <button class="btn btn-sec btn-sm" onclick="logout()">Salir</button>
+  </div>
+  <div class="wrap">
+    <div class="tabs">
+      <button class="tab active" onclick="tab('usuarios',this)">Clientes con acceso</button>
+      <button class="tab" onclick="tab('vincular',this)">Vincular consignación</button>
+      <button class="tab" onclick="tab('crear',this)">Crear accesos</button>
+    </div>
+
+    <!-- TAB USUARIOS -->
+    <div id="tab-usuarios" class="panel active">
+      <div class="card">
+        <h3>Clientes con acceso al portal</h3>
+        <div class="desc">Aquí ves todos los que pueden entrar. Puedes activar/desactivar, resetear contraseña o cambiar su consignación.</div>
+        <input class="search" id="buscar-usuarios" placeholder="Buscar por nombre o RUC..." oninput="filtrarUsuarios()">
+        <div id="usuarios-tabla"><div class="loading">Cargando...</div></div>
+      </div>
+    </div>
+
+    <!-- TAB VINCULAR -->
+    <div id="tab-vincular" class="panel">
+      <div class="card">
+        <h3>Vincular cliente con su consignación</h3>
+        <div class="desc">Elige el cliente y la consignación por nombre. El sistema guarda el vínculo de forma segura por ID — tú solo eliges de las listas.</div>
+        <div class="vincular-row">
+          <div class="field"><label>Cliente con acceso</label>
+            <select id="vinc-usuario"></select></div>
+          <div class="field"><label>Su consignación</label>
+            <select id="vinc-location"></select></div>
+          <button class="btn" onclick="guardarVinculo()">Vincular</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB CREAR -->
+    <div id="tab-crear" class="panel">
+      <div class="card">
+        <h3>Crear acceso a un cliente</h3>
+        <div class="desc">Elige un cliente de tu sistema. Su usuario será su RUC y su contraseña inicial también (luego él la cambia).</div>
+        <div class="field"><label>Cliente</label>
+          <select id="crear-cliente"></select></div>
+        <div class="field"><label>Consignación (opcional)</label>
+          <select id="crear-location"></select></div>
+        <button class="btn" onclick="crearUno()">Crear acceso</button>
+      </div>
+      <div class="card">
+        <h3>Crear acceso a TODOS de golpe</h3>
+        <div class="desc">Crea acceso para todos los clientes empresa que tengan ventas registradas. Los que ya tienen acceso se saltan. Después puedes vincular sus consignaciones en la otra pestaña.</div>
+        <button class="btn btn-sec" onclick="crearTodos()">Crear todos los accesos</button>
+        <div id="crear-todos-result" class="muted" style="margin-top:10px"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let TOKEN='', API='', usuariosCache=[], clientesCache=[], consignacionesCache=[];
+
+function showToast(msg,isErr){const t=document.getElementById('toast');t.textContent=msg;t.className='toast'+(isErr?' err':'');t.style.display='block';setTimeout(()=>t.style.display='none',3500);}
+async function apiCall(ep,method='GET',body){
+  const opt={method,headers:{'Authorization':'Bearer '+TOKEN}};
+  if(body){opt.headers['Content-Type']='application/json';opt.body=JSON.stringify(body);}
+  const r=await fetch(API+ep,opt);
+  if(r.status===401){logout();throw new Error('Sesión expirada');}
+  const d=await r.json();
+  if(!r.ok)throw new Error(d.error||'Error');
+  return d;
+}
+
+async function loginAdmin(){
+  const u=document.getElementById('adm-user').value.trim();
+  const p=document.getElementById('adm-pass').value;
+  const e=document.getElementById('login-err');
+  e.style.display='none';
+  try{
+    const r=await fetch(API+'/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({usuario:u,password:p})});
+    const d=await r.json();
+    if(!r.ok)throw new Error(d.error);
+    TOKEN=d.token;sessionStorage.setItem('admtoken',TOKEN);
+    mostrarApp();
+  }catch(err){e.textContent=err.message;e.style.display='block';}
+}
+function logout(){TOKEN='';sessionStorage.removeItem('admtoken');document.getElementById('app-screen').style.display='none';document.getElementById('login-screen').style.display='block';}
+function tab(id,btn){document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));document.getElementById('tab-'+id).classList.add('active');btn.classList.add('active');}
+
+async function mostrarApp(){
+  document.getElementById('login-screen').style.display='none';
+  document.getElementById('app-screen').style.display='block';
+  await Promise.all([cargarUsuarios(),cargarClientes(),cargarConsignaciones()]);
+}
+
+async function cargarUsuarios(){
+  try{
+    usuariosCache=await apiCall('/admin/usuarios');
+    renderUsuarios(usuariosCache);
+    // llenar selector de vincular
+    const sel=document.getElementById('vinc-usuario');
+    sel.innerHTML=usuariosCache.map(u=>`<option value="${u.id}">${u.nombre_cliente} (${u.username})</option>`).join('');
+  }catch(e){showToast(e.message,true);}
+}
+function filtrarUsuarios(){
+  const q=document.getElementById('buscar-usuarios').value.toLowerCase();
+  renderUsuarios(usuariosCache.filter(u=>(u.nombre_cliente||'').toLowerCase().includes(q)||(u.username||'').includes(q)));
+}
+function nombreLocation(id){const c=consignacionesCache.find(x=>x.location_id==id);return c?c.name:null;}
+function renderUsuarios(lista){
+  const cont=document.getElementById('usuarios-tabla');
+  if(!lista.length){cont.innerHTML='<div class="muted">Sin clientes con acceso todavía.</div>';return;}
+  cont.innerHTML=`<table><thead><tr><th>Cliente</th><th>Usuario (RUC)</th><th>Consignación</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>`+
+    lista.map(u=>{
+      const loc=u.location_id?nombreLocation(u.location_id):null;
+      return `<tr>
+        <td>${u.nombre_cliente}</td>
+        <td class="muted">${u.username}</td>
+        <td>${loc?loc:'<span class="badge badge-warn">sin asignar</span>'}</td>
+        <td>${u.activo?'<span class="badge badge-on">activo</span>':'<span class="badge badge-off">inactivo</span>'}</td>
+        <td>
+          <button class="btn btn-sm btn-sec" onclick="resetPass(${u.id})">Reset clave</button>
+          <button class="btn btn-sm ${u.activo?'btn-danger':'btn-ok'}" onclick="toggleActivo(${u.id},${u.activo?0:1})">${u.activo?'Desactivar':'Activar'}</button>
+        </td></tr>`;
+    }).join('')+`</tbody></table>`;
+}
+
+async function cargarClientes(){
+  try{
+    clientesCache=await apiCall('/admin/clientes-produccion');
+    const sel=document.getElementById('crear-cliente');
+    sel.innerHTML=clientesCache.map(c=>`<option value="${c.customer_id}" data-ruc="${c.document_number||''}" data-nombre="${c.business_name}">${c.business_name}${c.document_number?' — '+c.document_number:''}${c.tiene_ventas?'':' (sin ventas)'}</option>`).join('');
+  }catch(e){showToast(e.message,true);}
+}
+async function cargarConsignaciones(){
+  try{
+    consignacionesCache=await apiCall('/admin/consignaciones');
+    const opts='<option value="">— Sin consignación —</option>'+consignacionesCache.map(c=>`<option value="${c.location_id}">${c.name}</option>`).join('');
+    document.getElementById('vinc-location').innerHTML=opts;
+    document.getElementById('crear-location').innerHTML=opts;
+  }catch(e){showToast(e.message,true);}
+}
+
+async function guardarVinculo(){
+  const portal_user_id=document.getElementById('vinc-usuario').value;
+  const location_id=document.getElementById('vinc-location').value;
+  try{await apiCall('/admin/vincular','POST',{portal_user_id,location_id});showToast('Vínculo guardado ✓');cargarUsuarios();}
+  catch(e){showToast(e.message,true);}
+}
+async function crearUno(){
+  const sel=document.getElementById('crear-cliente');
+  const opt=sel.options[sel.selectedIndex];
+  const ruc=opt.dataset.ruc,nombre=opt.dataset.nombre,customer_id=sel.value;
+  const location_id=document.getElementById('crear-location').value;
+  if(!ruc){showToast('Ese cliente no tiene RUC, no se puede crear acceso',true);return;}
+  try{
+    const r=await apiCall('/admin/usuario','POST',{username:ruc,customer_id,location_id,nombre_cliente:nombre});
+    showToast('Acceso creado ✓ Usuario y clave: '+r.password_inicial);
+    cargarUsuarios();
+  }catch(e){showToast(e.message,true);}
+}
+async function crearTodos(){
+  if(!confirm('¿Crear acceso para todos los clientes empresa con ventas?'))return;
+  document.getElementById('crear-todos-result').textContent='Creando...';
+  try{
+    const r=await apiCall('/admin/crear-todos','POST',{});
+    document.getElementById('crear-todos-result').textContent=`✓ ${r.creados} creados, ${r.saltados} ya existían (de ${r.total} clientes).`;
+    cargarUsuarios();
+  }catch(e){showToast(e.message,true);}
+}
+async function resetPass(id){
+  if(!confirm('¿Resetear la contraseña de este cliente a su RUC?'))return;
+  try{const r=await apiCall('/admin/reset-password','POST',{portal_user_id:id});showToast('Clave reiniciada a: '+r.password);}
+  catch(e){showToast(e.message,true);}
+}
+async function toggleActivo(id,activo){
+  try{await apiCall('/admin/activar','POST',{portal_user_id:id,activo});showToast(activo?'Activado ✓':'Desactivado ✓');cargarUsuarios();}
+  catch(e){showToast(e.message,true);}
+}
+
+// init
+API=window.location.origin;
+const saved=sessionStorage.getItem('admtoken');
+if(saved){TOKEN=saved;mostrarApp();}
+document.getElementById('adm-pass').addEventListener('keypress',e=>{if(e.key==='Enter')loginAdmin();});
+</script>
+</body>
+</html>

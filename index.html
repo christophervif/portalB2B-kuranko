@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Portal de Clientes — Kuranko</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:#0f1117;color:#e2e8f0;min-height:100vh}
+.header{background:#1a1d2e;border-bottom:1px solid #2d3148;padding:1rem 1.5rem;display:flex;justify-content:space-between;align-items:center}
+.header h1{font-size:1rem;font-weight:600;color:#fff}
+.header .cli{font-size:12px;color:#94a3b8}
+.btn{background:#7c3aed;border:none;color:#fff;border-radius:8px;padding:8px 16px;font-size:13px;cursor:pointer;font-weight:500}
+.btn:hover{background:#6d28d9}
+.btn-sec{background:#1e2235;border:1px solid #2d3148}.btn-sm{padding:5px 10px;font-size:12px}
+.wrap{max-width:1000px;margin:0 auto;padding:1.5rem}
+.login-box{max-width:380px;margin:4rem auto;background:#1a1d2e;border:1px solid #2d3148;border-radius:12px;padding:2rem}
+.login-box .logo{font-size:1.4rem;font-weight:700;color:#fff;text-align:center;margin-bottom:.25rem}
+.login-box .tag{font-size:13px;color:#64748b;text-align:center;margin-bottom:1.5rem}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:12px;color:#94a3b8;margin-bottom:4px}
+.field input{width:100%;background:#0f1117;border:1px solid #2d3148;color:#e2e8f0;border-radius:8px;padding:9px 12px;font-size:14px}
+.field input:focus{outline:none;border-color:#7c3aed}
+.err{font-size:13px;color:#fca5a5;margin-top:8px;display:none}
+.hint{font-size:12px;color:#64748b;margin-top:10px;text-align:center;line-height:1.5}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:1.25rem}
+.kpi{background:#1a1d2e;border:1px solid #2d3148;border-radius:10px;padding:1rem}
+.kpi.accent{border-color:#7c3aed}
+.kpi-label{font-size:11px;color:#64748b;text-transform:uppercase;margin-bottom:6px}
+.kpi-val{font-size:1.3rem;font-weight:600;color:#fff}
+.tabs{display:flex;gap:2px;border-bottom:1px solid #2d3148;margin-bottom:1.25rem;overflow-x:auto}
+.tab{font-size:13px;padding:8px 16px;cursor:pointer;border:none;background:none;color:#64748b;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
+.tab.active{color:#fff;border-bottom-color:#7c3aed}
+.panel{display:none}.panel.active{display:block}
+.card{background:#1a1d2e;border:1px solid #2d3148;border-radius:12px;padding:1.25rem;margin-bottom:1rem}
+.card h3{font-size:13px;font-weight:600;margin-bottom:1rem}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:8px;color:#94a3b8;font-weight:500;font-size:11px;border-bottom:1px solid #2d3148;text-transform:uppercase}
+td{padding:8px;border-bottom:1px solid #1e2235;color:#cbd5e1}
+tr:hover td{background:#1e2235}
+.badge{font-size:11px;padding:2px 8px;border-radius:20px;font-weight:500}
+.badge-ok{background:#14532d;color:#86efac}.badge-warn{background:#713f12;color:#fde68a}.badge-r{background:#7f1d1d;color:#fca5a5}
+.right{text-align:right}.muted{color:#64748b}
+.loading{text-align:center;padding:2rem;color:#64748b}
+.toast{position:fixed;bottom:20px;right:20px;background:#14532d;color:#86efac;padding:12px 20px;border-radius:8px;font-size:13px;display:none;z-index:100}
+.toast.err{background:#7f1d1d;color:#fca5a5}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:200}
+.modal.show{display:flex}
+.modal-box{background:#1a1d2e;border:1px solid #2d3148;border-radius:12px;padding:1.5rem;max-width:380px;width:90%}
+.modal-box h3{font-size:1rem;margin-bottom:1rem}
+</style>
+</head>
+<body>
+
+<div id="login-screen">
+  <div class="login-box">
+    <div class="logo">KURANKO</div>
+    <div class="tag">Portal de Clientes</div>
+    <div class="field"><label>Usuario (tu RUC)</label><input type="text" id="usuario" autocomplete="username"></div>
+    <div class="field"><label>Contraseña</label><input type="password" id="password" autocomplete="current-password"></div>
+    <button class="btn" style="width:100%" onclick="login()">Ingresar</button>
+    <div class="err" id="login-err"></div>
+    <div class="hint">La primera vez, tu contraseña es tu mismo RUC.<br>Podrás cambiarla al entrar.</div>
+  </div>
+</div>
+
+<div id="app-screen" style="display:none">
+  <div class="header">
+    <div><h1>Portal Kuranko</h1><div class="cli" id="cli-nombre"></div></div>
+    <div>
+      <button class="btn btn-sec btn-sm" onclick="abrirCambioPass()">Cambiar clave</button>
+      <button class="btn btn-sec btn-sm" onclick="logout()">Salir</button>
+    </div>
+  </div>
+  <div class="wrap">
+    <div class="kpis" id="kpis"></div>
+    <div class="tabs">
+      <button class="tab active" onclick="tab('ventas',this)">Mis ventas</button>
+      <button class="tab" onclick="tab('pagos',this)">Mis pagos</button>
+      <button class="tab" id="tab-stock-btn" onclick="tab('stock',this)">Mi consignación</button>
+    </div>
+    <div id="tab-ventas" class="panel active"><div class="card"><h3>Ventas registradas</h3><div id="ventas-tabla"><div class="loading">Cargando...</div></div></div></div>
+    <div id="tab-pagos" class="panel"><div class="card"><h3>Pagos realizados</h3><div id="pagos-tabla"><div class="loading">Cargando...</div></div></div></div>
+    <div id="tab-stock" class="panel"><div class="card"><h3>Productos en consignación</h3><div id="stock-tabla"><div class="loading">Cargando...</div></div></div></div>
+  </div>
+</div>
+
+<div class="modal" id="modal-pass">
+  <div class="modal-box">
+    <h3>Cambiar contraseña</h3>
+    <div class="field"><label>Contraseña actual</label><input type="password" id="pass-actual"></div>
+    <div class="field"><label>Nueva contraseña (mín. 6)</label><input type="password" id="pass-nueva"></div>
+    <div class="err" id="pass-err"></div>
+    <div style="display:flex;gap:8px;margin-top:1rem">
+      <button class="btn" onclick="cambiarPass()">Guardar</button>
+      <button class="btn btn-sec" onclick="cerrarModal()">Cancelar</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let TOKEN='',API='';
+const fmt=n=>new Intl.NumberFormat('es-PE',{style:'currency',currency:'PEN'}).format(n||0);
+const fmtFecha=s=>s?new Date(s).toLocaleDateString('es-PE'):'-';
+const STATUS_NOM={paid:'Pagada',confirmed:'Confirmada',pending_payment:'Pend. pago'};
+
+function showToast(m,e){const t=document.getElementById('toast');t.textContent=m;t.className='toast'+(e?' err':'');t.style.display='block';setTimeout(()=>t.style.display='none',3000);}
+async function apiCall(ep,method='GET',body){
+  const opt={method,headers:{'Authorization':'Bearer '+TOKEN}};
+  if(body){opt.headers['Content-Type']='application/json';opt.body=JSON.stringify(body);}
+  const r=await fetch(API+ep,opt);
+  if(r.status===401){logout();throw new Error('Sesión expirada');}
+  const d=await r.json();if(!r.ok)throw new Error(d.error||'Error');return d;
+}
+async function login(){
+  const u=document.getElementById('usuario').value.trim(),p=document.getElementById('password').value;
+  const e=document.getElementById('login-err');e.style.display='none';
+  try{
+    const r=await fetch(API+'/portal/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({usuario:u,password:p})});
+    const d=await r.json();if(!r.ok)throw new Error(d.error);
+    TOKEN=d.token;sessionStorage.setItem('clitoken',TOKEN);
+    document.getElementById('cli-nombre').textContent=d.cliente.nombre;
+    mostrarApp();
+    if(d.cliente.debe_cambiar){showToast('Por seguridad, cambia tu contraseña inicial');setTimeout(abrirCambioPass,800);}
+  }catch(err){e.textContent=err.message;e.style.display='block';}
+}
+function logout(){TOKEN='';sessionStorage.removeItem('clitoken');document.getElementById('app-screen').style.display='none';document.getElementById('login-screen').style.display='block';}
+function tab(id,btn){document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));document.getElementById('tab-'+id).classList.add('active');btn.classList.add('active');}
+
+async function mostrarApp(){
+  document.getElementById('login-screen').style.display='none';
+  document.getElementById('app-screen').style.display='block';
+  await Promise.all([cargarSaldo(),cargarVentas(),cargarPagos(),cargarStock()]);
+}
+async function cargarSaldo(){
+  try{
+    const s=await apiCall('/portal/saldo');
+    document.getElementById('cli-nombre').textContent=s.nombre;
+    document.getElementById('kpis').innerHTML=[
+      {l:'Total comprado',v:fmt(s.total_vendido),a:1},
+      {l:'Total pagado',v:fmt(s.total_pagado)},
+      {l:'Por pagar',v:fmt(s.por_cobrar),a:1},
+      {l:'N° de compras',v:s.num_ventas},
+    ].map(k=>`<div class="kpi ${k.a?'accent':''}"><div class="kpi-label">${k.l}</div><div class="kpi-val">${k.v}</div></div>`).join('');
+  }catch(e){showToast(e.message,true);}
+}
+async function cargarVentas(){
+  try{
+    const v=await apiCall('/portal/ventas');
+    const c=document.getElementById('ventas-tabla');
+    if(!v.length){c.innerHTML='<div class="muted">Sin ventas registradas.</div>';return;}
+    c.innerHTML=`<table><thead><tr><th>Código</th><th>Fecha</th><th>Estado</th><th class="right">Total</th><th class="right">Pagado</th><th class="right">Saldo</th></tr></thead><tbody>`+
+      v.map(r=>`<tr><td>${r.codigo}</td><td>${fmtFecha(r.fecha)}</td>
+        <td><span class="badge ${r.status==='paid'?'badge-ok':r.status==='pending_payment'?'badge-r':'badge-warn'}">${STATUS_NOM[r.status]||r.status}</span></td>
+        <td class="right">${fmt(r.total)}</td><td class="right">${fmt(r.pagado)}</td>
+        <td class="right">${r.saldo>0?'<span style="color:#fca5a5">'+fmt(r.saldo)+'</span>':fmt(0)}</td></tr>`).join('')+`</tbody></table>`;
+  }catch(e){showToast(e.message,true);}
+}
+async function cargarPagos(){
+  try{
+    const p=await apiCall('/portal/pagos');
+    const c=document.getElementById('pagos-tabla');
+    if(!p.length){c.innerHTML='<div class="muted">Sin pagos registrados.</div>';return;}
+    c.innerHTML=`<table><thead><tr><th>Fecha</th><th>Venta</th><th>Método</th><th class="right">Monto</th></tr></thead><tbody>`+
+      p.map(r=>`<tr><td>${fmtFecha(r.fecha)}</td><td>${r.venta_codigo||'-'}</td><td>${r.metodo||'-'}</td><td class="right">${fmt(r.monto)}</td></tr>`).join('')+`</tbody></table>`;
+  }catch(e){showToast(e.message,true);}
+}
+async function cargarStock(){
+  try{
+    const s=await apiCall('/portal/stock');
+    const c=document.getElementById('stock-tabla');
+    if(!s.length){c.innerHTML='<div class="muted">No tienes productos en consignación asignados, o aún no se ha vinculado tu punto. Consulta con Kuranko.</div>';return;}
+    c.innerHTML=`<table><thead><tr><th>Producto</th><th>SKU</th><th class="right">Cantidad</th><th class="right">Disponible</th></tr></thead><tbody>`+
+      s.map(r=>`<tr><td>${r.producto}${r.variacion&&r.variacion!==r.producto?' <span class="muted">('+r.variacion+')</span>':''}</td>
+        <td class="muted">${r.sku||'-'}</td><td class="right">${r.cantidad}</td><td class="right">${r.disponible}</td></tr>`).join('')+`</tbody></table>`;
+  }catch(e){showToast(e.message,true);}
+}
+
+function abrirCambioPass(){document.getElementById('modal-pass').classList.add('show');}
+function cerrarModal(){document.getElementById('modal-pass').classList.remove('show');document.getElementById('pass-err').style.display='none';document.getElementById('pass-actual').value='';document.getElementById('pass-nueva').value='';}
+async function cambiarPass(){
+  const a=document.getElementById('pass-actual').value,n=document.getElementById('pass-nueva').value;
+  const e=document.getElementById('pass-err');e.style.display='none';
+  try{await apiCall('/portal/cambiar-password','POST',{password_actual:a,password_nueva:n});showToast('Contraseña actualizada ✓');cerrarModal();}
+  catch(err){e.textContent=err.message;e.style.display='block';}
+}
+
+API=window.location.origin;
+const saved=sessionStorage.getItem('clitoken');
+if(saved){TOKEN=saved;mostrarApp();}
+document.getElementById('password').addEventListener('keypress',e=>{if(e.key==='Enter')login();});
+</script>
+</body>
+</html>

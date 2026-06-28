@@ -50,19 +50,24 @@ body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min
 .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.25rem;margin-bottom:1rem}
 .card-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:8px}
 .card h3{font-size:13px;font-weight:600}
-.filtros{display:flex;gap:8px;margin-bottom:1rem;flex-wrap:wrap}
-.filtros input,.filtros select{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:14px;max-width:100%}
-.filtros input{flex:1;min-width:130px}
-.filtro-fecha{display:flex;flex-direction:column;font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:600;gap:2px}
-.filtro-fecha input{font-size:13px;padding:6px 8px;min-width:0;width:auto}
+.filtros{display:grid;grid-template-columns:2fr 1.2fr auto auto;gap:8px;margin-bottom:1rem;align-items:end}
+.filtros input,.filtros select{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:9px 10px;font-size:14px;max-width:100%;width:100%}
+.filtro-fecha{display:flex;flex-direction:column;font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:600;gap:3px}
+.filtro-fecha input{font-size:13px;padding:7px 8px;min-width:0;width:140px}
+@media(max-width:700px){.filtros{grid-template-columns:1fr 1fr}.filtro-fecha input{width:100%}}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th{text-align:left;padding:8px;color:var(--muted2);font-weight:500;font-size:11px;border-bottom:1px solid var(--border);text-transform:uppercase}
-th.num,td.num{text-align:right}
+th.num,td.num{text-align:right;white-space:nowrap;padding-left:18px}
 td{padding:8px;border-bottom:1px solid var(--surface3);color:var(--text2)}
 tbody tr.clickable{cursor:pointer;transition:background .12s}
 tbody tr.clickable:hover td{background:var(--hover)}
 .det-row td{background:var(--surface2);padding:0}
-.det-box{padding:1rem;border-left:3px solid var(--accent)}
+.det-box{padding:1.25rem 1.5rem;border-left:3px solid var(--accent)}
+.det-box table{margin-bottom:0.5rem}
+.det-box table th{padding:6px 10px;font-size:10px}
+.det-box table td{padding:7px 10px;line-height:1.4}
+.det-box table tbody tr:hover td{background:var(--hover)}
+.det-box .mov-item{padding:7px 0}
 .badge{font-size:11px;padding:3px 9px;border-radius:20px;font-weight:600}
 .badge-ok{background:var(--bg-ok);color:var(--fg-ok)}.badge-warn{background:var(--bg-warn);color:var(--fg-warn)}.badge-r{background:var(--bg-r);color:var(--fg-r)}
 .badge-in{background:var(--bg-in);color:var(--fg-in)}.badge-out{background:var(--bg-warn);color:var(--fg-warn)}
@@ -302,6 +307,7 @@ async function cargarSaldo(){
     const s=await apiCall('/portal/saldo');
     document.getElementById('cli-nombre').textContent=s.nombre;
     window._nombreCliente=s.nombre;
+    window._ruc=s.ruc||window._ruc||'';
     document.getElementById('kpis').innerHTML=[
       {l:'Total comprado',v:fmt(s.total_vendido),a:1},
       {l:'Total pagado',v:fmt(s.total_pagado)},

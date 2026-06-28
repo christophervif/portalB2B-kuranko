@@ -396,16 +396,13 @@ app.post('/admin/crear-todos', authAdmin, async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Error: ' + e.message }); }
 });
 
-// ─── Reporte de sincronización: pendientes + alertas (CSV descargable) ───────
-// Lee del ERP en SOLO LECTURA. No modifica nada. Genera un CSV al momento.
+// ─── Reporte de sincronización: pendientes + alertas (Excel, 2 pestañas) ─────
+// Lee del ERP en SOLO LECTURA. No modifica nada. Genera el Excel al momento.
 app.get('/admin/reporte-sync', authAdmin, async (req, res) => {
   try {
-    const esc = (v) => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
-
-    // SECCIÓN A — Pendientes: productos SIN woocommerce_id (crear en WooCommerce)
+    // PESTAÑA 1 — Pendientes: productos SIN woocommerce_id (crear en WooCommerce)
     const [pendientes] = await prodPool.query(
-      `SELECT pv.id AS variation_id, pv.sku, pv.product_type,
-              p.name AS nombre_producto, pv.name AS variacion,
+      `SELECT pv.sku, pv.product_type, pv.name AS nombre,
               pv.regular_price,
               COALESCE(SUM(ls.quantity),0) AS stock
        FROM product_variations pv
@@ -414,63 +411,82 @@ app.get('/admin/reporte-sync', authAdmin, async (req, res) => {
        WHERE pv.woocommerce_id IS NULL
          AND pv.product_type IN ('variation','simple')
          AND pv.deleted_at IS NULL
-       GROUP BY pv.id, pv.sku, pv.product_type, p.name, pv.name, pv.regular_price
-       ORDER BY p.name, pv.sku`);
+       GROUP BY pv.id, pv.sku, pv.product_type, pv.name, pv.regular_price
+       ORDER BY pv.name, pv.sku`);
 
-    // SECCIÓN B1 — Alertas: vinculados (con woocommerce_id) pero SIN precio
-    const [sinPrecio] = await prodPool.query(
-      `SELECT pv.id AS variation_id, pv.woocommerce_id, pv.sku,
-              p.name AS nombre_producto, pv.name AS variacion
-       FROM product_variations pv
-       JOIN products p ON p.id = pv.product_id
-       WHERE pv.woocommerce_id IS NOT NULL
-         AND pv.product_type IN ('variation','simple')
-         AND pv.deleted_at IS NULL
-         AND (pv.regular_price IS NULL OR pv.regular_price = 0)
-       ORDER BY p.name, pv.sku`);
-
-    // SECCIÓN B2 — Alertas: vinculados pero SIN stock en ninguna ubicación
-    const [sinStock] = await prodPool.query(
-      `SELECT pv.id AS variation_id, pv.woocommerce_id, pv.sku,
-              p.name AS nombre_producto, pv.name AS variacion,
-              pv.regular_price
+    // PESTAÑA 2 — Alertas: SOLO productos publicados (status='active') con algo erróneo.
+    // Erróneo = stock negativo, o sin precio (NULL o 0), o precio negativo.
+    const [alertasRaw] = await prodPool.query(
+      `SELECT pv.woocommerce_id, pv.sku, pv.name AS nombre,
+              pv.regular_price,
+              COALESCE(SUM(ls.quantity),0) AS stock
        FROM product_variations pv
        JOIN products p ON p.id = pv.product_id
        LEFT JOIN location_stocks ls ON ls.product_variation_id = pv.id
        WHERE pv.woocommerce_id IS NOT NULL
          AND pv.product_type IN ('variation','simple')
+         AND pv.status = 'active'
          AND pv.deleted_at IS NULL
-       GROUP BY pv.id, pv.woocommerce_id, pv.sku, p.name, pv.name, pv.regular_price
-       HAVING COALESCE(SUM(ls.quantity),0) = 0
-       ORDER BY p.name, pv.sku`);
+       GROUP BY pv.id, pv.woocommerce_id, pv.sku, pv.name, pv.regular_price
+       HAVING COALESCE(SUM(ls.quantity),0) < 0
+           OR pv.regular_price IS NULL
+           OR pv.regular_price <= 0`);
 
-    // Armar el CSV con secciones
-    let csv = '';
-    csv += `SECCION A - PENDIENTES DE CREAR EN WOOCOMMERCE (sin woocommerce_id): ${pendientes.length}\n`;
-    csv += 'variation_id,sku,tipo,nombre_producto,variacion,precio_regular,stock\n';
-    pendientes.forEach(p => {
-      csv += [p.variation_id, esc(p.sku), p.product_type, esc(p.nombre_producto),
-              esc(p.variacion), p.regular_price || '', p.stock].join(',') + '\n';
+    // Construir la observación de cada alerta
+    const alertas = alertasRaw.map(a => {
+      const obs = [];
+      if (a.stock < 0) obs.push(`Stock negativo (${a.stock})`);
+      if (a.regular_price === null) obs.push('Sin precio regular');
+      else if (Number(a.regular_price) === 0) obs.push('Precio en 0');
+      else if (Number(a.regular_price) < 0) obs.push(`Precio negativo (${a.regular_price})`);
+      return { ...a, observacion: obs.join(' · ') };
     });
 
-    csv += `\nSECCION B1 - ALERTA: VINCULADOS SIN PRECIO REGULAR: ${sinPrecio.length}\n`;
-    csv += 'variation_id,woocommerce_id,sku,nombre_producto,variacion\n';
-    sinPrecio.forEach(p => {
-      csv += [p.variation_id, p.woocommerce_id, esc(p.sku),
-              esc(p.nombre_producto), esc(p.variacion)].join(',') + '\n';
-    });
+    // Generar Excel con exceljs
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook();
 
-    csv += `\nSECCION B2 - ALERTA: VINCULADOS SIN STOCK (agotados): ${sinStock.length}\n`;
-    csv += 'variation_id,woocommerce_id,sku,nombre_producto,variacion,precio_regular\n';
-    sinStock.forEach(p => {
-      csv += [p.variation_id, p.woocommerce_id, esc(p.sku),
-              esc(p.nombre_producto), esc(p.variacion), p.regular_price || ''].join(',') + '\n';
-    });
+    const estiloHeader = (row) => {
+      row.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000726' } };
+      row.alignment = { vertical: 'middle' };
+    };
+
+    // Pestaña 1: Pendientes
+    const ws1 = wb.addWorksheet('Pendientes');
+    ws1.columns = [
+      { header: 'SKU', key: 'sku', width: 24 },
+      { header: 'Tipo', key: 'tipo', width: 12 },
+      { header: 'Nombre', key: 'nombre', width: 50 },
+      { header: 'Precio regular', key: 'precio', width: 16 },
+      { header: 'Stock', key: 'stock', width: 10 }
+    ];
+    estiloHeader(ws1.getRow(1));
+    pendientes.forEach(p => ws1.addRow({
+      sku: p.sku, tipo: p.product_type, nombre: p.nombre || '',
+      precio: p.regular_price === null ? '' : Number(p.regular_price), stock: p.stock
+    }));
+    ws1.views = [{ state: 'frozen', ySplit: 1 }];
+
+    // Pestaña 2: Alertas
+    const ws2 = wb.addWorksheet('Alertas');
+    ws2.columns = [
+      { header: 'SKU', key: 'sku', width: 24 },
+      { header: 'WooCommerce ID', key: 'wc', width: 16 },
+      { header: 'Nombre', key: 'nombre', width: 50 },
+      { header: 'Observación', key: 'obs', width: 34 }
+    ];
+    estiloHeader(ws2.getRow(1));
+    alertas.forEach(a => ws2.addRow({
+      sku: a.sku, wc: a.woocommerce_id, nombre: a.nombre || '', obs: a.observacion
+    }));
+    ws2.views = [{ state: 'frozen', ySplit: 1 }];
 
     const fecha = new Date().toISOString().slice(0, 10);
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="reporte_sync_${fecha}.csv"`);
-    res.send('\uFEFF' + csv); // BOM para que Excel respete los acentos
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="reporte_sync_${fecha}.xlsx"`);
+    await wb.xlsx.write(res);
+    res.end();
   } catch (e) { res.status(500).json({ error: 'Error al generar el reporte: ' + e.message }); }
 });
 

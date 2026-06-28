@@ -68,6 +68,7 @@ tbody tr.clickable:hover td{background:var(--hover)}
 .badge-in{background:var(--bg-in);color:var(--fg-in)}.badge-out{background:var(--bg-warn);color:var(--fg-warn)}
 .right{text-align:right}.muted{color:var(--muted)}
 .loading{text-align:center;padding:2rem;color:var(--muted)}
+.mov-pop{position:absolute;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:12px;color:var(--text2);box-shadow:0 4px 16px rgba(0,0,0,.3);z-index:300;line-height:1.7;max-width:220px}
 .toast{position:fixed;bottom:80px;right:20px;background:#14532d;color:#86efac;padding:12px 20px;border-radius:8px;font-size:13px;display:none;z-index:100;max-width:300px}
 .toast.err{background:#7f1d1d;color:#fca5a5}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:200;padding:1rem}
@@ -185,7 +186,7 @@ tbody tr.clickable:hover td{background:var(--hover)}
             <button class="btn btn-green btn-sm" onclick="abrirReporte()">Reportar venta</button>
           </div>
         </div>
-        <p class="muted" style="font-size:11px;margin-bottom:10px">Los puntos de color indican cambios en los últimos 60 días: <span style="color:#4ade80">●</span> entrada · <span style="color:#60a5fa">●</span> devolución · <span style="color:#fbbf24">●</span> venta. Pasa el cursor o toca para ver la fecha.</p>
+        <p class="muted" style="font-size:11px;margin-bottom:10px">Columna <b>Mov.</b>: cambios de los últimos 60 días — <span style="color:#4ade80">●</span> entrada · <span style="color:#60a5fa">●</span> devolución · <span style="color:#fbbf24">●</span> venta. Toca los puntos para ver las fechas.</p>
         <div id="stock-tabla"><div class="loading">Cargando...</div></div>
       </div>
     </div>
@@ -388,21 +389,38 @@ async function cargarStock(){
     stockCache=await apiCall('/portal/consignacion');
     const c=document.getElementById('stock-tabla');
     if(!stockCache.length){c.innerHTML='<div class="muted">No tienes productos en consignación asignados, o aún no se ha vinculado tu punto. Consulta con Kuranko.</div>';return;}
-    c.innerHTML=`<table class="responsive"><thead><tr><th>Producto</th><th>SKU</th><th class="num">Disponible</th><th class="num">Vendido hist.</th><th class="num">Precio</th></tr></thead><tbody>`+
-      stockCache.map(r=>`<tr><td data-label="Producto">${indicadores(r)}${r.variacion||r.producto}</td>
-        <td class="muted" data-label="SKU">${r.sku||'-'}</td><td class="num" data-label="Disponible">${r.disponible}</td><td class="num" data-label="Vendido hist.">${r.vendido_hist}</td><td class="num" data-label="Precio">${r.precio?fmt(r.precio):'-'}</td></tr>`).join('')+`</tbody></table>`;
+    c.innerHTML=`<table class="responsive"><thead><tr><th>Producto</th><th>SKU</th><th>Mov.</th><th class="num">Disponible</th><th class="num">Vendido hist.</th><th class="num">Precio</th></tr></thead><tbody>`+
+      stockCache.map((r,i)=>`<tr><td data-label="Producto">${r.variacion||r.producto}</td>
+        <td class="muted" data-label="SKU">${r.sku||'-'}</td>
+        <td data-label="Movimientos">${indicadores(r,i)}</td>
+        <td class="num" data-label="Disponible">${r.disponible}</td><td class="num" data-label="Vendido hist.">${r.vendido_hist}</td><td class="num" data-label="Precio">${r.precio?fmt(r.precio):'-'}</td></tr>`).join('')+`</tbody></table>`;
   }catch(e){showToast(e.message,true);}
 }
-// Puntitos de movimiento reciente (60d): verde=entrada, azul=devolución, amarillo=venta
-function indicadores(r){
+// Puntos de movimiento reciente (60d): verde=entrada, azul=devolución, amarillo=venta
+function indicadores(r,i){
   const hace=f=>{const d=Math.floor((Date.now()-new Date(f))/86400000);return d===0?'hoy':d===1?'ayer':'hace '+d+' días';};
   let puntos='',tips=[];
-  if(r.ult_entrada){puntos+='<span style="color:#4ade80">●</span>';tips.push('Entrada: '+hace(r.ult_entrada));}
-  if(r.ult_salida_transf){puntos+='<span style="color:#60a5fa">●</span>';tips.push('Devolución: '+hace(r.ult_salida_transf));}
-  if(r.ult_venta){puntos+='<span style="color:#fbbf24">●</span>';tips.push('Venta: '+hace(r.ult_venta));}
-  if(!puntos)return '';
-  return `<span title="${tips.join(' · ')}" style="font-size:9px;margin-right:6px;letter-spacing:1px;cursor:help">${puntos}</span>`;
+  if(r.ult_entrada){puntos+='<span style="color:#4ade80">●</span>';tips.push('🟢 Entrada: '+hace(r.ult_entrada));}
+  if(r.ult_salida_transf){puntos+='<span style="color:#60a5fa">●</span>';tips.push('🔵 Devolución: '+hace(r.ult_salida_transf));}
+  if(r.ult_venta){puntos+='<span style="color:#fbbf24">●</span>';tips.push('🟡 Venta: '+hace(r.ult_venta));}
+  if(!puntos)return '<span class="muted" style="font-size:11px">—</span>';
+  window._movTips=window._movTips||{};
+  window._movTips[i]=tips.join('<br>');
+  return `<span class="mov-dot" onclick="mostrarMov(event,${i})" style="font-size:11px;letter-spacing:2px;cursor:pointer;padding:4px">${puntos}</span>`;
 }
+function mostrarMov(ev,i){
+  ev.stopPropagation();
+  const prev=document.getElementById('mov-pop');if(prev)prev.remove();
+  const pop=document.createElement('div');
+  pop.id='mov-pop';pop.className='mov-pop';
+  pop.innerHTML=window._movTips[i];
+  document.body.appendChild(pop);
+  const rect=ev.currentTarget.getBoundingClientRect();
+  pop.style.top=(rect.bottom+window.scrollY+6)+'px';
+  pop.style.left=Math.min(rect.left+window.scrollX,window.innerWidth-pop.offsetWidth-12)+'px';
+  setTimeout(()=>{document.addEventListener('click',cerrarMov,{once:true});},10);
+}
+function cerrarMov(){const p=document.getElementById('mov-pop');if(p)p.remove();}
 async function cargarTransferencias(){
   try{
     transfCache=await apiCall('/portal/transferencias');

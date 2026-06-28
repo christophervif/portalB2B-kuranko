@@ -68,9 +68,9 @@ app.post('/portal/login', async (req, res) => {
       return res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
     const token = jwt.sign({
       rol: 'cliente', portal_user_id: u.id, customer_id: u.customer_id,
-      location_id: u.location_id, nombre: u.nombre_cliente
+      location_id: u.location_id, nombre: u.nombre_cliente, ruc: u.username
     }, JWT_SECRET, { expiresIn: '8h' });
-    res.json({ token, cliente: { nombre: u.nombre_cliente, debe_cambiar: u.username === password } });
+    res.json({ token, cliente: { nombre: u.nombre_cliente, ruc: u.username, debe_cambiar: u.username === password } });
   } catch (e) { res.status(500).json({ error: 'Error del servidor' }); }
 });
 
@@ -88,7 +88,7 @@ app.get('/portal/saldo', authCliente, async (req, res) => {
        JOIN sales s ON s.id=sp.sale_id WHERE s.customer_id=? AND sp.voided_at IS NULL
        AND s.deleted_at IS NULL AND s.status IN ${VENTAS_VALIDAS}`, [req.cliente.customer_id]);
     const vendido = parseFloat(v.total_vendido), pagado = parseFloat(p.total_pagado);
-    res.json({ nombre: req.cliente.nombre, num_ventas: v.num_ventas,
+    res.json({ nombre: req.cliente.nombre, ruc: req.cliente.ruc, num_ventas: v.num_ventas,
       total_vendido: vendido, total_pagado: pagado, por_cobrar: Math.max(0, vendido - pagado) });
   } catch (e) { res.status(500).json({ error: 'Error al consultar saldo' }); }
 });
@@ -407,6 +407,7 @@ app.post('/portal/reportar-venta', authCliente, async (req, res) => {
   const cuerpo =
     `Reporte de venta de consignación\n\n` +
     `Cliente: ${req.cliente.nombre}\n` +
+    `RUC/DNI: ${req.cliente.ruc || '-'}\n` +
     `Fecha: ${fecha}\n\n` +
     `Productos vendidos reportados:\n${lineas}\n\n` +
     `(El distribuidor reporta desde el portal. Registrar manualmente en el sistema.)`;

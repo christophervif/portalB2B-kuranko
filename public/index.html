@@ -7,84 +7,112 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
+:root{
+  --bg:#0f1117;--surface:#1a1d2e;--surface2:#13162a;--surface3:#1e2235;
+  --border:#2d3148;--border2:#1e2235;--text:#e2e8f0;--text2:#cbd5e1;--muted:#64748b;--muted2:#94a3b8;
+  --accent:#7c3aed;--accent-h:#6d28d9;--hover:#252a40;--white:#fff;
+  --bg-ok:#14532d;--fg-ok:#4ade80;--bg-warn:#854d0e;--fg-warn:#fbbf24;--bg-r:#991b1b;--fg-r:#f87171;--bg-in:#1e3a8a;--fg-in:#93c5fd;
+}
+[data-theme="light"]{
+  --bg:#f1f5f9;--surface:#ffffff;--surface2:#f8fafc;--surface3:#f1f5f9;
+  --border:#e2e8f0;--border2:#eef2f6;--text:#1e293b;--text2:#334155;--muted:#94a3b8;--muted2:#64748b;
+  --accent:#7c3aed;--accent-h:#6d28d9;--hover:#eef2f6;--white:#0f172a;
+  --bg-ok:#dcfce7;--fg-ok:#15803d;--bg-warn:#fef3c7;--fg-warn:#b45309;--bg-r:#fee2e2;--fg-r:#dc2626;--bg-in:#dbeafe;--fg-in:#1d4ed8;
+}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:system-ui,sans-serif;background:#0f1117;color:#e2e8f0;min-height:100vh;-webkit-text-size-adjust:100%}
-.header{background:#1a1d2e;border-bottom:1px solid #2d3148;padding:1rem 1.5rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
-.header h1{font-size:1rem;font-weight:600;color:#fff}
-.header .cli{font-size:12px;color:#94a3b8}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;-webkit-text-size-adjust:100%;transition:background .2s,color .2s}
+.header{background:var(--surface);border-bottom:1px solid var(--border);padding:1rem 1.5rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
+.header h1{font-size:1rem;font-weight:600;color:var(--white)}
+.header .cli{font-size:12px;color:var(--muted2)}
 .btn{background:#7c3aed;border:none;color:#fff;border-radius:8px;padding:8px 16px;font-size:13px;cursor:pointer;font-weight:500}
 .btn:hover{background:#6d28d9}.btn:active{transform:scale(.97)}
-.btn-sec{background:#1e2235;border:1px solid #2d3148}.btn-sm{padding:6px 12px;font-size:12px}
+.btn-sec{background:var(--surface3);border:1px solid var(--border)}.btn-sm{padding:6px 12px;font-size:12px}
 .btn-green{background:#15803d}.btn-green:hover{background:#166534}
 .wrap{max-width:1000px;margin:0 auto;padding:1.5rem}
-.login-box{max-width:380px;margin:4rem auto;background:#1a1d2e;border:1px solid #2d3148;border-radius:12px;padding:2rem}
-.login-box .logo{font-size:1.4rem;font-weight:700;color:#fff;text-align:center;margin-bottom:.25rem;letter-spacing:.05em}
-.login-box .tag{font-size:13px;color:#64748b;text-align:center;margin-bottom:1.5rem}
+.login-box{max-width:380px;margin:4rem auto;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:2rem}
+.login-box .logo{font-size:1.4rem;font-weight:700;color:var(--accent);text-align:center;margin-bottom:.25rem;letter-spacing:.05em}
+.login-box .tag{font-size:13px;color:var(--muted);text-align:center;margin-bottom:1.5rem}
 .field{margin-bottom:12px}
-.field label{display:block;font-size:12px;color:#94a3b8;margin-bottom:4px}
-.field input,.field select{width:100%;background:#0f1117;border:1px solid #2d3148;color:#e2e8f0;border-radius:8px;padding:10px 12px;font-size:16px}
+.field label{display:block;font-size:12px;color:var(--muted2);margin-bottom:4px}
+.field input,.field select{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px 12px;font-size:16px}
 .field input:focus,.field select:focus{outline:none;border-color:#7c3aed}
 .err{font-size:13px;color:#fca5a5;margin-top:8px;display:none}
-.hint{font-size:12px;color:#64748b;margin-top:10px;text-align:center;line-height:1.5}
+.hint{font-size:12px;color:var(--muted);margin-top:10px;text-align:center;line-height:1.5}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:1.25rem}
-.kpi{background:#1a1d2e;border:1px solid #2d3148;border-radius:10px;padding:1rem}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:1rem}
 .kpi.accent{border-color:#7c3aed}
-.kpi-label{font-size:11px;color:#64748b;text-transform:uppercase;margin-bottom:6px}
-.kpi-val{font-size:1.3rem;font-weight:600;color:#fff}
-.tabs{display:flex;gap:2px;border-bottom:1px solid #2d3148;margin-bottom:1.25rem;overflow-x:auto;-webkit-overflow-scrolling:touch}
-.tab{font-size:13px;padding:9px 16px;cursor:pointer;border:none;background:none;color:#64748b;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;flex-shrink:0}
-.tab.active{color:#fff;border-bottom-color:#7c3aed}
+.kpi-label{font-size:11px;color:var(--muted);text-transform:uppercase;margin-bottom:6px}
+.kpi-val{font-size:1.3rem;font-weight:600;color:var(--white)}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-bottom:1.25rem;overflow-x:auto;-webkit-overflow-scrolling:touch}
+.tab{font-size:13px;padding:9px 16px;cursor:pointer;border:none;background:none;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;flex-shrink:0}
+.tab.active{color:var(--white);border-bottom-color:#7c3aed}
 .panel{display:none}.panel.active{display:block}
-.card{background:#1a1d2e;border:1px solid #2d3148;border-radius:12px;padding:1.25rem;margin-bottom:1rem}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.25rem;margin-bottom:1rem}
 .card-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:8px}
 .card h3{font-size:13px;font-weight:600}
 .filtros{display:flex;gap:8px;margin-bottom:1rem;flex-wrap:wrap}
-.filtros input,.filtros select{background:#0f1117;border:1px solid #2d3148;color:#e2e8f0;border-radius:8px;padding:8px 10px;font-size:14px}
+.filtros input,.filtros select{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:14px}
 .filtros input{flex:1;min-width:130px}
 table{width:100%;border-collapse:collapse;font-size:13px}
-th{text-align:left;padding:8px;color:#94a3b8;font-weight:500;font-size:11px;border-bottom:1px solid #2d3148;text-transform:uppercase}
+th{text-align:left;padding:8px;color:var(--muted2);font-weight:500;font-size:11px;border-bottom:1px solid var(--border);text-transform:uppercase}
 th.num,td.num{text-align:right}
-td{padding:8px;border-bottom:1px solid #1e2235;color:#cbd5e1}
+td{padding:8px;border-bottom:1px solid var(--surface3);color:var(--text2)}
 tbody tr.clickable{cursor:pointer;transition:background .12s}
-tbody tr.clickable:hover td{background:#252a40}
-.det-row td{background:#13162a;padding:0}
+tbody tr.clickable:hover td{background:var(--hover)}
+.det-row td{background:var(--surface2);padding:0}
 .det-box{padding:1rem;border-left:3px solid #7c3aed}
 .badge{font-size:11px;padding:3px 9px;border-radius:20px;font-weight:600}
-.badge-ok{background:#14532d;color:#4ade80}.badge-warn{background:#854d0e;color:#fbbf24}.badge-r{background:#991b1b;color:#f87171}
-.badge-in{background:#1e3a8a;color:#93c5fd}.badge-out{background:#854d0e;color:#fbbf24}
-.right{text-align:right}.muted{color:#64748b}
-.loading{text-align:center;padding:2rem;color:#64748b}
+.badge-ok{background:var(--bg-ok);color:var(--fg-ok)}.badge-warn{background:var(--bg-warn);color:var(--fg-warn)}.badge-r{background:var(--bg-r);color:var(--fg-r)}
+.badge-in{background:var(--bg-in);color:var(--fg-in)}.badge-out{background:var(--bg-warn);color:var(--fg-warn)}
+.right{text-align:right}.muted{color:var(--muted)}
+.loading{text-align:center;padding:2rem;color:var(--muted)}
 .toast{position:fixed;bottom:80px;right:20px;background:#14532d;color:#86efac;padding:12px 20px;border-radius:8px;font-size:13px;display:none;z-index:100;max-width:300px}
 .toast.err{background:#7f1d1d;color:#fca5a5}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:200;padding:1rem}
 .modal.show{display:flex}
-.modal-box{background:#1a1d2e;border:1px solid #2d3148;border-radius:12px;padding:1.5rem;max-width:520px;width:100%;max-height:85vh;overflow-y:auto}
+.modal-box{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.5rem;max-width:520px;width:100%;max-height:85vh;overflow-y:auto}
 .modal-box h3{font-size:1rem;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center}
-.modal-close{cursor:pointer;color:#64748b;font-size:1.5rem;line-height:1;padding:0 4px}
+.modal-close{cursor:pointer;color:var(--muted);font-size:1.5rem;line-height:1;padding:0 4px}
 .wa-float{position:fixed;bottom:20px;right:20px;background:#25D366;width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,0,0,.4);cursor:pointer;z-index:90;text-decoration:none}
 .wa-float svg{width:30px;height:30px;fill:#fff}
 .stepper{display:flex;align-items:center;gap:10px}
-.stepper button{width:34px;height:34px;border-radius:8px;border:1px solid #2d3148;background:#1e2235;color:#fff;cursor:pointer;font-size:18px;line-height:1}
-.stepper button:active{background:#2d3148}
+.stepper button{width:34px;height:34px;border-radius:8px;border:1px solid var(--border);background:var(--surface3);color:#fff;cursor:pointer;font-size:18px;line-height:1}
+.stepper button:active{background:var(--border)}
 .stepper span{min-width:30px;text-align:center;font-weight:600;font-size:15px}
-.mov-item{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #1e2235;font-size:13px}
+.mov-item{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--surface3);font-size:13px}
 .mov-item:last-child{border:none}
 @media(max-width:600px){
-  .wrap{padding:1rem}
-  .kpis{grid-template-columns:1fr 1fr}
+  .wrap{padding:0.75rem}
+  .header{padding:0.85rem 1rem}
+  .header h1{font-size:0.95rem}
+  .kpis{grid-template-columns:1fr 1fr;gap:8px}
+  .kpi{padding:0.85rem}
+  .kpi-val{font-size:1.1rem}
+  .card{padding:1rem}
+  .card-head{flex-direction:column;align-items:stretch}
+  .card-head>div{display:flex;gap:6px;flex-wrap:wrap}
+  .card-head .btn{flex:1}
+  .filtros{flex-direction:column}
+  .filtros input,.filtros select{width:100%;min-width:0}
   table.responsive thead{display:none}
   table.responsive,table.responsive tbody,table.responsive tr,table.responsive td{display:block;width:100%}
-  table.responsive tr{background:#13162a;border:1px solid #2d3148;border-radius:10px;margin-bottom:8px;padding:4px}
-  table.responsive td{border:none;padding:6px 10px;display:flex;justify-content:space-between;align-items:center;text-align:right}
-  table.responsive td::before{content:attr(data-label);color:#64748b;font-size:11px;text-transform:uppercase;font-weight:500;text-align:left;margin-right:10px}
-  .det-row td{display:block;padding:0}
+  table.responsive tr.clickable{background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;padding:6px 4px}
+  table.responsive td{border:none;padding:7px 12px;display:flex;justify-content:space-between;align-items:center;text-align:right;gap:12px}
+  table.responsive td::before{content:attr(data-label);color:var(--muted);font-size:11px;text-transform:uppercase;font-weight:600;text-align:left;flex-shrink:0}
+  .det-row,.det-row td{display:block !important;padding:0;margin:0;background:none;border:none}
+  .det-box{border-radius:0 0 10px 10px;margin:-8px 0 8px;padding:0.85rem}
+  .det-box table tr{background:var(--surface3) !important;margin-bottom:6px}
+  .modal-box{padding:1.15rem}
+  .header>div:last-child{display:flex;gap:4px}
+  .header .btn-sm{padding:6px 9px}
 }
 </style>
 </head>
 <body>
 
 <div id="login-screen">
-  <div class="login-box">
+  <div class="login-box" style="position:relative">
+    <button class="btn btn-sec btn-sm" id="theme-btn-login" onclick="toggleTema()" style="position:absolute;top:1rem;right:1rem" title="Cambiar tema">🌙</button>
     <div class="logo">KURANKO</div>
     <div class="tag">Portal de Clientes</div>
     <div class="field"><label>Usuario (tu RUC)</label><input type="text" id="usuario" autocomplete="username" inputmode="numeric"></div>
@@ -97,8 +125,9 @@ tbody tr.clickable:hover td{background:#252a40}
 
 <div id="app-screen" style="display:none">
   <div class="header">
-    <div><h1>Portal Kuranko</h1><div class="cli" id="cli-nombre"></div></div>
+    <div><h1>Portal de Clientes Kuranko</h1><div class="cli" id="cli-nombre"></div></div>
     <div>
+      <button class="btn btn-sec btn-sm" id="theme-btn" onclick="toggleTema()" title="Cambiar tema">🌙</button>
       <button class="btn btn-sec btn-sm" onclick="abrirCambioPass()">Cambiar clave</button>
       <button class="btn btn-sec btn-sm" onclick="logout()">Salir</button>
     </div>
@@ -139,10 +168,6 @@ tbody tr.clickable:hover td{background:#252a40}
     <div id="tab-pagos" class="panel"><div class="card"><h3>Pagos realizados</h3><div id="pagos-tabla"><div class="loading">Cargando...</div></div></div></div>
 
     <div id="tab-stock" class="panel">
-      <div class="card" id="mov-card" style="display:none">
-        <h3>Últimos movimientos</h3>
-        <div id="mov-contenido"></div>
-      </div>
       <div class="card">
         <div class="card-head">
           <h3>Productos en consignación</h3>
@@ -152,6 +177,7 @@ tbody tr.clickable:hover td{background:#252a40}
             <button class="btn btn-green btn-sm" onclick="abrirReporte()">Reportar venta</button>
           </div>
         </div>
+        <p class="muted" style="font-size:11px;margin-bottom:10px">Los puntos de color indican cambios en los últimos 60 días: <span style="color:#4ade80">●</span> entrada · <span style="color:#60a5fa">●</span> devolución · <span style="color:#fbbf24">●</span> venta. Pasa el cursor o toca para ver la fecha.</p>
         <div id="stock-tabla"><div class="loading">Cargando...</div></div>
       </div>
     </div>
@@ -200,6 +226,26 @@ tbody tr.clickable:hover td{background:#252a40}
 <script>
 let TOKEN='',API='',ventasCache=[],stockCache=[],transfCache=[],detalleAbierto=null;
 const WA_SOPORTE='51949137526';
+
+// ── Tema día/noche ──
+function aplicarTema(t){
+  document.documentElement.setAttribute('data-theme',t);
+  localStorage.setItem('tema',t);
+  const ic=t==='light'?'☀️':'🌙';
+  ['theme-btn','theme-btn-login'].forEach(id=>{const b=document.getElementById(id);if(b)b.textContent=ic;});
+}
+function toggleTema(){
+  const actual=document.documentElement.getAttribute('data-theme')||'dark';
+  aplicarTema(actual==='light'?'dark':'light');
+}
+(function initTema(){
+  const guardado=localStorage.getItem('tema');
+  if(guardado){document.documentElement.setAttribute('data-theme',guardado);}
+  else{
+    const prefClaro=window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches;
+    document.documentElement.setAttribute('data-theme',prefClaro?'light':'dark');
+  }
+})();
 const fmt=n=>new Intl.NumberFormat('es-PE',{style:'currency',currency:'PEN'}).format(n||0);
 const fmtFecha=s=>s?new Date(s).toLocaleDateString('es-PE'):'-';
 const ahoraStr=()=>new Date().toLocaleString('es-PE',{timeZone:'America/Lima'});
@@ -233,7 +279,8 @@ async function mostrarApp(){
   document.getElementById('login-screen').style.display='none';
   document.getElementById('app-screen').style.display='block';
   document.getElementById('wa-soporte').href=`https://wa.me/${WA_SOPORTE}?text=${encodeURIComponent('Hola Kuranko, tengo una consulta sobre mi portal.')}`;
-  await Promise.all([cargarSaldo(),cargarVentas(),cargarPagos(),cargarStock(),cargarTransferencias(),cargarMovimientos()]);
+  aplicarTema(document.documentElement.getAttribute('data-theme')||'dark');
+  await Promise.all([cargarSaldo(),cargarVentas(),cargarPagos(),cargarStock(),cargarTransferencias()]);
 }
 async function cargarSaldo(){
   try{
@@ -297,11 +344,11 @@ async function toggleDetalle(codigo,tr){
     let html=`<table style="margin-bottom:1rem"><thead><tr><th>Producto</th><th>SKU</th><th class="num">Cant.</th><th class="num">P.Unit</th><th class="num">Total</th></tr></thead><tbody>`+
       d.items.map(i=>`<tr><td>${i.variacion||i.producto}</td><td class="muted">${i.sku||'-'}</td><td class="num">${i.quantity}</td><td class="num">${fmt(i.unit_price)}</td><td class="num">${fmt(i.total)}</td></tr>`).join('')+`</tbody></table>`;
     if(d.pagos&&d.pagos.length){
-      html+=`<div style="font-size:12px;color:#94a3b8;margin-bottom:6px;font-weight:600">PAGOS DE ESTA COMPRA</div>`+
+      html+=`<div style="font-size:12px;color:var(--muted2);margin-bottom:6px;font-weight:600">PAGOS DE ESTA COMPRA</div>`+
         d.pagos.map(p=>`<div class="mov-item"><span>${fmtFecha(p.fecha)} · ${p.metodo||'-'}</span><span>${fmt(p.monto)}</span></div>`).join('');
     }
     if(d.vouchers&&d.vouchers.length){
-      html+=`<div style="font-size:12px;color:#94a3b8;margin:10px 0 6px;font-weight:600">COMPROBANTES</div>`+
+      html+=`<div style="font-size:12px;color:var(--muted2);margin:10px 0 6px;font-weight:600">COMPROBANTES</div>`+
         d.vouchers.map(v=>`<div class="mov-item"><span>${v.type==='invoice'?'Factura':v.type==='receipt'?'Boleta':v.type} ${v.serie}-${v.number}</span><span>${fmtFecha(v.emission_date)} · ${fmt(v.amount)}</span></div>`).join('');
     }
     const saldo=ventasCache.find(x=>x.codigo===codigo)?.saldo||0;
@@ -328,26 +375,19 @@ async function cargarStock(){
     const c=document.getElementById('stock-tabla');
     if(!stockCache.length){c.innerHTML='<div class="muted">No tienes productos en consignación asignados, o aún no se ha vinculado tu punto. Consulta con Kuranko.</div>';return;}
     c.innerHTML=`<table class="responsive"><thead><tr><th>Producto</th><th>SKU</th><th class="num">Disponible</th><th class="num">Vendido hist.</th><th class="num">Precio</th></tr></thead><tbody>`+
-      stockCache.map(r=>`<tr><td data-label="Producto">${r.variacion||r.producto}</td>
+      stockCache.map(r=>`<tr><td data-label="Producto">${indicadores(r)}${r.variacion||r.producto}</td>
         <td class="muted" data-label="SKU">${r.sku||'-'}</td><td class="num" data-label="Disponible">${r.disponible}</td><td class="num" data-label="Vendido hist.">${r.vendido_hist}</td><td class="num" data-label="Precio">${r.precio?fmt(r.precio):'-'}</td></tr>`).join('')+`</tbody></table>`;
   }catch(e){showToast(e.message,true);}
 }
-async function cargarMovimientos(){
-  try{
-    const m=await apiCall('/portal/movimientos');
-    if((!m.ventas||!m.ventas.length)&&(!m.transferencias||!m.transferencias.length))return;
-    let html='';
-    if(m.transferencias&&m.transferencias.length){
-      html+=`<div style="font-size:12px;color:#94a3b8;margin-bottom:4px;font-weight:600">ÚLTIMAS ENTRADAS/SALIDAS</div>`;
-      html+=m.transferencias.map(t=>`<div class="mov-item"><span><span class="badge ${t.tipo==='04'?'badge-in':'badge-out'}">${t.tipo==='04'?'Entrada':'Devolución'}</span> ${t.guia||'(sin guía)'}</span><span class="muted">${fmtFecha(t.fecha)}</span></div>`).join('');
-    }
-    if(m.ventas&&m.ventas.length){
-      html+=`<div style="font-size:12px;color:#94a3b8;margin:10px 0 4px;font-weight:600">ÚLTIMAS VENTAS REGISTRADAS</div>`;
-      html+=m.ventas.map(v=>`<div class="mov-item"><span>${v.variacion||v.producto} <span class="muted">(${v.sku||'-'})</span></span><span class="muted">${v.quantity} u · ${fmtFecha(v.fecha)}</span></div>`).join('');
-    }
-    document.getElementById('mov-contenido').innerHTML=html;
-    document.getElementById('mov-card').style.display='block';
-  }catch(e){/* silencioso */}
+// Puntitos de movimiento reciente (60d): verde=entrada, azul=devolución, amarillo=venta
+function indicadores(r){
+  const hace=f=>{const d=Math.floor((Date.now()-new Date(f))/86400000);return d===0?'hoy':d===1?'ayer':'hace '+d+' días';};
+  let puntos='',tips=[];
+  if(r.ult_entrada){puntos+='<span style="color:#4ade80">●</span>';tips.push('Entrada: '+hace(r.ult_entrada));}
+  if(r.ult_salida_transf){puntos+='<span style="color:#60a5fa">●</span>';tips.push('Devolución: '+hace(r.ult_salida_transf));}
+  if(r.ult_venta){puntos+='<span style="color:#fbbf24">●</span>';tips.push('Venta: '+hace(r.ult_venta));}
+  if(!puntos)return '';
+  return `<span title="${tips.join(' · ')}" style="font-size:9px;margin-right:6px;letter-spacing:1px;cursor:help">${puntos}</span>`;
 }
 async function cargarTransferencias(){
   try{
@@ -355,11 +395,27 @@ async function cargarTransferencias(){
     const c=document.getElementById('transf-tabla');
     if(!transfCache.length){c.innerHTML='<div class="muted">Sin transferencias registradas.</div>';return;}
     c.innerHTML=`<table class="responsive"><thead><tr><th>Fecha</th><th>Tipo</th><th>Guía</th><th class="num">Unidades</th><th>Notas</th></tr></thead><tbody>`+
-      transfCache.map(t=>`<tr><td data-label="Fecha">${fmtFecha(t.fecha)}</td>
+      transfCache.map(t=>`<tr class="clickable" onclick="toggleTransf(${t.id},this)"><td data-label="Fecha">${fmtFecha(t.fecha)}</td>
         <td data-label="Tipo"><span class="badge ${t.tipo==='04'?'badge-in':'badge-out'}">${t.direccion}</span></td>
         <td data-label="Guía">${t.guia||'-'}</td><td class="num" data-label="Unidades">${t.total_unidades}</td>
         <td data-label="Notas" class="muted">${t.notes||'-'}</td></tr>`).join('')+`</tbody></table>`;
   }catch(e){showToast(e.message,true);}
+}
+async function toggleTransf(id,tr){
+  const sig=tr.nextElementSibling;
+  if(sig&&sig.classList.contains('det-row')){sig.remove();return;}
+  document.querySelectorAll('#transf-tabla .det-row').forEach(e=>e.remove());
+  const fila=document.createElement('tr');
+  fila.className='det-row';
+  fila.innerHTML=`<td colspan="5"><div class="det-box"><div class="loading">Cargando...</div></div></td>`;
+  tr.after(fila);
+  try{
+    const items=await apiCall('/portal/transferencia/'+id);
+    const box=fila.querySelector('.det-box');
+    if(!items.length){box.innerHTML='<div class="muted">Sin productos en esta transferencia.</div>';return;}
+    box.innerHTML=`<table><thead><tr><th>Producto</th><th>SKU</th><th class="num">Cantidad</th></tr></thead><tbody>`+
+      items.map(i=>`<tr><td>${i.variacion||i.producto}</td><td class="muted">${i.sku||'-'}</td><td class="num">${i.quantity}</td></tr>`).join('')+`</tbody></table>`;
+  }catch(e){fila.querySelector('.det-box').innerHTML='<div class="err" style="display:block">'+e.message+'</div>';}
 }
 
 // ── Reporte de consignación ──
@@ -367,7 +423,7 @@ function abrirReporte(){
   if(!stockCache.length){showToast('No tienes productos en consignación',true);return;}
   document.getElementById('modal-reporte').classList.add('show');
   document.getElementById('reporte-items').innerHTML=stockCache.map((s,i)=>`
-    <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #1e2235">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--surface3)">
       <div style="font-size:13px;flex:1">${s.variacion||s.producto}<br><span class="muted" style="font-size:11px">${s.sku||''} · disp: ${s.disponible}</span></div>
       <div class="stepper"><button onclick="paso(${i},-1)">−</button><span id="rep-${i}">0</span><button onclick="paso(${i},1)">+</button></div>
     </div>`).join('');
@@ -471,6 +527,7 @@ API=window.location.origin;
 const saved=sessionStorage.getItem('clitoken');
 if(saved){TOKEN=saved;mostrarApp();}
 document.getElementById('password').addEventListener('keypress',e=>{if(e.key==='Enter')login();});
+aplicarTema(document.documentElement.getAttribute('data-theme')||'dark');
 </script>
 </body>
 </html>

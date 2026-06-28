@@ -101,6 +101,7 @@ tr:hover td{background:var(--hover)}
       <button class="tab active" onclick="tab('usuarios',this)">Clientes con acceso</button>
       <button class="tab" onclick="tab('vincular',this)">Vincular consignación</button>
       <button class="tab" onclick="tab('crear',this)">Crear accesos</button>
+      <button class="tab" onclick="tab('sync',this)">Sincronización web</button>
     </div>
 
     <div id="tab-usuarios" class="panel active">
@@ -157,6 +158,18 @@ tr:hover td{background:var(--hover)}
         <div class="desc">Crea acceso para todos los clientes empresa que tengan ventas registradas. Los que ya tienen acceso se saltan. Después vinculas sus consignaciones en la otra pestaña.</div>
         <button class="btn btn-sec" onclick="crearTodos()">Crear todos los accesos</button>
         <div id="crear-todos-result" class="muted" style="margin-top:10px"></div>
+      </div>
+    </div>
+
+    <div id="tab-sync" class="panel">
+      <div class="card">
+        <h3>Reporte de sincronización con la web</h3>
+        <div class="desc">Descarga el estado actual de la sincronización ERP → kuranko.pe. El reporte se genera al momento (datos más recientes) y no se almacena. Incluye tres secciones:<br>
+        <b>A) Pendientes de crear:</b> productos del ERP sin ID de WooCommerce (debes crearlos en la web).<br>
+        <b>B1) Sin precio:</b> productos vinculados pero sin precio regular en el ERP.<br>
+        <b>B2) Sin stock:</b> productos vinculados que están agotados.</div>
+        <button class="btn" onclick="descargarReporteSync()">Descargar reporte (CSV)</button>
+        <div id="sync-result" class="muted" style="margin-top:10px"></div>
       </div>
     </div>
   </div>
@@ -282,6 +295,22 @@ async function crearTodos(){
   try{const r=await apiCall('/admin/crear-todos','POST',{});
     document.getElementById('crear-todos-result').textContent=`✓ ${r.creados} creados, ${r.saltados} ya existían (de ${r.total} clientes).`;cargarUsuarios();}
   catch(e){showToast(e.message,true);}
+}
+async function descargarReporteSync(){
+  const res=document.getElementById('sync-result');
+  res.textContent='Generando reporte...';
+  try{
+    const r=await fetch(API+'/admin/reporte-sync',{headers:{'Authorization':'Bearer '+TOKEN}});
+    if(!r.ok){const d=await r.json();throw new Error(d.error||'Error');}
+    const blob=await r.blob();
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;
+    a.download='reporte_sync_'+new Date().toISOString().slice(0,10)+'.csv';
+    document.body.appendChild(a);a.click();a.remove();
+    URL.revokeObjectURL(url);
+    res.textContent='✓ Reporte descargado.';
+  }catch(e){res.textContent='';showToast(e.message,true);}
 }
 async function resetPass(id){
   if(!confirm('¿Resetear la contraseña de este cliente a su RUC?'))return;

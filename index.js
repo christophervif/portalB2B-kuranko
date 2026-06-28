@@ -152,11 +152,18 @@ app.get('/portal/venta/:codigo', authCliente, async (req, res) => {
       `SELECT type, serie, number, emission_date, amount FROM sale_vouchers
        WHERE sale_id=? ORDER BY emission_date`, [venta.id]);
 
-    res.json({ venta, items, vouchers });
+    const [pagos] = await prodPool.query(
+      `SELECT sp.paid_at AS fecha, sp.amount AS monto, ci.name AS metodo
+       FROM sale_payments sp
+       LEFT JOIN catalog_items ci ON ci.id=sp.payment_method_id
+       WHERE sp.sale_id=? AND sp.voided_at IS NULL
+       ORDER BY sp.paid_at`, [venta.id]);
+
+    res.json({ venta, items, vouchers, pagos });
   } catch (e) { res.status(500).json({ error: 'Error al consultar el detalle' }); }
 });
 
-// Consignación enriquecida: entregado / vendido / disponible
+// Consignación enriquecida: disponible + precio regular + vendido histórico
 app.get('/portal/consignacion', authCliente, async (req, res) => {
   if (!req.cliente.location_id) return res.json([]);
   try {
@@ -164,12 +171,12 @@ app.get('/portal/consignacion', authCliente, async (req, res) => {
       `SELECT p.name AS producto, pv.sku, pv.name AS variacion,
         ls.quantity AS disponible,
         ls.reserved_quantity AS reservado,
-        pv.sale_price AS precio,
+        pv.regular_price AS precio,
         COALESCE((
           SELECT SUM(sm.quantity) FROM stock_movements sm
           WHERE sm.product_variation_id=ls.product_variation_id
-            AND sm.location_to_id=ls.location_id AND sm.type='transfer'
-        ),0) AS entregado_hist
+            AND sm.location_from_id=ls.location_id AND sm.type='sale'
+        ),0) AS vendido_hist
        FROM location_stocks ls
        JOIN product_variations pv ON pv.id=ls.product_variation_id
        JOIN products p ON p.id=pv.product_id
@@ -178,6 +185,49 @@ app.get('/portal/consignacion', authCliente, async (req, res) => {
        ORDER BY p.name`, [req.cliente.location_id]);
     res.json(rows);
   } catch (e) { res.status(500).json({ error: 'Error al consultar consignación' }); }
+});
+
+// Últimos movimientos de su consignación (ventas + transferencias recientes)
+app.get('/portal/movimientos', authCliente, async (req, res) => {
+  if (!req.cliente.location_id) return res.json({ ventas: [], transferencias: [] });
+  const loc = req.cliente.location_id;
+  try {
+    const [ventas] = await prodPool.query(
+      `SELECT sm.movement_date AS fecha, sm.quantity, sm.notes,
+        p.name AS producto, pv.sku, pv.name AS variacion
+       FROM stock_movements sm
+       JOIN product_variations pv ON pv.id=sm.product_variation_id
+       JOIN products p ON p.id=pv.product_id
+       WHERE sm.location_from_id=? AND sm.type='sale'
+       ORDER BY sm.movement_date DESC, sm.id DESC LIMIT 5`, [loc]);
+    const [transfers] = await prodPool.query(
+      `SELECT st.transfer_date AS fecha, st.reference_number AS guia,
+        st.operation_type_code AS tipo, st.notes,
+        st.location_from_id, st.location_to_id
+       FROM stock_transfers st
+       WHERE (st.operation_type_code='04' AND st.location_to_id=?)
+          OR (st.operation_type_code='03' AND st.location_from_id=?)
+       ORDER BY st.transfer_date DESC, st.id DESC LIMIT 5`, [loc, loc]);
+    res.json({ ventas, transferencias: transfers });
+  } catch (e) { res.status(500).json({ error: 'Error al consultar movimientos' }); }
+});
+
+// Pestaña Transferencias: entregadas (04) y devueltas (03) con detalle de items
+app.get('/portal/transferencias', authCliente, async (req, res) => {
+  if (!req.cliente.location_id) return res.json([]);
+  const loc = req.cliente.location_id;
+  try {
+    const [rows] = await prodPool.query(
+      `SELECT st.id, st.transfer_date AS fecha, st.reference_number AS guia,
+        st.operation_type_code AS tipo, st.notes,
+        CASE WHEN st.operation_type_code='04' THEN 'Entregada' ELSE 'Devuelta' END AS direccion,
+        (SELECT COALESCE(SUM(sti.quantity),0) FROM stock_transfer_items sti WHERE sti.stock_transfer_id=st.id) AS total_unidades
+       FROM stock_transfers st
+       WHERE (st.operation_type_code='04' AND st.location_to_id=?)
+          OR (st.operation_type_code='03' AND st.location_from_id=?)
+       ORDER BY st.transfer_date DESC, st.id DESC`, [loc, loc]);
+    res.json(rows);
+  } catch (e) { res.status(500).json({ error: 'Error al consultar transferencias' }); }
 });
 
 app.post('/portal/cambiar-password', authCliente, async (req, res) => {

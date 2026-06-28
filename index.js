@@ -163,12 +163,14 @@ app.get('/portal/venta/:codigo', authCliente, async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Error al consultar el detalle' }); }
 });
 
-// Consignación enriquecida: disponible + precio regular + vendido histórico
+// Consignación enriquecida: disponible + precio regular + vendido histórico + indicadores recientes
 app.get('/portal/consignacion', authCliente, async (req, res) => {
   if (!req.cliente.location_id) return res.json([]);
+  const loc = req.cliente.location_id;
   try {
     const [rows] = await prodPool.query(
       `SELECT p.name AS producto, pv.sku, pv.name AS variacion,
+        ls.product_variation_id AS pvid,
         ls.quantity AS disponible,
         ls.reserved_quantity AS reservado,
         pv.regular_price AS precio,
@@ -182,34 +184,31 @@ app.get('/portal/consignacion', authCliente, async (req, res) => {
        JOIN products p ON p.id=pv.product_id
        WHERE ls.location_id=? AND ls.quantity>0
          AND pv.deleted_at IS NULL AND p.deleted_at IS NULL
-       ORDER BY p.name`, [req.cliente.location_id]);
-    res.json(rows);
-  } catch (e) { res.status(500).json({ error: 'Error al consultar consignación' }); }
-});
+       ORDER BY p.name`, [loc]);
 
-// Últimos movimientos de su consignación (ventas + transferencias recientes)
-app.get('/portal/movimientos', authCliente, async (req, res) => {
-  if (!req.cliente.location_id) return res.json({ ventas: [], transferencias: [] });
-  const loc = req.cliente.location_id;
-  try {
-    const [ventas] = await prodPool.query(
-      `SELECT sm.movement_date AS fecha, sm.quantity, sm.notes,
-        p.name AS producto, pv.sku, pv.name AS variacion
-       FROM stock_movements sm
-       JOIN product_variations pv ON pv.id=sm.product_variation_id
-       JOIN products p ON p.id=pv.product_id
-       WHERE sm.location_from_id=? AND sm.type='sale'
-       ORDER BY sm.movement_date DESC, sm.id DESC LIMIT 5`, [loc]);
-    const [transfers] = await prodPool.query(
-      `SELECT st.transfer_date AS fecha, st.reference_number AS guia,
-        st.operation_type_code AS tipo, st.notes,
-        st.location_from_id, st.location_to_id
-       FROM stock_transfers st
-       WHERE (st.operation_type_code='04' AND st.location_to_id=?)
-          OR (st.operation_type_code='03' AND st.location_from_id=?)
-       ORDER BY st.transfer_date DESC, st.id DESC LIMIT 5`, [loc, loc]);
-    res.json({ ventas, transferencias: transfers });
-  } catch (e) { res.status(500).json({ error: 'Error al consultar movimientos' }); }
+    // Una sola consulta: movimientos de los últimos 60 días en esta consignación,
+    // resumidos por producto (última fecha de cada tipo). Liviano para Railway.
+    const [movs] = await prodPool.query(
+      `SELECT product_variation_id AS pvid,
+        MAX(CASE WHEN type='transfer' AND location_to_id=? THEN movement_date END) AS ult_entrada,
+        MAX(CASE WHEN type='transfer' AND location_from_id=? THEN movement_date END) AS ult_salida_transf,
+        MAX(CASE WHEN type='sale' AND location_from_id=? THEN movement_date END) AS ult_venta
+       FROM stock_movements
+       WHERE movement_date >= DATE_SUB(NOW(), INTERVAL 60 DAY)
+         AND (location_to_id=? OR location_from_id=?)
+       GROUP BY product_variation_id`, [loc, loc, loc, loc, loc]);
+
+    const movMap = {};
+    movs.forEach(m => { movMap[m.pvid] = m; });
+    res.json(rows.map(r => {
+      const m = movMap[r.pvid] || {};
+      return { ...r,
+        ult_entrada: m.ult_entrada || null,
+        ult_salida_transf: m.ult_salida_transf || null,
+        ult_venta: m.ult_venta || null
+      };
+    }));
+  } catch (e) { res.status(500).json({ error: 'Error al consultar consignación' }); }
 });
 
 // Pestaña Transferencias: entregadas (04) y devueltas (03) con detalle de items
@@ -228,6 +227,31 @@ app.get('/portal/transferencias', authCliente, async (req, res) => {
        ORDER BY st.transfer_date DESC, st.id DESC`, [loc, loc]);
     res.json(rows);
   } catch (e) { res.status(500).json({ error: 'Error al consultar transferencias' }); }
+});
+
+// Detalle de items de una transferencia (validando que sea de la consignación del cliente)
+app.get('/portal/transferencia/:id', authCliente, async (req, res) => {
+  const loc = req.cliente.location_id;
+  if (!loc) return res.status(403).json({ error: 'Sin consignación asignada' });
+  try {
+    // Verificar que la transferencia pertenece a la consignación del cliente
+    const [[t]] = await prodPool.query(
+      `SELECT id FROM stock_transfers
+       WHERE id=? AND (
+         (operation_type_code='04' AND location_to_id=?) OR
+         (operation_type_code='03' AND location_from_id=?)
+       ) LIMIT 1`, [req.params.id, loc, loc]);
+    if (!t) return res.status(404).json({ error: 'Transferencia no encontrada' });
+
+    const [items] = await prodPool.query(
+      `SELECT p.name AS producto, pv.sku, pv.name AS variacion, sti.quantity
+       FROM stock_transfer_items sti
+       JOIN product_variations pv ON pv.id=sti.product_variation_id
+       JOIN products p ON p.id=pv.product_id
+       WHERE sti.stock_transfer_id=?
+       ORDER BY p.name`, [req.params.id]);
+    res.json(items);
+  } catch (e) { res.status(500).json({ error: 'Error al consultar el detalle' }); }
 });
 
 app.post('/portal/cambiar-password', authCliente, async (req, res) => {

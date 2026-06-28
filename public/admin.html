@@ -164,11 +164,10 @@ tr:hover td{background:var(--hover)}
     <div id="tab-sync" class="panel">
       <div class="card">
         <h3>Reporte de sincronización con la web</h3>
-        <div class="desc">Descarga el estado actual de la sincronización ERP → kuranko.pe. El reporte se genera al momento (datos más recientes) y no se almacena. Incluye tres secciones:<br>
-        <b>A) Pendientes de crear:</b> productos del ERP sin ID de WooCommerce (debes crearlos en la web).<br>
-        <b>B1) Sin precio:</b> productos vinculados pero sin precio regular en el ERP.<br>
-        <b>B2) Sin stock:</b> productos vinculados que están agotados.</div>
-        <button class="btn" onclick="descargarReporteSync()">Descargar reporte (CSV)</button>
+        <div class="desc">Descarga el estado actual de la sincronización ERP → kuranko.pe en Excel. Se genera al momento (datos más recientes) y no se almacena. Tiene dos pestañas:<br>
+        <b>Pendientes:</b> productos del ERP sin ID de WooCommerce (debes crearlos en la web).<br>
+        <b>Alertas:</b> productos publicados con algún dato erróneo (stock negativo, sin precio o precio en 0), con la observación de cada caso.</div>
+        <button class="btn" onclick="descargarReporteSync()">Descargar reporte (Excel)</button>
         <div id="sync-result" class="muted" style="margin-top:10px"></div>
       </div>
     </div>
@@ -306,7 +305,7 @@ async function descargarReporteSync(){
     const url=URL.createObjectURL(blob);
     const a=document.createElement('a');
     a.href=url;
-    a.download='reporte_sync_'+new Date().toISOString().slice(0,10)+'.csv';
+    a.download='reporte_sync_'+new Date().toISOString().slice(0,10)+'.xlsx';
     document.body.appendChild(a);a.click();a.remove();
     URL.revokeObjectURL(url);
     res.textContent='✓ Reporte descargado.';

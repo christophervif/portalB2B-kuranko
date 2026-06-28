@@ -396,6 +396,84 @@ app.post('/admin/crear-todos', authAdmin, async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Error: ' + e.message }); }
 });
 
+// ─── Reporte de sincronización: pendientes + alertas (CSV descargable) ───────
+// Lee del ERP en SOLO LECTURA. No modifica nada. Genera un CSV al momento.
+app.get('/admin/reporte-sync', authAdmin, async (req, res) => {
+  try {
+    const esc = (v) => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
+
+    // SECCIÓN A — Pendientes: productos SIN woocommerce_id (crear en WooCommerce)
+    const [pendientes] = await prodPool.query(
+      `SELECT pv.id AS variation_id, pv.sku, pv.product_type,
+              p.name AS nombre_producto, pv.name AS variacion,
+              pv.regular_price,
+              COALESCE(SUM(ls.quantity),0) AS stock
+       FROM product_variations pv
+       JOIN products p ON p.id = pv.product_id
+       LEFT JOIN location_stocks ls ON ls.product_variation_id = pv.id
+       WHERE pv.woocommerce_id IS NULL
+         AND pv.product_type IN ('variation','simple')
+         AND pv.deleted_at IS NULL
+       GROUP BY pv.id, pv.sku, pv.product_type, p.name, pv.name, pv.regular_price
+       ORDER BY p.name, pv.sku`);
+
+    // SECCIÓN B1 — Alertas: vinculados (con woocommerce_id) pero SIN precio
+    const [sinPrecio] = await prodPool.query(
+      `SELECT pv.id AS variation_id, pv.woocommerce_id, pv.sku,
+              p.name AS nombre_producto, pv.name AS variacion
+       FROM product_variations pv
+       JOIN products p ON p.id = pv.product_id
+       WHERE pv.woocommerce_id IS NOT NULL
+         AND pv.product_type IN ('variation','simple')
+         AND pv.deleted_at IS NULL
+         AND (pv.regular_price IS NULL OR pv.regular_price = 0)
+       ORDER BY p.name, pv.sku`);
+
+    // SECCIÓN B2 — Alertas: vinculados pero SIN stock en ninguna ubicación
+    const [sinStock] = await prodPool.query(
+      `SELECT pv.id AS variation_id, pv.woocommerce_id, pv.sku,
+              p.name AS nombre_producto, pv.name AS variacion,
+              pv.regular_price
+       FROM product_variations pv
+       JOIN products p ON p.id = pv.product_id
+       LEFT JOIN location_stocks ls ON ls.product_variation_id = pv.id
+       WHERE pv.woocommerce_id IS NOT NULL
+         AND pv.product_type IN ('variation','simple')
+         AND pv.deleted_at IS NULL
+       GROUP BY pv.id, pv.woocommerce_id, pv.sku, p.name, pv.name, pv.regular_price
+       HAVING COALESCE(SUM(ls.quantity),0) = 0
+       ORDER BY p.name, pv.sku`);
+
+    // Armar el CSV con secciones
+    let csv = '';
+    csv += `SECCION A - PENDIENTES DE CREAR EN WOOCOMMERCE (sin woocommerce_id): ${pendientes.length}\n`;
+    csv += 'variation_id,sku,tipo,nombre_producto,variacion,precio_regular,stock\n';
+    pendientes.forEach(p => {
+      csv += [p.variation_id, esc(p.sku), p.product_type, esc(p.nombre_producto),
+              esc(p.variacion), p.regular_price || '', p.stock].join(',') + '\n';
+    });
+
+    csv += `\nSECCION B1 - ALERTA: VINCULADOS SIN PRECIO REGULAR: ${sinPrecio.length}\n`;
+    csv += 'variation_id,woocommerce_id,sku,nombre_producto,variacion\n';
+    sinPrecio.forEach(p => {
+      csv += [p.variation_id, p.woocommerce_id, esc(p.sku),
+              esc(p.nombre_producto), esc(p.variacion)].join(',') + '\n';
+    });
+
+    csv += `\nSECCION B2 - ALERTA: VINCULADOS SIN STOCK (agotados): ${sinStock.length}\n`;
+    csv += 'variation_id,woocommerce_id,sku,nombre_producto,variacion,precio_regular\n';
+    sinStock.forEach(p => {
+      csv += [p.variation_id, p.woocommerce_id, esc(p.sku),
+              esc(p.nombre_producto), esc(p.variacion), p.regular_price || ''].join(',') + '\n';
+    });
+
+    const fecha = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="reporte_sync_${fecha}.csv"`);
+    res.send('\uFEFF' + csv); // BOM para que Excel respete los acentos
+  } catch (e) { res.status(500).json({ error: 'Error al generar el reporte: ' + e.message }); }
+});
+
 // ─── Reporte de venta de consignación (NO toca la BD, solo notifica) ─────────
 app.post('/portal/reportar-venta', authCliente, async (req, res) => {
   const { items } = req.body; // [{producto, sku, cantidad}]

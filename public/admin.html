@@ -5,53 +5,80 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Admin — Portal B2B Kuranko</title>
 <style>
+:root{
+  --bg:#000726;--surface:#0a1238;--surface2:#060d2e;--surface3:#111b44;
+  --border:#1f2a55;--text:#eef1f8;--text2:#c2cae0;--muted:#7681a6;--muted2:#9aa4c4;
+  --accent:#FFB30D;--accent-text:#000726;--accent-h:#e6a00c;--hover:#152050;--white:#ffffff;
+  --bg-ok:#0f3d24;--fg-ok:#4ade80;--bg-warn:#3d2f08;--fg-warn:#FFB30D;--bg-r:#4a1414;--fg-r:#f87171;
+}
+[data-theme="light"]{
+  --bg:#f3f5fb;--surface:#ffffff;--surface2:#f9fafe;--surface3:#eef1f9;
+  --border:#dce2f0;--text:#000726;--text2:#2a3661;--muted:#8b96b8;--muted2:#5a6690;
+  --accent:#FFB30D;--accent-text:#000726;--accent-h:#e6a00c;--hover:#eef1f9;--white:#000726;
+  --bg-ok:#dcfce7;--fg-ok:#15803d;--bg-warn:#fef3c7;--fg-warn:#a06a00;--bg-r:#fee2e2;--fg-r:#dc2626;
+}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:system-ui,sans-serif;background:#0f1117;color:#e2e8f0;min-height:100vh}
-.header{background:#1a1d2e;border-bottom:1px solid #2d3148;padding:1rem 1.5rem;display:flex;justify-content:space-between;align-items:center}
-.header h1{font-size:1rem;font-weight:600;color:#fff}
-.header .sub{font-size:12px;color:#64748b}
-.btn{background:#7c3aed;border:none;color:#fff;border-radius:8px;padding:8px 16px;font-size:13px;cursor:pointer;font-weight:500}
-.btn:hover{background:#6d28d9}.btn:disabled{background:#374151;cursor:not-allowed}
-.btn-sec{background:#1e2235;border:1px solid #2d3148}
-.btn-sm{padding:5px 10px;font-size:12px}
-.btn-danger{background:#7f1d1d}.btn-danger:hover{background:#991b1b}
-.btn-ok{background:#14532d}.btn-ok:hover{background:#166534}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;transition:background .2s,color .2s}
+.header{background:var(--surface);border-bottom:1px solid var(--border);padding:1rem 1.5rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
+.header h1{font-size:1rem;font-weight:600;color:var(--white)}
+.header .sub{font-size:12px;color:var(--muted)}
+.btn{background:var(--accent);border:none;color:var(--accent-text);border-radius:8px;padding:8px 16px;font-size:13px;cursor:pointer;font-weight:600}
+.btn:hover{background:var(--accent-h)}.btn:active{transform:scale(.97)}
+.btn-sec{background:var(--surface3);border:1px solid var(--border);color:var(--text2)}
+.btn-sm{padding:6px 12px;font-size:12px}
+.btn-danger{background:var(--bg-r);color:var(--fg-r)}.btn-ok{background:var(--bg-ok);color:var(--fg-ok)}
 .wrap{max-width:1100px;margin:0 auto;padding:1.5rem}
-.login-box{max-width:380px;margin:5rem auto;background:#1a1d2e;border:1px solid #2d3148;border-radius:12px;padding:2rem}
-.login-box h2{font-size:1.1rem;margin-bottom:.5rem}
-.login-box p{font-size:13px;color:#64748b;margin-bottom:1.5rem}
+.login-box{max-width:380px;margin:5rem auto;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:2rem;position:relative}
+.login-box h2{font-size:1.1rem;margin-bottom:.5rem;color:var(--white)}
+.login-box p{font-size:13px;color:var(--muted);margin-bottom:1.5rem}
 .field{margin-bottom:12px}
-.field label{display:block;font-size:12px;color:#94a3b8;margin-bottom:4px}
-.field input,.field select{width:100%;background:#0f1117;border:1px solid #2d3148;color:#e2e8f0;border-radius:8px;padding:9px 12px;font-size:14px}
-.field input:focus,.field select:focus{outline:none;border-color:#7c3aed}
-.err{font-size:13px;color:#fca5a5;margin-top:8px;display:none}
-.tabs{display:flex;gap:2px;border-bottom:1px solid #2d3148;margin-bottom:1.25rem}
-.tab{font-size:13px;padding:8px 16px;cursor:pointer;border:none;background:none;color:#64748b;border-bottom:2px solid transparent;margin-bottom:-1px}
-.tab.active{color:#fff;border-bottom-color:#7c3aed}
+.field label{display:block;font-size:12px;color:var(--muted2);margin-bottom:4px}
+.field input,.field select{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px 12px;font-size:16px}
+.field input:focus,.field select:focus{outline:none;border-color:var(--accent)}
+.err{font-size:13px;color:var(--fg-r);margin-top:8px;display:none}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-bottom:1.25rem;overflow-x:auto}
+.tab{font-size:13px;padding:9px 16px;cursor:pointer;border:none;background:none;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;flex-shrink:0}
+.tab.active{color:var(--white);border-bottom-color:var(--accent)}
 .panel{display:none}.panel.active{display:block}
-.card{background:#1a1d2e;border:1px solid #2d3148;border-radius:12px;padding:1.25rem;margin-bottom:1rem}
-.card h3{font-size:13px;font-weight:600;margin-bottom:4px}
-.card .desc{font-size:12px;color:#64748b;margin-bottom:1rem;line-height:1.5}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.25rem;margin-bottom:1rem}
+.card h3{font-size:13px;font-weight:600;margin-bottom:4px;color:var(--white)}
+.card .desc{font-size:12px;color:var(--muted);margin-bottom:1rem;line-height:1.5}
 .vincular-row{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end}
-@media(max-width:640px){.vincular-row{grid-template-columns:1fr}}
+@media(max-width:640px){.vincular-row{grid-template-columns:1fr}.vincular-row .btn{width:100%}}
 table{width:100%;border-collapse:collapse;font-size:13px}
-th{text-align:left;padding:8px;color:#94a3b8;font-weight:500;font-size:11px;border-bottom:1px solid #2d3148;text-transform:uppercase}
-td{padding:8px;border-bottom:1px solid #1e2235;color:#cbd5e1}
-tr:hover td{background:#1e2235}
-.badge{font-size:11px;padding:2px 8px;border-radius:20px;font-weight:500}
-.badge-on{background:#14532d;color:#86efac}.badge-off{background:#7f1d1d;color:#fca5a5}
-.badge-warn{background:#713f12;color:#fde68a}
-.toast{position:fixed;bottom:20px;right:20px;background:#14532d;color:#86efac;padding:12px 20px;border-radius:8px;font-size:13px;display:none;z-index:100;border:1px solid #166534}
-.toast.err{background:#7f1d1d;color:#fca5a5;border-color:#991b1b}
-.search{width:100%;background:#0f1117;border:1px solid #2d3148;color:#e2e8f0;border-radius:8px;padding:8px 12px;font-size:13px;margin-bottom:10px}
-.muted{color:#64748b;font-size:12px}
-.loading{text-align:center;padding:2rem;color:#64748b}
+th{text-align:left;padding:8px;color:var(--muted2);font-weight:500;font-size:11px;border-bottom:1px solid var(--border);text-transform:uppercase}
+td{padding:8px;border-bottom:1px solid var(--border);color:var(--text2)}
+tr:hover td{background:var(--hover)}
+.badge{font-size:11px;padding:3px 9px;border-radius:20px;font-weight:600}
+.badge-on{background:var(--bg-ok);color:var(--fg-ok)}.badge-off{background:var(--bg-r);color:var(--fg-r)}
+.badge-warn{background:var(--bg-warn);color:var(--fg-warn)}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--bg-ok);color:var(--fg-ok);padding:12px 20px;border-radius:8px;font-size:13px;display:none;z-index:100;border:1px solid var(--border);max-width:320px}
+.toast.err{background:var(--bg-r);color:var(--fg-r)}
+.search{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:9px 12px;font-size:14px;margin-bottom:10px}
+.muted{color:var(--muted);font-size:12px}
+.loading{text-align:center;padding:2rem;color:var(--muted)}
+.combo{position:relative}
+.combo-list{position:absolute;top:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-top:none;border-radius:0 0 8px 8px;max-height:240px;overflow-y:auto;z-index:50;display:none}
+.combo-list.show{display:block}
+.combo-item{padding:9px 12px;font-size:13px;cursor:pointer;border-bottom:1px solid var(--border)}
+.combo-item:hover,.combo-item.sel{background:var(--hover)}
+.combo-item .ruc{color:var(--muted);font-size:11px}
+@media(max-width:600px){
+  .wrap{padding:1rem}
+  table thead{display:none}
+  table,tbody,tr,td{display:block;width:100%}
+  tbody tr{background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;padding:6px}
+  td{border:none;padding:6px 10px;display:flex;justify-content:space-between;align-items:center;gap:10px;text-align:right}
+  td::before{content:attr(data-label);color:var(--muted);font-size:11px;text-transform:uppercase;font-weight:600;text-align:left}
+  td[data-label="Acciones"]{flex-wrap:wrap;justify-content:flex-end}
+}
 </style>
 </head>
 <body>
 
 <div id="login-screen">
   <div class="login-box">
+    <button class="btn btn-sec btn-sm" id="theme-btn-login" onclick="toggleTema()" style="position:absolute;top:1rem;right:1rem">🌙</button>
     <h2>🔐 Panel de Administración</h2>
     <p>Portal B2B Kuranko — acceso solo para administrador</p>
     <div class="field"><label>Usuario</label><input type="text" id="adm-user" autocomplete="username"></div>
@@ -64,7 +91,10 @@ tr:hover td{background:#1e2235}
 <div id="app-screen" style="display:none">
   <div class="header">
     <div><h1>Panel de Administración</h1><div class="sub">Portal B2B Kuranko</div></div>
-    <button class="btn btn-sec btn-sm" onclick="logout()">Salir</button>
+    <div>
+      <button class="btn btn-sec btn-sm" id="theme-btn" onclick="toggleTema()">🌙</button>
+      <button class="btn btn-sec btn-sm" onclick="logout()">Salir</button>
+    </div>
   </div>
   <div class="wrap">
     <div class="tabs">
@@ -73,80 +103,92 @@ tr:hover td{background:#1e2235}
       <button class="tab" onclick="tab('crear',this)">Crear accesos</button>
     </div>
 
-    <!-- TAB USUARIOS -->
     <div id="tab-usuarios" class="panel active">
       <div class="card">
         <h3>Clientes con acceso al portal</h3>
-        <div class="desc">Aquí ves todos los que pueden entrar. Puedes activar/desactivar, resetear contraseña o cambiar su consignación.</div>
-        <input class="search" id="buscar-usuarios" placeholder="Buscar por nombre o RUC..." oninput="filtrarUsuarios()">
+        <div class="desc">Todos los que pueden entrar. Puedes activar/desactivar, resetear contraseña o cambiar su consignación.</div>
+        <input class="search" id="buscar-usuarios" placeholder="🔍 Buscar por nombre o RUC..." oninput="filtrarUsuarios()">
         <div id="usuarios-tabla"><div class="loading">Cargando...</div></div>
       </div>
     </div>
 
-    <!-- TAB VINCULAR -->
     <div id="tab-vincular" class="panel">
       <div class="card">
         <h3>Vincular cliente con su consignación</h3>
-        <div class="desc">Elige el cliente y la consignación por nombre. El sistema guarda el vínculo de forma segura por ID — tú solo eliges de las listas.</div>
+        <div class="desc">Busca el cliente y la consignación por nombre. El sistema guarda el vínculo de forma segura por ID — tú solo eliges de las listas.</div>
         <div class="vincular-row">
           <div class="field"><label>Cliente con acceso</label>
-            <select id="vinc-usuario"></select></div>
+            <div class="combo">
+              <input id="vinc-usuario-txt" class="search" style="margin:0" placeholder="Buscar cliente..." oninput="filtrarCombo('vinc-usuario',this.value)" onfocus="abrirCombo('vinc-usuario')" autocomplete="off">
+              <div class="combo-list" id="vinc-usuario-list"></div>
+            </div>
+          </div>
           <div class="field"><label>Su consignación</label>
-            <select id="vinc-location"></select></div>
+            <div class="combo">
+              <input id="vinc-location-txt" class="search" style="margin:0" placeholder="Buscar consignación..." oninput="filtrarCombo('vinc-location',this.value)" onfocus="abrirCombo('vinc-location')" autocomplete="off">
+              <div class="combo-list" id="vinc-location-list"></div>
+            </div>
+          </div>
           <button class="btn" onclick="guardarVinculo()">Vincular</button>
         </div>
       </div>
     </div>
 
-    <!-- TAB CREAR -->
     <div id="tab-crear" class="panel">
       <div class="card">
         <h3>Crear acceso a un cliente</h3>
-        <div class="desc">Elige un cliente de tu sistema. Su usuario será su RUC y su contraseña inicial también (luego él la cambia).</div>
+        <div class="desc">Busca un cliente de tu sistema por nombre o RUC. Su usuario será su RUC y su contraseña inicial también.</div>
         <div class="field"><label>Cliente</label>
-          <select id="crear-cliente"></select></div>
+          <div class="combo">
+            <input id="crear-cliente-txt" class="search" style="margin:0" placeholder="Buscar cliente..." oninput="filtrarCombo('crear-cliente',this.value)" onfocus="abrirCombo('crear-cliente')" autocomplete="off">
+            <div class="combo-list" id="crear-cliente-list"></div>
+          </div>
+        </div>
         <div class="field"><label>Consignación (opcional)</label>
-          <select id="crear-location"></select></div>
+          <div class="combo">
+            <input id="crear-location-txt" class="search" style="margin:0" placeholder="Buscar consignación..." oninput="filtrarCombo('crear-location',this.value)" onfocus="abrirCombo('crear-location')" autocomplete="off">
+            <div class="combo-list" id="crear-location-list"></div>
+          </div>
+        </div>
         <button class="btn" onclick="crearUno()">Crear acceso</button>
       </div>
       <div class="card">
         <h3>Crear acceso a TODOS de golpe</h3>
-        <div class="desc">Crea acceso para todos los clientes empresa que tengan ventas registradas. Los que ya tienen acceso se saltan. Después puedes vincular sus consignaciones en la otra pestaña.</div>
+        <div class="desc">Crea acceso para todos los clientes empresa que tengan ventas registradas. Los que ya tienen acceso se saltan. Después vinculas sus consignaciones en la otra pestaña.</div>
         <button class="btn btn-sec" onclick="crearTodos()">Crear todos los accesos</button>
         <div id="crear-todos-result" class="muted" style="margin-top:10px"></div>
       </div>
     </div>
-
   </div>
 </div>
 
 <div class="toast" id="toast"></div>
 
 <script>
-let TOKEN='', API='', usuariosCache=[], clientesCache=[], consignacionesCache=[];
+let TOKEN='',API='',usuariosCache=[],clientesCache=[],consignacionesCache=[];
+const sel={'vinc-usuario':null,'vinc-location':null,'crear-cliente':null,'crear-location':null};
 
-function showToast(msg,isErr){const t=document.getElementById('toast');t.textContent=msg;t.className='toast'+(isErr?' err':'');t.style.display='block';setTimeout(()=>t.style.display='none',3500);}
+// Tema
+function aplicarTema(t){document.documentElement.setAttribute('data-theme',t);localStorage.setItem('tema_admin',t);const ic=t==='light'?'☀️':'🌙';['theme-btn','theme-btn-login'].forEach(id=>{const b=document.getElementById(id);if(b)b.textContent=ic;});}
+function toggleTema(){const a=document.documentElement.getAttribute('data-theme')||'dark';aplicarTema(a==='light'?'dark':'light');}
+(function(){const g=localStorage.getItem('tema_admin');if(g)document.documentElement.setAttribute('data-theme',g);else{const c=window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches;document.documentElement.setAttribute('data-theme',c?'light':'dark');}})();
+
+function showToast(m,e){const t=document.getElementById('toast');t.textContent=m;t.className='toast'+(e?' err':'');t.style.display='block';setTimeout(()=>t.style.display='none',3500);}
 async function apiCall(ep,method='GET',body){
   const opt={method,headers:{'Authorization':'Bearer '+TOKEN}};
   if(body){opt.headers['Content-Type']='application/json';opt.body=JSON.stringify(body);}
   const r=await fetch(API+ep,opt);
   if(r.status===401){logout();throw new Error('Sesión expirada');}
-  const d=await r.json();
-  if(!r.ok)throw new Error(d.error||'Error');
-  return d;
+  const d=await r.json();if(!r.ok)throw new Error(d.error||'Error');return d;
 }
-
 async function loginAdmin(){
   const u=document.getElementById('adm-user').value.trim();
   const p=document.getElementById('adm-pass').value;
-  const e=document.getElementById('login-err');
-  e.style.display='none';
+  const e=document.getElementById('login-err');e.style.display='none';
   try{
     const r=await fetch(API+'/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({usuario:u,password:p})});
-    const d=await r.json();
-    if(!r.ok)throw new Error(d.error);
-    TOKEN=d.token;sessionStorage.setItem('admtoken',TOKEN);
-    mostrarApp();
+    const d=await r.json();if(!r.ok)throw new Error(d.error);
+    TOKEN=d.token;sessionStorage.setItem('admtoken',TOKEN);mostrarApp();
   }catch(err){e.textContent=err.message;e.style.display='block';}
 }
 function logout(){TOKEN='';sessionStorage.removeItem('admtoken');document.getElementById('app-screen').style.display='none';document.getElementById('login-screen').style.display='block';}
@@ -155,17 +197,13 @@ function tab(id,btn){document.querySelectorAll('.panel').forEach(p=>p.classList.
 async function mostrarApp(){
   document.getElementById('login-screen').style.display='none';
   document.getElementById('app-screen').style.display='block';
+  aplicarTema(document.documentElement.getAttribute('data-theme')||'dark');
   await Promise.all([cargarUsuarios(),cargarClientes(),cargarConsignaciones()]);
 }
 
 async function cargarUsuarios(){
-  try{
-    usuariosCache=await apiCall('/admin/usuarios');
-    renderUsuarios(usuariosCache);
-    // llenar selector de vincular
-    const sel=document.getElementById('vinc-usuario');
-    sel.innerHTML=usuariosCache.map(u=>`<option value="${u.id}">${u.nombre_cliente} (${u.username})</option>`).join('');
-  }catch(e){showToast(e.message,true);}
+  try{usuariosCache=await apiCall('/admin/usuarios');renderUsuarios(usuariosCache);}
+  catch(e){showToast(e.message,true);}
 }
 function filtrarUsuarios(){
   const q=document.getElementById('buscar-usuarios').value.toLowerCase();
@@ -179,11 +217,11 @@ function renderUsuarios(lista){
     lista.map(u=>{
       const loc=u.location_id?nombreLocation(u.location_id):null;
       return `<tr>
-        <td>${u.nombre_cliente}</td>
-        <td class="muted">${u.username}</td>
-        <td>${loc?loc:'<span class="badge badge-warn">sin asignar</span>'}</td>
-        <td>${u.activo?'<span class="badge badge-on">activo</span>':'<span class="badge badge-off">inactivo</span>'}</td>
-        <td>
+        <td data-label="Cliente">${u.nombre_cliente}</td>
+        <td data-label="RUC" class="muted">${u.username}</td>
+        <td data-label="Consignación">${loc?loc:'<span class="badge badge-warn">sin asignar</span>'}</td>
+        <td data-label="Estado">${u.activo?'<span class="badge badge-on">activo</span>':'<span class="badge badge-off">inactivo</span>'}</td>
+        <td data-label="Acciones">
           <button class="btn btn-sm btn-sec" onclick="resetPass(${u.id})">Reset clave</button>
           <button class="btn btn-sm ${u.activo?'btn-danger':'btn-ok'}" onclick="toggleActivo(${u.id},${u.activo?0:1})">${u.activo?'Desactivar':'Activar'}</button>
         </td></tr>`;
@@ -191,47 +229,59 @@ function renderUsuarios(lista){
 }
 
 async function cargarClientes(){
-  try{
-    clientesCache=await apiCall('/admin/clientes-produccion');
-    const sel=document.getElementById('crear-cliente');
-    sel.innerHTML=clientesCache.map(c=>`<option value="${c.customer_id}" data-ruc="${c.document_number||''}" data-nombre="${c.business_name}">${c.business_name}${c.document_number?' — '+c.document_number:''}${c.tiene_ventas?'':' (sin ventas)'}</option>`).join('');
-  }catch(e){showToast(e.message,true);}
+  try{clientesCache=await apiCall('/admin/clientes-produccion');}
+  catch(e){showToast(e.message,true);}
 }
 async function cargarConsignaciones(){
-  try{
-    consignacionesCache=await apiCall('/admin/consignaciones');
-    const opts='<option value="">— Sin consignación —</option>'+consignacionesCache.map(c=>`<option value="${c.location_id}">${c.name}</option>`).join('');
-    document.getElementById('vinc-location').innerHTML=opts;
-    document.getElementById('crear-location').innerHTML=opts;
-  }catch(e){showToast(e.message,true);}
+  try{consignacionesCache=await apiCall('/admin/consignaciones');}
+  catch(e){showToast(e.message,true);}
 }
 
+// ── Combos con búsqueda ──
+function datosCombo(key){
+  if(key==='vinc-usuario')return usuariosCache.map(u=>({id:u.id,label:u.nombre_cliente,sub:u.username}));
+  if(key==='vinc-location'||key==='crear-location')return [{id:'',label:'— Sin consignación —',sub:''}].concat(consignacionesCache.map(c=>({id:c.location_id,label:c.name,sub:''})));
+  if(key==='crear-cliente')return clientesCache.map(c=>({id:c.customer_id,label:c.business_name,sub:(c.document_number||'sin RUC')+(c.tiene_ventas?'':' · sin ventas'),ruc:c.document_number,nombre:c.business_name}));
+  return [];
+}
+function abrirCombo(key){filtrarCombo(key,document.getElementById(key+'-txt').value);}
+function filtrarCombo(key,q){
+  q=(q||'').toLowerCase();
+  const items=datosCombo(key).filter(x=>x.label.toLowerCase().includes(q)||(x.sub||'').toLowerCase().includes(q)).slice(0,50);
+  const list=document.getElementById(key+'-list');
+  list.innerHTML=items.map(x=>`<div class="combo-item" onclick='elegirCombo("${key}",${JSON.stringify(x).replace(/'/g,"&#39;")})'>${x.label}${x.sub?' <span class="ruc">'+x.sub+'</span>':''}</div>`).join('')||'<div class="combo-item muted">Sin resultados</div>';
+  list.classList.add('show');
+}
+function elegirCombo(key,obj){
+  sel[key]=obj;
+  document.getElementById(key+'-txt').value=obj.label;
+  document.getElementById(key+'-list').classList.remove('show');
+}
+document.addEventListener('click',e=>{
+  if(!e.target.closest('.combo'))document.querySelectorAll('.combo-list').forEach(l=>l.classList.remove('show'));
+});
+
 async function guardarVinculo(){
-  const portal_user_id=document.getElementById('vinc-usuario').value;
-  const location_id=document.getElementById('vinc-location').value;
-  try{await apiCall('/admin/vincular','POST',{portal_user_id,location_id});showToast('Vínculo guardado ✓');cargarUsuarios();}
+  if(!sel['vinc-usuario']){showToast('Elige un cliente',true);return;}
+  try{await apiCall('/admin/vincular','POST',{portal_user_id:sel['vinc-usuario'].id,location_id:sel['vinc-location']?sel['vinc-location'].id:''});
+    showToast('Vínculo guardado ✓');cargarUsuarios();}
   catch(e){showToast(e.message,true);}
 }
 async function crearUno(){
-  const sel=document.getElementById('crear-cliente');
-  const opt=sel.options[sel.selectedIndex];
-  const ruc=opt.dataset.ruc,nombre=opt.dataset.nombre,customer_id=sel.value;
-  const location_id=document.getElementById('crear-location').value;
-  if(!ruc){showToast('Ese cliente no tiene RUC, no se puede crear acceso',true);return;}
+  const c=sel['crear-cliente'];
+  if(!c){showToast('Elige un cliente',true);return;}
+  if(!c.ruc){showToast('Ese cliente no tiene RUC, no se puede crear acceso',true);return;}
   try{
-    const r=await apiCall('/admin/usuario','POST',{username:ruc,customer_id,location_id,nombre_cliente:nombre});
-    showToast('Acceso creado ✓ Usuario y clave: '+r.password_inicial);
-    cargarUsuarios();
+    const r=await apiCall('/admin/usuario','POST',{username:c.ruc,customer_id:c.id,location_id:sel['crear-location']?sel['crear-location'].id:'',nombre_cliente:c.nombre});
+    showToast('Acceso creado ✓ Usuario y clave: '+r.password_inicial);cargarUsuarios();
   }catch(e){showToast(e.message,true);}
 }
 async function crearTodos(){
   if(!confirm('¿Crear acceso para todos los clientes empresa con ventas?'))return;
   document.getElementById('crear-todos-result').textContent='Creando...';
-  try{
-    const r=await apiCall('/admin/crear-todos','POST',{});
-    document.getElementById('crear-todos-result').textContent=`✓ ${r.creados} creados, ${r.saltados} ya existían (de ${r.total} clientes).`;
-    cargarUsuarios();
-  }catch(e){showToast(e.message,true);}
+  try{const r=await apiCall('/admin/crear-todos','POST',{});
+    document.getElementById('crear-todos-result').textContent=`✓ ${r.creados} creados, ${r.saltados} ya existían (de ${r.total} clientes).`;cargarUsuarios();}
+  catch(e){showToast(e.message,true);}
 }
 async function resetPass(id){
   if(!confirm('¿Resetear la contraseña de este cliente a su RUC?'))return;
@@ -243,10 +293,10 @@ async function toggleActivo(id,activo){
   catch(e){showToast(e.message,true);}
 }
 
-// init
 API=window.location.origin;
 const saved=sessionStorage.getItem('admtoken');
 if(saved){TOKEN=saved;mostrarApp();}
+aplicarTema(document.documentElement.getAttribute('data-theme')||'dark');
 document.getElementById('adm-pass').addEventListener('keypress',e=>{if(e.key==='Enter')loginAdmin();});
 </script>
 </body>

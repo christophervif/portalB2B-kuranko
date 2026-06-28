@@ -12,12 +12,14 @@
   --border:#1f2a55;--border2:#162043;--text:#eef1f8;--text2:#c2cae0;--muted:#7681a6;--muted2:#9aa4c4;
   --accent:#FFB30D;--accent-text:#000726;--accent-h:#e6a00c;--hover:#152050;--white:#ffffff;
   --bg-ok:#0f3d24;--fg-ok:#4ade80;--bg-warn:#3d2f08;--fg-warn:#FFB30D;--bg-r:#4a1414;--fg-r:#f87171;--bg-in:#13265e;--fg-in:#8ab0f5;
+  --cal-filter:invert(1);
 }
 [data-theme="light"]{
   --bg:#f3f5fb;--surface:#ffffff;--surface2:#f9fafe;--surface3:#eef1f9;
   --border:#dce2f0;--border2:#e8edf6;--text:#000726;--text2:#2a3661;--muted:#8b96b8;--muted2:#5a6690;
   --accent:#FFB30D;--accent-text:#000726;--accent-h:#e6a00c;--hover:#eef1f9;--white:#000726;
   --bg-ok:#dcfce7;--fg-ok:#15803d;--bg-warn:#fef3c7;--fg-warn:#a06a00;--bg-r:#fee2e2;--fg-r:#dc2626;--bg-in:#dbeafe;--fg-in:#1d4ed8;
+  --cal-filter:none;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;-webkit-text-size-adjust:100%;transition:background .2s,color .2s}
@@ -51,9 +53,14 @@ body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min
 .card-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:8px}
 .card h3{font-size:13px;font-weight:600}
 .filtros{display:grid;grid-template-columns:2fr 1.2fr auto auto;gap:8px;margin-bottom:1rem;align-items:end}
-.filtros input,.filtros select{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:9px 10px;font-size:14px;max-width:100%;width:100%}
+.filtros input,.filtros select{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:9px 10px;font-size:14px;max-width:100%;width:100%;min-height:40px;-webkit-appearance:none;appearance:none}
+.filtros input[type="date"]{position:relative}
+.filtros input[type="date"]::-webkit-date-and-time-value{text-align:left;color:var(--text)}
+.filtros input[type="date"]::-webkit-calendar-picker-indicator{filter:var(--cal-filter);opacity:.6}
+.filtros input[type="date"]:not(.tiene-valor)::before{content:"dd/mm/aaaa";color:var(--muted);position:absolute;left:10px}
+.filtros input[type="date"]:focus::before{content:none}
 .filtro-fecha{display:flex;flex-direction:column;font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:600;gap:3px}
-.filtro-fecha input{font-size:13px;padding:7px 8px;min-width:0;width:140px}
+.filtro-fecha input{font-size:14px;padding:8px;min-width:0;width:150px}
 @media(max-width:700px){.filtros{grid-template-columns:1fr 1fr}.filtro-fecha input{width:100%}}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th{text-align:left;padding:8px;color:var(--muted2);font-weight:500;font-size:11px;border-bottom:1px solid var(--border);text-transform:uppercase}
@@ -86,7 +93,8 @@ tbody tr.clickable:hover td{background:var(--hover)}
 .wa-float{position:fixed;bottom:20px;right:20px;background:#25D366;width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,0,0,.4);cursor:pointer;z-index:90;text-decoration:none}
 .wa-float svg{width:30px;height:30px;fill:#fff}
 .stepper{display:flex;align-items:center;gap:10px}
-.stepper button{width:34px;height:34px;border-radius:8px;border:1px solid var(--border);background:var(--surface3);color:#fff;cursor:pointer;font-size:18px;line-height:1}
+.stepper button{width:36px;height:36px;border-radius:8px;border:1px solid var(--border);background:var(--surface3);color:var(--text);cursor:pointer;font-size:20px;line-height:1;font-weight:600;display:flex;align-items:center;justify-content:center}
+.stepper button:hover{background:var(--accent);color:var(--accent-text);border-color:var(--accent)}
 .stepper button:active{background:var(--border)}
 .stepper span{min-width:30px;text-align:center;font-weight:600;font-size:15px}
 .mov-item{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--surface3);font-size:13px}
@@ -172,8 +180,8 @@ tbody tr.clickable:hover td{background:var(--hover)}
             <option value="confirmed">Confirmadas</option>
             <option value="pending_payment">Pendientes</option>
           </select>
-          <label class="filtro-fecha">Desde<input type="date" id="f-desde" onchange="renderVentas()"></label>
-          <label class="filtro-fecha">Hasta<input type="date" id="f-hasta" onchange="renderVentas()"></label>
+          <label class="filtro-fecha">Desde<input type="date" id="f-desde" onchange="this.classList.toggle('tiene-valor',!!this.value);renderVentas()"></label>
+          <label class="filtro-fecha">Hasta<input type="date" id="f-hasta" onchange="this.classList.toggle('tiene-valor',!!this.value);renderVentas()"></label>
         </div>
         <div id="ventas-tabla"><div class="loading">Cargando...</div></div>
       </div>

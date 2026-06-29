@@ -417,7 +417,50 @@ app.post('/admin/crear-todos', authAdmin, async (req, res) => {
 // Lee del ERP en SOLO LECTURA. No modifica nada. Genera el Excel al momento.
 app.get('/admin/reporte-sync', authAdmin, async (req, res) => {
   try {
-    // PESTAÑA 1 — Pendientes: productos SIN woocommerce_id (crear en WooCommerce)
+    // Última corrida del puente (desde la tabla de control en la base del portal)
+    let ultimaCorrida = null;
+    try {
+      const [[c]] = await portalPool.query(
+        `SELECT corrio_en, productos_actualizados, productos_error, modo
+         FROM sync_corridas ORDER BY id DESC LIMIT 1`);
+      if (c) ultimaCorrida = c;
+    } catch (e) { /* la tabla puede no existir aún si el puente no ha corrido */ }
+
+    // Valores actualizados en la última corrida (lo que el puente escribió en WooCommerce)
+    let actualizados = [];
+    if (ultimaCorrida) {
+      try {
+        const [rows] = await portalPool.query(
+          `SELECT se.woocommerce_id, se.ultimo_stock, se.ultimo_precio, se.actualizado_en
+           FROM sync_estado se
+           WHERE se.actualizado_en >= ?
+           ORDER BY se.actualizado_en DESC`, [ultimaCorrida.corrio_en]);
+        actualizados = rows;
+      } catch (e) { /* sin memoria aún */ }
+    }
+    // Enriquecer con SKU y nombre desde el ERP (si hay actualizados)
+    let actInfo = [];
+    if (actualizados.length) {
+      const ids = actualizados.map(a => a.woocommerce_id).filter(Boolean);
+      if (ids.length) {
+        const [info] = await prodPool.query(
+          `SELECT pv.woocommerce_id, pv.sku, pv.name AS nombre
+           FROM product_variations pv
+           WHERE pv.woocommerce_id IN (?)`, [ids]);
+        const mapa = {};
+        info.forEach(i => { mapa[i.woocommerce_id] = i; });
+        actInfo = actualizados.map(a => ({
+          wc: a.woocommerce_id,
+          sku: mapa[a.woocommerce_id] ? mapa[a.woocommerce_id].sku : '',
+          nombre: mapa[a.woocommerce_id] ? mapa[a.woocommerce_id].nombre : '',
+          stock: a.ultimo_stock,
+          precio: a.ultimo_precio,
+          cuando: a.actualizado_en
+        }));
+      }
+    }
+
+    // PESTAÑA — Pendientes: productos SIN woocommerce_id (crear en WooCommerce)
     const [pendientes] = await prodPool.query(
       `SELECT pv.sku, pv.product_type, pv.name AS nombre,
               pv.regular_price,
@@ -431,8 +474,7 @@ app.get('/admin/reporte-sync', authAdmin, async (req, res) => {
        GROUP BY pv.id, pv.sku, pv.product_type, pv.name, pv.regular_price
        ORDER BY pv.name, pv.sku`);
 
-    // PESTAÑA 2 — Alertas: SOLO productos publicados (status='active') con algo erróneo.
-    // Erróneo = stock negativo, o sin precio (NULL o 0), o precio negativo.
+    // PESTAÑA — Alertas: productos publicados (active) con datos erróneos
     const [alertasRaw] = await prodPool.query(
       `SELECT pv.woocommerce_id, pv.sku, pv.name AS nombre,
               pv.regular_price,
@@ -449,7 +491,6 @@ app.get('/admin/reporte-sync', authAdmin, async (req, res) => {
            OR pv.regular_price IS NULL
            OR pv.regular_price <= 0`);
 
-    // Construir la observación de cada alerta
     const alertas = alertasRaw.map(a => {
       const obs = [];
       if (a.stock < 0) obs.push(`Stock negativo (${a.stock})`);
@@ -458,6 +499,21 @@ app.get('/admin/reporte-sync', authAdmin, async (req, res) => {
       else if (Number(a.regular_price) < 0) obs.push(`Precio negativo (${a.regular_price})`);
       return { ...a, observacion: obs.join(' · ') };
     });
+
+    // PESTAÑA — Con stock pero NO activos (mercadería que no se vende en la web)
+    const NOM_ESTADO = { draft: 'borrador', discontinued: 'descontinuado', active: 'activo' };
+    const [stockNoActivo] = await prodPool.query(
+      `SELECT pv.woocommerce_id, pv.sku, pv.name AS nombre, pv.status,
+              COALESCE(SUM(ls.quantity),0) AS stock
+       FROM product_variations pv
+       JOIN products p ON p.id = pv.product_id
+       LEFT JOIN location_stocks ls ON ls.product_variation_id = pv.id
+       WHERE pv.product_type IN ('variation','simple')
+         AND pv.status <> 'active'
+         AND pv.deleted_at IS NULL
+       GROUP BY pv.id, pv.woocommerce_id, pv.sku, pv.name, pv.status
+       HAVING COALESCE(SUM(ls.quantity),0) > 0
+       ORDER BY stock DESC`);
 
     // Generar Excel con exceljs
     const ExcelJS = require('exceljs');
@@ -469,7 +525,45 @@ app.get('/admin/reporte-sync', authAdmin, async (req, res) => {
       row.alignment = { vertical: 'middle' };
     };
 
-    // Pestaña 1: Pendientes
+    // Texto de la última corrida
+    let textoCorrida;
+    if (ultimaCorrida) {
+      const f = new Date(ultimaCorrida.corrio_en).toLocaleString('es-PE', { timeZone: 'America/Lima' });
+      textoCorrida = `Última sincronización del puente: ${f}` +
+        ` (${ultimaCorrida.productos_actualizados} actualizados, ${ultimaCorrida.productos_error} con error` +
+        (ultimaCorrida.modo === 'simulacion' ? ', modo simulación' : '') + ')';
+    } else {
+      textoCorrida = 'Última sincronización del puente: aún no ha corrido.';
+    }
+    const textoReporte = `Reporte generado: ${new Date().toLocaleString('es-PE', { timeZone: 'America/Lima' })}`;
+
+    const ponerEncabezado = (ws, nCols) => {
+      ws.insertRow(1, [textoCorrida]);
+      ws.insertRow(2, [textoReporte]);
+      ws.mergeCells(1, 1, 1, nCols);
+      ws.mergeCells(2, 1, 2, nCols);
+      ws.getRow(1).font = { italic: true, color: { argb: 'FF555555' } };
+      ws.getRow(2).font = { italic: true, color: { argb: 'FF555555' } };
+    };
+
+    // Pestaña: Valores actualizados (lo que el puente escribió en la última corrida)
+    const wsA = wb.addWorksheet('Actualizados última corrida');
+    wsA.columns = [
+      { header: 'SKU', key: 'sku', width: 24 },
+      { header: 'WooCommerce ID', key: 'wc', width: 16 },
+      { header: 'Nombre', key: 'nombre', width: 50 },
+      { header: 'Stock aplicado', key: 'stock', width: 14 },
+      { header: 'Precio aplicado', key: 'precio', width: 14 }
+    ];
+    actInfo.forEach(a => wsA.addRow({
+      sku: a.sku, wc: a.wc, nombre: a.nombre || '',
+      stock: a.stock, precio: a.precio === null ? '' : Number(a.precio)
+    }));
+    ponerEncabezado(wsA, 5);
+    estiloHeader(wsA.getRow(3));
+    wsA.views = [{ state: 'frozen', ySplit: 3 }];
+
+    // Pestaña: Pendientes
     const ws1 = wb.addWorksheet('Pendientes');
     ws1.columns = [
       { header: 'SKU', key: 'sku', width: 24 },
@@ -478,14 +572,15 @@ app.get('/admin/reporte-sync', authAdmin, async (req, res) => {
       { header: 'Precio regular', key: 'precio', width: 16 },
       { header: 'Stock', key: 'stock', width: 10 }
     ];
-    estiloHeader(ws1.getRow(1));
     pendientes.forEach(p => ws1.addRow({
       sku: p.sku, tipo: p.product_type, nombre: p.nombre || '',
       precio: p.regular_price === null ? '' : Number(p.regular_price), stock: p.stock
     }));
-    ws1.views = [{ state: 'frozen', ySplit: 1 }];
+    ponerEncabezado(ws1, 5);
+    estiloHeader(ws1.getRow(3));
+    ws1.views = [{ state: 'frozen', ySplit: 3 }];
 
-    // Pestaña 2: Alertas
+    // Pestaña: Alertas
     const ws2 = wb.addWorksheet('Alertas');
     ws2.columns = [
       { header: 'SKU', key: 'sku', width: 24 },
@@ -493,11 +588,32 @@ app.get('/admin/reporte-sync', authAdmin, async (req, res) => {
       { header: 'Nombre', key: 'nombre', width: 50 },
       { header: 'Observación', key: 'obs', width: 34 }
     ];
-    estiloHeader(ws2.getRow(1));
     alertas.forEach(a => ws2.addRow({
       sku: a.sku, wc: a.woocommerce_id, nombre: a.nombre || '', obs: a.observacion
     }));
-    ws2.views = [{ state: 'frozen', ySplit: 1 }];
+    ponerEncabezado(ws2, 4);
+    estiloHeader(ws2.getRow(3));
+    ws2.views = [{ state: 'frozen', ySplit: 3 }];
+
+    // Pestaña: Con stock pero no activos
+    const ws3 = wb.addWorksheet('Con stock no publicados');
+    ws3.columns = [
+      { header: 'SKU', key: 'sku', width: 24 },
+      { header: 'WooCommerce ID', key: 'wc', width: 16 },
+      { header: 'Nombre', key: 'nombre', width: 50 },
+      { header: 'Stock', key: 'stock', width: 10 },
+      { header: 'Observación', key: 'obs', width: 40 }
+    ];
+    stockNoActivo.forEach(p => {
+      const est = NOM_ESTADO[p.status] || p.status;
+      ws3.addRow({
+        sku: p.sku, wc: p.woocommerce_id || '(sin ID)', nombre: p.nombre || '',
+        stock: p.stock, obs: `Tiene ${p.stock} en stock pero está en '${est}' (no publicado)`
+      });
+    });
+    ponerEncabezado(ws3, 5);
+    estiloHeader(ws3.getRow(3));
+    ws3.views = [{ state: 'frozen', ySplit: 3 }];
 
     const fecha = new Date().toISOString().slice(0, 10);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');

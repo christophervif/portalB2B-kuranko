@@ -26,6 +26,21 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD; // contraseña admin (variabl
 const VENTAS_VALIDAS = "('paid','confirmed','pending_payment')";
 
 // ════════════════════════════════════════════════════════════════════════════
+// HELPERS
+// ════════════════════════════════════════════════════════════════════════════
+
+// Devuelve el correo de empresa registrado en el ERP, o null si no tiene.
+// Lee de producción en SOLO LECTURA. Si la columna en tu ERP no es
+// `parties.email`, cámbiala únicamente aquí (ej: email_address).
+async function correoEmpresa(customerId) {
+  try {
+    const [[p]] = await prodPool.query(
+      'SELECT email FROM parties WHERE id=? LIMIT 1', [customerId]);
+    return (p && p.email && p.email.trim()) ? p.email.trim() : null;
+  } catch (e) { return null; }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // AUTENTICACIÓN
 // ════════════════════════════════════════════════════════════════════════════
 
@@ -88,8 +103,10 @@ app.get('/portal/saldo', authCliente, async (req, res) => {
        JOIN sales s ON s.id=sp.sale_id WHERE s.customer_id=? AND sp.voided_at IS NULL
        AND s.deleted_at IS NULL AND s.status IN ${VENTAS_VALIDAS}`, [req.cliente.customer_id]);
     const vendido = parseFloat(v.total_vendido), pagado = parseFloat(p.total_pagado);
+    const emailEmpresa = await correoEmpresa(req.cliente.customer_id);
     res.json({ nombre: req.cliente.nombre, ruc: req.cliente.ruc, num_ventas: v.num_ventas,
-      total_vendido: vendido, total_pagado: pagado, por_cobrar: Math.max(0, vendido - pagado) });
+      total_vendido: vendido, total_pagado: pagado, por_cobrar: Math.max(0, vendido - pagado),
+      email_empresa: emailEmpresa });
   } catch (e) { res.status(500).json({ error: 'Error al consultar saldo' }); }
 });
 
@@ -498,10 +515,18 @@ app.post('/portal/reportar-venta', authCliente, async (req, res) => {
 
   const lineas = items.map(i => `• ${i.cantidad} x ${i.producto}${i.sku ? ' ('+i.sku+')' : ''}`).join('\n');
   const fecha = new Date().toLocaleString('es-PE', { timeZone: 'America/Lima' });
+
+  // Correo de empresa: si no está registrado, avisamos al equipo en el cuerpo
+  const emailEmpresa = await correoEmpresa(req.cliente.customer_id);
+  const lineaCorreo = emailEmpresa
+    ? `Correo de empresa: ${emailEmpresa}\n`
+    : `Correo de empresa: ⚠ NO REGISTRADO — falta registrar el correo de este cliente en el sistema.\n`;
+
   const cuerpo =
     `Reporte de venta de consignación\n\n` +
     `Cliente: ${req.cliente.nombre}\n` +
     `RUC/DNI: ${req.cliente.ruc || '-'}\n` +
+    lineaCorreo +
     `Fecha: ${fecha}\n\n` +
     `Productos vendidos reportados:\n${lineas}\n\n` +
     `(El distribuidor reporta desde el portal. Registrar manualmente en el sistema.)`;
@@ -510,23 +535,29 @@ app.post('/portal/reportar-venta', authCliente, async (req, res) => {
   let correoOk = false;
   if (process.env.RESEND_API_KEY) {
     try {
+      const payload = {
+        from: process.env.RESEND_FROM || 'Portal Kuranko <noreply@kuranko.pe>',
+        to: (process.env.VENTAS_EMAIL || 'ventas@kuranko.pe').split(',').map(s => s.trim()),
+        reply_to: 'ventas@kuranko.pe',
+        subject: `Reporte de venta consignación — ${req.cliente.nombre}`,
+        text: cuerpo
+      };
+      // Copia oculta al cliente solo si tiene correo registrado
+      if (emailEmpresa) payload.bcc = emailEmpresa;
+
       const r = await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          from: process.env.RESEND_FROM || 'Portal Kuranko <onboarding@resend.dev>',
-          to: process.env.VENTAS_EMAIL || 'ventas@kuranko.pe',
-          subject: `Reporte de venta consignación — ${req.cliente.nombre}`,
-          text: cuerpo
-        })
+        body: JSON.stringify(payload)
       });
+      if (!r.ok) console.error('Resend falló:', r.status, await r.text());
       correoOk = r.ok;
     } catch (e) { correoOk = false; }
   }
-  res.json({ ok: true, correo_enviado: correoOk });
+  res.json({ ok: true, correo_enviado: correoOk, copia_cliente: !!emailEmpresa, falta_correo: !emailEmpresa });
 });
 
 // ─── Health ──────────────────────────────────────────────────────────────────

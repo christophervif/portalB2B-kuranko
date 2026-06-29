@@ -313,9 +313,15 @@ async function mostrarApp(){
 async function cargarSaldo(){
   try{
     const s=await apiCall('/portal/saldo');
-    document.getElementById('cli-nombre').textContent=s.nombre;
+    // Header: nombre + RUC + correo de empresa (con aviso si no está registrado)
+    const correoTxt = s.email_empresa
+      ? s.email_empresa
+      : '<span style="color:var(--fg-warn)">⚠ sin correo registrado</span>';
+    document.getElementById('cli-nombre').innerHTML =
+      `${s.nombre}<br><span style="font-size:11px">RUC: ${s.ruc||'-'} · ${correoTxt}</span>`;
     window._nombreCliente=s.nombre;
     window._ruc=s.ruc||window._ruc||'';
+    window._emailEmpresa=s.email_empresa||'';
     document.getElementById('kpis').innerHTML=[
       {l:'Total comprado',v:fmt(s.total_vendido),a:1},
       {l:'Total pagado',v:fmt(s.total_pagado)},

@@ -497,8 +497,27 @@ app.get('/admin/reporte-sync', authAdmin, async (req, res) => {
       if (a.regular_price === null) obs.push('Sin precio regular');
       else if (Number(a.regular_price) === 0) obs.push('Precio en 0');
       else if (Number(a.regular_price) < 0) obs.push(`Precio negativo (${a.regular_price})`);
-      return { ...a, observacion: obs.join(' · ') };
+      return {
+        tipo: 'Dato erróneo',
+        sku: a.sku, wc: a.woocommerce_id, nombre: a.nombre || '',
+        observacion: obs.join(' · ')
+      };
     });
+
+    // Discrepancias de SKU detectadas por el puente (tabla en la base del portal)
+    let alertasSku = [];
+    try {
+      const [rows] = await portalPool.query(
+        `SELECT woocommerce_id, sku_erp, sku_woo FROM sync_sku_alertas ORDER BY sku_erp`);
+      alertasSku = rows.map(r => ({
+        tipo: 'SKU no coincide',
+        sku: r.sku_erp, wc: r.woocommerce_id, nombre: '',
+        observacion: `El SKU en la web es "${r.sku_woo}" pero en el ERP es "${r.sku_erp}" (no se actualizó)`
+      }));
+    } catch (e) { /* la tabla puede no existir aún */ }
+
+    // Unir todas las alertas en una sola lista
+    const todasAlertas = [...alertas, ...alertasSku];
 
     // PESTAÑA — Con stock pero NO activos (mercadería que no se vende en la web)
     const NOM_ESTADO = { draft: 'borrador', discontinued: 'descontinuado', active: 'activo' };
@@ -580,20 +599,24 @@ app.get('/admin/reporte-sync', authAdmin, async (req, res) => {
     estiloHeader(ws1.getRow(3));
     ws1.views = [{ state: 'frozen', ySplit: 3 }];
 
-    // Pestaña: Alertas
+    // Pestaña: Alertas (datos erróneos + SKU no coincide, con filtros)
     const ws2 = wb.addWorksheet('Alertas');
     ws2.columns = [
+      { header: 'Tipo de alerta', key: 'tipo', width: 18 },
       { header: 'SKU', key: 'sku', width: 24 },
       { header: 'WooCommerce ID', key: 'wc', width: 16 },
-      { header: 'Nombre', key: 'nombre', width: 50 },
-      { header: 'Observación', key: 'obs', width: 34 }
+      { header: 'Nombre', key: 'nombre', width: 40 },
+      { header: 'Observación', key: 'obs', width: 50 }
     ];
-    alertas.forEach(a => ws2.addRow({
-      sku: a.sku, wc: a.woocommerce_id, nombre: a.nombre || '', obs: a.observacion
+    todasAlertas.forEach(a => ws2.addRow({
+      tipo: a.tipo, sku: a.sku, wc: a.wc, nombre: a.nombre || '', obs: a.observacion
     }));
-    ponerEncabezado(ws2, 4);
+    ponerEncabezado(ws2, 5);
     estiloHeader(ws2.getRow(3));
     ws2.views = [{ state: 'frozen', ySplit: 3 }];
+    // Activar filtros en la fila de encabezados (fila 3)
+    const ultFila = ws2.rowCount;
+    ws2.autoFilter = { from: { row: 3, column: 1 }, to: { row: ultFila < 3 ? 3 : ultFila, column: 5 } };
 
     // Pestaña: Con stock pero no activos
     const ws3 = wb.addWorksheet('Con stock no publicados');
@@ -674,6 +697,55 @@ app.post('/portal/reportar-venta', authCliente, async (req, res) => {
     } catch (e) { correoOk = false; }
   }
   res.json({ ok: true, correo_enviado: correoOk, copia_cliente: !!emailEmpresa, falta_correo: !emailEmpresa });
+});
+
+// ─── Métodos de pago (el admin los edita, el cliente los ve) ─────────────────
+// Se guardan en la base del portal (no toca el ERP). Una sola fila de config.
+async function asegurarTablaPago() {
+  await portalPool.query(`
+    CREATE TABLE IF NOT EXISTS config_pago (
+      id INT PRIMARY KEY DEFAULT 1,
+      transferencia TEXT,
+      yape_plin TEXT,
+      tarjeta TEXT,
+      actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `);
+}
+
+// Cliente: leer métodos de pago (solo lectura)
+app.get('/portal/metodos-pago', authCliente, async (req, res) => {
+  try {
+    await asegurarTablaPago();
+    const [[cfg]] = await portalPool.query('SELECT transferencia, yape_plin, tarjeta FROM config_pago WHERE id=1');
+    res.json(cfg || { transferencia: '', yape_plin: '', tarjeta: '' });
+  } catch (e) { res.status(500).json({ error: 'Error al consultar métodos de pago' }); }
+});
+
+// Admin: leer métodos de pago (para el formulario de edición)
+app.get('/admin/metodos-pago', authAdmin, async (req, res) => {
+  try {
+    await asegurarTablaPago();
+    const [[cfg]] = await portalPool.query('SELECT transferencia, yape_plin, tarjeta FROM config_pago WHERE id=1');
+    res.json(cfg || { transferencia: '', yape_plin: '', tarjeta: '' });
+  } catch (e) { res.status(500).json({ error: 'Error al consultar configuración' }); }
+});
+
+// Admin: guardar métodos de pago
+app.post('/admin/metodos-pago', authAdmin, async (req, res) => {
+  const { transferencia, yape_plin, tarjeta } = req.body;
+  try {
+    await asegurarTablaPago();
+    await portalPool.query(
+      `INSERT INTO config_pago (id, transferencia, yape_plin, tarjeta)
+       VALUES (1, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         transferencia = VALUES(transferencia),
+         yape_plin = VALUES(yape_plin),
+         tarjeta = VALUES(tarjeta)`,
+      [transferencia || '', yape_plin || '', tarjeta || '']);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: 'Error al guardar: ' + e.message }); }
 });
 
 // ─── Health ──────────────────────────────────────────────────────────────────

@@ -72,9 +72,9 @@ tr:hover td{background:var(--hover)}
   td::before{content:attr(data-label);color:var(--muted);font-size:11px;text-transform:uppercase;font-weight:600;text-align:left}
   td[data-label="Acciones"]{flex-wrap:wrap;justify-content:flex-end}
 }
-.modulos-check{display:flex;flex-wrap:wrap;gap:10px 18px;margin:6px 0}
-.chk{display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;white-space:nowrap}
-.chk input{cursor:pointer}
+.modulos-check{display:flex;flex-wrap:wrap;gap:10px 20px;margin:8px 0}
+.chk{display:inline-flex;align-items:center;gap:7px;font-size:13px;cursor:pointer;white-space:nowrap}
+.chk input{cursor:pointer;margin:0;flex:none}
 .acc-row{border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:12px}
 .acc-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}
 .acc-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
@@ -219,10 +219,7 @@ tr:hover td{background:var(--hover)}
         <div class="desc">Crea usuarios para tu equipo y elige qué módulos (pestañas) puede ver cada uno. Solo tú (administrador maestro) puedes gestionar esto. La contraseña se guarda encriptada.</div>
         <div class="field"><label>Usuario</label><input id="acc-user" type="text" placeholder="ej. asistente1"></div>
         <div class="field"><label>Contraseña (mínimo 6 caracteres)</label><input id="acc-pass" type="text" placeholder="contraseña"></div>
-        <div class="field">
-          <label>Módulos que puede ver</label>
-          <div id="acc-modulos" class="modulos-check"></div>
-        </div>
+        <div class="desc" style="margin:4px 0 10px">Después de crear el usuario, marca abajo qué módulos puede ver.</div>
         <button class="btn" onclick="crearAcceso()">Crear usuario</button>
         <div id="acc-result" class="muted" style="margin-top:10px"></div>
       </div>
@@ -428,10 +425,6 @@ let accesosCache={modulos_disponibles:[],usuarios:[]};
 async function cargarAccesos(){
   try{
     accesosCache=await apiCall('/admin/accesos','GET');
-    // Pintar checkboxes de módulos en el formulario de creación
-    const cont=document.getElementById('acc-modulos');
-    cont.innerHTML=accesosCache.modulos_disponibles.map(m=>
-      `<label class="chk"><input type="checkbox" value="${m}"> ${NOMBRE_MODULO[m]||m}</label>`).join('');
     renderAccesos();
   }catch(e){document.getElementById('acc-lista').textContent=e.message;}
 }
@@ -458,14 +451,12 @@ function renderAccesos(){
 async function crearAcceso(){
   const username=document.getElementById('acc-user').value.trim();
   const password=document.getElementById('acc-pass').value;
-  const modulos=[...document.querySelectorAll('#acc-modulos input:checked')].map(c=>c.value);
   const res=document.getElementById('acc-result');
   if(!username||!password){res.textContent='';showToast('Usuario y contraseña son obligatorios',true);return;}
   try{
-    await apiCall('/admin/accesos/crear','POST',{username,password,modulos});
-    res.textContent='✓ Usuario creado.';
+    await apiCall('/admin/accesos/crear','POST',{username,password,modulos:[]});
+    res.textContent='✓ Usuario creado. Ahora marca abajo qué módulos puede ver y pulsa "Guardar módulos".';
     document.getElementById('acc-user').value='';document.getElementById('acc-pass').value='';
-    document.querySelectorAll('#acc-modulos input:checked').forEach(c=>c.checked=false);
     cargarAccesos();
   }catch(e){res.textContent='';showToast(e.message,true);}
 }

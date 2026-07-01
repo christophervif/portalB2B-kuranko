@@ -72,6 +72,15 @@ tr:hover td{background:var(--hover)}
   td::before{content:attr(data-label);color:var(--muted);font-size:11px;text-transform:uppercase;font-weight:600;text-align:left}
   td[data-label="Acciones"]{flex-wrap:wrap;justify-content:flex-end}
 }
+.modulos-check{display:flex;flex-wrap:wrap;gap:10px 18px;margin:6px 0}
+.chk{display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;white-space:nowrap}
+.chk input{cursor:pointer}
+.acc-row{border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:12px}
+.acc-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.acc-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.btn.small{padding:5px 10px;font-size:12px}
+.btn.danger{background:#b91c1c;color:#fff}
+.ok{color:#16a34a;font-size:12px;font-weight:600}
 </style>
 </head>
 <body>
@@ -103,6 +112,7 @@ tr:hover td{background:var(--hover)}
       <button class="tab" onclick="tab('crear',this)">Crear accesos</button>
       <button class="tab" onclick="tab('sync',this)">Sincronización web</button>
       <button class="tab" onclick="tab('pagos',this)">Métodos de pago</button>
+      <button class="tab" onclick="tab('accesos',this)">Control de accesos</button>
     </div>
 
     <div id="tab-usuarios" class="panel active">
@@ -202,6 +212,25 @@ tr:hover td{background:var(--hover)}
         <div id="pagos-result" class="muted" style="margin-top:10px"></div>
       </div>
     </div>
+
+    <div id="tab-accesos" class="panel">
+      <div class="card">
+        <h3>Crear usuario administrador</h3>
+        <div class="desc">Crea usuarios para tu equipo y elige qué módulos (pestañas) puede ver cada uno. Solo tú (administrador maestro) puedes gestionar esto. La contraseña se guarda encriptada.</div>
+        <div class="field"><label>Usuario</label><input id="acc-user" type="text" placeholder="ej. asistente1"></div>
+        <div class="field"><label>Contraseña (mínimo 6 caracteres)</label><input id="acc-pass" type="text" placeholder="contraseña"></div>
+        <div class="field">
+          <label>Módulos que puede ver</label>
+          <div id="acc-modulos" class="modulos-check"></div>
+        </div>
+        <button class="btn" onclick="crearAcceso()">Crear usuario</button>
+        <div id="acc-result" class="muted" style="margin-top:10px"></div>
+      </div>
+      <div class="card">
+        <h3>Usuarios administradores</h3>
+        <div id="acc-lista" class="muted">Cargando...</div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -209,6 +238,7 @@ tr:hover td{background:var(--hover)}
 
 <script>
 let TOKEN='',API='',usuariosCache=[],clientesCache=[],consignacionesCache=[];
+let ES_MAESTRO=false,MIS_MODULOS=[];
 const sel={'vinc-usuario':null,'vinc-location':null,'crear-cliente':null,'crear-location':null};
 
 // Tema
@@ -231,16 +261,47 @@ async function loginAdmin(){
   try{
     const r=await fetch(API+'/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({usuario:u,password:p})});
     const d=await r.json();if(!r.ok)throw new Error(d.error);
-    TOKEN=d.token;sessionStorage.setItem('admtoken',TOKEN);mostrarApp();
+    TOKEN=d.token;sessionStorage.setItem('admtoken',TOKEN);
+    ES_MAESTRO=!!d.maestro;MIS_MODULOS=Array.isArray(d.modulos)?d.modulos:[];
+    sessionStorage.setItem('admmaestro',ES_MAESTRO?'1':'0');
+    sessionStorage.setItem('admmodulos',MIS_MODULOS.join(','));
+    mostrarApp();
   }catch(err){e.textContent=err.message;e.style.display='block';}
 }
-function logout(){TOKEN='';sessionStorage.removeItem('admtoken');document.getElementById('app-screen').style.display='none';document.getElementById('login-screen').style.display='block';}
-function tab(id,btn){document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));document.getElementById('tab-'+id).classList.add('active');btn.classList.add('active');if(id==='sync')cargarEstadoActualizacion();if(id==='pagos')cargarMetodosPago();}
+function logout(){TOKEN='';ES_MAESTRO=false;MIS_MODULOS=[];sessionStorage.removeItem('admtoken');sessionStorage.removeItem('admmaestro');sessionStorage.removeItem('admmodulos');document.getElementById('app-screen').style.display='none';document.getElementById('login-screen').style.display='block';}
+function tab(id,btn){document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));document.getElementById('tab-'+id).classList.add('active');btn.classList.add('active');if(id==='sync')cargarEstadoActualizacion();if(id==='pagos')cargarMetodosPago();if(id==='accesos')cargarAccesos();}
+
+// Muestra u oculta las pestañas según los permisos del usuario que entró
+function aplicarPermisos(){
+  const botones=document.querySelectorAll('.tab');
+  let primeraVisible=null;
+  botones.forEach(b=>{
+    const m=(b.getAttribute('onclick')||'').match(/tab\('([^']+)'/);
+    if(!m)return;
+    const modulo=m[1];
+    let visible;
+    if(modulo==='accesos') visible=ES_MAESTRO;                 // solo el maestro
+    else if(ES_MAESTRO) visible=true;                          // maestro ve todo
+    else visible=MIS_MODULOS.includes(modulo);                // secundario: según permisos
+    b.style.display=visible?'':'none';
+    b.classList.remove('active');
+    if(visible&&!primeraVisible)primeraVisible=b;
+  });
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  // Abrir la primera pestaña visible
+  if(primeraVisible){
+    const m=primeraVisible.getAttribute('onclick').match(/tab\('([^']+)'/)[1];
+    document.getElementById('tab-'+m).classList.add('active');
+    primeraVisible.classList.add('active');
+    if(m==='sync')cargarEstadoActualizacion();if(m==='pagos')cargarMetodosPago();if(m==='accesos')cargarAccesos();
+  }
+}
 
 async function mostrarApp(){
   document.getElementById('login-screen').style.display='none';
   document.getElementById('app-screen').style.display='block';
   aplicarTema(document.documentElement.getAttribute('data-theme')||'dark');
+  aplicarPermisos();
   await Promise.all([cargarUsuarios(),cargarClientes(),cargarConsignaciones()]);
 }
 
@@ -361,6 +422,68 @@ async function cargarEstadoActualizacion(){
     }
   }catch(e){}
 }
+// Nombres legibles de los módulos
+const NOMBRE_MODULO={usuarios:'Clientes con acceso',vincular:'Vincular consignación',crear:'Crear accesos',sync:'Sincronización web',pagos:'Métodos de pago'};
+let accesosCache={modulos_disponibles:[],usuarios:[]};
+async function cargarAccesos(){
+  try{
+    accesosCache=await apiCall('/admin/accesos','GET');
+    // Pintar checkboxes de módulos en el formulario de creación
+    const cont=document.getElementById('acc-modulos');
+    cont.innerHTML=accesosCache.modulos_disponibles.map(m=>
+      `<label class="chk"><input type="checkbox" value="${m}"> ${NOMBRE_MODULO[m]||m}</label>`).join('');
+    renderAccesos();
+  }catch(e){document.getElementById('acc-lista').textContent=e.message;}
+}
+function renderAccesos(){
+  const cont=document.getElementById('acc-lista');
+  if(!accesosCache.usuarios.length){cont.innerHTML='<div class="muted">Aún no hay usuarios administradores creados.</div>';return;}
+  cont.innerHTML=accesosCache.usuarios.map(u=>{
+    const checks=accesosCache.modulos_disponibles.map(m=>
+      `<label class="chk"><input type="checkbox" data-uid="${u.id}" value="${m}" ${u.modulos.includes(m)?'checked':''}> ${NOMBRE_MODULO[m]||m}</label>`).join('');
+    return `<div class="acc-row">
+      <div class="acc-head">
+        <b>${u.username}</b>
+        <span class="${u.activo?'ok':'muted'}">${u.activo?'activo':'desactivado'}</span>
+      </div>
+      <div class="modulos-check">${checks}</div>
+      <div class="acc-actions">
+        <button class="btn small" onclick="guardarModulos(${u.id})">Guardar módulos</button>
+        <button class="btn small" onclick="resetPassAcc(${u.id},'${u.username}')">Cambiar contraseña</button>
+        <button class="btn small ${u.activo?'danger':''}" onclick="toggleAcc(${u.id},${u.activo?0:1})">${u.activo?'Desactivar':'Activar'}</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+async function crearAcceso(){
+  const username=document.getElementById('acc-user').value.trim();
+  const password=document.getElementById('acc-pass').value;
+  const modulos=[...document.querySelectorAll('#acc-modulos input:checked')].map(c=>c.value);
+  const res=document.getElementById('acc-result');
+  if(!username||!password){res.textContent='';showToast('Usuario y contraseña son obligatorios',true);return;}
+  try{
+    await apiCall('/admin/accesos/crear','POST',{username,password,modulos});
+    res.textContent='✓ Usuario creado.';
+    document.getElementById('acc-user').value='';document.getElementById('acc-pass').value='';
+    document.querySelectorAll('#acc-modulos input:checked').forEach(c=>c.checked=false);
+    cargarAccesos();
+  }catch(e){res.textContent='';showToast(e.message,true);}
+}
+async function guardarModulos(id){
+  const modulos=[...document.querySelectorAll(`#acc-lista input[data-uid="${id}"]:checked`)].map(c=>c.value);
+  try{await apiCall('/admin/accesos/modulos','POST',{id,modulos});showToast('Módulos actualizados');cargarAccesos();}
+  catch(e){showToast(e.message,true);}
+}
+async function toggleAcc(id,activo){
+  try{await apiCall('/admin/accesos/activar','POST',{id,activo});cargarAccesos();}
+  catch(e){showToast(e.message,true);}
+}
+async function resetPassAcc(id,username){
+  const password=prompt('Nueva contraseña para '+username+' (mínimo 6 caracteres):');
+  if(!password)return;
+  try{await apiCall('/admin/accesos/password','POST',{id,password});showToast('Contraseña actualizada');}
+  catch(e){showToast(e.message,true);}
+}
 async function resetPass(id){
   if(!confirm('¿Resetear la contraseña de este cliente a su RUC?'))return;
   try{const r=await apiCall('/admin/reset-password','POST',{portal_user_id:id});showToast('Clave reiniciada a: '+r.password);}
@@ -393,7 +516,7 @@ async function toggleActivo(id,activo){
 
 API=window.location.origin;
 const saved=sessionStorage.getItem('admtoken');
-if(saved){TOKEN=saved;mostrarApp();}
+if(saved){TOKEN=saved;ES_MAESTRO=sessionStorage.getItem('admmaestro')==='1';MIS_MODULOS=(sessionStorage.getItem('admmodulos')||'').split(',').filter(Boolean);mostrarApp();}
 aplicarTema(document.documentElement.getAttribute('data-theme')||'dark');
 document.getElementById('adm-pass').addEventListener('keypress',e=>{if(e.key==='Enter')loginAdmin();});
 </script>

@@ -338,7 +338,6 @@ app.post('/admin/login', async (req, res) => {
       return res.json({ token, maestro: true, modulos: MODULOS_ADMIN });
     }
     // 2) ¿Es un admin secundario de la tabla?
-    await asegurarTablaAdmins();
     const [[u]] = await portalPool.query(
       'SELECT id, username, password_hash, modulos, activo FROM admin_users WHERE username = ? LIMIT 1',
       [usuario.trim()]);
@@ -1071,4 +1070,12 @@ app.post('/admin/metodos-pago', authAdmin, requiereModulo('pagos'), async (req, 
 app.get('/health', (req, res) => res.json({ ok: true, servicio: 'portal-b2b' }));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Portal B2B en puerto ${PORT}`));
+app.listen(PORT, async () => {
+  console.log(`Portal B2B en puerto ${PORT}`);
+  // Preparar tablas una vez al arrancar (evita que el primer login pague la espera)
+  try {
+    await asegurarTablaAdmins();
+    await asegurarTablaPago();
+    console.log('Tablas del portal listas.');
+  } catch (e) { console.error('No se pudieron preparar las tablas al arrancar:', e.message); }
+});

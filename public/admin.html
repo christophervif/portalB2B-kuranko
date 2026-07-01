@@ -102,6 +102,7 @@ tr:hover td{background:var(--hover)}
       <button class="tab" onclick="tab('vincular',this)">Vincular consignación</button>
       <button class="tab" onclick="tab('crear',this)">Crear accesos</button>
       <button class="tab" onclick="tab('sync',this)">Sincronización web</button>
+      <button class="tab" onclick="tab('pagos',this)">Métodos de pago</button>
     </div>
 
     <div id="tab-usuarios" class="panel active">
@@ -164,11 +165,41 @@ tr:hover td{background:var(--hover)}
     <div id="tab-sync" class="panel">
       <div class="card">
         <h3>Reporte de sincronización con la web</h3>
-        <div class="desc">Descarga el estado actual de la sincronización ERP → kuranko.pe en Excel. Se genera al momento (datos más recientes) y no se almacena. Tiene dos pestañas:<br>
+        <div class="desc">Descarga el estado actual de la sincronización ERP → kuranko.pe en Excel. Se genera al momento (datos más recientes) y no se almacena. Tiene cinco pestañas:<br>
+        <b>Variaciones:</b> productos que cambiaron de stock o precio en la última corrida.<br>
         <b>Pendientes:</b> productos del ERP sin ID de WooCommerce (debes crearlos en la web).<br>
-        <b>Alertas:</b> productos publicados con algún dato erróneo (stock negativo, sin precio o precio en 0), con la observación de cada caso.</div>
+        <b>Alertas del sistema:</b> problemas detectados en el ERP (sin precio/imagen/descripción con stock, descontinuados con stock, SKU duplicado, oferta mal puesta, margen bajo vs costo, etc.).<br>
+        <b>Alertas de vinculación:</b> productos cuyo SKU no coincide con la web.<br>
+        <b>Actualizados en WooCommerce:</b> los que efectivamente se aplicaron en la web.</div>
         <button class="btn" onclick="descargarReporteSync()">Descargar reporte (Excel)</button>
         <div id="sync-result" class="muted" style="margin-top:10px"></div>
+      </div>
+      <div class="card">
+        <h3>Actualización completa manual</h3>
+        <div class="desc">Normalmente el puente solo actualiza lo que cambió. Si necesitas forzar una revisión de <b>todos</b> los productos (por ejemplo, tras cambios masivos en el ERP), solicítala aquí. <b>No se ejecuta al instante:</b> se aplicará en la próxima sincronización automática de las 2 AM (hora Perú), para no sobrecargar la web. Igual valida que coincidan WooCommerce ID y SKU.</div>
+        <button class="btn" onclick="solicitarActualizacion()">Solicitar actualización completa</button>
+        <div id="solicitud-result" class="muted" style="margin-top:10px"></div>
+      </div>
+    </div>
+
+    <div id="tab-pagos" class="panel">
+      <div class="card">
+        <h3>Métodos de pago que ven los clientes</h3>
+        <div class="desc">Lo que escribas aquí es lo que verán tus clientes al tocar "¿Cómo pagar?" en su portal. Puedes incluir saltos de línea. Deja un campo vacío si no quieres mostrar ese método.</div>
+        <div class="field">
+          <label>Transferencia / Depósito</label>
+          <textarea id="pago-transferencia" rows="4" placeholder="Ej:&#10;Banco BCP - Cuenta Corriente Soles&#10;N° 123-4567890-1-23&#10;CCI: 002-123-004567890123-45&#10;Titular: Diseños Corporativos SAC&#10;RUC: 20514359661"></textarea>
+        </div>
+        <div class="field">
+          <label>Yape / Plin</label>
+          <textarea id="pago-yape" rows="3" placeholder="Ej:&#10;Yape: 999 888 777 (Christopher Villasante)&#10;Plin: 999 888 777"></textarea>
+        </div>
+        <div class="field">
+          <label>Tarjeta (Izipay)</label>
+          <textarea id="pago-tarjeta" rows="3" placeholder="Ej:&#10;Escríbenos por WhatsApp y te enviamos un link de pago seguro de Izipay para pagar con tu tarjeta Visa, Mastercard, Amex o Diners."></textarea>
+        </div>
+        <button class="btn" onclick="guardarMetodosPago()">Guardar métodos de pago</button>
+        <div id="pagos-result" class="muted" style="margin-top:10px"></div>
       </div>
     </div>
   </div>
@@ -204,7 +235,7 @@ async function loginAdmin(){
   }catch(err){e.textContent=err.message;e.style.display='block';}
 }
 function logout(){TOKEN='';sessionStorage.removeItem('admtoken');document.getElementById('app-screen').style.display='none';document.getElementById('login-screen').style.display='block';}
-function tab(id,btn){document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));document.getElementById('tab-'+id).classList.add('active');btn.classList.add('active');}
+function tab(id,btn){document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));document.getElementById('tab-'+id).classList.add('active');btn.classList.add('active');if(id==='sync')cargarEstadoActualizacion();if(id==='pagos')cargarMetodosPago();}
 
 async function mostrarApp(){
   document.getElementById('login-screen').style.display='none';
@@ -311,10 +342,49 @@ async function descargarReporteSync(){
     res.textContent='✓ Reporte descargado.';
   }catch(e){res.textContent='';showToast(e.message,true);}
 }
+async function solicitarActualizacion(){
+  if(!confirm('¿Solicitar una actualización completa? Se aplicará en la próxima sincronización de las 2 AM (no al instante).'))return;
+  const res=document.getElementById('solicitud-result');
+  res.textContent='Registrando solicitud...';
+  try{
+    const r=await apiCall('/admin/solicitar-actualizacion','POST',{});
+    res.textContent='✓ '+r.mensaje;
+  }catch(e){res.textContent='';showToast(e.message,true);}
+}
+async function cargarEstadoActualizacion(){
+  try{
+    const r=await apiCall('/admin/estado-actualizacion','GET');
+    const res=document.getElementById('solicitud-result');
+    if(r.pendiente&&res){
+      const f=new Date(r.solicitado_en).toLocaleString('es-PE');
+      res.textContent='⏳ Hay una solicitud pendiente (del '+f+'). Se aplicará en la corrida de las 2 AM.';
+    }
+  }catch(e){}
+}
 async function resetPass(id){
   if(!confirm('¿Resetear la contraseña de este cliente a su RUC?'))return;
   try{const r=await apiCall('/admin/reset-password','POST',{portal_user_id:id});showToast('Clave reiniciada a: '+r.password);}
   catch(e){showToast(e.message,true);}
+}
+async function cargarMetodosPago(){
+  try{
+    const r=await apiCall('/admin/metodos-pago','GET');
+    document.getElementById('pago-transferencia').value=r.transferencia||'';
+    document.getElementById('pago-yape').value=r.yape_plin||'';
+    document.getElementById('pago-tarjeta').value=r.tarjeta||'';
+  }catch(e){showToast(e.message,true);}
+}
+async function guardarMetodosPago(){
+  const res=document.getElementById('pagos-result');
+  res.textContent='Guardando...';
+  try{
+    await apiCall('/admin/metodos-pago','POST',{
+      transferencia:document.getElementById('pago-transferencia').value,
+      yape_plin:document.getElementById('pago-yape').value,
+      tarjeta:document.getElementById('pago-tarjeta').value
+    });
+    res.textContent='✓ Métodos de pago guardados. Los clientes ya los verán.';
+  }catch(e){res.textContent='';showToast(e.message,true);}
 }
 async function toggleActivo(id,activo){
   try{await apiCall('/admin/activar','POST',{portal_user_id:id,activo});showToast(activo?'Activado ✓':'Desactivado ✓');cargarUsuarios();}

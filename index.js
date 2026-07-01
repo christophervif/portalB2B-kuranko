@@ -68,6 +68,25 @@ function authAdmin(req, res, next) {
   } catch (e) { return res.status(401).json({ error: 'Sesión inválida o expirada' }); }
 }
 
+// Exige que el admin tenga acceso a un módulo concreto (el maestro siempre pasa)
+function requiereModulo(modulo) {
+  return function (req, res, next) {
+    const a = req.admin || {};
+    if (a.maestro) return next();
+    const mods = Array.isArray(a.modulos) ? a.modulos : [];
+    if (!mods.includes(modulo))
+      return res.status(403).json({ error: 'No tienes acceso a este módulo' });
+    next();
+  };
+}
+
+// Exige ser admin maestro (para la gestión de accesos)
+function soloMaestro(req, res, next) {
+  if (!req.admin || !req.admin.maestro)
+    return res.status(403).json({ error: 'Solo el administrador maestro puede gestionar accesos' });
+  next();
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // LOGIN CLIENTE
 // ════════════════════════════════════════════════════════════════════════════
@@ -290,14 +309,46 @@ app.post('/portal/cambiar-password', authCliente, async (req, res) => {
 // ════════════════════════════════════════════════════════════════════════════
 // LOGIN ADMIN
 // ════════════════════════════════════════════════════════════════════════════
+// Lista de módulos (pestañas) del admin. Debe coincidir con las pestañas del HTML.
+const MODULOS_ADMIN = ['usuarios', 'vincular', 'crear', 'sync', 'pagos'];
+
+// Asegura la tabla de usuarios admin secundarios
+async function asegurarTablaAdmins() {
+  await portalPool.query(`
+    CREATE TABLE IF NOT EXISTS admin_users (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      username VARCHAR(100) UNIQUE NOT NULL,
+      password_hash VARCHAR(255) NOT NULL,
+      modulos TEXT,
+      activo TINYINT(1) DEFAULT 1,
+      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+}
+
 app.post('/admin/login', async (req, res) => {
   const { usuario, password } = req.body;
   if (!usuario || !password) return res.status(400).json({ error: 'Ingresa usuario y contraseña' });
   try {
-    if (usuario.trim() !== ADMIN_USER || password !== ADMIN_PASSWORD)
+    // 1) ¿Es el admin maestro? (variables de Railway) → acceso total + gestión de accesos
+    if (usuario.trim() === ADMIN_USER && password === ADMIN_PASSWORD) {
+      const token = jwt.sign(
+        { rol: 'admin', usuario: ADMIN_USER, maestro: true, modulos: MODULOS_ADMIN },
+        JWT_SECRET, { expiresIn: '4h' });
+      return res.json({ token, maestro: true, modulos: MODULOS_ADMIN });
+    }
+    // 2) ¿Es un admin secundario de la tabla?
+    await asegurarTablaAdmins();
+    const [[u]] = await portalPool.query(
+      'SELECT id, username, password_hash, modulos, activo FROM admin_users WHERE username = ? LIMIT 1',
+      [usuario.trim()]);
+    if (!u || !u.activo || !(await bcrypt.compare(password, u.password_hash)))
       return res.status(401).json({ error: 'Credenciales de administrador incorrectas' });
-    const token = jwt.sign({ rol: 'admin', usuario: ADMIN_USER }, JWT_SECRET, { expiresIn: '4h' });
-    res.json({ token });
+    const modulos = u.modulos ? u.modulos.split(',').filter(Boolean) : [];
+    const token = jwt.sign(
+      { rol: 'admin', usuario: u.username, maestro: false, modulos },
+      JWT_SECRET, { expiresIn: '4h' });
+    res.json({ token, maestro: false, modulos });
   } catch (e) { res.status(500).json({ error: 'Error del servidor' }); }
 });
 
@@ -328,7 +379,7 @@ app.get('/admin/consignaciones', authAdmin, async (req, res) => {
 });
 
 // Lista de usuarios del portal ya creados
-app.get('/admin/usuarios', authAdmin, async (req, res) => {
+app.get('/admin/usuarios', authAdmin, requiereModulo('usuarios'), async (req, res) => {
   try {
     const [rows] = await portalPool.query(
       `SELECT id, username, customer_id, location_id, nombre_cliente, activo, created_at
@@ -338,7 +389,7 @@ app.get('/admin/usuarios', authAdmin, async (req, res) => {
 });
 
 // Crear o actualizar un usuario del portal (vincular cliente + consignación)
-app.post('/admin/usuario', authAdmin, async (req, res) => {
+app.post('/admin/usuario', authAdmin, requiereModulo('usuarios'), async (req, res) => {
   const { username, customer_id, location_id, nombre_cliente, password } = req.body;
   if (!username || !customer_id || !nombre_cliente)
     return res.status(400).json({ error: 'Faltan datos: usuario, cliente y nombre' });
@@ -357,7 +408,7 @@ app.post('/admin/usuario', authAdmin, async (req, res) => {
 });
 
 // Vincular solo la consignación de un usuario existente
-app.post('/admin/vincular', authAdmin, async (req, res) => {
+app.post('/admin/vincular', authAdmin, requiereModulo('vincular'), async (req, res) => {
   const { portal_user_id, location_id } = req.body;
   if (!portal_user_id) return res.status(400).json({ error: 'Falta el usuario' });
   try {
@@ -368,7 +419,7 @@ app.post('/admin/vincular', authAdmin, async (req, res) => {
 });
 
 // Activar / desactivar acceso
-app.post('/admin/activar', authAdmin, async (req, res) => {
+app.post('/admin/activar', authAdmin, requiereModulo('usuarios'), async (req, res) => {
   const { portal_user_id, activo } = req.body;
   try {
     await portalPool.query('UPDATE portal_users SET activo=? WHERE id=?',
@@ -378,7 +429,7 @@ app.post('/admin/activar', authAdmin, async (req, res) => {
 });
 
 // Resetear contraseña de un cliente (vuelve a su RUC)
-app.post('/admin/reset-password', authAdmin, async (req, res) => {
+app.post('/admin/reset-password', authAdmin, requiereModulo('usuarios'), async (req, res) => {
   const { portal_user_id } = req.body;
   try {
     const [rows] = await portalPool.query('SELECT username FROM portal_users WHERE id=? LIMIT 1',
@@ -391,7 +442,7 @@ app.post('/admin/reset-password', authAdmin, async (req, res) => {
 });
 
 // Crear todos los usuarios de golpe (clientes empresa con ventas)
-app.post('/admin/crear-todos', authAdmin, async (req, res) => {
+app.post('/admin/crear-todos', authAdmin, requiereModulo('crear'), async (req, res) => {
   try {
     const [clientes] = await prodPool.query(`
       SELECT p.id AS customer_id, p.business_name, p.document_number
@@ -415,7 +466,7 @@ app.post('/admin/crear-todos', authAdmin, async (req, res) => {
 
 // ─── Reporte de sincronización: pendientes + alertas (Excel, 2 pestañas) ─────
 // Lee del ERP en SOLO LECTURA. No modifica nada. Genera el Excel al momento.
-app.get('/admin/reporte-sync', authAdmin, async (req, res) => {
+app.get('/admin/reporte-sync', authAdmin, requiereModulo('sync'), async (req, res) => {
   try {
     // ── Última corrida del puente ──────────────────────────────────────────
     let ultimaCorrida = null;
@@ -778,7 +829,7 @@ app.get('/admin/reporte-sync', authAdmin, async (req, res) => {
 });
 
 // Solicitar una actualización completa (se aplicará en la corrida de las 2 AM)
-app.post('/admin/solicitar-actualizacion', authAdmin, async (req, res) => {
+app.post('/admin/solicitar-actualizacion', authAdmin, requiereModulo('sync'), async (req, res) => {
   try {
     await portalPool.query(`
       CREATE TABLE IF NOT EXISTS sync_solicitudes (
@@ -801,12 +852,80 @@ app.post('/admin/solicitar-actualizacion', authAdmin, async (req, res) => {
 });
 
 // Estado de la solicitud (para mostrar en el admin)
-app.get('/admin/estado-actualizacion', authAdmin, async (req, res) => {
+app.get('/admin/estado-actualizacion', authAdmin, requiereModulo('sync'), async (req, res) => {
   try {
     const [[pend]] = await portalPool.query(
       `SELECT solicitado_en FROM sync_solicitudes WHERE atendida = 0 ORDER BY id ASC LIMIT 1`);
     res.json({ pendiente: !!pend, solicitado_en: pend ? pend.solicitado_en : null });
   } catch (e) { res.json({ pendiente: false }); }
+});
+
+// ─── Gestión de accesos (SOLO admin maestro) ────────────────────────────────
+app.get('/admin/accesos', authAdmin, soloMaestro, async (req, res) => {
+  try {
+    await asegurarTablaAdmins();
+    const [rows] = await portalPool.query(
+      'SELECT id, username, modulos, activo, creado_en FROM admin_users ORDER BY username');
+    res.json({
+      modulos_disponibles: MODULOS_ADMIN,
+      usuarios: rows.map(u => ({
+        id: u.id, username: u.username, activo: u.activo,
+        modulos: u.modulos ? u.modulos.split(',').filter(Boolean) : [],
+        creado_en: u.creado_en
+      }))
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/admin/accesos/crear', authAdmin, soloMaestro, async (req, res) => {
+  const { username, password, modulos } = req.body;
+  if (!username || !password) return res.status(400).json({ error: 'Usuario y contraseña son obligatorios' });
+  if (password.length < 6) return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
+  const mods = Array.isArray(modulos) ? modulos.filter(m => MODULOS_ADMIN.includes(m)) : [];
+  try {
+    await asegurarTablaAdmins();
+    // No permitir un usuario igual al maestro
+    if (username.trim() === ADMIN_USER)
+      return res.status(400).json({ error: 'Ese nombre de usuario está reservado' });
+    const hash = await bcrypt.hash(password, 10);
+    await portalPool.query(
+      'INSERT INTO admin_users (username, password_hash, modulos, activo) VALUES (?, ?, ?, 1)',
+      [username.trim(), hash, mods.join(',')]);
+    res.json({ ok: true });
+  } catch (e) {
+    if (e.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Ese usuario ya existe' });
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/admin/accesos/modulos', authAdmin, soloMaestro, async (req, res) => {
+  const { id, modulos } = req.body;
+  if (!id) return res.status(400).json({ error: 'Falta el usuario' });
+  const mods = Array.isArray(modulos) ? modulos.filter(m => MODULOS_ADMIN.includes(m)) : [];
+  try {
+    await portalPool.query('UPDATE admin_users SET modulos = ? WHERE id = ?', [mods.join(','), id]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/admin/accesos/activar', authAdmin, soloMaestro, async (req, res) => {
+  const { id, activo } = req.body;
+  if (!id) return res.status(400).json({ error: 'Falta el usuario' });
+  try {
+    await portalPool.query('UPDATE admin_users SET activo = ? WHERE id = ?', [activo ? 1 : 0, id]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/admin/accesos/password', authAdmin, soloMaestro, async (req, res) => {
+  const { id, password } = req.body;
+  if (!id || !password) return res.status(400).json({ error: 'Falta usuario o contraseña' });
+  if (password.length < 6) return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
+  try {
+    const hash = await bcrypt.hash(password, 10);
+    await portalPool.query('UPDATE admin_users SET password_hash = ? WHERE id = ?', [hash, id]);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ─── Reporte de venta de consignación (NO toca la BD, solo notifica) ─────────
@@ -923,7 +1042,7 @@ app.get('/portal/metodos-pago', authCliente, async (req, res) => {
 });
 
 // Admin: leer métodos de pago (para el formulario de edición)
-app.get('/admin/metodos-pago', authAdmin, async (req, res) => {
+app.get('/admin/metodos-pago', authAdmin, requiereModulo('pagos'), async (req, res) => {
   try {
     await asegurarTablaPago();
     const [[cfg]] = await portalPool.query('SELECT transferencia, yape_plin, tarjeta FROM config_pago WHERE id=1');
@@ -932,7 +1051,7 @@ app.get('/admin/metodos-pago', authAdmin, async (req, res) => {
 });
 
 // Admin: guardar métodos de pago
-app.post('/admin/metodos-pago', authAdmin, async (req, res) => {
+app.post('/admin/metodos-pago', authAdmin, requiereModulo('pagos'), async (req, res) => {
   const { transferencia, yape_plin, tarjeta } = req.body;
   try {
     await asegurarTablaPago();

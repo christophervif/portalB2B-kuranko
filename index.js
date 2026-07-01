@@ -417,53 +417,50 @@ app.post('/admin/crear-todos', authAdmin, async (req, res) => {
 // Lee del ERP en SOLO LECTURA. No modifica nada. Genera el Excel al momento.
 app.get('/admin/reporte-sync', authAdmin, async (req, res) => {
   try {
-    // Última corrida del puente (desde la tabla de control en la base del portal)
+    // ── Última corrida del puente ──────────────────────────────────────────
     let ultimaCorrida = null;
     try {
       const [[c]] = await portalPool.query(
         `SELECT corrio_en, productos_actualizados, productos_error, modo
          FROM sync_corridas ORDER BY id DESC LIMIT 1`);
       if (c) ultimaCorrida = c;
-    } catch (e) { /* la tabla puede no existir aún si el puente no ha corrido */ }
+    } catch (e) { /* la tabla puede no existir aún */ }
 
-    // Valores actualizados en la última corrida (lo que el puente escribió en WooCommerce)
-    let actualizados = [];
-    if (ultimaCorrida) {
-      try {
-        const [rows] = await portalPool.query(
-          `SELECT se.woocommerce_id, se.ultimo_stock, se.ultimo_precio, se.actualizado_en
-           FROM sync_estado se
-           WHERE se.actualizado_en >= ?
-           ORDER BY se.actualizado_en DESC`, [ultimaCorrida.corrio_en]);
-        actualizados = rows;
-      } catch (e) { /* sin memoria aún */ }
-    }
-    // Enriquecer con SKU y nombre desde el ERP (si hay actualizados)
-    let actInfo = [];
-    if (actualizados.length) {
-      const ids = actualizados.map(a => a.woocommerce_id).filter(Boolean);
-      if (ids.length) {
-        const [info] = await prodPool.query(
-          `SELECT pv.woocommerce_id, pv.sku, pv.name AS nombre
-           FROM product_variations pv
-           WHERE pv.woocommerce_id IN (?)`, [ids]);
-        const mapa = {};
-        info.forEach(i => { mapa[i.woocommerce_id] = i; });
-        actInfo = actualizados.map(a => ({
-          wc: a.woocommerce_id,
-          sku: mapa[a.woocommerce_id] ? mapa[a.woocommerce_id].sku : '',
-          nombre: mapa[a.woocommerce_id] ? mapa[a.woocommerce_id].nombre : '',
-          stock: a.ultimo_stock,
-          precio: a.ultimo_precio,
-          cuando: a.actualizado_en
-        }));
-      }
-    }
+    // ── Detalle de la corrida: variaciones (todo lo que cambió) y aplicados ─
+    let variaciones = [], aplicados = [];
+    try {
+      const [rows] = await portalPool.query(
+        `SELECT variation_id, woocommerce_id, tipo, stock_antes, precio_antes,
+                stock_despues, precio_despues, se_aplico
+         FROM sync_detalle ORDER BY se_aplico DESC, woocommerce_id`);
+      variaciones = rows;
+      aplicados = rows.filter(r => r.se_aplico === 1);
+    } catch (e) { /* sin detalle aún */ }
 
-    // PESTAÑA — Pendientes: productos SIN woocommerce_id (crear en WooCommerce)
+    // Enriquecer variaciones/aplicados con SKU y nombre del ERP
+    const idsDet = [...new Set(variaciones.map(v => v.woocommerce_id).filter(Boolean))];
+    const infoDet = {};
+    if (idsDet.length) {
+      const [info] = await prodPool.query(
+        `SELECT pv.woocommerce_id, pv.sku, pv.name AS nombre, pv.product_type
+         FROM product_variations pv WHERE pv.woocommerce_id IN (?)`, [idsDet]);
+      info.forEach(i => { infoDet[i.woocommerce_id] = i; });
+    }
+    const armaFila = (v) => {
+      const inf = infoDet[v.woocommerce_id] || {};
+      return {
+        sku: inf.sku || '', wc: v.woocommerce_id, tipo: inf.product_type || v.tipo,
+        nombre: inf.nombre || '',
+        stock_despues: v.stock_despues, precio_despues: v.precio_despues,
+        stock_antes: v.stock_antes, precio_antes: v.precio_antes
+      };
+    };
+    const filasVariaciones = variaciones.map(armaFila);
+    const filasAplicados = aplicados.map(armaFila);
+
+    // ── PESTAÑA 2: Pendientes (sin woocommerce_id) ─────────────────────────
     const [pendientes] = await prodPool.query(
-      `SELECT pv.sku, pv.product_type, pv.name AS nombre,
-              pv.regular_price,
+      `SELECT pv.sku, pv.product_type, pv.name AS nombre, pv.regular_price,
               COALESCE(SUM(ls.quantity),0) AS stock
        FROM product_variations pv
        JOIN products p ON p.id = pv.product_id
@@ -474,77 +471,194 @@ app.get('/admin/reporte-sync', authAdmin, async (req, res) => {
        GROUP BY pv.id, pv.sku, pv.product_type, pv.name, pv.regular_price
        ORDER BY pv.name, pv.sku`);
 
-    // PESTAÑA — Alertas: productos publicados (active) con datos erróneos
-    const [alertasRaw] = await prodPool.query(
-      `SELECT pv.woocommerce_id, pv.sku, pv.name AS nombre,
-              pv.regular_price,
-              COALESCE(SUM(ls.quantity),0) AS stock
+    // ── PESTAÑA 3: Alertas del sistema (todo del ERP) ──────────────────────
+    // Traemos datos base de productos con stock, y datos para cada regla.
+    const NOM_ESTADO = { draft: 'borrador', discontinued: 'descontinuado', active: 'activo' };
+
+    // Consulta principal: variaciones con su stock, precios, estado, descripción del padre e imagen.
+    const [base] = await prodPool.query(
+      `SELECT pv.id AS variation_id, pv.woocommerce_id, pv.sku, pv.name AS nombre,
+              pv.product_type, pv.status, pv.regular_price, pv.sale_price,
+              p.description AS descripcion,
+              COALESCE(SUM(ls.quantity),0) AS stock,
+              (SELECT COUNT(*) FROM product_images pi
+               WHERE (pi.product_id = p.id OR pi.product_variation_id = pv.id)
+                 AND pi.deleted_at IS NULL) AS num_imagenes
        FROM product_variations pv
        JOIN products p ON p.id = pv.product_id
        LEFT JOIN location_stocks ls ON ls.product_variation_id = pv.id
-       WHERE pv.woocommerce_id IS NOT NULL
-         AND pv.product_type IN ('variation','simple')
-         AND pv.status = 'active'
+       WHERE pv.product_type IN ('variation','simple')
          AND pv.deleted_at IS NULL
-       GROUP BY pv.id, pv.woocommerce_id, pv.sku, pv.name, pv.regular_price
-       HAVING COALESCE(SUM(ls.quantity),0) < 0
-           OR pv.regular_price IS NULL
-           OR pv.regular_price <= 0`);
+       GROUP BY pv.id, pv.woocommerce_id, pv.sku, pv.name, pv.product_type,
+                pv.status, pv.regular_price, pv.sale_price, p.description, p.id`);
 
-    const alertas = alertasRaw.map(a => {
-      const obs = [];
-      if (a.stock < 0) obs.push(`Stock negativo (${a.stock})`);
-      if (a.regular_price === null) obs.push('Sin precio regular');
-      else if (Number(a.regular_price) === 0) obs.push('Precio en 0');
-      else if (Number(a.regular_price) < 0) obs.push(`Precio negativo (${a.regular_price})`);
-      return {
-        tipo: 'Dato erróneo',
-        sku: a.sku, wc: a.woocommerce_id, nombre: a.nombre || '',
-        observacion: obs.join(' · ')
-      };
+    // Costo FIFO (lote más antiguo con stock) por variación
+    const [lotes] = await prodPool.query(
+      `SELECT sb.product_variation_id, sb.cost_price, sb.entry_date
+       FROM stock_batches sb
+       WHERE sb.quantity > 0
+       ORDER BY sb.product_variation_id, sb.entry_date ASC, sb.id ASC`);
+    const costoFifo = {};
+    for (const l of lotes) {
+      if (!(l.product_variation_id in costoFifo)) {
+        costoFifo[l.product_variation_id] = Number(l.cost_price);
+      }
+    }
+
+    // SKU duplicados: contamos apariciones del mismo SKU
+    const contadorSku = {};
+    base.forEach(b => { const k = (b.sku || '').trim(); if (k) contadorSku[k] = (contadorSku[k] || 0) + 1; });
+
+    // Padres 'variable' sin variaciones activas
+    const [padresSinHijas] = await prodPool.query(
+      `SELECT pv.id AS variation_id, pv.sku, pv.name AS nombre
+       FROM product_variations pv
+       WHERE pv.product_type = 'variable'
+         AND pv.deleted_at IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM product_variations h
+           JOIN products p ON p.id = h.product_id
+           WHERE p.id = pv.product_id
+             AND h.product_type = 'variation'
+             AND h.status = 'active'
+             AND h.deleted_at IS NULL
+         )`);
+
+    // Productos 'variable' (padres) que tienen stock — no deberían (el stock va en las variaciones)
+    const [variableConStock] = await prodPool.query(
+      `SELECT pv.sku, pv.name AS nombre, pv.woocommerce_id,
+              COALESCE(SUM(ls.quantity),0) AS stock
+       FROM product_variations pv
+       LEFT JOIN location_stocks ls ON ls.product_variation_id = pv.id
+       WHERE pv.product_type = 'variable'
+         AND pv.deleted_at IS NULL
+       GROUP BY pv.id, pv.sku, pv.name, pv.woocommerce_id
+       HAVING COALESCE(SUM(ls.quantity),0) > 0`);
+
+    // Productos 'variable' (padres) con ventas asociadas — no deberían (se venden las variaciones)
+    const [variableConVenta] = await prodPool.query(
+      `SELECT pv.sku, pv.name AS nombre, pv.woocommerce_id,
+              COUNT(si.id) AS num_ventas, COALESCE(SUM(si.quantity),0) AS unidades
+       FROM product_variations pv
+       JOIN sale_items si ON si.product_variation_id = pv.id
+       WHERE pv.product_type = 'variable'
+         AND pv.deleted_at IS NULL
+       GROUP BY pv.id, pv.sku, pv.name, pv.woocommerce_id`);
+
+    // Construir la lista de alertas del sistema
+    const alertasSistema = [];
+    const NIVEL_MARGEN = (precio, costo) => {
+      if (costo <= 0) return null;
+      if (precio <= costo) return 'Nivel 1 - Crítico (venta a pérdida)';
+      if (precio < costo * 1.10) return 'Nivel 2 - Riesgo (margen < 10%)';
+      if (precio < costo * 1.20) return 'Nivel 3 - Bajo (margen < 20%)';
+      return null;
+    };
+
+    for (const b of base) {
+      const stock = Number(b.stock) || 0;
+      const activo = b.status === 'active';
+      const sku = (b.sku || '').trim();
+      const reg = b.regular_price === null ? null : Number(b.regular_price);
+      const sale = b.sale_price === null ? null : Number(b.sale_price);
+
+      // Reglas que requieren stock > 0
+      if (stock > 0) {
+        // Sin descripción
+        if (!b.descripcion || String(b.descripcion).trim() === '') {
+          alertasSistema.push({ tipo: 'Falta descripción', sku, wc: b.woocommerce_id || '', nombre: b.nombre || '',
+            obs: `Tiene ${stock} en stock pero no tiene descripción` });
+        }
+        // Sin imagen
+        if (!b.num_imagenes || b.num_imagenes === 0) {
+          alertasSistema.push({ tipo: 'Falta imagen', sku, wc: b.woocommerce_id || '', nombre: b.nombre || '',
+            obs: `Tiene ${stock} en stock pero no tiene imagen registrada` });
+        }
+        // Sin precio regular
+        if (reg === null || reg === 0) {
+          alertasSistema.push({ tipo: 'Falta precio', sku, wc: b.woocommerce_id || '', nombre: b.nombre || '',
+            obs: `Tiene ${stock} en stock pero no tiene precio regular` });
+        }
+        // Descontinuado con stock
+        if (b.status === 'discontinued') {
+          alertasSistema.push({ tipo: 'Descontinuado con stock', sku, wc: b.woocommerce_id || '', nombre: b.nombre || '',
+            obs: `Tiene ${stock} en stock pero está en 'descontinuado'` });
+        }
+        // Margen contra costo FIFO (analiza oferta y regular; alerta si cualquiera cae)
+        const costo = costoFifo[b.variation_id];
+        if (costo === undefined || costo === null) {
+          // costo no registrado — omitir SKU con MKP o PCK
+          if (!/MKP|PCK/i.test(sku)) {
+            alertasSistema.push({ tipo: 'Costo no registrado', sku, wc: b.woocommerce_id || '', nombre: b.nombre || '',
+              obs: `Tiene ${stock} en stock pero no tiene costo FIFO registrado` });
+          }
+        } else if (costo === 0) {
+          if (!/MKP|PCK/i.test(sku)) {
+            alertasSistema.push({ tipo: 'Costo no registrado', sku, wc: b.woocommerce_id || '', nombre: b.nombre || '',
+              obs: `Tiene ${stock} en stock pero su costo FIFO es 0.00 (no registrado)` });
+          }
+        } else {
+          // Analizar precio de oferta si existe, e indicar; también el regular
+          if (sale !== null && sale > 0) {
+            const niv = NIVEL_MARGEN(sale, costo);
+            if (niv) alertasSistema.push({ tipo: 'Margen bajo', sku, wc: b.woocommerce_id || '', nombre: b.nombre || '',
+              obs: `${niv} — Precio oferta S/${sale.toFixed(2)} vs costo FIFO S/${costo.toFixed(2)}` });
+          }
+          if (reg !== null && reg > 0) {
+            const niv = NIVEL_MARGEN(reg, costo);
+            if (niv) alertasSistema.push({ tipo: 'Margen bajo', sku, wc: b.woocommerce_id || '', nombre: b.nombre || '',
+              obs: `${niv} — Precio regular S/${reg.toFixed(2)} vs costo FIFO S/${costo.toFixed(2)}` });
+          }
+        }
+      }
+
+      // Reglas que NO dependen de stock
+      // Oferta >= regular
+      if (sale !== null && sale > 0 && reg !== null && reg > 0 && sale >= reg) {
+        alertasSistema.push({ tipo: 'Oferta mal puesta', sku, wc: b.woocommerce_id || '', nombre: b.nombre || '',
+          obs: `Precio de oferta S/${sale.toFixed(2)} es mayor o igual al regular S/${reg.toFixed(2)}` });
+      }
+      // SKU duplicado
+      if (sku && contadorSku[sku] > 1) {
+        alertasSistema.push({ tipo: 'SKU duplicado', sku, wc: b.woocommerce_id || '', nombre: b.nombre || '',
+          obs: `El SKU "${sku}" aparece ${contadorSku[sku]} veces en el catálogo` });
+      }
+    }
+    // Padres sin variaciones activas
+    padresSinHijas.forEach(p => {
+      alertasSistema.push({ tipo: 'Padre sin variaciones', sku: p.sku || '', wc: '', nombre: p.nombre || '',
+        obs: `Producto variable sin ninguna variación activa (aparece vacío en la tienda)` });
+    });
+    // Variable con stock (el stock debería estar en las variaciones, no en el padre)
+    variableConStock.forEach(p => {
+      alertasSistema.push({ tipo: 'Variable con stock', sku: p.sku || '', wc: p.woocommerce_id || '', nombre: p.nombre || '',
+        obs: `Producto tipo variable con ${p.stock} en stock (el stock debería estar en las variaciones, no en el padre)` });
+    });
+    // Variable con ventas (deberían venderse las variaciones, no el padre)
+    variableConVenta.forEach(p => {
+      alertasSistema.push({ tipo: 'Variable con venta', sku: p.sku || '', wc: p.woocommerce_id || '', nombre: p.nombre || '',
+        obs: `Producto tipo variable con ${p.num_ventas} venta(s) asociada(s) (${p.unidades} unidades) — las ventas deberían ir en las variaciones` });
     });
 
-    // Discrepancias de SKU detectadas por el puente (tabla en la base del portal)
+    // ── PESTAÑA 4: Alertas de vinculación con WooCommerce ──────────────────
     let alertasSku = [];
     try {
       const [rows] = await portalPool.query(
         `SELECT woocommerce_id, sku_erp, sku_woo FROM sync_sku_alertas ORDER BY sku_erp`);
       alertasSku = rows.map(r => ({
-        tipo: 'SKU no coincide',
-        sku: r.sku_erp, wc: r.woocommerce_id, nombre: '',
-        observacion: `El SKU en la web es "${r.sku_woo}" pero en el ERP es "${r.sku_erp}" (no se actualizó)`
+        tipo: 'SKU no coincide', sku: r.sku_erp, wc: r.woocommerce_id, nombre: '',
+        obs: `El SKU en la web es "${r.sku_woo}" pero en el ERP es "${r.sku_erp}" (no se actualizó)`
       }));
-    } catch (e) { /* la tabla puede no existir aún */ }
+    } catch (e) { /* sin datos aún */ }
 
-    // Unir todas las alertas en una sola lista
-    const todasAlertas = [...alertas, ...alertasSku];
-
-    // PESTAÑA — Con stock pero NO activos (mercadería que no se vende en la web)
-    const NOM_ESTADO = { draft: 'borrador', discontinued: 'descontinuado', active: 'activo' };
-    const [stockNoActivo] = await prodPool.query(
-      `SELECT pv.woocommerce_id, pv.sku, pv.name AS nombre, pv.status,
-              COALESCE(SUM(ls.quantity),0) AS stock
-       FROM product_variations pv
-       JOIN products p ON p.id = pv.product_id
-       LEFT JOIN location_stocks ls ON ls.product_variation_id = pv.id
-       WHERE pv.product_type IN ('variation','simple')
-         AND pv.status <> 'active'
-         AND pv.deleted_at IS NULL
-       GROUP BY pv.id, pv.woocommerce_id, pv.sku, pv.name, pv.status
-       HAVING COALESCE(SUM(ls.quantity),0) > 0
-       ORDER BY stock DESC`);
-
-    // Generar Excel con exceljs
+    // ── Generar Excel ──────────────────────────────────────────────────────
     const ExcelJS = require('exceljs');
     const wb = new ExcelJS.Workbook();
-
     const estiloHeader = (row) => {
       row.font = { bold: true, color: { argb: 'FFFFFFFF' } };
       row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000726' } };
       row.alignment = { vertical: 'middle' };
     };
-
-    // Texto de la última corrida
     let textoCorrida;
     if (ultimaCorrida) {
       const f = new Date(ultimaCorrida.corrio_en).toLocaleString('es-PE', { timeZone: 'America/Lima' });
@@ -555,7 +669,6 @@ app.get('/admin/reporte-sync', authAdmin, async (req, res) => {
       textoCorrida = 'Última sincronización del puente: aún no ha corrido.';
     }
     const textoReporte = `Reporte generado: ${new Date().toLocaleString('es-PE', { timeZone: 'America/Lima' })}`;
-
     const ponerEncabezado = (ws, nCols) => {
       ws.insertRow(1, [textoCorrida]);
       ws.insertRow(2, [textoReporte]);
@@ -564,79 +677,97 @@ app.get('/admin/reporte-sync', authAdmin, async (req, res) => {
       ws.getRow(1).font = { italic: true, color: { argb: 'FF555555' } };
       ws.getRow(2).font = { italic: true, color: { argb: 'FF555555' } };
     };
+    const num = (v) => v === null || v === undefined ? '' : Number(v);
 
-    // Pestaña: Valores actualizados (lo que el puente escribió en la última corrida)
-    const wsA = wb.addWorksheet('Actualizados última corrida');
-    wsA.columns = [
-      { header: 'SKU', key: 'sku', width: 24 },
-      { header: 'WooCommerce ID', key: 'wc', width: 16 },
-      { header: 'Nombre', key: 'nombre', width: 50 },
-      { header: 'Stock aplicado', key: 'stock', width: 14 },
-      { header: 'Precio aplicado', key: 'precio', width: 14 }
-    ];
-    actInfo.forEach(a => wsA.addRow({
-      sku: a.sku, wc: a.wc, nombre: a.nombre || '',
-      stock: a.stock, precio: a.precio === null ? '' : Number(a.precio)
-    }));
-    ponerEncabezado(wsA, 5);
-    estiloHeader(wsA.getRow(3));
-    wsA.views = [{ state: 'frozen', ySplit: 3 }];
-
-    // Pestaña: Pendientes
-    const ws1 = wb.addWorksheet('Pendientes');
+    // PESTAÑA 1: Variaciones (lo que cambió)
+    const ws1 = wb.addWorksheet('Variaciones');
     ws1.columns = [
-      { header: 'SKU', key: 'sku', width: 24 },
+      { header: 'SKU', key: 'sku', width: 22 },
+      { header: 'WooCommerce ID', key: 'wc', width: 15 },
       { header: 'Tipo', key: 'tipo', width: 12 },
-      { header: 'Nombre', key: 'nombre', width: 50 },
-      { header: 'Precio regular', key: 'precio', width: 16 },
-      { header: 'Stock', key: 'stock', width: 10 }
+      { header: 'Nombre', key: 'nombre', width: 42 },
+      { header: 'Stock anterior', key: 'sa', width: 13 },
+      { header: 'Stock aplicado', key: 'sd', width: 13 },
+      { header: 'Precio anterior', key: 'pa', width: 14 },
+      { header: 'Precio aplicado', key: 'pd', width: 14 }
     ];
-    pendientes.forEach(p => ws1.addRow({
-      sku: p.sku, tipo: p.product_type, nombre: p.nombre || '',
-      precio: p.regular_price === null ? '' : Number(p.regular_price), stock: p.stock
+    filasVariaciones.forEach(f => ws1.addRow({
+      sku: f.sku, wc: f.wc, tipo: f.tipo, nombre: f.nombre,
+      sa: num(f.stock_antes), sd: num(f.stock_despues),
+      pa: num(f.precio_antes), pd: num(f.precio_despues)
     }));
-    ponerEncabezado(ws1, 5);
+    ponerEncabezado(ws1, 8);
     estiloHeader(ws1.getRow(3));
     ws1.views = [{ state: 'frozen', ySplit: 3 }];
 
-    // Pestaña: Alertas (datos erróneos + SKU no coincide, con filtros)
-    const ws2 = wb.addWorksheet('Alertas');
+    // PESTAÑA 2: Pendientes
+    const ws2 = wb.addWorksheet('Pendientes');
     ws2.columns = [
-      { header: 'Tipo de alerta', key: 'tipo', width: 18 },
-      { header: 'SKU', key: 'sku', width: 24 },
-      { header: 'WooCommerce ID', key: 'wc', width: 16 },
-      { header: 'Nombre', key: 'nombre', width: 40 },
-      { header: 'Observación', key: 'obs', width: 50 }
+      { header: 'SKU', key: 'sku', width: 22 },
+      { header: 'Tipo', key: 'tipo', width: 12 },
+      { header: 'Nombre', key: 'nombre', width: 45 },
+      { header: 'Precio regular', key: 'precio', width: 15 },
+      { header: 'Stock', key: 'stock', width: 10 }
     ];
-    todasAlertas.forEach(a => ws2.addRow({
-      tipo: a.tipo, sku: a.sku, wc: a.wc, nombre: a.nombre || '', obs: a.observacion
+    pendientes.forEach(p => ws2.addRow({
+      sku: p.sku, tipo: p.product_type, nombre: p.nombre || '',
+      precio: p.regular_price === null ? '' : Number(p.regular_price), stock: p.stock
     }));
     ponerEncabezado(ws2, 5);
     estiloHeader(ws2.getRow(3));
     ws2.views = [{ state: 'frozen', ySplit: 3 }];
-    // Activar filtros en la fila de encabezados (fila 3)
-    const ultFila = ws2.rowCount;
-    ws2.autoFilter = { from: { row: 3, column: 1 }, to: { row: ultFila < 3 ? 3 : ultFila, column: 5 } };
 
-    // Pestaña: Con stock pero no activos
-    const ws3 = wb.addWorksheet('Con stock no publicados');
+    // PESTAÑA 3: Alertas del sistema (con filtros)
+    const ws3 = wb.addWorksheet('Alertas del sistema');
     ws3.columns = [
-      { header: 'SKU', key: 'sku', width: 24 },
-      { header: 'WooCommerce ID', key: 'wc', width: 16 },
-      { header: 'Nombre', key: 'nombre', width: 50 },
-      { header: 'Stock', key: 'stock', width: 10 },
-      { header: 'Observación', key: 'obs', width: 40 }
+      { header: 'Tipo de alerta', key: 'tipo', width: 22 },
+      { header: 'SKU', key: 'sku', width: 22 },
+      { header: 'WooCommerce ID', key: 'wc', width: 15 },
+      { header: 'Nombre', key: 'nombre', width: 38 },
+      { header: 'Observación', key: 'obs', width: 55 }
     ];
-    stockNoActivo.forEach(p => {
-      const est = NOM_ESTADO[p.status] || p.status;
-      ws3.addRow({
-        sku: p.sku, wc: p.woocommerce_id || '(sin ID)', nombre: p.nombre || '',
-        stock: p.stock, obs: `Tiene ${p.stock} en stock pero está en '${est}' (no publicado)`
-      });
-    });
+    alertasSistema.forEach(a => ws3.addRow({ tipo: a.tipo, sku: a.sku, wc: a.wc, nombre: a.nombre, obs: a.obs }));
     ponerEncabezado(ws3, 5);
     estiloHeader(ws3.getRow(3));
     ws3.views = [{ state: 'frozen', ySplit: 3 }];
+    const uf3 = ws3.rowCount;
+    ws3.autoFilter = { from: { row: 3, column: 1 }, to: { row: uf3 < 3 ? 3 : uf3, column: 5 } };
+
+    // PESTAÑA 4: Alertas de vinculación (WooCommerce)
+    const ws4 = wb.addWorksheet('Alertas de vinculación');
+    ws4.columns = [
+      { header: 'Tipo de alerta', key: 'tipo', width: 18 },
+      { header: 'SKU (ERP)', key: 'sku', width: 22 },
+      { header: 'WooCommerce ID', key: 'wc', width: 15 },
+      { header: 'Observación', key: 'obs', width: 60 }
+    ];
+    alertasSku.forEach(a => ws4.addRow({ tipo: a.tipo, sku: a.sku, wc: a.wc, obs: a.obs }));
+    ponerEncabezado(ws4, 4);
+    estiloHeader(ws4.getRow(3));
+    ws4.views = [{ state: 'frozen', ySplit: 3 }];
+    const uf4 = ws4.rowCount;
+    ws4.autoFilter = { from: { row: 3, column: 1 }, to: { row: uf4 < 3 ? 3 : uf4, column: 4 } };
+
+    // PESTAÑA 5: Actualizados en WooCommerce (los que sí se aplicaron)
+    const ws5 = wb.addWorksheet('Actualizados en WooCommerce');
+    ws5.columns = [
+      { header: 'SKU', key: 'sku', width: 22 },
+      { header: 'WooCommerce ID', key: 'wc', width: 15 },
+      { header: 'Tipo', key: 'tipo', width: 12 },
+      { header: 'Nombre', key: 'nombre', width: 42 },
+      { header: 'Stock anterior', key: 'sa', width: 13 },
+      { header: 'Stock aplicado', key: 'sd', width: 13 },
+      { header: 'Precio anterior', key: 'pa', width: 14 },
+      { header: 'Precio aplicado', key: 'pd', width: 14 }
+    ];
+    filasAplicados.forEach(f => ws5.addRow({
+      sku: f.sku, wc: f.wc, tipo: f.tipo, nombre: f.nombre,
+      sa: num(f.stock_antes), sd: num(f.stock_despues),
+      pa: num(f.precio_antes), pd: num(f.precio_despues)
+    }));
+    ponerEncabezado(ws5, 8);
+    estiloHeader(ws5.getRow(3));
+    ws5.views = [{ state: 'frozen', ySplit: 3 }];
 
     const fecha = new Date().toISOString().slice(0, 10);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -646,43 +777,112 @@ app.get('/admin/reporte-sync', authAdmin, async (req, res) => {
   } catch (e) { res.status(500).json({ error: 'Error al generar el reporte: ' + e.message }); }
 });
 
+// Solicitar una actualización completa (se aplicará en la corrida de las 2 AM)
+app.post('/admin/solicitar-actualizacion', authAdmin, async (req, res) => {
+  try {
+    await portalPool.query(`
+      CREATE TABLE IF NOT EXISTS sync_solicitudes (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        solicitado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+        atendida TINYINT(1) DEFAULT 0,
+        atendida_en DATETIME NULL
+      )`);
+    // Si ya hay una pendiente, no duplicar
+    const [[pend]] = await portalPool.query(
+      `SELECT id, solicitado_en FROM sync_solicitudes WHERE atendida = 0 ORDER BY id ASC LIMIT 1`);
+    if (pend) {
+      return res.json({ ok: true, ya_existia: true,
+        mensaje: 'Ya hay una solicitud pendiente. Se aplicará en la próxima sincronización de las 2 AM.' });
+    }
+    await portalPool.query('INSERT INTO sync_solicitudes () VALUES ()');
+    res.json({ ok: true, ya_existia: false,
+      mensaje: 'Solicitud registrada. Se aplicará en la próxima sincronización de las 2 AM (hora Perú).' });
+  } catch (e) { res.status(500).json({ error: 'Error al registrar la solicitud: ' + e.message }); }
+});
+
+// Estado de la solicitud (para mostrar en el admin)
+app.get('/admin/estado-actualizacion', authAdmin, async (req, res) => {
+  try {
+    const [[pend]] = await portalPool.query(
+      `SELECT solicitado_en FROM sync_solicitudes WHERE atendida = 0 ORDER BY id ASC LIMIT 1`);
+    res.json({ pendiente: !!pend, solicitado_en: pend ? pend.solicitado_en : null });
+  } catch (e) { res.json({ pendiente: false }); }
+});
+
 // ─── Reporte de venta de consignación (NO toca la BD, solo notifica) ─────────
 app.post('/portal/reportar-venta', authCliente, async (req, res) => {
   const { items } = req.body; // [{producto, sku, cantidad}]
   if (!Array.isArray(items) || items.length === 0)
     return res.status(400).json({ error: 'No hay items en el reporte' });
 
-  const lineas = items.map(i => `• ${i.cantidad} x ${i.producto}${i.sku ? ' ('+i.sku+')' : ''}`).join('\n');
   const fecha = new Date().toLocaleString('es-PE', { timeZone: 'America/Lima' });
 
-  // Correo de empresa: si no está registrado, avisamos al equipo en el cuerpo
+  // Correo de empresa: si no está registrado, avisamos al equipo
   const emailEmpresa = await correoEmpresa(req.cliente.customer_id);
-  const lineaCorreo = emailEmpresa
-    ? `Correo de empresa: ${emailEmpresa}\n`
-    : `Correo de empresa: ⚠ NO REGISTRADO — falta registrar el correo de este cliente en el sistema.\n`;
 
-  const cuerpo =
-    `Reporte de venta de consignación\n\n` +
-    `Cliente: ${req.cliente.nombre}\n` +
-    `RUC/DNI: ${req.cliente.ruc || '-'}\n` +
-    lineaCorreo +
-    `Fecha: ${fecha}\n\n` +
-    `Productos vendidos reportados:\n${lineas}\n\n` +
+  const esc = (t) => String(t == null ? '' : t)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+  const filasHtml = items.map((i, n) => `
+    <tr>
+      <td style="padding:8px 12px;border:1px solid #e0e0e0;text-align:center;">${n + 1}</td>
+      <td style="padding:8px 12px;border:1px solid #e0e0e0;font-family:monospace;">${esc(i.sku) || '\u2014'}</td>
+      <td style="padding:8px 12px;border:1px solid #e0e0e0;">${esc(i.producto)}</td>
+      <td style="padding:8px 12px;border:1px solid #e0e0e0;text-align:center;">${esc(i.cantidad)}</td>
+    </tr>`).join('');
+
+  const avisoCorreo = emailEmpresa
+    ? ''
+    : `<p style="color:#b45309;background:#fef3c7;padding:10px 14px;border-radius:6px;">\u26a0 Este cliente no tiene correo registrado en el sistema. Falta registrarlo.</p>`;
+
+  const html = `
+  <div style="font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;max-width:640px;">
+    <h2 style="color:#000726;margin-bottom:4px;">Reporte de venta de consignaci\u00f3n</h2>
+    <table style="border-collapse:collapse;margin:16px 0;">
+      <tr><td style="padding:2px 8px;color:#555;">Cliente:</td><td style="padding:2px 8px;"><b>${esc(req.cliente.nombre)}</b></td></tr>
+      <tr><td style="padding:2px 8px;color:#555;">RUC/DNI:</td><td style="padding:2px 8px;">${esc(req.cliente.ruc || '-')}</td></tr>
+      <tr><td style="padding:2px 8px;color:#555;">Correo de empresa:</td><td style="padding:2px 8px;">${emailEmpresa ? esc(emailEmpresa) : '\u26a0 No registrado'}</td></tr>
+      <tr><td style="padding:2px 8px;color:#555;">Fecha:</td><td style="padding:2px 8px;">${esc(fecha)}</td></tr>
+    </table>
+    ${avisoCorreo}
+    <p style="margin-bottom:6px;"><b>Productos vendidos reportados:</b></p>
+    <table style="border-collapse:collapse;width:100%;font-size:14px;">
+      <thead>
+        <tr style="background:#000726;color:#fff;">
+          <th style="padding:8px 12px;border:1px solid #000726;text-align:center;">N\u00b0</th>
+          <th style="padding:8px 12px;border:1px solid #000726;text-align:left;">SKU</th>
+          <th style="padding:8px 12px;border:1px solid #000726;text-align:left;">Producto</th>
+          <th style="padding:8px 12px;border:1px solid #000726;text-align:center;">Cantidad</th>
+        </tr>
+      </thead>
+      <tbody>${filasHtml}</tbody>
+    </table>
+    <p style="color:#666;font-size:13px;margin-top:16px;">El distribuidor reporta desde el portal. Registrar manualmente en el sistema.</p>
+  </div>`;
+
+  const lineasTexto = items.map((i, n) => `${n + 1}. [${i.sku || '\u2014'}] ${i.producto} \u2014 Cantidad: ${i.cantidad}`).join('\n');
+  const texto =
+    `Reporte de venta de consignaci\u00f3n\n\n` +
+    `Cliente: ${req.cliente.nombre}\nRUC/DNI: ${req.cliente.ruc || '-'}\n` +
+    `Correo de empresa: ${emailEmpresa || '\u26a0 No registrado'}\nFecha: ${fecha}\n\n` +
+    `Productos vendidos reportados:\n${lineasTexto}\n\n` +
     `(El distribuidor reporta desde el portal. Registrar manualmente en el sistema.)`;
 
-  // Enviar correo vía Resend si está configurado
   let correoOk = false;
   if (process.env.RESEND_API_KEY) {
     try {
+      const cc = ['info@kuranko.pe'];
+      if (emailEmpresa) cc.push(emailEmpresa);
+
       const payload = {
         from: process.env.RESEND_FROM || 'Portal Kuranko <noreply@kuranko.pe>',
         to: (process.env.VENTAS_EMAIL || 'ventas@kuranko.pe').split(',').map(s => s.trim()),
+        cc,
         reply_to: 'ventas@kuranko.pe',
-        subject: `Reporte de venta consignación — ${req.cliente.nombre}`,
-        text: cuerpo
+        subject: `Reporte de venta consignaci\u00f3n \u2014 ${req.cliente.nombre}`,
+        html,
+        text: texto
       };
-      // Copia oculta al cliente solo si tiene correo registrado
-      if (emailEmpresa) payload.bcc = emailEmpresa;
 
       const r = await fetch('https://api.resend.com/emails', {
         method: 'POST',
@@ -692,7 +892,7 @@ app.post('/portal/reportar-venta', authCliente, async (req, res) => {
         },
         body: JSON.stringify(payload)
       });
-      if (!r.ok) console.error('Resend falló:', r.status, await r.text());
+      if (!r.ok) console.error('Resend fall\u00f3:', r.status, await r.text());
       correoOk = r.ok;
     } catch (e) { correoOk = false; }
   }

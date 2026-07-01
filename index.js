@@ -312,42 +312,44 @@ app.post('/portal/cambiar-password', authCliente, async (req, res) => {
 // Lista de módulos (pestañas) del admin. Debe coincidir con las pestañas del HTML.
 const MODULOS_ADMIN = ['usuarios', 'vincular', 'crear', 'sync', 'pagos'];
 
-// Asegura la tabla de usuarios admin secundarios
-async function asegurarTablaAdmins() {
-  await portalPool.query(`
-    CREATE TABLE IF NOT EXISTS admin_users (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      username VARCHAR(100) UNIQUE NOT NULL,
-      password_hash VARCHAR(255) NOT NULL,
-      modulos TEXT,
-      activo TINYINT(1) DEFAULT 1,
-      creado_en DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
+// Usuarios admin secundarios definidos en variables de entorno (Railway).
+// Formato por usuario (numeradas del 2 en adelante):
+//   ADMIN2_USER, ADMIN2_PASSWORD, ADMIN2_MODULOS (módulos separados por coma)
+// Ejemplo: ADMIN2_MODULOS = usuarios,vincular,crear
+function leerAdminsSecundarios() {
+  const lista = [];
+  for (let i = 2; i <= 10; i++) {
+    const u = process.env[`ADMIN${i}_USER`];
+    const p = process.env[`ADMIN${i}_PASSWORD`];
+    if (!u || !p) continue;
+    const mods = (process.env[`ADMIN${i}_MODULOS`] || '')
+      .split(',').map(s => s.trim()).filter(m => MODULOS_ADMIN.includes(m));
+    lista.push({ usuario: u.trim(), password: p, modulos: mods });
+  }
+  return lista;
 }
 
 app.post('/admin/login', async (req, res) => {
   const { usuario, password } = req.body;
   if (!usuario || !password) return res.status(400).json({ error: 'Ingresa usuario y contraseña' });
   try {
-    // 1) ¿Es el admin maestro? (variables de Railway) → acceso total + gestión de accesos
+    // 1) Admin maestro (acceso total + gestión de accesos)
     if (usuario.trim() === ADMIN_USER && password === ADMIN_PASSWORD) {
       const token = jwt.sign(
         { rol: 'admin', usuario: ADMIN_USER, maestro: true, modulos: MODULOS_ADMIN },
         JWT_SECRET, { expiresIn: '4h' });
       return res.json({ token, maestro: true, modulos: MODULOS_ADMIN });
     }
-    // 2) ¿Es un admin secundario de la tabla?
-    const [[u]] = await portalPool.query(
-      'SELECT id, username, password_hash, modulos, activo FROM admin_users WHERE username = ? LIMIT 1',
-      [usuario.trim()]);
-    if (!u || !u.activo || !(await bcrypt.compare(password, u.password_hash)))
-      return res.status(401).json({ error: 'Credenciales de administrador incorrectas' });
-    const modulos = u.modulos ? u.modulos.split(',').filter(Boolean) : [];
-    const token = jwt.sign(
-      { rol: 'admin', usuario: u.username, maestro: false, modulos },
-      JWT_SECRET, { expiresIn: '4h' });
-    res.json({ token, maestro: false, modulos });
+    // 2) Admin secundario (definido en variables de Railway) — sin tocar la base de datos
+    const secundarios = leerAdminsSecundarios();
+    const match = secundarios.find(a => a.usuario === usuario.trim() && a.password === password);
+    if (match) {
+      const token = jwt.sign(
+        { rol: 'admin', usuario: match.usuario, maestro: false, modulos: match.modulos },
+        JWT_SECRET, { expiresIn: '4h' });
+      return res.json({ token, maestro: false, modulos: match.modulos });
+    }
+    return res.status(401).json({ error: 'Credenciales de administrador incorrectas' });
   } catch (e) { res.status(500).json({ error: 'Error del servidor' }); }
 });
 
@@ -859,72 +861,13 @@ app.get('/admin/estado-actualizacion', authAdmin, requiereModulo('sync'), async 
   } catch (e) { res.json({ pendiente: false }); }
 });
 
-// ─── Gestión de accesos (SOLO admin maestro) ────────────────────────────────
+// ─── Ver accesos (SOLO admin maestro) — lectura de las variables de Railway ──
 app.get('/admin/accesos', authAdmin, soloMaestro, async (req, res) => {
-  try {
-    await asegurarTablaAdmins();
-    const [rows] = await portalPool.query(
-      'SELECT id, username, modulos, activo, creado_en FROM admin_users ORDER BY username');
-    res.json({
-      modulos_disponibles: MODULOS_ADMIN,
-      usuarios: rows.map(u => ({
-        id: u.id, username: u.username, activo: u.activo,
-        modulos: u.modulos ? u.modulos.split(',').filter(Boolean) : [],
-        creado_en: u.creado_en
-      }))
-    });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.post('/admin/accesos/crear', authAdmin, soloMaestro, async (req, res) => {
-  const { username, password, modulos } = req.body;
-  if (!username || !password) return res.status(400).json({ error: 'Usuario y contraseña son obligatorios' });
-  if (password.length < 6) return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
-  const mods = Array.isArray(modulos) ? modulos.filter(m => MODULOS_ADMIN.includes(m)) : [];
-  try {
-    await asegurarTablaAdmins();
-    // No permitir un usuario igual al maestro
-    if (username.trim() === ADMIN_USER)
-      return res.status(400).json({ error: 'Ese nombre de usuario está reservado' });
-    const hash = await bcrypt.hash(password, 10);
-    await portalPool.query(
-      'INSERT INTO admin_users (username, password_hash, modulos, activo) VALUES (?, ?, ?, 1)',
-      [username.trim(), hash, mods.join(',')]);
-    res.json({ ok: true });
-  } catch (e) {
-    if (e.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Ese usuario ya existe' });
-    res.status(500).json({ error: e.message });
-  }
-});
-
-app.post('/admin/accesos/modulos', authAdmin, soloMaestro, async (req, res) => {
-  const { id, modulos } = req.body;
-  if (!id) return res.status(400).json({ error: 'Falta el usuario' });
-  const mods = Array.isArray(modulos) ? modulos.filter(m => MODULOS_ADMIN.includes(m)) : [];
-  try {
-    await portalPool.query('UPDATE admin_users SET modulos = ? WHERE id = ?', [mods.join(','), id]);
-    res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.post('/admin/accesos/activar', authAdmin, soloMaestro, async (req, res) => {
-  const { id, activo } = req.body;
-  if (!id) return res.status(400).json({ error: 'Falta el usuario' });
-  try {
-    await portalPool.query('UPDATE admin_users SET activo = ? WHERE id = ?', [activo ? 1 : 0, id]);
-    res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
-app.post('/admin/accesos/password', authAdmin, soloMaestro, async (req, res) => {
-  const { id, password } = req.body;
-  if (!id || !password) return res.status(400).json({ error: 'Falta usuario o contraseña' });
-  if (password.length < 6) return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
-  try {
-    const hash = await bcrypt.hash(password, 10);
-    await portalPool.query('UPDATE admin_users SET password_hash = ? WHERE id = ?', [hash, id]);
-    res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  const secundarios = leerAdminsSecundarios();
+  res.json({
+    modulos_disponibles: MODULOS_ADMIN,
+    usuarios: secundarios.map(a => ({ username: a.usuario, modulos: a.modulos }))
+  });
 });
 
 // ─── Reporte de venta de consignación (NO toca la BD, solo notifica) ─────────
@@ -1074,7 +1017,6 @@ app.listen(PORT, async () => {
   console.log(`Portal B2B en puerto ${PORT}`);
   // Preparar tablas una vez al arrancar (evita que el primer login pague la espera)
   try {
-    await asegurarTablaAdmins();
     await asegurarTablaPago();
     console.log('Tablas del portal listas.');
   } catch (e) { console.error('No se pudieron preparar las tablas al arrancar:', e.message); }

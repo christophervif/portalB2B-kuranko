@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Admin — Portal B2B Kuranko</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
 :root{
   --bg:#000726;--surface:#0a1238;--surface2:#060d2e;--surface3:#111b44;
@@ -94,6 +95,41 @@ tr:hover td{background:var(--hover)}
 .subpanel.active{display:block}
 .filtros-fila{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
 .filtros-fila select,.filtros-fila input{flex:1;min-width:180px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--card-bg,transparent);color:inherit;font-size:13px}
+.dbcard{background:rgba(255,255,255,.02);border:1px solid var(--border);border-radius:12px;padding:1rem;margin-bottom:1rem}
+.dbcard h4{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:1rem}
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:1.25rem}
+.kpi{background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:10px;padding:1rem}
+.kpi-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
+.kpi-val{font-size:1.3rem;font-weight:600;color:var(--fg,#fff)}
+.kpi-sub{font-size:11px;color:var(--accent);margin-top:3px}
+.kpi.accent{border-color:var(--accent)}
+.card-note{font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem}
+@media(max-width:700px){.two-col{grid-template-columns:1fr}}
+.dtable{width:100%;border-collapse:collapse;font-size:13px}
+.dtable th{text-align:left;padding:7px 8px;color:var(--muted);font-weight:600;font-size:11px;border-bottom:1px solid var(--border);cursor:pointer;user-select:none;white-space:nowrap}
+.dtable th:hover{color:var(--fg,#fff)}
+.dtable th.sortable::after{content:' ⇅';color:var(--muted);font-size:10px}
+.dtable th.sort-asc::after{content:' ↑';color:var(--accent)}
+.dtable th.sort-desc::after{content:' ↓';color:var(--accent)}
+.dtable td{padding:8px;border-bottom:1px solid var(--border)}
+.dtable tr:last-child td{border:none}
+.dtable tr:hover td{background:rgba(255,255,255,.03)}
+.badge{font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600}
+.badge-g{background:#14532d;color:#86efac}.badge-y{background:#713f12;color:#fde68a}.badge-r{background:#7f1d1d;color:#fca5a5}
+.badge-alto{background:#3C3489;color:#CECBF6}.badge-medio{background:#633806;color:#FAC775}.badge-bajo{background:#444441;color:#D3D1C7}
+.empresa-card{background:rgba(255,255,255,.02);border:1px solid var(--border);border-radius:12px;padding:1rem;margin-bottom:10px}
+.empresa-name{font-size:14px;font-weight:600;margin-bottom:10px}
+.empresa-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.estat{background:rgba(255,255,255,.03);border-radius:8px;padding:8px}
+.estat-label{font-size:11px;color:var(--muted);margin-bottom:3px}.estat-val{font-size:15px;font-weight:600}
+.ret-bar{background:rgba(255,255,255,.06);border-radius:20px;height:8px;overflow:hidden;margin-top:6px}
+.ret-fill{height:100%;border-radius:20px;background:var(--accent)}
+.legend{display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+.legend span{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.db-aviso{border-radius:6px;padding:10px 14px;margin-bottom:8px;font-size:13px;line-height:1.5}
+.db-aviso-y{background:rgba(186,117,23,.12);border-left:3px solid #BA7517}
+.db-aviso-r{background:rgba(226,75,74,.12);border-left:3px solid #E24B4A}
 </style>
 </head>
 <body>
@@ -125,6 +161,7 @@ tr:hover td{background:var(--hover)}
       <button class="tab" onclick="tab('crear',this)">Crear accesos</button>
       <button class="tab" onclick="tab('sync',this)">Sincronización web</button>
       <button class="tab" onclick="tab('auditoria',this)">Auditoría de catálogo</button>
+      <button class="tab" onclick="tab('dashboard',this)">Dashboard</button>
       <button class="tab" onclick="tab('pagos',this)">Métodos de pago</button>
       <button class="tab" onclick="tab('accesos',this)">Control de accesos</button>
     </div>
@@ -240,6 +277,93 @@ tr:hover td{background:var(--hover)}
             </div>
             <div id="aud-pendientes" style="overflow-x:auto;max-height:60vh;overflow-y:auto"></div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-dashboard" class="panel">
+      <div class="card">
+        <div class="filtros-fila" style="align-items:center">
+          <label style="font-size:13px">Desde: <input type="date" id="db-desde"></label>
+          <label style="font-size:13px">Hasta: <input type="date" id="db-hasta"></label>
+          <button class="btn" onclick="dbCargarActual()">Actualizar</button>
+        </div>
+        <div class="subtabs" id="db-subtabs">
+          <button class="subtab active" onclick="dbTab('resumen',this)">Resumen</button>
+          <button class="subtab" onclick="dbTab('rentabilidad',this)">Rentabilidad</button>
+          <button class="subtab" onclick="dbTab('inventario',this)">Inventario</button>
+          <button class="subtab" onclick="dbTab('restock',this)">Restock</button>
+          <button class="subtab" onclick="dbTab('clientes',this)">Clientes</button>
+          <button class="subtab" onclick="dbTab('caja',this)">Pagos y Caja</button>
+          <button class="subtab" onclick="dbTab('crm',this)">CRM Kommo</button>
+        </div>
+
+        <div id="db-resumen" class="subpanel active">
+          <div id="kpis-grid" class="kpi-grid"></div>
+          <div class="dbcard"><h4>Valor de ventas por día</h4>
+            <div style="display:flex;gap:16px;margin-bottom:10px;font-size:12px;color:var(--muted)">
+              <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#534AB7"></span> Diseños Corp. SAC</span>
+              <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#0F6E56"></span> Christopher Villasante</span>
+            </div>
+            <div style="position:relative;height:220px"><canvas id="ch-dias"></canvas></div>
+          </div>
+          <div class="two-col">
+            <div class="dbcard"><h4>Por empresa</h4><div id="empresas-box"></div></div>
+            <div class="dbcard"><h4>B2B vs B2C</h4><div style="position:relative;height:220px"><canvas id="ch-tipo"></canvas></div></div>
+          </div>
+        </div>
+
+        <div id="db-rentabilidad" class="subpanel">
+          <div id="rent-kpis" class="kpi-grid"></div>
+          <div id="rent-avisos"></div>
+          <div class="dbcard"><h4>Top 15 productos por ganancia FIFO</h4>
+            <div style="position:relative" id="ch-prod-wrap"><canvas id="ch-prod"></canvas></div></div>
+          <div class="dbcard"><h4>Rentabilidad por marca</h4>
+            <div style="overflow-x:auto"><table class="dtable" id="tbl-marcas"></table></div></div>
+        </div>
+
+        <div id="db-inventario" class="subpanel">
+          <div id="inv-kpis" class="kpi-grid"></div>
+          <div class="dbcard"><h4>Stock por sucursal</h4>
+            <div style="overflow-x:auto"><table class="dtable" id="tbl-sucursal"></table></div></div>
+        </div>
+
+        <div id="db-restock" class="subpanel">
+          <div class="dbcard">
+            <h4>Productos a restockear</h4>
+            <p class="card-note">Ciclo de resurtido 26 días (21 lead time + 5 buffer). Ordenado por ganancia acumulada. Clic en un encabezado para reordenar.</p>
+            <div class="legend">
+              <span><span class="badge badge-alto">Alto</span> &gt; S/ 1,000</span>
+              <span><span class="badge badge-medio">Medio</span> S/ 300–1,000</span>
+              <span><span class="badge badge-bajo">Bajo</span> &lt; S/ 300</span>
+            </div>
+            <div style="overflow-x:auto"><table class="dtable" id="tbl-restock" style="min-width:880px"></table></div>
+          </div>
+        </div>
+
+        <div id="db-clientes" class="subpanel">
+          <div id="ret-kpis" class="kpi-grid"></div>
+          <div class="dbcard"><h4>Tasa de retención</h4>
+            <p class="card-note">Cliente recurrente = 2+ ventas válidas (excluye canceladas).</p>
+            <div id="ret-barras"></div></div>
+          <div class="two-col">
+            <div class="dbcard"><h4>Top clientes</h4><div style="overflow-x:auto"><table class="dtable" id="tbl-clientes"></table></div></div>
+            <div class="dbcard"><h4>Clientes en riesgo de fuga (60+ días)</h4><div style="overflow-x:auto"><table class="dtable" id="tbl-riesgo"></table></div></div>
+          </div>
+        </div>
+
+        <div id="db-caja" class="subpanel">
+          <div class="two-col">
+            <div class="dbcard"><h4>Métodos de pago</h4><div style="position:relative;height:240px"><canvas id="ch-pagos"></canvas></div></div>
+            <div class="dbcard"><h4>Resumen de cobros</h4><div id="pagos-tabla"></div></div>
+          </div>
+          <div class="dbcard"><h4>Cierres de caja</h4><div style="overflow-x:auto"><table class="dtable" id="tbl-caja"></table></div></div>
+        </div>
+
+        <div id="db-crm" class="subpanel">
+          <div id="crm-kpis" class="kpi-grid"></div>
+          <div class="dbcard"><h4>Tareas vencidas</h4><div style="overflow-x:auto"><table class="dtable" id="tbl-tareas"></table></div></div>
+          <div class="dbcard"><h4>Pipelines</h4><div id="crm-pipelines"></div></div>
         </div>
       </div>
     </div>
@@ -370,6 +494,7 @@ function cargarDatosTab(id){
   }
   else if(id==='sync'){cargarEstadoActualizacion();}
   else if(id==='auditoria'){if(!auditoriaCache)cargarAuditoriaGuardada();}
+  else if(id==='dashboard'){dbInit();}
   else if(id==='pagos'){cargarMetodosPago();}
   else if(id==='accesos'){cargarAccesos();}
 }
@@ -584,6 +709,244 @@ async function descargarAuditoria(){
     res.textContent='✓ Excel descargado.';
   }catch(e){res.textContent='';showToast(e.message,true);}
 }
+
+// ══════════ DASHBOARD BI ══════════
+let dbCharts={}, dbCargadas={}, dbTabActual='resumen';
+const dbFmt=n=>new Intl.NumberFormat('es-PE',{style:'currency',currency:'PEN',maximumFractionDigits:0}).format(n||0);
+const dbFmtN=n=>new Intl.NumberFormat('es-PE').format(n||0);
+async function dbApi(ep){
+  const d=document.getElementById('db-desde').value,h=document.getElementById('db-hasta').value;
+  const p=d&&h?(ep.includes('?')?'&':'?')+`desde=${d}&hasta=${h}`:'';
+  return apiCall(ep+p,'GET');
+}
+function dbMkChart(id,type,data,opts){
+  if(dbCharts[id])dbCharts[id].destroy();
+  dbCharts[id]=new Chart(document.getElementById(id),{type,data,options:{responsive:true,maintainAspectRatio:false,...opts}});
+}
+// Tabla ordenable genérica del dashboard
+const dbTableState={};
+function dbSortTable(id,data,cols,defaultSort){
+  dbTableState[id]={data,cols,sortKey:dbTableState[id]?.sortKey||defaultSort,dir:dbTableState[id]?.dir||'desc'};
+  dbRenderTable(id);
+}
+function dbRenderTable(id){
+  const st=dbTableState[id];const{data,cols,sortKey,dir}=st;
+  const sorted=[...data].sort((a,b)=>{
+    let x=a[sortKey],y=b[sortKey];const col=cols.find(c=>c.k===sortKey);
+    if(col&&col.num){x=parseFloat(x)||0;y=parseFloat(y)||0;return dir==='asc'?x-y:y-x;}
+    x=(x||'').toString();y=(y||'').toString();return dir==='asc'?x.localeCompare(y):y.localeCompare(x);
+  });
+  const t=document.getElementById(id);
+  t.innerHTML='<thead><tr>'+cols.map(c=>{
+    const cls=c.k===sortKey?(dir==='asc'?'sort-asc':'sort-desc'):'sortable';
+    return `<th class="${cls}" onclick="dbChangeSort('${id}','${c.k}')">${c.t}</th>`;
+  }).join('')+'</tr></thead><tbody>'+
+    sorted.map(r=>'<tr>'+cols.map(c=>`<td>${c.fmt(r[c.k],r)}</td>`).join('')+'</tr>').join('')+'</tbody>';
+}
+function dbChangeSort(id,key){
+  const st=dbTableState[id];
+  if(st.sortKey===key)st.dir=st.dir==='asc'?'desc':'asc';else{st.sortKey=key;st.dir='desc';}
+  dbRenderTable(id);
+}
+// Cambio de sub-pestaña con carga bajo demanda
+function dbTab(id,btn){
+  document.querySelectorAll('#tab-dashboard .subpanel').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('#db-subtabs .subtab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('db-'+id).classList.add('active');btn.classList.add('active');
+  dbTabActual=id;
+  if(!dbCargadas[id])dbCargarSub(id);
+}
+async function dbCargarSub(id){
+  try{
+    if(id==='resumen')await dbResumen();
+    else if(id==='rentabilidad')await dbRentabilidad();
+    else if(id==='inventario')await dbInventario();
+    else if(id==='restock')await dbRestock();
+    else if(id==='clientes')await dbClientes();
+    else if(id==='caja')await dbCaja();
+    else if(id==='crm')await dbCRM();
+    dbCargadas[id]=1;
+  }catch(e){showToast('Dashboard: '+e.message,true);}
+}
+// Al pulsar "Actualizar" (cambio de fechas): recarga la sub-pestaña actual
+function dbCargarActual(){ dbCargadas={}; dbCargarSub(dbTabActual); }
+// Inicialización al entrar a la pestaña Dashboard
+function dbInit(){
+  if(!document.getElementById('db-desde').value){
+    const h=new Date().toISOString().split('T')[0], d=new Date(Date.now()-30*864e5).toISOString().split('T')[0];
+    document.getElementById('db-desde').value=d; document.getElementById('db-hasta').value=h;
+  }
+  if(!dbCargadas[dbTabActual])dbCargarSub(dbTabActual);
+}
+
+async function dbResumen(){
+  const k=await dbApi('/api/kpis');
+  document.getElementById('kpis-grid').innerHTML=[
+    {l:'Valor de ventas',v:dbFmt(k.valor_ventas),s:dbFmtN(k.num_ventas)+' ventas',a:1},
+    {l:'Dinero recaudado',v:dbFmt(k.dinero_recaudado),s:'en caja',a:1},
+    {l:'Por cobrar',v:dbFmt(k.por_cobrar),s:'pendiente'},
+    {l:'Ticket promedio',v:dbFmt(k.ticket_promedio),s:'por venta'},
+    {l:'Clientes únicos',v:dbFmtN(k.clientes_unicos),s:'en el período'},
+    {l:'Canceladas',v:dbFmtN(k.canceladas),s:'anuladas'},
+  ].map(x=>`<div class="kpi ${x.a?'accent':''}"><div class="kpi-label">${x.l}</div><div class="kpi-val">${x.v}</div><div class="kpi-sub">${x.s}</div></div>`).join('');
+  const dias=await dbApi('/api/ventas-por-dia');
+  const fechas=[...new Set(dias.map(r=>r.fecha))].sort();
+  const e1=fechas.map(f=>{const r=dias.find(x=>x.fecha===f&&x.company_id===1);return r?+r.total:0;});
+  const e2=fechas.map(f=>{const r=dias.find(x=>x.fecha===f&&x.company_id===2);return r?+r.total:0;});
+  dbMkChart('ch-dias','line',{labels:fechas,datasets:[
+    {label:'Diseños',data:e1,borderColor:'#534AB7',backgroundColor:'rgba(83,74,183,.12)',fill:true,tension:.4,pointRadius:2},
+    {label:'Christopher',data:e2,borderColor:'#0F6E56',backgroundColor:'rgba(15,110,86,.12)',fill:true,tension:.4,pointRadius:2,borderDash:[4,3]}
+  ]},{scales:{x:{ticks:{color:'#94a3b8',font:{size:10},maxTicksLimit:10},grid:{color:'rgba(255,255,255,.06)'}},y:{ticks:{color:'#94a3b8',font:{size:10},callback:v=>'S/'+dbFmtN(v)},grid:{color:'rgba(255,255,255,.06)'}}},plugins:{legend:{display:false}}});
+  const emp=await dbApi('/api/kpis-empresas');
+  document.getElementById('empresas-box').innerHTML=emp.map(r=>`
+    <div class="empresa-card"><div class="empresa-name">${r.empresa}</div>
+    <div class="empresa-grid">
+      <div class="estat"><div class="estat-label">Ventas</div><div class="estat-val">${dbFmt(r.valor_ventas)}</div></div>
+      <div class="estat"><div class="estat-label">N° pedidos</div><div class="estat-val">${dbFmtN(r.num_ventas)}</div></div>
+      <div class="estat"><div class="estat-label">Ticket prom.</div><div class="estat-val">${dbFmt(r.ticket_promedio)}</div></div>
+    </div></div>`).join('');
+  const tipo=await dbApi('/api/tipo-cliente');
+  dbMkChart('ch-tipo','doughnut',{labels:tipo.map(t=>t.tipo),datasets:[{data:tipo.map(t=>+t.total),backgroundColor:['#534AB7','#0F6E56'],borderWidth:0}]},
+    {plugins:{legend:{position:'bottom',labels:{color:'#94a3b8',font:{size:12},padding:14}},tooltip:{callbacks:{label:c=>dbFmt(c.raw)}}}});
+}
+
+async function dbRentabilidad(){
+  const r=await dbApi('/api/rentabilidad');
+  document.getElementById('rent-kpis').innerHTML=[
+    {l:'Ingreso confiable',v:dbFmt(r.ingreso_confiable),s:'con costo conocido',a:1},
+    {l:'Costo FIFO',v:dbFmt(r.costo),s:'costo real'},
+    {l:'Ganancia neta',v:dbFmt(r.ganancia),s:'FIFO confiable',a:1},
+    {l:'Margen promedio',v:r.margen_promedio+'%',s:'sobre confiable'},
+    {l:'Ganancia pendiente',v:dbFmt(r.ingreso_pendiente),s:dbFmtN(r.lineas_pedido)+' líneas a pedido'},
+  ].map(x=>`<div class="kpi ${x.a?'accent':''}"><div class="kpi-label">${x.l}</div><div class="kpi-val">${x.v}</div><div class="kpi-sub">${x.s}</div></div>`).join('');
+  let avisos='';
+  if(+r.ingreso_pendiente>0)avisos+=`<div class="db-aviso db-aviso-y">⏸️ <b>${dbFmt(r.ingreso_pendiente)}</b> en ${dbFmtN(r.lineas_pedido)} ventas <b>"a pedido"</b>: el producto aún no llega a Perú, su costo se conocerá al ingresarlo. La venta y el dinero sí cuentan; la ganancia queda pendiente.</div>`;
+  if(+r.lineas_falla>0)avisos+=`<div class="db-aviso db-aviso-r">⚠️ <b>${dbFmtN(r.lineas_falla)} ventas con costo no vinculado</b> (falla de migración): tienen ingreso de stock pero no se enlazó a la venta. Excluidas del cálculo de ganancia — conviene revisarlas.</div>`;
+  document.getElementById('rent-avisos').innerHTML=avisos;
+  const prod=await dbApi('/api/top-productos');
+  document.getElementById('ch-prod-wrap').style.height=Math.max(300,prod.length*38+40)+'px';
+  dbMkChart('ch-prod','bar',{labels:prod.map(p=>p.producto+(p.variacion&&p.variacion!==p.producto?' ('+p.variacion+')':'')),
+    datasets:[{label:'Ganancia',data:prod.map(p=>+p.ganancia),backgroundColor:prod.map(p=>p.estado==='a_pedido'?'#BA7517':p.estado==='sin_costo'?'#E24B4A':'#534AB7'),borderRadius:4}]},
+    {indexAxis:'y',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>{const p=prod[c.dataIndex];const et=p.estado==='a_pedido'?' (a pedido)':p.estado==='sin_costo'?' (sin costo)':'';return 'Ganancia: '+dbFmt(c.raw)+' | '+dbFmtN(p.unidades)+' u.'+et;}}}},
+     scales:{x:{ticks:{color:'#94a3b8',font:{size:10},callback:v=>'S/'+dbFmtN(v)},grid:{color:'rgba(255,255,255,.06)'}},y:{ticks:{color:'#94a3b8',font:{size:11}},grid:{display:false}}}});
+  const marcas=await dbApi('/api/marcas');
+  dbSortTable('tbl-marcas',marcas,[
+    {k:'marca',t:'Marca',fmt:v=>v},
+    {k:'ventas',t:'Ventas',fmt:dbFmtN,num:1},
+    {k:'unidades',t:'Unid.',fmt:dbFmtN,num:1},
+    {k:'ingreso',t:'Ingreso',fmt:dbFmt,num:1},
+    {k:'ganancia',t:'Ganancia',fmt:dbFmt,num:1},
+    {k:'margen',t:'Margen %',fmt:v=>v+'%',num:1}
+  ],'ganancia');
+}
+
+async function dbInventario(){
+  const r=await dbApi('/api/inventario-resumen');
+  document.getElementById('inv-kpis').innerHTML=[
+    {l:'Unidades en stock',v:dbFmtN(r.unidades_totales),s:dbFmtN(r.skus_distintos)+' SKUs',a:1},
+    {l:'Disponibles',v:dbFmtN(r.disponibles),s:'para venta'},
+    {l:'Reservadas',v:dbFmtN(r.reservadas),s:'comprometidas'},
+    {l:'Valor inventario',v:dbFmt(r.valor_inventario),s:'a costo',a:1},
+  ].map(x=>`<div class="kpi ${x.a?'accent':''}"><div class="kpi-label">${x.l}</div><div class="kpi-val">${x.v}</div><div class="kpi-sub">${x.s}</div></div>`).join('');
+  const suc=await dbApi('/api/stock-por-sucursal');
+  const tipoNom={warehouse:'Almacén',store:'Tienda',consignment:'Consignación'};
+  dbSortTable('tbl-sucursal',suc.map(s=>({...s,tipo_nom:tipoNom[s.type]||s.type})),[
+    {k:'sucursal',t:'Sucursal',fmt:v=>v},
+    {k:'tipo_nom',t:'Tipo',fmt:v=>v},
+    {k:'unidades',t:'Unidades',fmt:dbFmtN,num:1},
+    {k:'disponibles',t:'Disponibles',fmt:dbFmtN,num:1},
+    {k:'skus',t:'SKUs',fmt:dbFmtN,num:1}
+  ],'unidades');
+}
+
+async function dbRestock(){
+  const rows=await dbApi('/api/restock');
+  const impBadge=v=>v==='Alto'?'badge-alto':v==='Medio'?'badge-medio':'badge-bajo';
+  const marca=(r)=>{let m='';
+    if(+r.lineas_pedido>0)m+=` <span class="badge badge-medio" title="Ventas a pedido: ganancia pendiente">a pedido</span>`;
+    if(+r.lineas_falla>0)m+=` <span class="badge badge-r" title="Ventas con costo no vinculado">⚠</span>`;
+    return m;};
+  dbSortTable('tbl-restock',rows,[
+    {k:'producto',t:'Producto',fmt:(v,r)=>`${v}${r.variacion&&r.variacion!==v?' <span style="color:var(--muted)">('+r.variacion+')</span>':''}${marca(r)}`},
+    {k:'sku',t:'SKU',fmt:v=>`<span style="color:var(--muted);font-size:11px">${v||'-'}</span>`},
+    {k:'importancia',t:'Import.',fmt:v=>`<span class="badge ${impBadge(v)}">${v}</span>`},
+    {k:'stock_disponible',t:'Stock',fmt:(v,r)=>`<span class="badge ${v<=r.punto_reorden/2?'badge-r':'badge-y'}">${dbFmtN(v)}</span>`,num:1},
+    {k:'punto_reorden',t:'Pto.reorden',fmt:v=>dbFmtN(Math.round(v)),num:1},
+    {k:'vendido_90d',t:'Vend.90d',fmt:dbFmtN,num:1},
+    {k:'unidades_hist',t:'Vend.total',fmt:dbFmtN,num:1},
+    {k:'margen_pct',t:'Margen%',fmt:v=>v+'%',num:1},
+    {k:'ganancia_hist',t:'Ganancia',fmt:dbFmt,num:1}
+  ],'ganancia_hist');
+}
+
+async function dbClientes(){
+  const r=await dbApi('/api/retencion');
+  document.getElementById('ret-kpis').innerHTML=[
+    {l:'Total clientes',v:dbFmtN(r.total_clientes),s:'con compras',a:1},
+    {l:'Recurrentes',v:dbFmtN(r.recurrentes),s:'2+ pedidos'},
+    {l:'Una sola compra',v:dbFmtN(r.unicos),s:'únicos'},
+    {l:'Tasa recurrencia',v:r.tasa_recurrencia+'%',s:'del total',a:1},
+  ].map(x=>`<div class="kpi ${x.a?'accent':''}"><div class="kpi-label">${x.l}</div><div class="kpi-val">${x.v}</div><div class="kpi-sub">${x.s}</div></div>`).join('');
+  document.getElementById('ret-barras').innerHTML=[
+    {l:'Retención 30 días',v:r.ret_30d},{l:'Retención 90 días',v:r.ret_90d},{l:'Tasa recurrencia',v:r.tasa_recurrencia}
+  ].map(b=>`<div style="margin-bottom:14px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:13px">${b.l}</span><span style="font-size:13px;font-weight:600;color:var(--accent)">${b.v}%</span></div><div class="ret-bar"><div class="ret-fill" style="width:${Math.min(b.v,100)}%"></div></div></div>`).join('');
+  const cli=await dbApi('/api/top-clientes');
+  dbSortTable('tbl-clientes',cli,[
+    {k:'cliente',t:'Cliente',fmt:(v,r)=>`${v}${r.is_company?' <span class="badge badge-alto">B2B</span>':''}`},
+    {k:'pedidos',t:'Pedidos',fmt:dbFmtN,num:1},
+    {k:'total_comprado',t:'Total',fmt:dbFmt,num:1}
+  ],'total_comprado');
+  const riesgo=await dbApi('/api/clientes-riesgo');
+  dbSortTable('tbl-riesgo',riesgo.detalle,[
+    {k:'cliente',t:'Cliente',fmt:v=>v},
+    {k:'pedidos_hist',t:'Pedidos',fmt:dbFmtN,num:1},
+    {k:'dias_sin_comprar',t:'Días sin comprar',fmt:v=>`<span class="badge badge-r">${dbFmtN(v)}</span>`,num:1}
+  ],'dias_sin_comprar');
+}
+
+async function dbCaja(){
+  const pagos=await dbApi('/api/metodos-pago-bi');
+  const cols=['#534AB7','#0F6E56','#D85A30','#BA7517','#D4537E','#378ADD','#E24B4A','#9333ea'];
+  dbMkChart('ch-pagos','doughnut',{labels:pagos.map(p=>p.metodo||'Sin nombre'),datasets:[{data:pagos.map(p=>+p.total),backgroundColor:cols,borderWidth:0}]},
+    {plugins:{legend:{position:'bottom',labels:{color:'#94a3b8',font:{size:11},padding:10}},tooltip:{callbacks:{label:c=>dbFmt(c.raw)}}}});
+  document.getElementById('pagos-tabla').innerHTML='<table class="dtable"><thead><tr><th>Método</th><th>N°</th><th>Total</th></tr></thead><tbody>'+
+    pagos.map(p=>`<tr><td>${p.metodo||'Sin nombre'}</td><td>${dbFmtN(p.cantidad)}</td><td style="color:var(--accent);font-weight:600">${dbFmt(p.total)}</td></tr>`).join('')+'</tbody></table>';
+  const caja=await dbApi('/api/cierres-caja');
+  dbSortTable('tbl-caja',caja,[
+    {k:'closure_date',t:'Fecha',fmt:v=>v},
+    {k:'status',t:'Estado',fmt:v=>`<span class="badge ${v==='closed'?'badge-g':'badge-y'}">${v}</span>`},
+    {k:'total_general',t:'Total',fmt:dbFmt,num:1},
+    {k:'notes',t:'Notas',fmt:v=>`<span style="color:var(--muted);font-size:12px">${v||'-'}</span>`}
+  ],'closure_date');
+}
+
+async function dbCRM(){
+  try{
+    const[tareas,pipe,conv]=await Promise.all([dbApi('/api/kommo/tareas'),dbApi('/api/kommo/pipeline'),dbApi('/api/kommo/conversion')]);
+    document.getElementById('crm-kpis').innerHTML=[
+      {l:'Contactos Kommo',v:dbFmtN(conv.total_contactos),s:'registrados',a:1},
+      {l:'Convirtieron',v:dbFmtN(conv.con_venta),s:'compraron'},
+      {l:'Sin venta',v:dbFmtN(conv.sin_venta),s:'por trabajar'},
+      {l:'Conversión real',v:conv.tasa_conversion+'%',s:'Kommo→venta',a:1},
+      {l:'Tareas vencidas',v:dbFmtN(tareas.vencidas),s:'urgente'},
+      {l:'Tareas hoy',v:dbFmtN(tareas.hoy),s:'pendientes'},
+    ].map(x=>`<div class="kpi ${x.a?'accent':''}"><div class="kpi-label">${x.l}</div><div class="kpi-val">${x.v}</div><div class="kpi-sub">${x.s}</div></div>`).join('');
+    document.getElementById('tbl-tareas').innerHTML='<thead><tr><th style="width:70%">Tarea</th><th>Venció</th></tr></thead><tbody>'+
+      (tareas.detalle_vencidas.length?tareas.detalle_vencidas.map(t=>`<tr><td>${t.texto||'(sin texto)'}</td><td><span class="badge badge-r">${t.vencio}</span></td></tr>`).join('')
+        :'<tr><td colspan="2" style="text-align:center;color:var(--muted);padding:1rem">Sin tareas vencidas 🎉</td></tr>')+'</tbody>';
+    document.getElementById('crm-pipelines').innerHTML=pipe.map(p=>`
+      <div class="empresa-card"><div class="empresa-name">${p.nombre}</div>
+      <div class="empresa-grid">
+        <div class="estat"><div class="estat-label">Total leads</div><div class="estat-val">${dbFmtN(p.total_leads)}</div></div>
+        <div class="estat"><div class="estat-label">Activos</div><div class="estat-val">${dbFmtN(p.activos)}</div></div>
+        <div class="estat"><div class="estat-label">Ganados</div><div class="estat-val" style="color:#86efac">${dbFmtN(p.ganados)}</div></div>
+        <div class="estat"><div class="estat-label">Conversión</div><div class="estat-val">${p.tasa_conversion}%</div></div>
+        <div class="estat"><div class="estat-label">Valor activo</div><div class="estat-val">${dbFmt(p.valor_activo)}</div></div>
+        <div class="estat"><div class="estat-label">Perdidos</div><div class="estat-val" style="color:#fca5a5">${dbFmtN(p.perdidos)}</div></div>
+      </div></div>`).join('');
+  }catch(e){document.getElementById('crm-kpis').innerHTML=`<p style="color:#fca5a5">CRM: ${e.message}</p>`;}
+}
+
 async function cargarEstadoActualizacion(){
   const box=document.getElementById('solicitud-estado');
   const btnSol=document.getElementById('btn-solicitar');
@@ -607,7 +970,7 @@ async function cargarEstadoActualizacion(){
   }catch(e){ if(box)box.style.display='none'; }
 }
 // Nombres legibles de los módulos
-const NOMBRE_MODULO={usuarios:'Clientes con acceso',vincular:'Vincular consignación',crear:'Crear accesos',sync:'Sincronización web',auditoria:'Auditoría de catálogo',pagos:'Métodos de pago'};
+const NOMBRE_MODULO={usuarios:'Clientes con acceso',vincular:'Vincular consignación',crear:'Crear accesos',sync:'Sincronización web',auditoria:'Auditoría de catálogo',dashboard:'Dashboard',pagos:'Métodos de pago'};
 let accesosCache={modulos_disponibles:[],usuarios:[]};
 async function cargarAccesos(){
   try{

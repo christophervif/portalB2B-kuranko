@@ -80,6 +80,13 @@ tr:hover td{background:var(--hover)}
 .pill{display:inline-block;background:var(--accent);color:var(--accent-text);border-radius:12px;padding:3px 10px;font-size:12px;margin:2px}
 .cod{background:rgba(0,0,0,.25);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-family:monospace;font-size:13px;margin:8px 0;line-height:1.7}
 .cod-inline{font-family:monospace;background:rgba(0,0,0,.2);padding:2px 6px;border-radius:5px}
+.estado-box{border-radius:8px;padding:10px 14px;font-size:13px;line-height:1.5}
+.estado-box.activo{background:#fef3c7;color:#92400e;border:1px solid #fcd34d}
+.estado-box.inactivo{background:rgba(22,163,74,.12);color:#16a34a;border:1px solid rgba(22,163,74,.3)}
+.tabla{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}
+.tabla th{background:#000726;color:#fff;padding:8px 10px;text-align:left;white-space:nowrap}
+.tabla td{padding:7px 10px;border-bottom:1px solid var(--border)}
+.tabla tr:hover{background:rgba(0,0,0,.03)}
 </style>
 </head>
 <body>
@@ -110,6 +117,7 @@ tr:hover td{background:var(--hover)}
       <button class="tab" onclick="tab('vincular',this)">Vincular consignación</button>
       <button class="tab" onclick="tab('crear',this)">Crear accesos</button>
       <button class="tab" onclick="tab('sync',this)">Sincronización web</button>
+      <button class="tab" onclick="tab('auditoria',this)">Auditoría de catálogo</button>
       <button class="tab" onclick="tab('pagos',this)">Métodos de pago</button>
       <button class="tab" onclick="tab('accesos',this)">Control de accesos</button>
     </div>
@@ -174,20 +182,49 @@ tr:hover td{background:var(--hover)}
     <div id="tab-sync" class="panel">
       <div class="card">
         <h3>Reporte de sincronización con la web</h3>
-        <div class="desc">Descarga el estado actual de la sincronización ERP → kuranko.pe en Excel. Se genera al momento (datos más recientes) y no se almacena. Tiene cinco pestañas:<br>
+        <div class="desc">Descarga el estado de la última sincronización ERP → kuranko.pe en Excel. Se genera al momento y no se almacena. Tiene tres pestañas:<br>
         <b>Variaciones:</b> productos que cambiaron de stock o precio en la última corrida.<br>
-        <b>Pendientes:</b> productos del ERP sin ID de WooCommerce (debes crearlos en la web).<br>
-        <b>Alertas del sistema:</b> problemas detectados en el ERP (sin precio/imagen/descripción con stock, descontinuados con stock, SKU duplicado, oferta mal puesta, margen bajo vs costo, etc.).<br>
-        <b>Alertas de vinculación:</b> productos cuyo SKU no coincide con la web.<br>
-        <b>Actualizados en WooCommerce:</b> los que efectivamente se aplicaron en la web.</div>
+        <b>Actualizados en WooCommerce:</b> los que efectivamente se aplicaron en la web.<br>
+        <b>Alertas de vinculación:</b> productos cuyo SKU no coincide con la web.</div>
         <button class="btn" onclick="descargarReporteSync()">Descargar reporte (Excel)</button>
         <div id="sync-result" class="muted" style="margin-top:10px"></div>
       </div>
       <div class="card">
         <h3>Actualización completa manual</h3>
         <div class="desc">Normalmente el puente solo actualiza lo que cambió. Si necesitas forzar una revisión de <b>todos</b> los productos (por ejemplo, tras cambios masivos en el ERP), solicítala aquí. <b>No se ejecuta al instante:</b> se aplicará en la próxima sincronización automática de las 2 AM (hora Perú), para no sobrecargar la web. Igual valida que coincidan WooCommerce ID y SKU.</div>
-        <button class="btn" onclick="solicitarActualizacion()">Solicitar actualización completa</button>
+        <div id="solicitud-estado" class="estado-box" style="display:none"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+          <button class="btn" id="btn-solicitar" onclick="solicitarActualizacion()">Solicitar actualización completa</button>
+          <button class="btn danger" id="btn-cancelar" onclick="cancelarActualizacion()" style="display:none">Cancelar solicitud</button>
+        </div>
         <div id="solicitud-result" class="muted" style="margin-top:10px"></div>
+      </div>
+    </div>
+
+    <div id="tab-auditoria" class="panel">
+      <div class="card">
+        <h3>Auditoría del catálogo</h3>
+        <div class="desc">Revisa la salud de tu catálogo en el ERP: productos sin ID de WooCommerce (pendientes de crear en la web) y alertas de datos (sin precio/imagen/descripción con stock, descontinuados con stock, SKU duplicado, oferta mal puesta, margen bajo vs costo, etc.). <b>El análisis no se ejecuta solo</b> (es una consulta pesada): púlsalo cuando lo necesites.</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn" id="btn-auditar" onclick="analizarCatalogo()">Analizar catálogo</button>
+          <button class="btn" id="btn-auditar-excel" onclick="descargarAuditoria()" style="display:none">Descargar en Excel</button>
+        </div>
+        <div id="auditoria-result" class="muted" style="margin-top:10px"></div>
+      </div>
+      <div id="auditoria-datos" style="display:none">
+        <div class="card">
+          <h3>Pendientes de crear en la web <span id="aud-pend-count" class="pill"></span></h3>
+          <div class="desc">Productos del ERP sin ID de WooCommerce. Debes crearlos en la web.</div>
+          <div id="aud-pendientes" style="overflow-x:auto"></div>
+        </div>
+        <div class="card">
+          <h3>Alertas del sistema <span id="aud-alert-count" class="pill"></span></h3>
+          <div class="field">
+            <label>Filtrar por tipo de alerta</label>
+            <select id="aud-filtro" onchange="renderAlertasAud()"><option value="">Todas</option></select>
+          </div>
+          <div id="aud-alertas" style="overflow-x:auto"></div>
+        </div>
       </div>
     </div>
 
@@ -316,6 +353,7 @@ function cargarDatosTab(id){
     if(!tabsCargadas.usuarios){cargarUsuarios();tabsCargadas.usuarios=1;}
   }
   else if(id==='sync'){cargarEstadoActualizacion();}
+  else if(id==='auditoria'){if(!auditoriaCache)cargarAuditoriaGuardada();}
   else if(id==='pagos'){cargarMetodosPago();}
   else if(id==='accesos'){cargarAccesos();}
 }
@@ -425,17 +463,122 @@ async function solicitarActualizacion(){
   try{
     const r=await apiCall('/admin/solicitar-actualizacion','POST',{});
     res.textContent='✓ '+r.mensaje;
+    cargarEstadoActualizacion();
+  }catch(e){res.textContent='';showToast(e.message,true);}
+}
+async function cancelarActualizacion(){
+  if(!confirm('¿Cancelar la solicitud de actualización completa pendiente?'))return;
+  const res=document.getElementById('solicitud-result');
+  res.textContent='Cancelando...';
+  try{
+    const r=await apiCall('/admin/cancelar-actualizacion','POST',{});
+    res.textContent=r.canceladas>0?'✓ Solicitud cancelada.':'No había ninguna solicitud pendiente.';
+    cargarEstadoActualizacion();
+  }catch(e){res.textContent='';showToast(e.message,true);}
+}
+// ── Auditoría de catálogo ──
+let auditoriaCache=null;
+function fmtFecha(f){try{return new Date(f).toLocaleString('es-PE',{timeZone:'America/Lima'});}catch(e){return f;}}
+// Al entrar a la pestaña: cargar el último análisis guardado (sin recalcular)
+async function cargarAuditoriaGuardada(){
+  const res=document.getElementById('auditoria-result');
+  try{
+    const d=await apiCall('/admin/auditoria','GET'); // sin force → trae el guardado
+    if(d.sin_analisis){
+      res.textContent='Aún no se ha analizado el catálogo. Pulsa "Analizar catálogo" para generarlo.';
+      document.getElementById('auditoria-datos').style.display='none';
+      document.getElementById('btn-auditar-excel').style.display='none';
+      return;
+    }
+    auditoriaCache=d;
+    mostrarAuditoria(true);
+  }catch(e){res.textContent='';}
+}
+async function analizarCatalogo(){
+  const res=document.getElementById('auditoria-result');
+  const btn=document.getElementById('btn-auditar');
+  res.textContent='Analizando el catálogo... esto puede tardar unos segundos.';
+  btn.disabled=true;
+  try{
+    auditoriaCache=await apiCall('/admin/auditoria?force=1','GET'); // fuerza recalcular y guardar
+    mostrarAuditoria(false);
+  }catch(e){res.textContent='';showToast(e.message,true);}
+  finally{btn.disabled=false;}
+}
+function mostrarAuditoria(desdeCache){
+  const res=document.getElementById('auditoria-result');
+  const fecha=fmtFecha(auditoriaCache.generado_en);
+  res.innerHTML=(desdeCache?'📋 Último análisis: ':'✓ Análisis actualizado: ')+
+    `<b>${fecha}</b> — ${auditoriaCache.total_pendientes} pendientes, ${auditoriaCache.total_alertas} alertas.`+
+    (desdeCache?' <span class="muted">(pulsa "Analizar catálogo" para datos frescos)</span>':'');
+  document.getElementById('auditoria-datos').style.display='block';
+  document.getElementById('btn-auditar-excel').style.display='';
+  document.getElementById('btn-auditar').textContent=desdeCache?'Analizar de nuevo':'Analizar catálogo';
+  renderPendientesAud();
+  prepararFiltroAud();
+  renderAlertasAud();
+}
+function esc(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function renderPendientesAud(){
+  const cont=document.getElementById('aud-pendientes');
+  const p=auditoriaCache.pendientes;
+  document.getElementById('aud-pend-count').textContent=p.length;
+  if(!p.length){cont.innerHTML='<div class="muted">No hay productos pendientes. Todos tienen ID de WooCommerce.</div>';return;}
+  cont.innerHTML='<table class="tabla"><thead><tr><th>SKU</th><th>Tipo</th><th>Nombre</th><th>Precio regular</th><th>Stock</th></tr></thead><tbody>'+
+    p.map(r=>`<tr><td>${esc(r.sku)}</td><td>${esc(r.tipo)}</td><td>${esc(r.nombre)}</td><td>${r.precio==null?'—':'S/'+r.precio.toFixed(2)}</td><td>${r.stock}</td></tr>`).join('')+
+    '</tbody></table>';
+}
+function prepararFiltroAud(){
+  const sel=document.getElementById('aud-filtro');
+  const c=auditoriaCache.conteo_por_tipo||{};
+  sel.innerHTML='<option value="">Todas ('+auditoriaCache.total_alertas+')</option>'+
+    Object.keys(c).sort().map(t=>`<option value="${esc(t)}">${esc(t)} (${c[t]})</option>`).join('');
+}
+function renderAlertasAud(){
+  const cont=document.getElementById('aud-alertas');
+  const filtro=document.getElementById('aud-filtro').value;
+  document.getElementById('aud-alert-count').textContent=auditoriaCache.total_alertas;
+  let lista=auditoriaCache.alertas;
+  if(filtro)lista=lista.filter(a=>a.tipo===filtro);
+  if(!lista.length){cont.innerHTML='<div class="muted">No hay alertas'+(filtro?' de este tipo':'')+'.</div>';return;}
+  cont.innerHTML='<table class="tabla"><thead><tr><th>Tipo</th><th>SKU</th><th>WooCommerce ID</th><th>Nombre</th><th>Observación</th></tr></thead><tbody>'+
+    lista.map(a=>`<tr><td>${esc(a.tipo)}</td><td>${esc(a.sku)}</td><td>${esc(a.wc)}</td><td>${esc(a.nombre)}</td><td>${esc(a.obs)}</td></tr>`).join('')+
+    '</tbody></table>';
+}
+async function descargarAuditoria(){
+  const res=document.getElementById('auditoria-result');
+  res.textContent='Generando Excel...';
+  try{
+    const r=await fetch(API+'/admin/auditoria-excel',{headers:{'Authorization':'Bearer '+TOKEN}});
+    if(!r.ok)throw new Error('No se pudo generar el Excel');
+    const blob=await r.blob();
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');a.href=url;a.download='auditoria_catalogo.xlsx';a.click();
+    URL.revokeObjectURL(url);
+    res.textContent='✓ Excel descargado.';
   }catch(e){res.textContent='';showToast(e.message,true);}
 }
 async function cargarEstadoActualizacion(){
+  const box=document.getElementById('solicitud-estado');
+  const btnSol=document.getElementById('btn-solicitar');
+  const btnCan=document.getElementById('btn-cancelar');
   try{
     const r=await apiCall('/admin/estado-actualizacion','GET');
-    const res=document.getElementById('solicitud-result');
-    if(r.pendiente&&res){
+    if(r.pendiente){
       const f=new Date(r.solicitado_en).toLocaleString('es-PE');
-      res.textContent='⏳ Hay una solicitud pendiente (del '+f+'). Se aplicará en la corrida de las 2 AM.';
+      box.className='estado-box activo';
+      box.innerHTML='⏳ <b>Hay una actualización completa pendiente</b> (solicitada el '+f+'). Se aplicará en la corrida de las 2 AM. Puedes cancelarla mientras tanto.';
+      box.style.display='block';
+      if(btnSol)btnSol.style.display='none';
+      if(btnCan)btnCan.style.display='';
+    }else{
+      box.className='estado-box inactivo';
+      box.innerHTML='✓ No hay ninguna actualización completa pendiente. El puente correrá normal (solo lo que cambió).';
+      box.style.display='block';
+      if(btnSol)btnSol.style.display='';
+      if(btnCan)btnCan.style.display='none';
     }
-  }catch(e){}
+  }catch(e){ if(box)box.style.display='none'; }
 }
 // Nombres legibles de los módulos
 const NOMBRE_MODULO={usuarios:'Clientes con acceso',vincular:'Vincular consignación',crear:'Crear accesos',sync:'Sincronización web',pagos:'Métodos de pago'};

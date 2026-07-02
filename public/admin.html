@@ -87,6 +87,13 @@ tr:hover td{background:var(--hover)}
 .tabla th{background:#000726;color:#fff;padding:8px 10px;text-align:left;white-space:nowrap}
 .tabla td{padding:7px 10px;border-bottom:1px solid var(--border)}
 .tabla tr:hover{background:rgba(0,0,0,.03)}
+.subtabs{display:flex;gap:6px;border-bottom:1px solid var(--border);margin-bottom:14px}
+.subtab{background:none;border:none;color:var(--muted);padding:8px 14px;font-size:14px;cursor:pointer;border-bottom:2px solid transparent;font-weight:600}
+.subtab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.subpanel{display:none}
+.subpanel.active{display:block}
+.filtros-fila{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.filtros-fila select,.filtros-fila input{flex:1;min-width:180px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--card-bg,transparent);color:inherit;font-size:13px}
 </style>
 </head>
 <body>
@@ -213,17 +220,26 @@ tr:hover td{background:var(--hover)}
       </div>
       <div id="auditoria-datos" style="display:none">
         <div class="card">
-          <h3>Pendientes de crear en la web <span id="aud-pend-count" class="pill"></span></h3>
-          <div class="desc">Productos del ERP sin ID de WooCommerce. Debes crearlos en la web.</div>
-          <div id="aud-pendientes" style="overflow-x:auto"></div>
-        </div>
-        <div class="card">
-          <h3>Alertas del sistema <span id="aud-alert-count" class="pill"></span></h3>
-          <div class="field">
-            <label>Filtrar por tipo de alerta</label>
-            <select id="aud-filtro" onchange="renderAlertasAud()"><option value="">Todas</option></select>
+          <div class="subtabs">
+            <button class="subtab active" id="st-alertas" onclick="subtabAud('alertas')">Alertas del sistema <span id="aud-alert-count" class="pill"></span></button>
+            <button class="subtab" id="st-pendientes" onclick="subtabAud('pendientes')">Pendientes en la web <span id="aud-pend-count" class="pill"></span></button>
           </div>
-          <div id="aud-alertas" style="overflow-x:auto"></div>
+
+          <div id="sub-alertas" class="subpanel active">
+            <div class="filtros-fila">
+              <select id="aud-filtro" onchange="renderAlertasAud()"><option value="">Todas</option></select>
+              <input id="aud-buscar-alertas" type="text" placeholder="Buscar por SKU, nombre u observación..." oninput="renderAlertasAud()">
+            </div>
+            <div id="aud-alertas" style="overflow-x:auto;max-height:60vh;overflow-y:auto"></div>
+          </div>
+
+          <div id="sub-pendientes" class="subpanel">
+            <div class="desc">Productos del ERP sin ID de WooCommerce (debes crearlos en la web). Se omiten los que no tienen stock, salvo que tengan un ingreso pendiente por llegar.</div>
+            <div class="filtros-fila">
+              <input id="aud-buscar-pend" type="text" placeholder="Buscar por SKU o nombre..." oninput="renderPendientesAud()">
+            </div>
+            <div id="aud-pendientes" style="overflow-x:auto;max-height:60vh;overflow-y:auto"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -519,13 +535,21 @@ function mostrarAuditoria(desdeCache){
   renderAlertasAud();
 }
 function esc(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function subtabAud(cual){
+  document.querySelectorAll('.subpanel').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.subtab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('sub-'+cual).classList.add('active');
+  document.getElementById('st-'+cual).classList.add('active');
+}
 function renderPendientesAud(){
   const cont=document.getElementById('aud-pendientes');
-  const p=auditoriaCache.pendientes;
+  const q=(document.getElementById('aud-buscar-pend').value||'').toLowerCase().trim();
+  let p=auditoriaCache.pendientes;
   document.getElementById('aud-pend-count').textContent=p.length;
-  if(!p.length){cont.innerHTML='<div class="muted">No hay productos pendientes. Todos tienen ID de WooCommerce.</div>';return;}
-  cont.innerHTML='<table class="tabla"><thead><tr><th>SKU</th><th>Tipo</th><th>Nombre</th><th>Precio regular</th><th>Stock</th></tr></thead><tbody>'+
-    p.map(r=>`<tr><td>${esc(r.sku)}</td><td>${esc(r.tipo)}</td><td>${esc(r.nombre)}</td><td>${r.precio==null?'—':'S/'+r.precio.toFixed(2)}</td><td>${r.stock}</td></tr>`).join('')+
+  if(q)p=p.filter(r=>(r.sku||'').toLowerCase().includes(q)||(r.nombre||'').toLowerCase().includes(q));
+  if(!p.length){cont.innerHTML='<div class="muted">'+(q?'Ningún pendiente coincide con la búsqueda.':'No hay productos pendientes con stock (o con ingreso por llegar).')+'</div>';return;}
+  cont.innerHTML='<table class="tabla"><thead><tr><th>SKU</th><th>Tipo</th><th>Nombre</th><th>Precio regular</th><th>Stock</th><th>Ingreso pend.</th></tr></thead><tbody>'+
+    p.map(r=>`<tr><td>${esc(r.sku)}</td><td>${esc(r.tipo)}</td><td>${esc(r.nombre)}</td><td>${r.precio==null?'—':'S/'+r.precio.toFixed(2)}</td><td>${r.stock}</td><td>${r.ingreso_pendiente?'Sí':'—'}</td></tr>`).join('')+
     '</tbody></table>';
 }
 function prepararFiltroAud(){
@@ -537,10 +561,12 @@ function prepararFiltroAud(){
 function renderAlertasAud(){
   const cont=document.getElementById('aud-alertas');
   const filtro=document.getElementById('aud-filtro').value;
+  const q=(document.getElementById('aud-buscar-alertas').value||'').toLowerCase().trim();
   document.getElementById('aud-alert-count').textContent=auditoriaCache.total_alertas;
   let lista=auditoriaCache.alertas;
   if(filtro)lista=lista.filter(a=>a.tipo===filtro);
-  if(!lista.length){cont.innerHTML='<div class="muted">No hay alertas'+(filtro?' de este tipo':'')+'.</div>';return;}
+  if(q)lista=lista.filter(a=>(a.sku||'').toLowerCase().includes(q)||(a.nombre||'').toLowerCase().includes(q)||(a.obs||'').toLowerCase().includes(q));
+  if(!lista.length){cont.innerHTML='<div class="muted">No hay alertas'+(filtro||q?' que coincidan':'')+'.</div>';return;}
   cont.innerHTML='<table class="tabla"><thead><tr><th>Tipo</th><th>SKU</th><th>WooCommerce ID</th><th>Nombre</th><th>Observación</th></tr></thead><tbody>'+
     lista.map(a=>`<tr><td>${esc(a.tipo)}</td><td>${esc(a.sku)}</td><td>${esc(a.wc)}</td><td>${esc(a.nombre)}</td><td>${esc(a.obs)}</td></tr>`).join('')+
     '</tbody></table>';
@@ -581,7 +607,7 @@ async function cargarEstadoActualizacion(){
   }catch(e){ if(box)box.style.display='none'; }
 }
 // Nombres legibles de los módulos
-const NOMBRE_MODULO={usuarios:'Clientes con acceso',vincular:'Vincular consignación',crear:'Crear accesos',sync:'Sincronización web',pagos:'Métodos de pago'};
+const NOMBRE_MODULO={usuarios:'Clientes con acceso',vincular:'Vincular consignación',crear:'Crear accesos',sync:'Sincronización web',auditoria:'Auditoría de catálogo',pagos:'Métodos de pago'};
 let accesosCache={modulos_disponibles:[],usuarios:[]};
 async function cargarAccesos(){
   try{

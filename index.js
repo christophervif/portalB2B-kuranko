@@ -310,7 +310,7 @@ app.post('/portal/cambiar-password', authCliente, async (req, res) => {
 // LOGIN ADMIN
 // ════════════════════════════════════════════════════════════════════════════
 // Lista de módulos (pestañas) del admin. Debe coincidir con las pestañas del HTML.
-const MODULOS_ADMIN = ['usuarios', 'vincular', 'crear', 'sync', 'pagos'];
+const MODULOS_ADMIN = ['usuarios', 'vincular', 'crear', 'sync', 'auditoria', 'pagos'];
 
 // Usuarios admin secundarios definidos en variables de entorno (Railway).
 // Formato por usuario (numeradas del 2 en adelante):
@@ -470,9 +470,16 @@ app.post('/admin/crear-todos', authAdmin, requiereModulo('crear'), async (req, r
 // ─── Auditoría del catálogo (datos del ERP) — reutilizable para pantalla y Excel ──
 async function calcularAuditoria() {
     // ── PESTAÑA 2: Pendientes (sin woocommerce_id) ─────────────────────────
+    // Solo se muestran los que tienen stock > 0, O los que tienen un ingreso
+    // pendiente por llegar (una venta en backorder con pending_stock_entry_id).
     const [pendientes] = await prodPool.query(
       `SELECT pv.sku, pv.product_type, pv.name AS nombre, pv.regular_price,
-              COALESCE(SUM(ls.quantity),0) AS stock
+              COALESCE(SUM(ls.quantity),0) AS stock,
+              EXISTS(
+                SELECT 1 FROM sale_items si
+                WHERE si.product_variation_id = pv.id
+                  AND si.pending_stock_entry_id IS NOT NULL
+              ) AS ingreso_pendiente
        FROM product_variations pv
        JOIN products p ON p.id = pv.product_id
        LEFT JOIN location_stocks ls ON ls.product_variation_id = pv.id
@@ -480,6 +487,7 @@ async function calcularAuditoria() {
          AND pv.product_type IN ('variation','simple')
          AND pv.deleted_at IS NULL
        GROUP BY pv.id, pv.sku, pv.product_type, pv.name, pv.regular_price
+       HAVING stock > 0 OR ingreso_pendiente = 1
        ORDER BY pv.name, pv.sku`);
 
     // ── PESTAÑA 3: Alertas del sistema (todo del ERP) ──────────────────────
@@ -817,7 +825,7 @@ async function asegurarTablaAuditoria() {
 
 // ─── Auditoría de catálogo en pantalla (JSON) ────────────────────────────────
 // force=1 → recalcula y guarda; sin force → devuelve el último guardado (si existe)
-app.get('/admin/auditoria', authAdmin, requiereModulo('sync'), async (req, res) => {
+app.get('/admin/auditoria', authAdmin, requiereModulo('auditoria'), async (req, res) => {
   try {
     await asegurarTablaAuditoria();
     const forzar = req.query.force === '1';
@@ -847,7 +855,8 @@ app.get('/admin/auditoria', authAdmin, requiereModulo('sync'), async (req, res) 
       conteo_por_tipo: conteo,
       pendientes: pendientes.map(p => ({
         sku: p.sku, tipo: p.product_type, nombre: p.nombre || '',
-        precio: p.regular_price === null ? null : Number(p.regular_price), stock: p.stock
+        precio: p.regular_price === null ? null : Number(p.regular_price), stock: p.stock,
+        ingreso_pendiente: !!p.ingreso_pendiente
       })),
       alertas
     };
@@ -862,7 +871,7 @@ app.get('/admin/auditoria', authAdmin, requiereModulo('sync'), async (req, res) 
 });
 
 // ─── Auditoría de catálogo en Excel (2 pestañas) ─────────────────────────────
-app.get('/admin/auditoria-excel', authAdmin, requiereModulo('sync'), async (req, res) => {
+app.get('/admin/auditoria-excel', authAdmin, requiereModulo('auditoria'), async (req, res) => {
   try {
     const { pendientes, alertas } = await calcularAuditoria();
     const ExcelJS = require('exceljs');
@@ -886,13 +895,15 @@ app.get('/admin/auditoria-excel', authAdmin, requiereModulo('sync'), async (req,
       { header: 'Tipo', key: 'tipo', width: 12 },
       { header: 'Nombre', key: 'nombre', width: 45 },
       { header: 'Precio regular', key: 'precio', width: 15 },
-      { header: 'Stock', key: 'stock', width: 10 }
+      { header: 'Stock', key: 'stock', width: 10 },
+      { header: 'Ingreso pendiente', key: 'ing', width: 16 }
     ];
     pendientes.forEach(p => ws1.addRow({
       sku: p.sku, tipo: p.product_type, nombre: p.nombre || '',
-      precio: p.regular_price === null ? '' : Number(p.regular_price), stock: p.stock
+      precio: p.regular_price === null ? '' : Number(p.regular_price), stock: p.stock,
+      ing: p.ingreso_pendiente ? 'Sí' : 'No'
     }));
-    ponerEncabezado(ws1, 5);
+    ponerEncabezado(ws1, 6);
     estiloHeader(ws1.getRow(2));
     ws1.views = [{ state: 'frozen', ySplit: 2 }];
 

@@ -467,49 +467,8 @@ app.post('/admin/crear-todos', authAdmin, requiereModulo('crear'), async (req, r
 
 // ─── Reporte de sincronización: pendientes + alertas (Excel, 2 pestañas) ─────
 // Lee del ERP en SOLO LECTURA. No modifica nada. Genera el Excel al momento.
-app.get('/admin/reporte-sync', authAdmin, requiereModulo('sync'), async (req, res) => {
-  try {
-    // ── Última corrida del puente ──────────────────────────────────────────
-    let ultimaCorrida = null;
-    try {
-      const [[c]] = await portalPool.query(
-        `SELECT corrio_en, productos_actualizados, productos_error, modo
-         FROM sync_corridas ORDER BY id DESC LIMIT 1`);
-      if (c) ultimaCorrida = c;
-    } catch (e) { /* la tabla puede no existir aún */ }
-
-    // ── Detalle de la corrida: variaciones (todo lo que cambió) y aplicados ─
-    let variaciones = [], aplicados = [];
-    try {
-      const [rows] = await portalPool.query(
-        `SELECT variation_id, woocommerce_id, tipo, stock_antes, precio_antes,
-                stock_despues, precio_despues, se_aplico
-         FROM sync_detalle ORDER BY se_aplico DESC, woocommerce_id`);
-      variaciones = rows;
-      aplicados = rows.filter(r => r.se_aplico === 1);
-    } catch (e) { /* sin detalle aún */ }
-
-    // Enriquecer variaciones/aplicados con SKU y nombre del ERP
-    const idsDet = [...new Set(variaciones.map(v => v.woocommerce_id).filter(Boolean))];
-    const infoDet = {};
-    if (idsDet.length) {
-      const [info] = await prodPool.query(
-        `SELECT pv.woocommerce_id, pv.sku, pv.name AS nombre, pv.product_type
-         FROM product_variations pv WHERE pv.woocommerce_id IN (?)`, [idsDet]);
-      info.forEach(i => { infoDet[i.woocommerce_id] = i; });
-    }
-    const armaFila = (v) => {
-      const inf = infoDet[v.woocommerce_id] || {};
-      return {
-        sku: inf.sku || '', wc: v.woocommerce_id, tipo: inf.product_type || v.tipo,
-        nombre: inf.nombre || '',
-        stock_despues: v.stock_despues, precio_despues: v.precio_despues,
-        stock_antes: v.stock_antes, precio_antes: v.precio_antes
-      };
-    };
-    const filasVariaciones = variaciones.map(armaFila);
-    const filasAplicados = aplicados.map(armaFila);
-
+// ─── Auditoría del catálogo (datos del ERP) — reutilizable para pantalla y Excel ──
+async function calcularAuditoria() {
     // ── PESTAÑA 2: Pendientes (sin woocommerce_id) ─────────────────────────
     const [pendientes] = await prodPool.query(
       `SELECT pv.sku, pv.product_type, pv.name AS nombre, pv.regular_price,
@@ -692,6 +651,55 @@ app.get('/admin/reporte-sync', authAdmin, requiereModulo('sync'), async (req, re
         obs: `Producto tipo variable con ${p.num_ventas} venta(s) asociada(s) (${p.unidades} unidades) — las ventas deberían ir en las variaciones` });
     });
 
+
+    return { pendientes, alertas: alertasSistema };
+}
+
+app.get('/admin/reporte-sync', authAdmin, requiereModulo('sync'), async (req, res) => {
+  try {
+    // ── Última corrida del puente ──────────────────────────────────────────
+    let ultimaCorrida = null;
+    try {
+      const [[c]] = await portalPool.query(
+        `SELECT corrio_en, productos_actualizados, productos_error, modo
+         FROM sync_corridas ORDER BY id DESC LIMIT 1`);
+      if (c) ultimaCorrida = c;
+    } catch (e) { /* la tabla puede no existir aún */ }
+
+    // ── Detalle de la corrida: variaciones (todo lo que cambió) y aplicados ─
+    let variaciones = [], aplicados = [];
+    try {
+      const [rows] = await portalPool.query(
+        `SELECT variation_id, woocommerce_id, tipo, stock_antes, precio_antes,
+                stock_despues, precio_despues, se_aplico
+         FROM sync_detalle ORDER BY se_aplico DESC, woocommerce_id`);
+      variaciones = rows;
+      aplicados = rows.filter(r => r.se_aplico === 1);
+    } catch (e) { /* sin detalle aún */ }
+
+    // Enriquecer variaciones/aplicados con SKU y nombre del ERP
+    const idsDet = [...new Set(variaciones.map(v => v.woocommerce_id).filter(Boolean))];
+    const infoDet = {};
+    if (idsDet.length) {
+      const [info] = await prodPool.query(
+        `SELECT pv.woocommerce_id, pv.sku, pv.name AS nombre, pv.product_type
+         FROM product_variations pv WHERE pv.woocommerce_id IN (?)`, [idsDet]);
+      info.forEach(i => { infoDet[i.woocommerce_id] = i; });
+    }
+    const armaFila = (v) => {
+      const inf = infoDet[v.woocommerce_id] || {};
+      return {
+        sku: inf.sku || '', wc: v.woocommerce_id, tipo: inf.product_type || v.tipo,
+        nombre: inf.nombre || '',
+        stock_despues: v.stock_despues, precio_despues: v.precio_despues,
+        stock_antes: v.stock_antes, precio_antes: v.precio_antes
+      };
+    };
+    const filasVariaciones = variaciones.map(armaFila);
+    const filasAplicados = aplicados.map(armaFila);
+
+    // (Pendientes y Alertas del sistema se movieron a la Auditoría de catálogo)
+
     // ── PESTAÑA 4: Alertas de vinculación con WooCommerce ──────────────────
     let alertasSku = [];
     try {
@@ -752,39 +760,6 @@ app.get('/admin/reporte-sync', authAdmin, requiereModulo('sync'), async (req, re
     estiloHeader(ws1.getRow(3));
     ws1.views = [{ state: 'frozen', ySplit: 3 }];
 
-    // PESTAÑA 2: Pendientes
-    const ws2 = wb.addWorksheet('Pendientes');
-    ws2.columns = [
-      { header: 'SKU', key: 'sku', width: 22 },
-      { header: 'Tipo', key: 'tipo', width: 12 },
-      { header: 'Nombre', key: 'nombre', width: 45 },
-      { header: 'Precio regular', key: 'precio', width: 15 },
-      { header: 'Stock', key: 'stock', width: 10 }
-    ];
-    pendientes.forEach(p => ws2.addRow({
-      sku: p.sku, tipo: p.product_type, nombre: p.nombre || '',
-      precio: p.regular_price === null ? '' : Number(p.regular_price), stock: p.stock
-    }));
-    ponerEncabezado(ws2, 5);
-    estiloHeader(ws2.getRow(3));
-    ws2.views = [{ state: 'frozen', ySplit: 3 }];
-
-    // PESTAÑA 3: Alertas del sistema (con filtros)
-    const ws3 = wb.addWorksheet('Alertas del sistema');
-    ws3.columns = [
-      { header: 'Tipo de alerta', key: 'tipo', width: 22 },
-      { header: 'SKU', key: 'sku', width: 22 },
-      { header: 'WooCommerce ID', key: 'wc', width: 15 },
-      { header: 'Nombre', key: 'nombre', width: 38 },
-      { header: 'Observación', key: 'obs', width: 55 }
-    ];
-    alertasSistema.forEach(a => ws3.addRow({ tipo: a.tipo, sku: a.sku, wc: a.wc, nombre: a.nombre, obs: a.obs }));
-    ponerEncabezado(ws3, 5);
-    estiloHeader(ws3.getRow(3));
-    ws3.views = [{ state: 'frozen', ySplit: 3 }];
-    const uf3 = ws3.rowCount;
-    ws3.autoFilter = { from: { row: 3, column: 1 }, to: { row: uf3 < 3 ? 3 : uf3, column: 5 } };
-
     // PESTAÑA 4: Alertas de vinculación (WooCommerce)
     const ws4 = wb.addWorksheet('Alertas de vinculación');
     ws4.columns = [
@@ -829,6 +804,122 @@ app.get('/admin/reporte-sync', authAdmin, requiereModulo('sync'), async (req, re
   } catch (e) { res.status(500).json({ error: 'Error al generar el reporte: ' + e.message }); }
 });
 
+// Asegura la tabla que guarda el último análisis de auditoría
+async function asegurarTablaAuditoria() {
+  await portalPool.query(`
+    CREATE TABLE IF NOT EXISTS auditoria_cache (
+      id INT PRIMARY KEY DEFAULT 1,
+      generado_en DATETIME,
+      resultado LONGTEXT
+    )
+  `);
+}
+
+// ─── Auditoría de catálogo en pantalla (JSON) ────────────────────────────────
+// force=1 → recalcula y guarda; sin force → devuelve el último guardado (si existe)
+app.get('/admin/auditoria', authAdmin, requiereModulo('sync'), async (req, res) => {
+  try {
+    await asegurarTablaAuditoria();
+    const forzar = req.query.force === '1';
+
+    if (!forzar) {
+      // Intentar devolver el último análisis guardado
+      const [[row]] = await portalPool.query(
+        'SELECT generado_en, resultado FROM auditoria_cache WHERE id = 1');
+      if (row && row.resultado) {
+        const data = JSON.parse(row.resultado);
+        data.generado_en = row.generado_en;
+        data.desde_cache = true;
+        return res.json(data);
+      }
+      // No hay guardado aún → avisar que hay que analizar
+      return res.json({ sin_analisis: true });
+    }
+
+    // Forzar: recalcular
+    const { pendientes, alertas } = await calcularAuditoria();
+    const conteo = {};
+    alertas.forEach(a => { conteo[a.tipo] = (conteo[a.tipo] || 0) + 1; });
+    const data = {
+      generado_en: new Date(),
+      total_pendientes: pendientes.length,
+      total_alertas: alertas.length,
+      conteo_por_tipo: conteo,
+      pendientes: pendientes.map(p => ({
+        sku: p.sku, tipo: p.product_type, nombre: p.nombre || '',
+        precio: p.regular_price === null ? null : Number(p.regular_price), stock: p.stock
+      })),
+      alertas
+    };
+    // Guardar (sobrescribe el anterior)
+    await portalPool.query(
+      `INSERT INTO auditoria_cache (id, generado_en, resultado) VALUES (1, NOW(), ?)
+       ON DUPLICATE KEY UPDATE generado_en = NOW(), resultado = VALUES(resultado)`,
+      [JSON.stringify(data)]);
+    data.desde_cache = false;
+    res.json(data);
+  } catch (e) { res.status(500).json({ error: 'Error al analizar el catálogo: ' + e.message }); }
+});
+
+// ─── Auditoría de catálogo en Excel (2 pestañas) ─────────────────────────────
+app.get('/admin/auditoria-excel', authAdmin, requiereModulo('sync'), async (req, res) => {
+  try {
+    const { pendientes, alertas } = await calcularAuditoria();
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook();
+    const estiloHeader = (row) => {
+      row.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000726' } };
+      row.alignment = { vertical: 'middle' };
+    };
+    const textoGen = `Auditoría generada: ${new Date().toLocaleString('es-PE', { timeZone: 'America/Lima' })}`;
+    const ponerEncabezado = (ws, nCols) => {
+      ws.insertRow(1, [textoGen]);
+      ws.mergeCells(1, 1, 1, nCols);
+      ws.getRow(1).font = { italic: true, color: { argb: 'FF555555' } };
+    };
+
+    // Pestaña Pendientes
+    const ws1 = wb.addWorksheet('Pendientes');
+    ws1.columns = [
+      { header: 'SKU', key: 'sku', width: 22 },
+      { header: 'Tipo', key: 'tipo', width: 12 },
+      { header: 'Nombre', key: 'nombre', width: 45 },
+      { header: 'Precio regular', key: 'precio', width: 15 },
+      { header: 'Stock', key: 'stock', width: 10 }
+    ];
+    pendientes.forEach(p => ws1.addRow({
+      sku: p.sku, tipo: p.product_type, nombre: p.nombre || '',
+      precio: p.regular_price === null ? '' : Number(p.regular_price), stock: p.stock
+    }));
+    ponerEncabezado(ws1, 5);
+    estiloHeader(ws1.getRow(2));
+    ws1.views = [{ state: 'frozen', ySplit: 2 }];
+
+    // Pestaña Alertas del sistema (con filtro)
+    const ws2 = wb.addWorksheet('Alertas del sistema');
+    ws2.columns = [
+      { header: 'Tipo de alerta', key: 'tipo', width: 22 },
+      { header: 'SKU', key: 'sku', width: 22 },
+      { header: 'WooCommerce ID', key: 'wc', width: 15 },
+      { header: 'Nombre', key: 'nombre', width: 38 },
+      { header: 'Observación', key: 'obs', width: 55 }
+    ];
+    alertas.forEach(a => ws2.addRow({ tipo: a.tipo, sku: a.sku, wc: a.wc, nombre: a.nombre, obs: a.obs }));
+    ponerEncabezado(ws2, 5);
+    estiloHeader(ws2.getRow(2));
+    ws2.views = [{ state: 'frozen', ySplit: 2 }];
+    const uf = ws2.rowCount;
+    ws2.autoFilter = { from: { row: 2, column: 1 }, to: { row: uf < 2 ? 2 : uf, column: 5 } };
+
+    const fecha = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="auditoria_catalogo_${fecha}.xlsx"`);
+    await wb.xlsx.write(res);
+    res.end();
+  } catch (e) { res.status(500).json({ error: 'Error al generar la auditoría: ' + e.message }); }
+});
+
 // Solicitar una actualización completa (se aplicará en la corrida de las 2 AM)
 app.post('/admin/solicitar-actualizacion', authAdmin, requiereModulo('sync'), async (req, res) => {
   try {
@@ -859,6 +950,15 @@ app.get('/admin/estado-actualizacion', authAdmin, requiereModulo('sync'), async 
       `SELECT solicitado_en FROM sync_solicitudes WHERE atendida = 0 ORDER BY id ASC LIMIT 1`);
     res.json({ pendiente: !!pend, solicitado_en: pend ? pend.solicitado_en : null });
   } catch (e) { res.json({ pendiente: false }); }
+});
+
+// Cancelar la solicitud de actualización completa pendiente (antes de que corra a las 2 AM)
+app.post('/admin/cancelar-actualizacion', authAdmin, requiereModulo('sync'), async (req, res) => {
+  try {
+    const [r] = await portalPool.query(
+      `UPDATE sync_solicitudes SET atendida = 1, atendida_en = NOW() WHERE atendida = 0`);
+    res.json({ ok: true, canceladas: r.affectedRows || 0 });
+  } catch (e) { res.status(500).json({ error: 'Error al cancelar: ' + e.message }); }
 });
 
 // ─── Ver accesos (SOLO admin maestro) — lectura de las variables de Railway ──
@@ -1018,6 +1118,7 @@ app.listen(PORT, async () => {
   // Preparar tablas una vez al arrancar (evita que el primer login pague la espera)
   try {
     await asegurarTablaPago();
+    await asegurarTablaAuditoria();
     console.log('Tablas del portal listas.');
   } catch (e) { console.error('No se pudieron preparar las tablas al arrancar:', e.message); }
 });

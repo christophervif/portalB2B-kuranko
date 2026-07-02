@@ -161,7 +161,13 @@ tr:hover td{background:var(--hover)}
       <button class="tab" onclick="tab('crear',this)">Crear accesos</button>
       <button class="tab" onclick="tab('sync',this)">Sincronización web</button>
       <button class="tab" onclick="tab('auditoria',this)">Auditoría de catálogo</button>
-      <button class="tab" onclick="tab('dashboard',this)">Dashboard</button>
+      <button class="tab" onclick="tab('resumen',this)">Resumen</button>
+      <button class="tab" onclick="tab('rentabilidad',this)">Rentabilidad</button>
+      <button class="tab" onclick="tab('inventario',this)">Inventario</button>
+      <button class="tab" onclick="tab('restock',this)">Restock</button>
+      <button class="tab" onclick="tab('clientes_bi',this)">Clientes BI</button>
+      <button class="tab" onclick="tab('caja_bi',this)">Pagos y Caja</button>
+      <button class="tab" onclick="tab('crm',this)">CRM Kommo</button>
       <button class="tab" onclick="tab('pagos',this)">Métodos de pago</button>
       <button class="tab" onclick="tab('accesos',this)">Control de accesos</button>
     </div>
@@ -281,90 +287,110 @@ tr:hover td{background:var(--hover)}
       </div>
     </div>
 
-    <div id="tab-dashboard" class="panel">
+    <div id="tab-resumen" class="panel">
       <div class="card">
         <div class="filtros-fila" style="align-items:center">
-          <label style="font-size:13px">Desde: <input type="date" id="db-desde"></label>
-          <label style="font-size:13px">Hasta: <input type="date" id="db-hasta"></label>
+          <label style="font-size:13px">Desde: <input type="date" class="db-desde"></label>
+          <label style="font-size:13px">Hasta: <input type="date" class="db-hasta"></label>
           <button class="btn" onclick="dbCargarActual()">Actualizar</button>
         </div>
-        <div class="subtabs" id="db-subtabs">
-          <button class="subtab active" onclick="dbTab('resumen',this)">Resumen</button>
-          <button class="subtab" onclick="dbTab('rentabilidad',this)">Rentabilidad</button>
-          <button class="subtab" onclick="dbTab('inventario',this)">Inventario</button>
-          <button class="subtab" onclick="dbTab('restock',this)">Restock</button>
-          <button class="subtab" onclick="dbTab('clientes',this)">Clientes</button>
-          <button class="subtab" onclick="dbTab('caja',this)">Pagos y Caja</button>
-          <button class="subtab" onclick="dbTab('crm',this)">CRM Kommo</button>
-        </div>
-
-        <div id="db-resumen" class="subpanel active">
-          <div id="kpis-grid" class="kpi-grid"></div>
-          <div class="dbcard"><h4>Valor de ventas por día</h4>
-            <div style="display:flex;gap:16px;margin-bottom:10px;font-size:12px;color:var(--muted)">
-              <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#534AB7"></span> Diseños Corp. SAC</span>
-              <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#0F6E56"></span> Christopher Villasante</span>
-            </div>
-            <div style="position:relative;height:220px"><canvas id="ch-dias"></canvas></div>
+        <div id="kpis-grid" class="kpi-grid"></div>
+        <div class="dbcard"><h4>Valor de ventas por día</h4>
+          <div style="display:flex;gap:16px;margin-bottom:10px;font-size:12px;color:var(--muted)">
+            <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#534AB7"></span> Diseños Corp. SAC</span>
+            <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#0F6E56"></span> Christopher Villasante</span>
           </div>
-          <div class="two-col">
-            <div class="dbcard"><h4>Por empresa</h4><div id="empresas-box"></div></div>
-            <div class="dbcard"><h4>B2B vs B2C</h4><div style="position:relative;height:220px"><canvas id="ch-tipo"></canvas></div></div>
-          </div>
+          <div style="position:relative;height:220px"><canvas id="ch-dias"></canvas></div>
         </div>
+        <div class="two-col">
+          <div class="dbcard"><h4>Por empresa</h4><div id="empresas-box"></div></div>
+          <div class="dbcard"><h4>B2B vs B2C</h4><div style="position:relative;height:220px"><canvas id="ch-tipo"></canvas></div></div>
+        </div>
+      </div>
+    </div>
 
-        <div id="db-rentabilidad" class="subpanel">
-          <div id="rent-kpis" class="kpi-grid"></div>
-          <div id="rent-avisos"></div>
-          <div class="dbcard"><h4>Top 15 productos por ganancia FIFO</h4>
-            <div style="position:relative" id="ch-prod-wrap"><canvas id="ch-prod"></canvas></div></div>
-          <div class="dbcard"><h4>Rentabilidad por marca</h4>
-            <div style="overflow-x:auto"><table class="dtable" id="tbl-marcas"></table></div></div>
+    <div id="tab-rentabilidad" class="panel">
+      <div class="card">
+        <div class="filtros-fila" style="align-items:center">
+          <label style="font-size:13px">Desde: <input type="date" class="db-desde"></label>
+          <label style="font-size:13px">Hasta: <input type="date" class="db-hasta"></label>
+          <button class="btn" onclick="dbCargarActual()">Actualizar</button>
         </div>
+        <div id="rent-kpis" class="kpi-grid"></div>
+        <div id="rent-avisos"></div>
+        <div class="dbcard"><h4>Top 15 productos por ganancia FIFO</h4>
+          <div style="position:relative" id="ch-prod-wrap"><canvas id="ch-prod"></canvas></div></div>
+        <div class="dbcard"><h4>Rentabilidad por marca</h4>
+          <div style="overflow-x:auto"><table class="dtable" id="tbl-marcas"></table></div></div>
+      </div>
+    </div>
 
-        <div id="db-inventario" class="subpanel">
-          <div id="inv-kpis" class="kpi-grid"></div>
-          <div class="dbcard"><h4>Stock por sucursal</h4>
-            <div style="overflow-x:auto"><table class="dtable" id="tbl-sucursal"></table></div></div>
+    <div id="tab-inventario" class="panel">
+      <div class="card">
+        <div class="filtros-fila" style="align-items:center">
+          <label style="font-size:13px">Desde: <input type="date" class="db-desde"></label>
+          <label style="font-size:13px">Hasta: <input type="date" class="db-hasta"></label>
+          <button class="btn" onclick="dbCargarActual()">Actualizar</button>
         </div>
+        <div id="inv-kpis" class="kpi-grid"></div>
+        <div class="dbcard"><h4>Stock por sucursal</h4>
+          <div style="overflow-x:auto"><table class="dtable" id="tbl-sucursal"></table></div></div>
+      </div>
+    </div>
 
-        <div id="db-restock" class="subpanel">
-          <div class="dbcard">
-            <h4>Productos a restockear</h4>
-            <p class="card-note">Ciclo de resurtido 26 días (21 lead time + 5 buffer). Ordenado por ganancia acumulada. Clic en un encabezado para reordenar.</p>
-            <div class="legend">
-              <span><span class="badge badge-alto">Alto</span> &gt; S/ 1,000</span>
-              <span><span class="badge badge-medio">Medio</span> S/ 300–1,000</span>
-              <span><span class="badge badge-bajo">Bajo</span> &lt; S/ 300</span>
-            </div>
-            <div style="overflow-x:auto"><table class="dtable" id="tbl-restock" style="min-width:880px"></table></div>
-          </div>
+    <div id="tab-restock" class="panel">
+      <div class="card">
+        <h4>Productos a restockear</h4>
+        <p class="card-note">Ciclo de resurtido 26 días (21 lead time + 5 buffer). Ordenado por ganancia acumulada. Clic en un encabezado para reordenar.</p>
+        <div class="legend">
+          <span><span class="badge badge-alto">Alto</span> &gt; S/ 1,000</span>
+          <span><span class="badge badge-medio">Medio</span> S/ 300–1,000</span>
+          <span><span class="badge badge-bajo">Bajo</span> &lt; S/ 300</span>
         </div>
+        <button class="btn" onclick="dbCargarActual()" style="margin-bottom:12px">Actualizar</button>
+        <div style="overflow-x:auto"><table class="dtable" id="tbl-restock" style="min-width:880px"></table></div>
+      </div>
+    </div>
 
-        <div id="db-clientes" class="subpanel">
-          <div id="ret-kpis" class="kpi-grid"></div>
-          <div class="dbcard"><h4>Tasa de retención</h4>
-            <p class="card-note">Cliente recurrente = 2+ ventas válidas (excluye canceladas).</p>
-            <div id="ret-barras"></div></div>
-          <div class="two-col">
-            <div class="dbcard"><h4>Top clientes</h4><div style="overflow-x:auto"><table class="dtable" id="tbl-clientes"></table></div></div>
-            <div class="dbcard"><h4>Clientes en riesgo de fuga (60+ días)</h4><div style="overflow-x:auto"><table class="dtable" id="tbl-riesgo"></table></div></div>
-          </div>
+    <div id="tab-clientes_bi" class="panel">
+      <div class="card">
+        <div class="filtros-fila" style="align-items:center">
+          <label style="font-size:13px">Desde: <input type="date" class="db-desde"></label>
+          <label style="font-size:13px">Hasta: <input type="date" class="db-hasta"></label>
+          <button class="btn" onclick="dbCargarActual()">Actualizar</button>
         </div>
+        <div id="ret-kpis" class="kpi-grid"></div>
+        <div class="dbcard"><h4>Tasa de retención</h4>
+          <p class="card-note">Cliente recurrente = 2+ ventas válidas (excluye canceladas).</p>
+          <div id="ret-barras"></div></div>
+        <div class="two-col">
+          <div class="dbcard"><h4>Top clientes</h4><div style="overflow-x:auto"><table class="dtable" id="tbl-clientes"></table></div></div>
+          <div class="dbcard"><h4>Clientes en riesgo de fuga (60+ días)</h4><div style="overflow-x:auto"><table class="dtable" id="tbl-riesgo"></table></div></div>
+        </div>
+      </div>
+    </div>
 
-        <div id="db-caja" class="subpanel">
-          <div class="two-col">
-            <div class="dbcard"><h4>Métodos de pago</h4><div style="position:relative;height:240px"><canvas id="ch-pagos"></canvas></div></div>
-            <div class="dbcard"><h4>Resumen de cobros</h4><div id="pagos-tabla"></div></div>
-          </div>
-          <div class="dbcard"><h4>Cierres de caja</h4><div style="overflow-x:auto"><table class="dtable" id="tbl-caja"></table></div></div>
+    <div id="tab-caja_bi" class="panel">
+      <div class="card">
+        <div class="filtros-fila" style="align-items:center">
+          <label style="font-size:13px">Desde: <input type="date" class="db-desde"></label>
+          <label style="font-size:13px">Hasta: <input type="date" class="db-hasta"></label>
+          <button class="btn" onclick="dbCargarActual()">Actualizar</button>
         </div>
+        <div class="two-col">
+          <div class="dbcard"><h4>Métodos de pago</h4><div style="position:relative;height:240px"><canvas id="ch-pagos"></canvas></div></div>
+          <div class="dbcard"><h4>Resumen de cobros</h4><div id="pagos-tabla"></div></div>
+        </div>
+        <div class="dbcard"><h4>Cierres de caja</h4><div style="overflow-x:auto"><table class="dtable" id="tbl-caja"></table></div></div>
+      </div>
+    </div>
 
-        <div id="db-crm" class="subpanel">
-          <div id="crm-kpis" class="kpi-grid"></div>
-          <div class="dbcard"><h4>Tareas vencidas</h4><div style="overflow-x:auto"><table class="dtable" id="tbl-tareas"></table></div></div>
-          <div class="dbcard"><h4>Pipelines</h4><div id="crm-pipelines"></div></div>
-        </div>
+    <div id="tab-crm" class="panel">
+      <div class="card">
+        <button class="btn" onclick="dbCargarActual()" style="margin-bottom:12px">Actualizar</button>
+        <div id="crm-kpis" class="kpi-grid"></div>
+        <div class="dbcard"><h4>Tareas vencidas</h4><div style="overflow-x:auto"><table class="dtable" id="tbl-tareas"></table></div></div>
+        <div class="dbcard"><h4>Pipelines</h4><div id="crm-pipelines"></div></div>
       </div>
     </div>
 
@@ -494,7 +520,10 @@ function cargarDatosTab(id){
   }
   else if(id==='sync'){cargarEstadoActualizacion();}
   else if(id==='auditoria'){if(!auditoriaCache)cargarAuditoriaGuardada();}
-  else if(id==='dashboard'){dbInit();}
+  else if(['resumen','rentabilidad','inventario','restock','clientes_bi','caja_bi','crm'].includes(id)){
+    dbInitFechas('tab-'+id);
+    if(!dbCargadas[id])dbCargarModulo(id);
+  }
   else if(id==='pagos'){cargarMetodosPago();}
   else if(id==='accesos'){cargarAccesos();}
 }
@@ -711,17 +740,25 @@ async function descargarAuditoria(){
 }
 
 // ══════════ DASHBOARD BI ══════════
-let dbCharts={}, dbCargadas={}, dbTabActual='resumen';
+let dbCharts={}, dbCargadas={};
 const dbFmt=n=>new Intl.NumberFormat('es-PE',{style:'currency',currency:'PEN',maximumFractionDigits:0}).format(n||0);
 const dbFmtN=n=>new Intl.NumberFormat('es-PE').format(n||0);
+// Lee las fechas del panel actualmente visible (cada panel tiene su barra .db-desde/.db-hasta)
+function dbFechasPanelActivo(){
+  const panel=document.querySelector('.panel.active');
+  if(!panel)return '';
+  const d=panel.querySelector('.db-desde'), h=panel.querySelector('.db-hasta');
+  return (d&&h&&d.value&&h.value)?`?desde=${d.value}&hasta=${h.value}`:'';
+}
 async function dbApi(ep){
-  const d=document.getElementById('db-desde').value,h=document.getElementById('db-hasta').value;
-  const p=d&&h?(ep.includes('?')?'&':'?')+`desde=${d}&hasta=${h}`:'';
-  return apiCall(ep+p,'GET');
+  const p=dbFechasPanelActivo();
+  const sep=p?(ep.includes('?')?'&'+p.slice(1):p):'';
+  return apiCall(ep+sep,'GET');
 }
 function dbMkChart(id,type,data,opts){
   if(dbCharts[id])dbCharts[id].destroy();
-  dbCharts[id]=new Chart(document.getElementById(id),{type,data,options:{responsive:true,maintainAspectRatio:false,...opts}});
+  const el=document.getElementById(id); if(!el)return;
+  dbCharts[id]=new Chart(el,{type,data,options:{responsive:true,maintainAspectRatio:false,...opts}});
 }
 // Tabla ordenable genérica del dashboard
 const dbTableState={};
@@ -748,35 +785,34 @@ function dbChangeSort(id,key){
   if(st.sortKey===key)st.dir=st.dir==='asc'?'desc':'asc';else{st.sortKey=key;st.dir='desc';}
   dbRenderTable(id);
 }
-// Cambio de sub-pestaña con carga bajo demanda
-function dbTab(id,btn){
-  document.querySelectorAll('#tab-dashboard .subpanel').forEach(p=>p.classList.remove('active'));
-  document.querySelectorAll('#db-subtabs .subtab').forEach(t=>t.classList.remove('active'));
-  document.getElementById('db-'+id).classList.add('active');btn.classList.add('active');
-  dbTabActual=id;
-  if(!dbCargadas[id])dbCargarSub(id);
+// Pone fechas por defecto (últimos 30 días) en el panel si están vacías
+function dbInitFechas(panelId){
+  const panel=document.getElementById(panelId); if(!panel)return;
+  const d=panel.querySelector('.db-desde'), h=panel.querySelector('.db-hasta');
+  if(d&&h&&!d.value){
+    h.value=new Date().toISOString().split('T')[0];
+    d.value=new Date(Date.now()-30*864e5).toISOString().split('T')[0];
+  }
 }
-async function dbCargarSub(id){
+// Carga la data de una pestaña BI (llamada desde cargarDatosTab, solo la 1a vez)
+async function dbCargarModulo(id){
   try{
     if(id==='resumen')await dbResumen();
     else if(id==='rentabilidad')await dbRentabilidad();
     else if(id==='inventario')await dbInventario();
     else if(id==='restock')await dbRestock();
-    else if(id==='clientes')await dbClientes();
-    else if(id==='caja')await dbCaja();
+    else if(id==='clientes_bi')await dbClientes();
+    else if(id==='caja_bi')await dbCaja();
     else if(id==='crm')await dbCRM();
     dbCargadas[id]=1;
   }catch(e){showToast('Dashboard: '+e.message,true);}
 }
-// Al pulsar "Actualizar" (cambio de fechas): recarga la sub-pestaña actual
-function dbCargarActual(){ dbCargadas={}; dbCargarSub(dbTabActual); }
-// Inicialización al entrar a la pestaña Dashboard
-function dbInit(){
-  if(!document.getElementById('db-desde').value){
-    const h=new Date().toISOString().split('T')[0], d=new Date(Date.now()-30*864e5).toISOString().split('T')[0];
-    document.getElementById('db-desde').value=d; document.getElementById('db-hasta').value=h;
-  }
-  if(!dbCargadas[dbTabActual])dbCargarSub(dbTabActual);
+// Botón "Actualizar" dentro de un panel: recarga esa pestaña con las fechas nuevas
+function dbCargarActual(){
+  const panel=document.querySelector('.panel.active'); if(!panel)return;
+  const id=panel.id.replace('tab-','');
+  dbCargadas[id]=0;
+  dbCargarModulo(id);
 }
 
 async function dbResumen(){
@@ -970,7 +1006,7 @@ async function cargarEstadoActualizacion(){
   }catch(e){ if(box)box.style.display='none'; }
 }
 // Nombres legibles de los módulos
-const NOMBRE_MODULO={usuarios:'Clientes con acceso',vincular:'Vincular consignación',crear:'Crear accesos',sync:'Sincronización web',auditoria:'Auditoría de catálogo',dashboard:'Dashboard',pagos:'Métodos de pago'};
+const NOMBRE_MODULO={usuarios:'Clientes con acceso',vincular:'Vincular consignación',crear:'Crear accesos',sync:'Sincronización web',auditoria:'Auditoría de catálogo',resumen:'Resumen',rentabilidad:'Rentabilidad',inventario:'Inventario',restock:'Restock',clientes_bi:'Clientes BI',caja_bi:'Pagos y Caja',crm:'CRM Kommo',pagos:'Métodos de pago'};
 let accesosCache={modulos_disponibles:[],usuarios:[]};
 async function cargarAccesos(){
   try{

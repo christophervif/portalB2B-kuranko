@@ -310,7 +310,7 @@ app.post('/portal/cambiar-password', authCliente, async (req, res) => {
 // LOGIN ADMIN
 // ════════════════════════════════════════════════════════════════════════════
 // Lista de módulos (pestañas) del admin. Debe coincidir con las pestañas del HTML.
-const MODULOS_ADMIN = ['usuarios', 'vincular', 'crear', 'sync', 'auditoria', 'pagos'];
+const MODULOS_ADMIN = ['usuarios', 'vincular', 'crear', 'sync', 'auditoria', 'dashboard', 'pagos'];
 
 // Usuarios admin secundarios definidos en variables de entorno (Railway).
 // Formato por usuario (numeradas del 2 en adelante):
@@ -1119,6 +1119,367 @@ app.post('/admin/metodos-pago', authAdmin, requiereModulo('pagos'), async (req, 
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: 'Error al guardar: ' + e.message }); }
 });
+
+
+// ============================================================================
+const https = require('https');
+const EMPRESAS_BI = { 1: 'Diseños Corporativos SAC', 2: 'Christopher Villasante F.' };
+const VV = "('paid','confirmed','pending_payment')";
+const KOMMO_GANADO = 142, KOMMO_PERDIDO = 143;
+
+const GANANCIA_NORMAL = `
+  CASE WHEN si.stock_batch_id IS NOT NULL
+       THEN (si.total - si.quantity * sb.cost_price)
+       ELSE 0 END`;
+const ES_NORMAL = `si.stock_batch_id IS NOT NULL`;
+const ES_PEDIDO = `(si.stock_batch_id IS NULL AND si.is_backorder = 1)`;
+const ES_FALLA  = `(si.stock_batch_id IS NULL AND si.is_backorder = 0)`;
+
+const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
+  const req = https.request({
+    hostname: process.env.KOMMO_DOMAIN, path: `/api/v4/${endpoint}`, family: 4,
+    headers: { 'Authorization': `Bearer ${process.env.KOMMO_TOKEN}` }
+  }, (r) => {
+    let d = ''; r.on('data', c => d += c);
+    r.on('end', () => { if (!d.trim()) return resolve({}); try { resolve(JSON.parse(d)); } catch(e){ reject(new Error('Kommo parse '+r.statusCode)); } });
+  });
+  req.on('error', reject); req.end();
+});
+
+// Registro de endpoints del dashboard (inyectado directamente)
+(function(){
+
+  const mod = requiereModulo('dashboard');
+  const rango = (desde, hasta, campo='s.created_at') =>
+    desde && hasta ? `AND ${campo} BETWEEN '${desde}' AND '${hasta} 23:59:59'` : '';
+
+  // ── RESUMEN / KPIs ──
+  app.get('/api/kpis', authAdmin, mod, async (req, res) => {
+    const { desde, hasta } = req.query; const f = rango(desde, hasta);
+    try {
+      const [[ventas]] = await prodPool.query(`
+        SELECT COUNT(*) AS num_ventas, COALESCE(SUM(total),0) AS valor_ventas,
+               COALESCE(AVG(total),0) AS ticket_promedio, COUNT(DISTINCT customer_id) AS clientes_unicos
+        FROM sales s WHERE s.deleted_at IS NULL AND s.status IN ${VV} ${f}`);
+      const [[recaudado]] = await prodPool.query(`
+        SELECT COALESCE(SUM(sp.amount),0) AS dinero_recaudado
+        FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id
+        WHERE sp.voided_at IS NULL AND s.deleted_at IS NULL AND s.status IN ${VV} ${f}`);
+      const [[canc]] = await prodPool.query(`
+        SELECT COUNT(*) AS canceladas FROM sales s WHERE s.deleted_at IS NULL AND s.status='cancelled' ${f}`);
+      const valorVentas = parseFloat(ventas.valor_ventas), recaud = parseFloat(recaudado.dinero_recaudado);
+      res.json({ ...ventas, ...recaudado, ...canc, por_cobrar: Math.max(0, valorVentas - recaud) });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get('/api/kpis-empresas', authAdmin, mod, async (req, res) => {
+    const { desde, hasta } = req.query; const f = rango(desde, hasta);
+    try {
+      const [rows] = await prodPool.query(`
+        SELECT s.company_id, COUNT(*) AS num_ventas, COALESCE(SUM(s.total),0) AS valor_ventas,
+               COALESCE(AVG(s.total),0) AS ticket_promedio
+        FROM sales s WHERE s.deleted_at IS NULL AND s.status IN ${VV} ${f}
+        GROUP BY s.company_id ORDER BY s.company_id`);
+      res.json(rows.map(r => ({ ...r, empresa: EMPRESAS_BI[r.company_id] || `Empresa ${r.company_id}` })));
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get('/api/ventas-por-dia', authAdmin, mod, async (req, res) => {
+    const { desde, hasta } = req.query;
+    const f = desde && hasta ? `AND s.created_at BETWEEN '${desde}' AND '${hasta} 23:59:59'`
+      : `AND s.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)`;
+    try {
+      const [rows] = await prodPool.query(`
+        SELECT DATE(s.created_at) AS fecha, s.company_id, COUNT(*) AS cantidad, COALESCE(SUM(s.total),0) AS total
+        FROM sales s WHERE s.deleted_at IS NULL AND s.status IN ${VV} ${f}
+        GROUP BY DATE(s.created_at), s.company_id ORDER BY fecha ASC`);
+      res.json(rows);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── RENTABILIDAD FIFO ──
+  app.get('/api/rentabilidad', authAdmin, mod, async (req, res) => {
+    const { desde, hasta } = req.query; const f = rango(desde, hasta);
+    try {
+      const [[r]] = await prodPool.query(`
+        SELECT
+          COALESCE(SUM(CASE WHEN ${ES_NORMAL} THEN si.total ELSE 0 END),0) AS ingreso_confiable,
+          COALESCE(SUM(CASE WHEN ${ES_NORMAL} THEN si.quantity * sb.cost_price ELSE 0 END),0) AS costo,
+          COALESCE(SUM(${GANANCIA_NORMAL}),0) AS ganancia,
+          COALESCE(SUM(CASE WHEN ${ES_PEDIDO} THEN si.total ELSE 0 END),0) AS ingreso_pendiente,
+          COUNT(CASE WHEN ${ES_PEDIDO} THEN 1 END) AS lineas_pedido,
+          COUNT(CASE WHEN ${ES_FALLA} THEN 1 END) AS lineas_falla
+        FROM sale_items si JOIN sales s ON s.id = si.sale_id
+        LEFT JOIN stock_batches sb ON si.stock_batch_id = sb.id
+        WHERE s.deleted_at IS NULL AND s.status IN ${VV} ${f}`);
+      const ing = parseFloat(r.ingreso_confiable), gan = parseFloat(r.ganancia);
+      res.json({ ...r, margen_promedio: ing > 0 ? ((gan / ing) * 100).toFixed(1) : '0.0' });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get('/api/top-productos', authAdmin, mod, async (req, res) => {
+    const { desde, hasta } = req.query; const f = rango(desde, hasta);
+    try {
+      const [rows] = await prodPool.query(`
+        SELECT p.name AS producto, pv.name AS variacion, pv.sku,
+          SUM(si.quantity) AS unidades, COALESCE(SUM(si.total),0) AS ingreso,
+          COALESCE(SUM(${GANANCIA_NORMAL}),0) AS ganancia,
+          COALESCE(SUM(CASE WHEN ${ES_NORMAL} THEN si.total ELSE 0 END),0) AS ingreso_confiable,
+          COUNT(CASE WHEN ${ES_PEDIDO} THEN 1 END) AS lineas_pedido,
+          COUNT(CASE WHEN ${ES_FALLA} THEN 1 END) AS lineas_falla
+        FROM sale_items si JOIN sales s ON s.id = si.sale_id
+        JOIN product_variations pv ON pv.id = si.product_variation_id
+        JOIN products p ON p.id = pv.product_id
+        LEFT JOIN stock_batches sb ON si.stock_batch_id = sb.id
+        WHERE s.deleted_at IS NULL AND s.status IN ${VV} ${f}
+        GROUP BY pv.id, p.name, pv.name, pv.sku ORDER BY ganancia DESC LIMIT 15`);
+      res.json(rows.map(r => ({ ...r, estado: r.lineas_pedido > 0 ? 'a_pedido' : r.lineas_falla > 0 ? 'sin_costo' : 'normal' })));
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get('/api/marcas', authAdmin, mod, async (req, res) => {
+    const { desde, hasta } = req.query; const f = rango(desde, hasta);
+    try {
+      const [rows] = await prodPool.query(`
+        SELECT SUBSTRING_INDEX(p.name,' ',1) AS marca,
+          COUNT(DISTINCT s.id) AS ventas, SUM(si.quantity) AS unidades, COALESCE(SUM(si.total),0) AS ingreso,
+          COALESCE(SUM(${GANANCIA_NORMAL}),0) AS ganancia,
+          COALESCE(SUM(CASE WHEN ${ES_NORMAL} THEN si.total ELSE 0 END),0) AS ingreso_confiable,
+          COALESCE(SUM(CASE WHEN ${ES_PEDIDO} THEN si.total ELSE 0 END),0) AS ingreso_pendiente,
+          COUNT(CASE WHEN ${ES_PEDIDO} THEN 1 END) AS lineas_pedido,
+          COUNT(CASE WHEN ${ES_FALLA} THEN 1 END) AS lineas_falla
+        FROM sale_items si JOIN sales s ON s.id = si.sale_id
+        JOIN product_variations pv ON pv.id = si.product_variation_id
+        JOIN products p ON p.id = pv.product_id
+        LEFT JOIN stock_batches sb ON si.stock_batch_id = sb.id
+        WHERE s.deleted_at IS NULL AND s.status IN ${VV} ${f}
+        GROUP BY marca HAVING ingreso > 0 ORDER BY ganancia DESC`);
+      res.json(rows.map(r => {
+        const ingConf = parseFloat(r.ingreso_confiable), gan = parseFloat(r.ganancia);
+        return { ...r, margen: ingConf > 0 ? ((gan/ingConf)*100).toFixed(1) : '0.0' };
+      }));
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── INVENTARIO ──
+  app.get('/api/inventario-resumen', authAdmin, mod, async (req, res) => {
+    try {
+      const [[r]] = await prodPool.query(`
+        SELECT COALESCE(SUM(ls.quantity),0) AS unidades_totales,
+          COALESCE(SUM(ls.quantity - ls.reserved_quantity),0) AS disponibles,
+          COALESCE(SUM(ls.reserved_quantity),0) AS reservadas,
+          COUNT(DISTINCT ls.product_variation_id) AS skus_distintos
+        FROM location_stocks ls WHERE ls.quantity > 0`);
+      const [[val]] = await prodPool.query(`
+        SELECT COALESCE(SUM(ls.quantity * sb.cost_price),0) AS valor_inventario
+        FROM location_stocks ls
+        LEFT JOIN stock_batches sb ON sb.id = (
+          SELECT id FROM stock_batches WHERE product_variation_id = ls.product_variation_id ORDER BY id DESC LIMIT 1)
+        WHERE ls.quantity > 0`);
+      res.json({ ...r, ...val });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get('/api/stock-por-sucursal', authAdmin, mod, async (req, res) => {
+    try {
+      const [rows] = await prodPool.query(`
+        SELECT l.id, l.name AS sucursal, l.type,
+          COALESCE(SUM(ls.quantity),0) AS unidades,
+          COALESCE(SUM(ls.quantity - ls.reserved_quantity),0) AS disponibles,
+          COUNT(DISTINCT ls.product_variation_id) AS skus
+        FROM locations l
+        LEFT JOIN location_stocks ls ON ls.location_id = l.id AND ls.quantity > 0
+        WHERE l.is_active = 1 GROUP BY l.id, l.name, l.type HAVING unidades > 0 ORDER BY unidades DESC`);
+      res.json(rows);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── RESTOCK ──
+  app.get('/api/restock', authAdmin, mod, async (req, res) => {
+    try {
+      const [rows] = await prodPool.query(`
+        SELECT p.name AS producto, pv.sku, pv.name AS variacion,
+          COALESCE(stock.disponible,0) AS stock_disponible,
+          COALESCE(vendido.unidades_90d,0) AS vendido_90d,
+          COALESCE(gan.unidades_hist,0) AS unidades_hist,
+          ROUND(COALESCE(vendido.unidades_90d,0)/90, 4) AS ventas_dia,
+          ROUND(COALESCE(vendido.unidades_90d,0)/90*26, 1) AS punto_reorden,
+          COALESCE(gan.ingreso_confiable,0) AS ingreso_confiable,
+          COALESCE(gan.ganancia_hist,0) AS ganancia_hist,
+          COALESCE(gan.lineas_pedido,0) AS lineas_pedido, COALESCE(gan.lineas_falla,0) AS lineas_falla,
+          CASE WHEN COALESCE(gan.ingreso_confiable,0) > 0
+            THEN ROUND(COALESCE(gan.ganancia_hist,0) / gan.ingreso_confiable * 100, 1) ELSE 0 END AS margen_pct,
+          CASE WHEN COALESCE(gan.ganancia_hist,0) >= 1000 THEN 'Alto'
+               WHEN COALESCE(gan.ganancia_hist,0) >= 300 THEN 'Medio' ELSE 'Bajo' END AS importancia
+        FROM product_variations pv JOIN products p ON p.id = pv.product_id
+        LEFT JOIN (SELECT product_variation_id, SUM(quantity - reserved_quantity) AS disponible
+          FROM location_stocks GROUP BY product_variation_id) stock ON stock.product_variation_id = pv.id
+        LEFT JOIN (SELECT si.product_variation_id, SUM(si.quantity) AS unidades_90d
+          FROM sale_items si JOIN sales s ON s.id = si.sale_id
+          WHERE s.created_at >= DATE_SUB(NOW(), INTERVAL 90 DAY) AND s.deleted_at IS NULL AND s.status IN ${VV}
+          GROUP BY si.product_variation_id) vendido ON vendido.product_variation_id = pv.id
+        LEFT JOIN (SELECT si.product_variation_id, SUM(si.quantity) AS unidades_hist,
+            SUM(CASE WHEN ${ES_NORMAL} THEN si.total ELSE 0 END) AS ingreso_confiable,
+            SUM(${GANANCIA_NORMAL}) AS ganancia_hist,
+            COUNT(CASE WHEN ${ES_PEDIDO} THEN 1 END) AS lineas_pedido,
+            COUNT(CASE WHEN ${ES_FALLA} THEN 1 END) AS lineas_falla
+          FROM sale_items si JOIN sales s ON s.id = si.sale_id
+          LEFT JOIN stock_batches sb ON si.stock_batch_id = sb.id
+          WHERE s.deleted_at IS NULL AND s.status IN ${VV}
+          GROUP BY si.product_variation_id) gan ON gan.product_variation_id = pv.id
+        WHERE pv.deleted_at IS NULL AND p.deleted_at IS NULL
+          AND COALESCE(vendido.unidades_90d,0) > 0
+          AND COALESCE(stock.disponible,0) <= ROUND(COALESCE(vendido.unidades_90d,0)/90*26, 1)
+        ORDER BY FIELD(importancia,'Alto','Medio','Bajo'), ganancia_hist DESC LIMIT 80`);
+      res.json(rows);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── CLIENTES ──
+  app.get('/api/top-clientes', authAdmin, mod, async (req, res) => {
+    const { desde, hasta } = req.query; const f = rango(desde, hasta);
+    try {
+      const [rows] = await prodPool.query(`
+        SELECT p.id, p.is_company,
+          CASE WHEN p.is_company=1 THEN p.business_name
+               ELSE CONCAT(COALESCE(p.first_name,''),' ',COALESCE(p.last_name,'')) END AS cliente,
+          p.document_number, COUNT(s.id) AS pedidos, COALESCE(SUM(s.total),0) AS total_comprado
+        FROM sales s JOIN parties p ON p.id = s.customer_id
+        WHERE s.deleted_at IS NULL AND s.status IN ${VV} ${f}
+        GROUP BY p.id, cliente, p.document_number, p.is_company ORDER BY total_comprado DESC LIMIT 15`);
+      res.json(rows);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get('/api/retencion', authAdmin, mod, async (req, res) => {
+    try {
+      const [rows] = await prodPool.query(`
+        SELECT customer_id, COUNT(DISTINCT id) AS pedidos, MIN(created_at) AS primera, MAX(created_at) AS ultima
+        FROM sales WHERE deleted_at IS NULL AND status IN ${VV} GROUP BY customer_id`);
+      const total = rows.length, dias = r => (new Date(r.ultima) - new Date(r.primera)) / 86400000;
+      const rec = rows.filter(r => r.pedidos >= 2);
+      const r30 = rec.filter(r => dias(r) <= 30).length, r90 = rec.filter(r => dias(r) <= 90).length;
+      res.json({
+        total_clientes: total, recurrentes: rec.length, unicos: rows.filter(r => r.pedidos === 1).length,
+        tasa_recurrencia: total > 0 ? ((rec.length/total)*100).toFixed(1) : '0.0',
+        ret_30d: total > 0 ? ((r30/total)*100).toFixed(1) : '0.0',
+        ret_90d: total > 0 ? ((r90/total)*100).toFixed(1) : '0.0'
+      });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get('/api/clientes-riesgo', authAdmin, mod, async (req, res) => {
+    const umbral = parseInt(req.query.dias) || 60;
+    try {
+      const [rows] = await prodPool.query(`
+        SELECT p.id, p.kommo_id,
+          CASE WHEN p.is_company=1 THEN p.business_name
+               ELSE CONCAT(COALESCE(p.first_name,''),' ',COALESCE(p.last_name,'')) END AS cliente,
+          COUNT(s.id) AS pedidos_hist, MAX(s.created_at) AS ultima_compra,
+          DATEDIFF(NOW(), MAX(s.created_at)) AS dias_sin_comprar
+        FROM parties p JOIN sales s ON s.customer_id = p.id
+        WHERE s.deleted_at IS NULL AND s.status IN ${VV}
+        GROUP BY p.id, p.kommo_id, cliente
+        HAVING pedidos_hist >= 2 AND dias_sin_comprar >= ? ORDER BY dias_sin_comprar DESC LIMIT 50`, [umbral]);
+      res.json({ umbral_dias: umbral, total: rows.length, detalle: rows });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get('/api/tipo-cliente', authAdmin, mod, async (req, res) => {
+    const { desde, hasta } = req.query; const f = rango(desde, hasta);
+    try {
+      const [rows] = await prodPool.query(`
+        SELECT p.is_company, COUNT(DISTINCT p.id) AS clientes, COUNT(s.id) AS ventas, COALESCE(SUM(s.total),0) AS total
+        FROM sales s JOIN parties p ON p.id = s.customer_id
+        WHERE s.deleted_at IS NULL AND s.status IN ${VV} ${f} GROUP BY p.is_company`);
+      res.json(rows.map(r => ({ ...r, tipo: r.is_company ? 'Empresa (B2B)' : 'Persona (B2C)' })));
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── PAGOS Y CAJA ──
+  app.get('/api/metodos-pago-bi', authAdmin, mod, async (req, res) => {
+    const { desde, hasta } = req.query;
+    const f = desde && hasta ? `AND sp.paid_at BETWEEN '${desde}' AND '${hasta} 23:59:59'`
+      : `AND sp.paid_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)`;
+    try {
+      const [rows] = await prodPool.query(`
+        SELECT ci.name AS metodo, COUNT(*) AS cantidad, COALESCE(SUM(sp.amount),0) AS total
+        FROM sale_payments sp LEFT JOIN catalog_items ci ON ci.id = sp.payment_method_id
+        WHERE sp.voided_at IS NULL ${f} GROUP BY sp.payment_method_id, ci.name ORDER BY total DESC`);
+      res.json(rows);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get('/api/cierres-caja', authAdmin, mod, async (req, res) => {
+    const { desde, hasta } = req.query;
+    const f = desde && hasta ? `WHERE closure_date BETWEEN '${desde}' AND '${hasta}'`
+      : `WHERE closure_date >= DATE_SUB(NOW(), INTERVAL 30 DAY)`;
+    try {
+      const [rows] = await prodPool.query(`
+        SELECT id, closure_date, status, total_general, totals, notes
+        FROM cash_closures ${f} ORDER BY closure_date DESC LIMIT 30`);
+      res.json(rows);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── KOMMO CRM ──
+  app.get('/api/kommo/pipeline', authAdmin, mod, async (req, res) => {
+    try {
+      const [pl, ld] = await Promise.all([kommoFetch('leads/pipelines?limit=50'), kommoFetch('leads?limit=250')]);
+      const pipes = pl._embedded?.pipelines || [], leads = ld._embedded?.leads || [];
+      res.json(pipes.map(pipe => {
+        const statuses = pipe._embedded?.statuses ? Object.values(pipe._embedded.statuses) : [];
+        const pl2 = leads.filter(l => l.pipeline_id === pipe.id);
+        const ganados = pl2.filter(l => l.status_id === KOMMO_GANADO);
+        const perdidos = pl2.filter(l => l.status_id === KOMMO_PERDIDO);
+        const activos = pl2.filter(l => l.status_id !== KOMMO_GANADO && l.status_id !== KOMMO_PERDIDO);
+        return {
+          nombre: pipe.name, total_leads: pl2.length, activos: activos.length,
+          ganados: ganados.length, perdidos: perdidos.length,
+          valor_activo: activos.reduce((s,l)=>s+(l.price||0),0),
+          tasa_conversion: pl2.length > 0 ? ((ganados.length/pl2.length)*100).toFixed(1) : '0.0',
+          etapas: statuses.filter(s => s.id!==KOMMO_GANADO && s.id!==KOMMO_PERDIDO)
+            .map(s => ({ nombre: s.name, cantidad: pl2.filter(l=>l.status_id===s.id).length }))
+        };
+      }));
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get('/api/kommo/tareas', authAdmin, mod, async (req, res) => {
+    try {
+      const ahora = Math.floor(Date.now()/1000);
+      const data = await kommoFetch('tasks?limit=250');
+      const t = data._embedded?.tasks || [];
+      const venc = t.filter(x => x.complete_till < ahora && !x.is_completed);
+      const hoy = t.filter(x => { const d=new Date(x.complete_till*1000), n=new Date(); return d.toDateString()===n.toDateString() && !x.is_completed; });
+      res.json({
+        total_pendientes: t.filter(x=>!x.is_completed).length, vencidas: venc.length, hoy: hoy.length,
+        proximas: t.filter(x => x.complete_till > ahora && !x.is_completed && !hoy.includes(x)).length,
+        detalle_vencidas: venc.sort((a,b)=>a.complete_till-b.complete_till).slice(0,15)
+          .map(x => ({ texto: x.text, vencio: new Date(x.complete_till*1000).toLocaleDateString('es-PE') }))
+      });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get('/api/kommo/conversion', authAdmin, mod, async (req, res) => {
+    try {
+      const data = await kommoFetch('contacts?limit=250');
+      const contactos = data._embedded?.contacts || [];
+      const [[conv]] = await prodPool.query(`
+        SELECT COUNT(DISTINCT p.kommo_id) AS con_venta FROM parties p
+        JOIN sales s ON s.customer_id = p.id
+        WHERE p.kommo_id IS NOT NULL AND s.deleted_at IS NULL AND s.status IN ${VV}`);
+      const [[sinv]] = await prodPool.query(`
+        SELECT COUNT(*) AS sin_venta FROM parties p WHERE p.kommo_id IS NOT NULL
+        AND p.id NOT IN (SELECT DISTINCT customer_id FROM sales WHERE deleted_at IS NULL AND status IN ${VV})`);
+      res.json({
+        total_contactos: contactos.length, con_venta: conv.con_venta, sin_venta: sinv.sin_venta,
+        tasa_conversion: contactos.length > 0 ? ((conv.con_venta/contactos.length)*100).toFixed(1) : '0.0'
+      });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+})();
 
 // ─── Health ──────────────────────────────────────────────────────────────────
 app.get('/health', (req, res) => res.json({ ok: true, servicio: 'portal-b2b' }));

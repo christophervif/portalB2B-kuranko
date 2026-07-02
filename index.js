@@ -310,7 +310,7 @@ app.post('/portal/cambiar-password', authCliente, async (req, res) => {
 // LOGIN ADMIN
 // ════════════════════════════════════════════════════════════════════════════
 // Lista de módulos (pestañas) del admin. Debe coincidir con las pestañas del HTML.
-const MODULOS_ADMIN = ['usuarios', 'vincular', 'crear', 'sync', 'auditoria', 'dashboard', 'pagos'];
+const MODULOS_ADMIN = ['usuarios', 'vincular', 'crear', 'sync', 'auditoria', 'resumen', 'rentabilidad', 'inventario', 'restock', 'clientes_bi', 'caja_bi', 'crm', 'pagos'];
 
 // Usuarios admin secundarios definidos en variables de entorno (Railway).
 // Formato por usuario (numeradas del 2 en adelante):
@@ -1149,12 +1149,18 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
 // Registro de endpoints del dashboard (inyectado directamente)
 (function(){
 
-  const mod = requiereModulo('dashboard');
+  const mResumen = requiereModulo('resumen');
+  const mRent = requiereModulo('rentabilidad');
+  const mInv = requiereModulo('inventario');
+  const mRestock = requiereModulo('restock');
+  const mClientes = requiereModulo('clientes_bi');
+  const mCaja = requiereModulo('caja_bi');
+  const mCrm = requiereModulo('crm');
   const rango = (desde, hasta, campo='s.created_at') =>
     desde && hasta ? `AND ${campo} BETWEEN '${desde}' AND '${hasta} 23:59:59'` : '';
 
   // ── RESUMEN / KPIs ──
-  app.get('/api/kpis', authAdmin, mod, async (req, res) => {
+  app.get('/api/kpis', authAdmin, mResumen, async (req, res) => {
     const { desde, hasta } = req.query; const f = rango(desde, hasta);
     try {
       const [[ventas]] = await prodPool.query(`
@@ -1172,7 +1178,7 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-  app.get('/api/kpis-empresas', authAdmin, mod, async (req, res) => {
+  app.get('/api/kpis-empresas', authAdmin, mResumen, async (req, res) => {
     const { desde, hasta } = req.query; const f = rango(desde, hasta);
     try {
       const [rows] = await prodPool.query(`
@@ -1184,7 +1190,7 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-  app.get('/api/ventas-por-dia', authAdmin, mod, async (req, res) => {
+  app.get('/api/ventas-por-dia', authAdmin, mResumen, async (req, res) => {
     const { desde, hasta } = req.query;
     const f = desde && hasta ? `AND s.created_at BETWEEN '${desde}' AND '${hasta} 23:59:59'`
       : `AND s.created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)`;
@@ -1198,7 +1204,7 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
   });
 
   // ── RENTABILIDAD FIFO ──
-  app.get('/api/rentabilidad', authAdmin, mod, async (req, res) => {
+  app.get('/api/rentabilidad', authAdmin, mRent, async (req, res) => {
     const { desde, hasta } = req.query; const f = rango(desde, hasta);
     try {
       const [[r]] = await prodPool.query(`
@@ -1217,7 +1223,7 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-  app.get('/api/top-productos', authAdmin, mod, async (req, res) => {
+  app.get('/api/top-productos', authAdmin, mRent, async (req, res) => {
     const { desde, hasta } = req.query; const f = rango(desde, hasta);
     try {
       const [rows] = await prodPool.query(`
@@ -1237,7 +1243,7 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-  app.get('/api/marcas', authAdmin, mod, async (req, res) => {
+  app.get('/api/marcas', authAdmin, mRent, async (req, res) => {
     const { desde, hasta } = req.query; const f = rango(desde, hasta);
     try {
       const [rows] = await prodPool.query(`
@@ -1262,7 +1268,7 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
   });
 
   // ── INVENTARIO ──
-  app.get('/api/inventario-resumen', authAdmin, mod, async (req, res) => {
+  app.get('/api/inventario-resumen', authAdmin, mInv, async (req, res) => {
     try {
       const [[r]] = await prodPool.query(`
         SELECT COALESCE(SUM(ls.quantity),0) AS unidades_totales,
@@ -1280,7 +1286,7 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-  app.get('/api/stock-por-sucursal', authAdmin, mod, async (req, res) => {
+  app.get('/api/stock-por-sucursal', authAdmin, mInv, async (req, res) => {
     try {
       const [rows] = await prodPool.query(`
         SELECT l.id, l.name AS sucursal, l.type,
@@ -1295,7 +1301,7 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
   });
 
   // ── RESTOCK ──
-  app.get('/api/restock', authAdmin, mod, async (req, res) => {
+  app.get('/api/restock', authAdmin, mRestock, async (req, res) => {
     try {
       const [rows] = await prodPool.query(`
         SELECT p.name AS producto, pv.sku, pv.name AS variacion,
@@ -1336,7 +1342,7 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
   });
 
   // ── CLIENTES ──
-  app.get('/api/top-clientes', authAdmin, mod, async (req, res) => {
+  app.get('/api/top-clientes', authAdmin, mClientes, async (req, res) => {
     const { desde, hasta } = req.query; const f = rango(desde, hasta);
     try {
       const [rows] = await prodPool.query(`
@@ -1351,7 +1357,7 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-  app.get('/api/retencion', authAdmin, mod, async (req, res) => {
+  app.get('/api/retencion', authAdmin, mClientes, async (req, res) => {
     try {
       const [rows] = await prodPool.query(`
         SELECT customer_id, COUNT(DISTINCT id) AS pedidos, MIN(created_at) AS primera, MAX(created_at) AS ultima
@@ -1368,7 +1374,7 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-  app.get('/api/clientes-riesgo', authAdmin, mod, async (req, res) => {
+  app.get('/api/clientes-riesgo', authAdmin, mClientes, async (req, res) => {
     const umbral = parseInt(req.query.dias) || 60;
     try {
       const [rows] = await prodPool.query(`
@@ -1385,7 +1391,7 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-  app.get('/api/tipo-cliente', authAdmin, mod, async (req, res) => {
+  app.get('/api/tipo-cliente', authAdmin, mResumen, async (req, res) => {
     const { desde, hasta } = req.query; const f = rango(desde, hasta);
     try {
       const [rows] = await prodPool.query(`
@@ -1397,7 +1403,7 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
   });
 
   // ── PAGOS Y CAJA ──
-  app.get('/api/metodos-pago-bi', authAdmin, mod, async (req, res) => {
+  app.get('/api/metodos-pago-bi', authAdmin, mCaja, async (req, res) => {
     const { desde, hasta } = req.query;
     const f = desde && hasta ? `AND sp.paid_at BETWEEN '${desde}' AND '${hasta} 23:59:59'`
       : `AND sp.paid_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)`;
@@ -1410,7 +1416,7 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-  app.get('/api/cierres-caja', authAdmin, mod, async (req, res) => {
+  app.get('/api/cierres-caja', authAdmin, mCaja, async (req, res) => {
     const { desde, hasta } = req.query;
     const f = desde && hasta ? `WHERE closure_date BETWEEN '${desde}' AND '${hasta}'`
       : `WHERE closure_date >= DATE_SUB(NOW(), INTERVAL 30 DAY)`;
@@ -1423,7 +1429,7 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
   });
 
   // ── KOMMO CRM ──
-  app.get('/api/kommo/pipeline', authAdmin, mod, async (req, res) => {
+  app.get('/api/kommo/pipeline', authAdmin, mCrm, async (req, res) => {
     try {
       const [pl, ld] = await Promise.all([kommoFetch('leads/pipelines?limit=50'), kommoFetch('leads?limit=250')]);
       const pipes = pl._embedded?.pipelines || [], leads = ld._embedded?.leads || [];
@@ -1445,7 +1451,7 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-  app.get('/api/kommo/tareas', authAdmin, mod, async (req, res) => {
+  app.get('/api/kommo/tareas', authAdmin, mCrm, async (req, res) => {
     try {
       const ahora = Math.floor(Date.now()/1000);
       const data = await kommoFetch('tasks?limit=250');
@@ -1461,7 +1467,7 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-  app.get('/api/kommo/conversion', authAdmin, mod, async (req, res) => {
+  app.get('/api/kommo/conversion', authAdmin, mCrm, async (req, res) => {
     try {
       const data = await kommoFetch('contacts?limit=250');
       const contactos = data._embedded?.contacts || [];

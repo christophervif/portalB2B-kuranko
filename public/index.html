@@ -604,8 +604,15 @@ async function cambiarPass(){
 }
 
 API=window.location.origin;
+// Acceso "Ver como cliente" desde el admin: token en el hash de la URL
+if(location.hash.startsWith('#vercomo=')){
+  const t=decodeURIComponent(location.hash.slice(9));
+  sessionStorage.setItem('clitoken',t);
+  history.replaceState(null,'',location.pathname);  // limpia la URL al instante
+}
 const saved=sessionStorage.getItem('clitoken');
 if(saved){TOKEN=saved;mostrarApp();}
+
 document.getElementById('password').addEventListener('keypress',e=>{if(e.key==='Enter')login();});
 aplicarTema(document.documentElement.getAttribute('data-theme')||'dark');
 </script>

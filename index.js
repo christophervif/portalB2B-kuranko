@@ -442,6 +442,25 @@ app.post('/admin/reset-password', authAdmin, requiereModulo('usuarios'), async (
   } catch (e) { res.status(500).json({ error: 'Error al resetear' }); }
 });
 
+// Ver el portal como un cliente (soporte): genera un token de cliente sin su contraseña.
+// El admin ya está autenticado; el token queda marcado con via_admin para trazabilidad.
+app.post('/admin/ver-como-cliente', authAdmin, requiereModulo('usuarios'), async (req, res) => {
+  const { portal_user_id } = req.body;
+  if (!portal_user_id) return res.status(400).json({ error: 'Falta el usuario' });
+  try {
+    const [rows] = await portalPool.query(
+      'SELECT * FROM portal_users WHERE id = ? AND activo = 1 LIMIT 1', [portal_user_id]);
+    if (!rows.length) return res.status(404).json({ error: 'Cliente no encontrado o inactivo' });
+    const u = rows[0];
+    const token = jwt.sign({
+      rol: 'cliente', portal_user_id: u.id, customer_id: u.customer_id,
+      location_id: u.location_id, nombre: u.nombre_cliente, ruc: u.username,
+      via_admin: req.admin ? req.admin.usuario : true, expiresIn: '1h'
+    }, JWT_SECRET, { expiresIn: '1h' });
+    res.json({ token, cliente: { nombre: u.nombre_cliente, ruc: u.username } });
+  } catch (e) { res.status(500).json({ error: 'Error del servidor' }); }
+});
+
 // Crear todos los usuarios de golpe (clientes empresa con ventas)
 app.post('/admin/crear-todos', authAdmin, requiereModulo('crear'), async (req, res) => {
   try {

@@ -85,7 +85,7 @@ tr:hover td{background:var(--hover)}
 .estado-box.activo{background:#fef3c7;color:#92400e;border:1px solid #fcd34d}
 .estado-box.inactivo{background:rgba(22,163,74,.12);color:#16a34a;border:1px solid rgba(22,163,74,.3)}
 .tabla{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}
-.tabla th{background:#000726;color:#fff;padding:8px 10px;text-align:left;white-space:nowrap}
+.tabla th{background:var(--surface3);color:var(--white);padding:8px 10px;text-align:left;white-space:nowrap}
 .tabla td{padding:7px 10px;border-bottom:1px solid var(--border)}
 .tabla tr:hover{background:rgba(0,0,0,.03)}
 .subtabs{display:flex;gap:6px;border-bottom:1px solid var(--border);margin-bottom:14px}
@@ -95,12 +95,12 @@ tr:hover td{background:var(--hover)}
 .subpanel.active{display:block}
 .filtros-fila{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
 .filtros-fila select,.filtros-fila input{flex:1;min-width:180px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--card-bg,transparent);color:inherit;font-size:13px}
-.dbcard{background:rgba(255,255,255,.02);border:1px solid var(--border);border-radius:12px;padding:1rem;margin-bottom:1rem}
+.dbcard{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:1rem;margin-bottom:1rem}
 .dbcard h4{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:1rem}
 .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:1.25rem}
-.kpi{background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:10px;padding:1rem}
+.kpi{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:1rem}
 .kpi-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
-.kpi-val{font-size:1.3rem;font-weight:600;color:var(--fg,#fff)}
+.kpi-val{font-size:1.3rem;font-weight:600;color:var(--white)}
 .kpi-sub{font-size:11px;color:var(--accent);margin-top:3px}
 .kpi.accent{border-color:var(--accent)}
 .card-note{font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5}
@@ -108,28 +108,41 @@ tr:hover td{background:var(--hover)}
 @media(max-width:700px){.two-col{grid-template-columns:1fr}}
 .dtable{width:100%;border-collapse:collapse;font-size:13px}
 .dtable th{text-align:left;padding:7px 8px;color:var(--muted);font-weight:600;font-size:11px;border-bottom:1px solid var(--border);cursor:pointer;user-select:none;white-space:nowrap}
-.dtable th:hover{color:var(--fg,#fff)}
+.dtable th:hover{color:var(--white)}
 .dtable th.sortable::after{content:' ⇅';color:var(--muted);font-size:10px}
 .dtable th.sort-asc::after{content:' ↑';color:var(--accent)}
 .dtable th.sort-desc::after{content:' ↓';color:var(--accent)}
 .dtable td{padding:8px;border-bottom:1px solid var(--border)}
 .dtable tr:last-child td{border:none}
-.dtable tr:hover td{background:rgba(255,255,255,.03)}
+.dtable tr:hover td{background:var(--hover)}
 .badge{font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600}
 .badge-g{background:#14532d;color:#86efac}.badge-y{background:#713f12;color:#fde68a}.badge-r{background:#7f1d1d;color:#fca5a5}
 .badge-alto{background:#3C3489;color:#CECBF6}.badge-medio{background:#633806;color:#FAC775}.badge-bajo{background:#444441;color:#D3D1C7}
-.empresa-card{background:rgba(255,255,255,.02);border:1px solid var(--border);border-radius:12px;padding:1rem;margin-bottom:10px}
+.empresa-card{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:1rem;margin-bottom:10px}
 .empresa-name{font-size:14px;font-weight:600;margin-bottom:10px}
 .empresa-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-.estat{background:rgba(255,255,255,.03);border-radius:8px;padding:8px}
+.estat{background:var(--surface3);border-radius:8px;padding:8px}
 .estat-label{font-size:11px;color:var(--muted);margin-bottom:3px}.estat-val{font-size:15px;font-weight:600}
-.ret-bar{background:rgba(255,255,255,.06);border-radius:20px;height:8px;overflow:hidden;margin-top:6px}
+.ret-bar{background:var(--surface3);border-radius:20px;height:8px;overflow:hidden;margin-top:6px}
 .ret-fill{height:100%;border-radius:20px;background:var(--accent)}
 .legend{display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap}
 .legend span{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
 .db-aviso{border-radius:6px;padding:10px 14px;margin-bottom:8px;font-size:13px;line-height:1.5}
 .db-aviso-y{background:rgba(186,117,23,.12);border-left:3px solid #BA7517}
 .db-aviso-r{background:rgba(226,75,74,.12);border-left:3px solid #E24B4A}
+@media(max-width:700px){
+  table.responsive thead{display:none}
+  table.responsive,table.responsive tbody,table.responsive tr,table.responsive td{display:block;width:100%}
+  table.responsive tr{background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;padding:6px 4px}
+  table.responsive td{border:none !important;padding:7px 12px;display:flex;justify-content:space-between;align-items:center;text-align:right;gap:12px}
+  table.responsive td::before{content:attr(data-label);color:var(--muted);font-size:11px;text-transform:uppercase;font-weight:600;text-align:left;flex-shrink:0}
+  table.responsive td[data-label=""]::before,table.responsive td:not([data-label])::before{content:none}
+  table.responsive{min-width:0 !important}
+  .kpi-grid{grid-template-columns:1fr 1fr}
+  .two-col{grid-template-columns:1fr}
+  .filtros-fila{flex-direction:column}
+  .filtros-fila input,.filtros-fila select{width:100%}
+}
 </style>
 </head>
 <body>
@@ -540,7 +553,7 @@ function nombreLocation(id){const c=consignacionesCache.find(x=>x.location_id==i
 function renderUsuarios(lista){
   const cont=document.getElementById('usuarios-tabla');
   if(!lista.length){cont.innerHTML='<div class="muted">Sin clientes con acceso todavía.</div>';return;}
-  cont.innerHTML=`<table><thead><tr><th>Cliente</th><th>Usuario (RUC)</th><th>Consignación</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>`+
+  cont.innerHTML=`<table class="responsive"><thead><tr><th>Cliente</th><th>Usuario (RUC)</th><th>Consignación</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>`+
     lista.map(u=>{
       const loc=u.location_id?nombreLocation(u.location_id):null;
       return `<tr>
@@ -703,8 +716,8 @@ function renderPendientesAud(){
   document.getElementById('aud-pend-count').textContent=p.length;
   if(q)p=p.filter(r=>(r.sku||'').toLowerCase().includes(q)||(r.nombre||'').toLowerCase().includes(q));
   if(!p.length){cont.innerHTML='<div class="muted">'+(q?'Ningún pendiente coincide con la búsqueda.':'No hay productos pendientes con stock (o con ingreso por llegar).')+'</div>';return;}
-  cont.innerHTML='<table class="tabla"><thead><tr><th>SKU</th><th>Tipo</th><th>Nombre</th><th>Precio regular</th><th>Stock</th><th>Ingreso pend.</th></tr></thead><tbody>'+
-    p.map(r=>`<tr><td>${esc(r.sku)}</td><td>${esc(r.tipo)}</td><td>${esc(r.nombre)}</td><td>${r.precio==null?'—':'S/'+r.precio.toFixed(2)}</td><td>${r.stock}</td><td>${r.ingreso_pendiente?'Sí':'—'}</td></tr>`).join('')+
+  cont.innerHTML='<table class="tabla responsive"><thead><tr><th>SKU</th><th>Tipo</th><th>Nombre</th><th>Precio regular</th><th>Stock</th><th>Ingreso pend.</th></tr></thead><tbody>'+
+    p.map(r=>`<tr><td data-label="SKU">${esc(r.sku)}</td><td data-label="Tipo">${esc(r.tipo)}</td><td data-label="Nombre">${esc(r.nombre)}</td><td data-label="Precio regular">${r.precio==null?'—':'S/'+r.precio.toFixed(2)}</td><td data-label="Stock">${r.stock}</td><td data-label="Ingreso pend.">${r.ingreso_pendiente?'Sí':'—'}</td></tr>`).join('')+
     '</tbody></table>';
 }
 function prepararFiltroAud(){
@@ -722,8 +735,8 @@ function renderAlertasAud(){
   if(filtro)lista=lista.filter(a=>a.tipo===filtro);
   if(q)lista=lista.filter(a=>(a.sku||'').toLowerCase().includes(q)||(a.nombre||'').toLowerCase().includes(q)||(a.obs||'').toLowerCase().includes(q));
   if(!lista.length){cont.innerHTML='<div class="muted">No hay alertas'+(filtro||q?' que coincidan':'')+'.</div>';return;}
-  cont.innerHTML='<table class="tabla"><thead><tr><th>Tipo</th><th>SKU</th><th>WooCommerce ID</th><th>Nombre</th><th>Observación</th></tr></thead><tbody>'+
-    lista.map(a=>`<tr><td>${esc(a.tipo)}</td><td>${esc(a.sku)}</td><td>${esc(a.wc)}</td><td>${esc(a.nombre)}</td><td>${esc(a.obs)}</td></tr>`).join('')+
+  cont.innerHTML='<table class="tabla responsive"><thead><tr><th>Tipo</th><th>SKU</th><th>WooCommerce ID</th><th>Nombre</th><th>Observación</th></tr></thead><tbody>'+
+    lista.map(a=>`<tr><td data-label="Tipo">${esc(a.tipo)}</td><td data-label="SKU">${esc(a.sku)}</td><td data-label="WooCommerce ID">${esc(a.wc)}</td><td data-label="Nombre">${esc(a.nombre)}</td><td data-label="Observación">${esc(a.obs)}</td></tr>`).join('')+
     '</tbody></table>';
 }
 async function descargarAuditoria(){
@@ -775,11 +788,12 @@ function dbRenderTable(id){
     x=(x||'').toString();y=(y||'').toString();return dir==='asc'?x.localeCompare(y):y.localeCompare(x);
   });
   const t=document.getElementById(id);
+  t.classList.add('responsive');
   t.innerHTML='<thead><tr>'+cols.map(c=>{
     const cls=c.k===sortKey?(dir==='asc'?'sort-asc':'sort-desc'):'sortable';
     return `<th class="${cls}" onclick="dbChangeSort('${id}','${c.k}')">${c.t}</th>`;
   }).join('')+'</tr></thead><tbody>'+
-    sorted.map(r=>'<tr>'+cols.map(c=>`<td>${c.fmt(r[c.k],r)}</td>`).join('')+'</tr>').join('')+'</tbody>';
+    sorted.map(r=>'<tr>'+cols.map(c=>`<td data-label="${c.t}">${c.fmt(r[c.k],r)}</td>`).join('')+'</tr>').join('')+'</tbody>';
 }
 function dbChangeSort(id,key){
   const st=dbTableState[id];

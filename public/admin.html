@@ -549,6 +549,7 @@ function renderUsuarios(lista){
         <td data-label="Consignación">${loc?loc:'<span class="badge badge-warn">sin asignar</span>'}</td>
         <td data-label="Estado">${u.activo?'<span class="badge badge-on">activo</span>':'<span class="badge badge-off">inactivo</span>'}</td>
         <td data-label="Acciones">
+          ${u.activo?`<button class="btn btn-sm btn-ok" onclick="verComoCliente(${u.id},'${(u.nombre_cliente||'').replace(/'/g,"\\'")}')">Ver como cliente</button>`:''}
           <button class="btn btn-sm btn-sec" onclick="resetPass(${u.id})">Reset clave</button>
           <button class="btn btn-sm ${u.activo?'btn-danger':'btn-ok'}" onclick="toggleActivo(${u.id},${u.activo?0:1})">${u.activo?'Desactivar':'Activar'}</button>
         </td></tr>`;
@@ -1026,6 +1027,16 @@ function renderAccesos(){
       : '<span class="muted">sin módulos asignados</span>';
     return `<div class="acc-row"><div class="acc-head"><b>${u.username}</b></div><div>${mods}</div></div>`;
   }).join('');
+}
+async function verComoCliente(id,nombre){
+  if(!confirm('¿Abrir el portal como "'+nombre+'"?\n\nVerás lo que ve este cliente. Se abrirá en una pestaña nueva y tu sesión de administrador no se cierra.'))return;
+  try{
+    const r=await apiCall('/admin/ver-como-cliente','POST',{portal_user_id:id});
+    // Método robusto: el token viaja en el hash de la URL; index.html lo lee y limpia la URL al instante.
+    const win=window.open(API+'/index.html#vercomo='+encodeURIComponent(r.token),'_blank');
+    if(!win){showToast('Permite las ventanas emergentes para este sitio',true);return;}
+    showToast('Abriendo portal como '+nombre+' ✓');
+  }catch(e){showToast(e.message,true);}
 }
 async function resetPass(id){
   if(!confirm('¿Resetear la contraseña de este cliente a su RUC?'))return;

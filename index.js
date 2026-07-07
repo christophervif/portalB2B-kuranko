@@ -310,7 +310,7 @@ app.post('/portal/cambiar-password', authCliente, async (req, res) => {
 // LOGIN ADMIN
 // ════════════════════════════════════════════════════════════════════════════
 // Lista de módulos (pestañas) del admin. Debe coincidir con las pestañas del HTML.
-const MODULOS_ADMIN = ['usuarios', 'vincular', 'crear', 'sync', 'auditoria', 'resumen', 'rentabilidad', 'inventario', 'restock', 'clientes_bi', 'caja_bi', 'crm', 'pagos'];
+const MODULOS_ADMIN = ['clientes_gestion', 'sync', 'auditoria', 'resumen', 'rentabilidad', 'inventario', 'restock', 'clientes_bi', 'caja_bi', 'crm', 'reportes', 'pagos'];
 
 // Usuarios admin secundarios definidos en variables de entorno (Railway).
 // Formato por usuario (numeradas del 2 en adelante):
@@ -380,7 +380,7 @@ app.get('/admin/consignaciones', authAdmin, async (req, res) => {
 });
 
 // Lista de usuarios del portal ya creados
-app.get('/admin/usuarios', authAdmin, requiereModulo('usuarios'), async (req, res) => {
+app.get('/admin/usuarios', authAdmin, requiereModulo('clientes_gestion'), async (req, res) => {
   try {
     const [rows] = await portalPool.query(
       `SELECT id, username, customer_id, location_id, nombre_cliente, activo, created_at
@@ -390,7 +390,7 @@ app.get('/admin/usuarios', authAdmin, requiereModulo('usuarios'), async (req, re
 });
 
 // Crear o actualizar un usuario del portal (vincular cliente + consignación)
-app.post('/admin/usuario', authAdmin, requiereModulo('usuarios'), async (req, res) => {
+app.post('/admin/usuario', authAdmin, requiereModulo('clientes_gestion'), async (req, res) => {
   const { username, customer_id, location_id, nombre_cliente, password } = req.body;
   if (!username || !customer_id || !nombre_cliente)
     return res.status(400).json({ error: 'Faltan datos: usuario, cliente y nombre' });
@@ -409,7 +409,7 @@ app.post('/admin/usuario', authAdmin, requiereModulo('usuarios'), async (req, re
 });
 
 // Vincular solo la consignación de un usuario existente
-app.post('/admin/vincular', authAdmin, requiereModulo('vincular'), async (req, res) => {
+app.post('/admin/vincular', authAdmin, requiereModulo('clientes_gestion'), async (req, res) => {
   const { portal_user_id, location_id } = req.body;
   if (!portal_user_id) return res.status(400).json({ error: 'Falta el usuario' });
   try {
@@ -420,7 +420,7 @@ app.post('/admin/vincular', authAdmin, requiereModulo('vincular'), async (req, r
 });
 
 // Activar / desactivar acceso
-app.post('/admin/activar', authAdmin, requiereModulo('usuarios'), async (req, res) => {
+app.post('/admin/activar', authAdmin, requiereModulo('clientes_gestion'), async (req, res) => {
   const { portal_user_id, activo } = req.body;
   try {
     await portalPool.query('UPDATE portal_users SET activo=? WHERE id=?',
@@ -430,7 +430,7 @@ app.post('/admin/activar', authAdmin, requiereModulo('usuarios'), async (req, re
 });
 
 // Resetear contraseña de un cliente (vuelve a su RUC)
-app.post('/admin/reset-password', authAdmin, requiereModulo('usuarios'), async (req, res) => {
+app.post('/admin/reset-password', authAdmin, requiereModulo('clientes_gestion'), async (req, res) => {
   const { portal_user_id } = req.body;
   try {
     const [rows] = await portalPool.query('SELECT username FROM portal_users WHERE id=? LIMIT 1',
@@ -444,7 +444,7 @@ app.post('/admin/reset-password', authAdmin, requiereModulo('usuarios'), async (
 
 // Ver el portal como un cliente (soporte): genera un token de cliente sin su contraseña.
 // El admin ya está autenticado; el token queda marcado con via_admin para trazabilidad.
-app.post('/admin/ver-como-cliente', authAdmin, requiereModulo('usuarios'), async (req, res) => {
+app.post('/admin/ver-como-cliente', authAdmin, requiereModulo('clientes_gestion'), async (req, res) => {
   const { portal_user_id } = req.body;
   if (!portal_user_id) return res.status(400).json({ error: 'Falta el usuario' });
   try {
@@ -462,7 +462,7 @@ app.post('/admin/ver-como-cliente', authAdmin, requiereModulo('usuarios'), async
 });
 
 // Crear todos los usuarios de golpe (clientes empresa con ventas)
-app.post('/admin/crear-todos', authAdmin, requiereModulo('crear'), async (req, res) => {
+app.post('/admin/crear-todos', authAdmin, requiereModulo('clientes_gestion'), async (req, res) => {
   try {
     const [clientes] = await prodPool.query(`
       SELECT p.id AS customer_id, p.business_name, p.document_number
@@ -681,6 +681,447 @@ async function calcularAuditoria() {
 
     return { pendientes, alertas: alertasSistema };
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+// REPORTE 3.2 — LISTA DE PAGOS EN EL TIEMPO
+// Cada fila es un pago: venta, empresa que gestiona la venta, empresa(s) del producto (por
+// el lote FIFO), método, cuenta destino, comprobante, notas y cuadre de caja.
+// ════════════════════════════════════════════════════════════════════════════
+
+// Datos para poblar los filtros (métodos de pago y cuentas bancarias)
+// ════════════════════════════════════════════════════════════════════════════
+// REPORTE 3.1 — KARDEX VALORIZADO
+// Movimientos de stock por producto, valorizados, en línea de tiempo, con código
+// SUNAT real, saldo acumulado y totales por producto.
+// ════════════════════════════════════════════════════════════════════════════
+
+// Mapa de códigos SUNAT (catálogo Tipo de Operación) → nombre legible
+const CODIGOS_SUNAT = {
+  '01': 'Venta Nacional', '02': 'Compra Nacional', '03': 'Consignación Recibida',
+  '04': 'Consignación Entregada', '05': 'Devolución Recibida', '06': 'Devolución Entregada',
+  '07': 'Bonificación', '08': 'Premio', '09': 'Donación', '10': 'Salida a Producción',
+  '11': 'Transferencia entre almacenes', '12': 'Retiro', '13': 'Mermas', '14': 'Desmedros',
+  '15': 'Destrucción', '16': 'Saldo Inicial', '17': 'Exportación', '18': 'Importación',
+  '19': 'Entrada de Producción'
+};
+const TIPO_MOV_NOM = {
+  purchase: 'Entrada', sale: 'Venta', transfer: 'Transferencia',
+  adjustment: 'Ajuste', return: 'Devolución'
+};
+
+// Costo FIFO vigente de una variación (lote más antiguo con stock, de donde el
+// sistema descuenta en salidas/ajustes). Es la regla real de descuento, no una estimación.
+async function costoFifoVigente(prodPool, variationId) {
+  const [[r]] = await prodPool.query(
+    `SELECT cost_price FROM stock_batches
+     WHERE product_variation_id = ? AND quantity > 0
+     ORDER BY entry_date ASC, id ASC LIMIT 1`, [variationId]);
+  return r ? Number(r.cost_price) : null;
+}
+
+// Costo del lote creado en una entrada específica (para valorizar entradas al costo real)
+async function costoDeEntrada(prodPool, entryId, variationId) {
+  const [[r]] = await prodPool.query(
+    `SELECT cost_price FROM stock_batches
+     WHERE stock_entry_id = ? AND product_variation_id = ?
+     ORDER BY id ASC LIMIT 1`, [entryId, variationId]);
+  return r ? Number(r.cost_price) : null;
+}
+
+async function obtenerKardex(prodPool, q) {
+  const { desde, hasta, sku, producto } = q;
+  const w = [];
+  const p = [];
+  if (desde && hasta) { w.push('sm.movement_date BETWEEN ? AND ?'); p.push(desde, hasta); }
+  if (sku) { w.push('pv.sku LIKE ?'); p.push('%' + sku + '%'); }
+  if (producto) { w.push('(p.name LIKE ? OR pv.name LIKE ?)'); p.push('%' + producto + '%', '%' + producto + '%'); }
+  const whereSql = w.length ? 'WHERE ' + w.join(' AND ') : '';
+
+  // Traer movimientos con producto, ubicación y usuario
+  const [movs] = await prodPool.query(`
+    SELECT sm.id, sm.type, sm.operation_type_code, sm.quantity, sm.movement_date,
+      sm.reference_type, sm.reference_id, sm.notes, sm.location_from_id, sm.location_to_id,
+      pv.id AS variation_id, pv.sku, pv.name AS variacion, p.name AS producto,
+      lf.name AS ubic_from, lt.name AS ubic_to, u.name AS usuario
+    FROM stock_movements sm
+    JOIN product_variations pv ON pv.id = sm.product_variation_id
+    JOIN products p ON p.id = pv.product_id
+    LEFT JOIN locations lf ON lf.id = sm.location_from_id
+    LEFT JOIN locations lt ON lt.id = sm.location_to_id
+    LEFT JOIN users u ON u.id = sm.user_id
+    ${whereSql}
+    ORDER BY p.name, pv.name, pv.sku, sm.movement_date ASC, sm.id ASC`, p);
+
+  if (!movs.length) return [];
+
+  // Códigos de operación de entradas y transferencias (por reference_id)
+  const entryIds = movs.filter(m => m.reference_type === 'App\\Models\\StockEntry').map(m => m.reference_id).filter(Boolean);
+  const transferIds = movs.filter(m => m.reference_type === 'App\\Models\\StockTransfer').map(m => m.reference_id).filter(Boolean);
+  const codEntradas = {}, codTransfer = {};
+  if (entryIds.length) {
+    const [rows] = await prodPool.query(
+      `SELECT id, operation_type_code FROM stock_entries WHERE id IN (?)`, [[...new Set(entryIds)]]);
+    rows.forEach(r => codEntradas[r.id] = r.operation_type_code);
+  }
+  if (transferIds.length) {
+    const [rows] = await prodPool.query(
+      `SELECT id, operation_type_code FROM stock_transfers WHERE id IN (?)`, [[...new Set(transferIds)]]);
+    rows.forEach(r => codTransfer[r.id] = r.operation_type_code);
+  }
+
+  // Costo y precio de venta por (venta, variación) — para valorizar y margen
+  const saleIds = movs.filter(m => m.reference_type === 'App\\Models\\Sale').map(m => m.reference_id).filter(Boolean);
+  const ventaInfo = {}; // clave: `${saleId}_${variationId}`
+  if (saleIds.length) {
+    const [rows] = await prodPool.query(`
+      SELECT si.sale_id, si.product_variation_id,
+        SUM(si.quantity) AS qty, SUM(si.total) AS ingreso,
+        SUM(CASE WHEN si.stock_batch_id IS NOT NULL THEN si.quantity * sb.cost_price ELSE 0 END) AS costo_total,
+        MAX(CASE WHEN si.stock_batch_id IS NULL AND si.is_backorder = 1 THEN 1 ELSE 0 END) AS tiene_pedido,
+        MAX(CASE WHEN si.stock_batch_id IS NULL THEN 1 ELSE 0 END) AS tiene_sin_lote
+      FROM sale_items si
+      LEFT JOIN stock_batches sb ON sb.id = si.stock_batch_id
+      WHERE si.sale_id IN (?)
+      GROUP BY si.sale_id, si.product_variation_id`, [[...new Set(saleIds)]]);
+    rows.forEach(r => {
+      ventaInfo[`${r.sale_id}_${r.product_variation_id}`] = {
+        precio_unit: r.qty > 0 ? Number(r.ingreso) / Number(r.qty) : 0,
+        costo_unit: r.qty > 0 ? Number(r.costo_total) / Number(r.qty) : 0,
+        tiene_pedido: !!r.tiene_pedido, tiene_sin_lote: !!r.tiene_sin_lote
+      };
+    });
+  }
+
+  // Cache de costo FIFO vigente para valorizar entradas/ajustes/transferencias
+  const cacheFifo = {};
+  const fifo = async (vid) => {
+    if (!(vid in cacheFifo)) cacheFifo[vid] = await costoFifoVigente(prodPool, vid);
+    return cacheFifo[vid];
+  };
+
+  // Construir filas con valorización, código SUNAT y alertas
+  const filas = [];
+  for (const m of movs) {
+    // Código SUNAT según el tipo/origen
+    let codigo = null;
+    if (m.type === 'sale') codigo = '01';
+    else if (m.type === 'adjustment') codigo = m.operation_type_code;
+    else if (m.reference_type === 'App\\Models\\StockEntry') codigo = codEntradas[m.reference_id];
+    else if (m.reference_type === 'App\\Models\\StockTransfer') codigo = codTransfer[m.reference_id];
+    if (!codigo && m.operation_type_code) codigo = m.operation_type_code;
+
+    // Valorización
+    let costoUnit = null, precioUnit = null, margenUnit = null, alerta = '';
+    if (m.type === 'sale') {
+      const info = ventaInfo[`${m.reference_id}_${m.variation_id}`];
+      if (info) {
+        precioUnit = info.precio_unit;
+        if (info.tiene_sin_lote && info.costo_unit === 0) {
+          if (info.tiene_pedido) alerta = 'A pedido';
+          else if (/MKP|PCK/i.test(m.sku || '')) alerta = 'Sin costo (PCK/MKP, normal)';
+          else alerta = 'Sin costo — revisar';
+        } else {
+          costoUnit = info.costo_unit;
+          margenUnit = precioUnit - costoUnit;
+        }
+      }
+    } else if (m.reference_type === 'App\\Models\\StockEntry') {
+      // Entrada: costo del lote creado en esa entrada (costo real de compra)
+      costoUnit = await costoDeEntrada(prodPool, m.reference_id, m.variation_id);
+      if (costoUnit === null) costoUnit = await fifo(m.variation_id);
+      if (costoUnit === null || costoUnit === 0) {
+        if (/MKP|PCK/i.test(m.sku || '')) alerta = 'Sin costo (PCK/MKP, normal)';
+        else alerta = 'Sin costo — revisar';
+      }
+    } else {
+      // Salidas no-venta, ajustes, transferencias: costo FIFO del lote más antiguo
+      // con stock (de donde el sistema descuenta).
+      costoUnit = await fifo(m.variation_id);
+      if (costoUnit === null || costoUnit === 0) {
+        if (/MKP|PCK/i.test(m.sku || '')) alerta = 'Sin costo (PCK/MKP, normal)';
+        else alerta = 'Sin costo — revisar';
+      }
+    }
+
+    const cant = Number(m.quantity);
+    const valorMov = costoUnit != null ? costoUnit * cant : null;
+    const ubicacion = m.type === 'purchase' || m.reference_type === 'App\\Models\\StockEntry'
+      ? (m.ubic_to || m.ubic_from || '') : (m.ubic_from || m.ubic_to || '');
+
+    filas.push({
+      fecha: m.movement_date, producto: m.producto, variacion: m.variacion, sku: m.sku,
+      variation_id: m.variation_id,
+      tipo: TIPO_MOV_NOM[m.type] || m.type,
+      codigo_sunat: codigo || '', codigo_nombre: codigo ? (CODIGOS_SUNAT[codigo] || '') : '',
+      cantidad: cant,
+      costo_unit: costoUnit, valor_mov: valorMov,
+      precio_unit: precioUnit, margen_unit: margenUnit,
+      ubicacion, usuario: m.usuario || '',
+      documento: m.reference_type ? `${(m.reference_type.split('\\').pop())} #${m.reference_id}` : '',
+      nota: m.notes || '', alerta
+    });
+  }
+
+  // Saldo acumulado por producto (variación): cantidad y valor
+  const saldoCant = {}, saldoVal = {};
+  filas.forEach(f => {
+    const k = f.variation_id;
+    saldoCant[k] = (saldoCant[k] || 0) + f.cantidad;
+    saldoVal[k] = (saldoVal[k] || 0) + (f.valor_mov || 0);
+    f.saldo_cantidad = saldoCant[k];
+    f.saldo_valor = saldoVal[k];
+  });
+
+  return filas;
+}
+
+// Filtros del kardex (no requiere lista fija; el filtro de producto es texto libre)
+app.get('/admin/kardex', authAdmin, requiereModulo('reportes'), async (req, res) => {
+  try {
+    const filas = await obtenerKardex(prodPool, req.query);
+    res.json({ total: filas.length, filas });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/admin/kardex-excel', authAdmin, requiereModulo('reportes'), async (req, res) => {
+  try {
+    const filas = await obtenerKardex(prodPool, req.query);
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Kardex Valorizado');
+    const soloFecha = (d) => d ? new Date(d).toLocaleDateString('es-PE', { timeZone: 'America/Lima' }) : '';
+    ws.columns = [
+      { header: 'Fecha', key: 'fecha', width: 12 },
+      { header: 'Producto', key: 'producto', width: 30 },
+      { header: 'Variación', key: 'variacion', width: 26 },
+      { header: 'SKU', key: 'sku', width: 18 },
+      { header: 'Tipo', key: 'tipo', width: 14 },
+      { header: 'Cód. SUNAT', key: 'cod', width: 11 },
+      { header: 'Operación', key: 'codn', width: 24 },
+      { header: 'Cantidad', key: 'cant', width: 10 },
+      { header: 'Costo unit.', key: 'costo', width: 12 },
+      { header: 'Valor mov.', key: 'valor', width: 13 },
+      { header: 'Precio venta', key: 'precio', width: 12 },
+      { header: 'Margen unit.', key: 'margen', width: 12 },
+      { header: 'Saldo cant.', key: 'scant', width: 11 },
+      { header: 'Saldo valor', key: 'svalor', width: 13 },
+      { header: 'Ubicación', key: 'ubic', width: 18 },
+      { header: 'Usuario', key: 'user', width: 18 },
+      { header: 'Documento', key: 'doc', width: 18 },
+      { header: 'Nota', key: 'nota', width: 40 },
+      { header: 'Alerta', key: 'alerta', width: 22 }
+    ];
+    let prodActual = null;
+    filas.forEach(f => {
+      const clave = f.producto + '|' + f.variacion;
+      if (prodActual !== null && prodActual !== clave) {
+        // separador de totales por producto anterior (opcional visual)
+      }
+      ws.addRow({
+        fecha: soloFecha(f.fecha), producto: f.producto, variacion: f.variacion, sku: f.sku,
+        tipo: f.tipo, cod: f.codigo_sunat, codn: f.codigo_nombre, cant: f.cantidad,
+        costo: f.costo_unit != null ? f.costo_unit : '', valor: f.valor_mov != null ? f.valor_mov : '',
+        precio: f.precio_unit != null ? f.precio_unit : '', margen: f.margen_unit != null ? f.margen_unit : '',
+        scant: f.saldo_cantidad, svalor: f.saldo_valor, ubic: f.ubicacion, user: f.usuario,
+        doc: f.documento, nota: f.nota, alerta: f.alerta
+      });
+      prodActual = clave;
+    });
+    const h = ws.getRow(1);
+    h.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    h.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000726' } };
+    ws.views = [{ state: 'frozen', ySplit: 1 }];
+    ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: 19 } };
+    [9, 10, 11, 12, 14].forEach(c => ws.getColumn(c).numFmt = '#,##0.00');
+
+    // Totales por producto al final
+    ws.addRow([]);
+    const totProd = {};
+    filas.forEach(f => {
+      const k = f.producto + ' — ' + f.variacion;
+      if (!totProd[k]) totProd[k] = { cant: 0, valor: 0 };
+      totProd[k].cant += f.cantidad;
+      totProd[k].valor += (f.valor_mov || 0);
+    });
+    const tRow = ws.addRow(['TOTALES POR PRODUCTO (saldo final)']); tRow.font = { bold: true };
+    Object.entries(totProd).forEach(([k, v]) => {
+      const r = ws.addRow(['', k]); r.getCell(8).value = v.cant; r.getCell(10).value = v.valor;
+      r.getCell(10).numFmt = '#,##0.00';
+    });
+
+    const fecha = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="kardex_valorizado_${fecha}.xlsx"`);
+    await wb.xlsx.write(res);
+    res.end();
+  } catch (e) { res.status(500).json({ error: 'Error al generar el kardex: ' + e.message }); }
+});
+
+app.get('/admin/reporte-pagos/filtros', authAdmin, requiereModulo('reportes'), async (req, res) => {
+  try {
+    const [metodos] = await prodPool.query(
+      `SELECT DISTINCT ci.id, ci.name FROM catalog_items ci
+       JOIN sale_payments sp ON sp.payment_method_id = ci.id
+       WHERE sp.voided_at IS NULL ORDER BY ci.name`);
+    const [cuentas] = await prodPool.query(
+      `SELECT ba.id, ba.account_number, banco.name AS banco
+       FROM bank_accounts ba LEFT JOIN catalog_items banco ON banco.id = ba.bank_id
+       ORDER BY banco.name, ba.account_number`);
+    res.json({
+      metodos,
+      cuentas: cuentas.map(c => ({ id: c.id, etiqueta: `${c.banco || 'Banco'} ${c.account_number}` })),
+      empresas: Object.entries(EMPRESAS_BI).map(([id, nombre]) => ({ id, nombre }))
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Función compartida: arma la lista de pagos según filtros
+async function obtenerPagos(q) {
+  const { desde, hasta, empresa, empresa_producto, cuenta, metodo } = q;
+  const w = ['sp.voided_at IS NULL', 's.deleted_at IS NULL'];
+  const p = [];
+  if (desde && hasta) { w.push('DATE(sp.paid_at) BETWEEN ? AND ?'); p.push(desde, hasta); }
+  if (empresa) { w.push('s.company_id = ?'); p.push(empresa); }
+  if (cuenta) { w.push('sp.bank_account_id = ?'); p.push(cuenta); }
+  if (metodo) { w.push('sp.payment_method_id = ?'); p.push(metodo); }
+
+  const [pagos] = await prodPool.query(`
+    SELECT sp.id, sp.paid_at, sp.amount, sp.notes AS nota_pago,
+      s.id AS sale_id, s.code AS venta_codigo, s.company_id, s.observations AS obs_venta,
+      mp.name AS metodo,
+      ba.account_number, banco.name AS banco, ba.party_id AS cuenta_party_id,
+      dueno.business_name AS empresa_cuenta,
+      CASE WHEN cc.status='closed' THEN 'Cuadrado' ELSE 'Pendiente' END AS cuadre
+    FROM sale_payments sp
+    JOIN sales s ON s.id = sp.sale_id
+    LEFT JOIN catalog_items mp ON mp.id = sp.payment_method_id
+    LEFT JOIN bank_accounts ba ON ba.id = sp.bank_account_id
+    LEFT JOIN catalog_items banco ON banco.id = ba.bank_id
+    LEFT JOIN parties dueno ON dueno.id = ba.party_id
+    LEFT JOIN cash_closures cc ON cc.closure_date = DATE(sp.paid_at)
+    WHERE ${w.join(' AND ')}
+    ORDER BY sp.paid_at ASC`, p);
+
+  if (!pagos.length) return [];
+
+  const saleIds = [...new Set(pagos.map(x => x.sale_id))];
+
+  // Empresa(s) del producto por venta: vía sale_items → stock_batches.company_id
+  const [empresasProd] = await prodPool.query(`
+    SELECT DISTINCT si.sale_id, sb.company_id
+    FROM sale_items si JOIN stock_batches sb ON sb.id = si.stock_batch_id
+    WHERE si.sale_id IN (?) AND si.stock_batch_id IS NOT NULL`, [saleIds]);
+  const empProdPorVenta = {};
+  empresasProd.forEach(r => {
+    (empProdPorVenta[r.sale_id] = empProdPorVenta[r.sale_id] || new Set()).add(r.company_id);
+  });
+
+  // Comprobantes por venta
+  const [vouchers] = await prodPool.query(`
+    SELECT sale_id, type, serie, number FROM sale_vouchers WHERE sale_id IN (?)`, [saleIds]);
+  const vouchPorVenta = {};
+  vouchers.forEach(v => {
+    const t = v.type === 'factura' ? 'Factura' : v.type === 'boleta' ? 'Boleta' : v.type;
+    (vouchPorVenta[v.sale_id] = vouchPorVenta[v.sale_id] || []).push(`${t} ${v.serie}-${v.number}`);
+  });
+
+  let lista = pagos.map(pg => {
+    const empSet = empProdPorVenta[pg.sale_id];
+    const empProd = empSet ? [...empSet].map(id => EMPRESAS_BI[id] || `Empresa ${id}`).join(', ') : '—';
+    return {
+      paid_at: pg.paid_at,
+      metodo: pg.metodo || 'Sin método',
+      cuenta: pg.banco ? `${pg.banco} ${pg.account_number || ''}`.trim() : '—',
+      empresa_cuenta: pg.empresa_cuenta || '—',
+      venta: pg.venta_codigo,
+      empresa_gestiona: EMPRESAS_BI[pg.company_id] || `Empresa ${pg.company_id}`,
+      empresa_producto: empProd,
+      comprobante: (vouchPorVenta[pg.sale_id] || []).join(' · ') || '—',
+      nota_pago: pg.nota_pago || '', obs_venta: pg.obs_venta || '',
+      cuadre: pg.cuadre, monto: Number(pg.amount),
+      _empresas_prod_ids: empSet ? [...empSet] : []
+    };
+  });
+
+  // Filtro por empresa del producto (se aplica en memoria porque puede haber varias)
+  if (empresa_producto) {
+    lista = lista.filter(x => x._empresas_prod_ids.includes(Number(empresa_producto)));
+  }
+  lista.forEach(x => delete x._empresas_prod_ids);
+  return lista;
+}
+
+app.get('/admin/reporte-pagos', authAdmin, requiereModulo('reportes'), async (req, res) => {
+  try {
+    const lista = await obtenerPagos(req.query);
+    res.json({ total: lista.length, suma: lista.reduce((s, x) => s + x.monto, 0), pagos: lista });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/admin/reporte-pagos-excel', authAdmin, requiereModulo('reportes'), async (req, res) => {
+  try {
+    const lista = await obtenerPagos(req.query);
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Pagos');
+    const fechaLima = (d) => d ? new Date(d).toLocaleString('es-PE', { timeZone: 'America/Lima' }) : '';
+    ws.columns = [
+      { header: 'Fecha', key: 'fecha', width: 18 },
+      { header: 'Método', key: 'metodo', width: 18 },
+      { header: 'Cuenta destino', key: 'cuenta', width: 28 },
+      { header: 'Empresa dueña de la cuenta', key: 'empc', width: 28 },
+      { header: 'Venta', key: 'venta', width: 15 },
+      { header: 'Empresa que gestiona', key: 'empf', width: 26 },
+      { header: 'Empresa(s) del producto', key: 'empp', width: 28 },
+      { header: 'Comprobante', key: 'comp', width: 28 },
+      { header: 'Nota del pago', key: 'notap', width: 34 },
+      { header: 'Observación de venta', key: 'obsv', width: 34 },
+      { header: 'Cuadre', key: 'cuadre', width: 12 },
+      { header: 'Monto', key: 'monto', width: 13 }
+    ];
+    lista.forEach(x => ws.addRow({
+      fecha: fechaLima(x.paid_at), metodo: x.metodo, cuenta: x.cuenta, empc: x.empresa_cuenta,
+      venta: x.venta, empf: x.empresa_gestiona, empp: x.empresa_producto,
+      comp: x.comprobante, notap: x.nota_pago, obsv: x.obs_venta,
+      cuadre: x.cuadre, monto: x.monto
+    }));
+    // Header estilizado
+    const h = ws.getRow(1);
+    h.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    h.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000726' } };
+    ws.views = [{ state: 'frozen', ySplit: 1 }];
+    ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: 12 } };
+    ws.getColumn(12).numFmt = '#,##0.00';
+
+    // Totalizadores
+    ws.addRow([]);
+    const totEmpF = {}, totCta = {}, totMet = {}, totEmpC = {};
+    lista.forEach(x => {
+      totEmpF[x.empresa_gestiona] = (totEmpF[x.empresa_gestiona] || 0) + x.monto;
+      totCta[x.cuenta] = (totCta[x.cuenta] || 0) + x.monto;
+      totMet[x.metodo] = (totMet[x.metodo] || 0) + x.monto;
+      totEmpC[x.empresa_cuenta] = (totEmpC[x.empresa_cuenta] || 0) + x.monto;
+    });
+    const bloque = (titulo, obj) => {
+      const r = ws.addRow([titulo]); r.font = { bold: true };
+      Object.entries(obj).forEach(([k, v]) => {
+        const row = ws.addRow(['', k]); row.getCell(12).value = v; row.getCell(12).numFmt = '#,##0.00';
+      });
+    };
+    bloque('TOTALES POR EMPRESA DUEÑA DE LA CUENTA', totEmpC);
+    bloque('TOTALES POR EMPRESA QUE GESTIONA', totEmpF);
+    bloque('TOTALES POR CUENTA', totCta);
+    bloque('TOTALES POR MÉTODO', totMet);
+    const g = ws.addRow(['TOTAL GENERAL']); g.font = { bold: true };
+    g.getCell(12).value = lista.reduce((s, x) => s + x.monto, 0); g.getCell(12).numFmt = '#,##0.00';
+
+    const fecha = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="pagos_${fecha}.xlsx"`);
+    await wb.xlsx.write(res);
+    res.end();
+  } catch (e) { res.status(500).json({ error: 'Error al generar el reporte: ' + e.message }); }
+});
 
 app.get('/admin/reporte-sync', authAdmin, requiereModulo('sync'), async (req, res) => {
   try {

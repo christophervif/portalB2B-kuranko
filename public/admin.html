@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Admin — Portal B2B Kuranko</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <style>
 :root{
   --bg:#000726;--surface:#0a1238;--surface2:#060d2e;--surface3:#111b44;
@@ -169,9 +171,7 @@ tr:hover td{background:var(--hover)}
   </div>
   <div class="wrap">
     <div class="tabs">
-      <button class="tab active" onclick="tab('usuarios',this)">Clientes con acceso</button>
-      <button class="tab" onclick="tab('vincular',this)">Vincular consignación</button>
-      <button class="tab" onclick="tab('crear',this)">Crear accesos</button>
+      <button class="tab active" onclick="tab('clientes_gestion',this)">Gestión de clientes</button>
       <button class="tab" onclick="tab('sync',this)">Sincronización web</button>
       <button class="tab" onclick="tab('auditoria',this)">Auditoría de catálogo</button>
       <button class="tab" onclick="tab('resumen',this)">Resumen</button>
@@ -181,20 +181,20 @@ tr:hover td{background:var(--hover)}
       <button class="tab" onclick="tab('clientes_bi',this)">Clientes BI</button>
       <button class="tab" onclick="tab('caja_bi',this)">Pagos y Caja</button>
       <button class="tab" onclick="tab('crm',this)">CRM Kommo</button>
+      <button class="tab" onclick="tab('reportes',this)">Reportes</button>
       <button class="tab" onclick="tab('pagos',this)">Métodos de pago</button>
       <button class="tab" onclick="tab('accesos',this)">Control de accesos</button>
     </div>
 
-    <div id="tab-usuarios" class="panel active">
+    <div id="tab-clientes_gestion" class="panel active">
+
       <div class="card">
         <h3>Clientes con acceso al portal</h3>
         <div class="desc">Todos los que pueden entrar. Puedes activar/desactivar, resetear contraseña o cambiar su consignación.</div>
         <input class="search" id="buscar-usuarios" placeholder="🔍 Buscar por nombre o RUC..." oninput="filtrarUsuarios()">
         <div id="usuarios-tabla"><div class="loading">Cargando...</div></div>
       </div>
-    </div>
 
-    <div id="tab-vincular" class="panel">
       <div class="card">
         <h3>Vincular cliente con su consignación</h3>
         <div class="desc">Busca el cliente y la consignación por nombre. El sistema guarda el vínculo de forma segura por ID — tú solo eliges de las listas.</div>
@@ -214,9 +214,7 @@ tr:hover td{background:var(--hover)}
           <button class="btn" onclick="guardarVinculo()">Vincular</button>
         </div>
       </div>
-    </div>
 
-    <div id="tab-crear" class="panel">
       <div class="card">
         <h3>Crear acceso a un cliente</h3>
         <div class="desc">Busca un cliente de tu sistema por nombre o RUC. Su usuario será su RUC y su contraseña inicial también.</div>
@@ -236,7 +234,7 @@ tr:hover td{background:var(--hover)}
       </div>
       <div class="card">
         <h3>Crear acceso a TODOS de golpe</h3>
-        <div class="desc">Crea acceso para todos los clientes empresa que tengan ventas registradas. Los que ya tienen acceso se saltan. Después vinculas sus consignaciones en la otra pestaña.</div>
+        <div class="desc">Crea acceso para todos los clientes empresa que tengan ventas registradas. Los que ya tienen acceso se saltan. Después vinculas sus consignaciones en la sección de arriba.</div>
         <button class="btn btn-sec" onclick="crearTodos()">Crear todos los accesos</button>
         <div id="crear-todos-result" class="muted" style="margin-top:10px"></div>
       </div>
@@ -407,6 +405,69 @@ tr:hover td{background:var(--hover)}
       </div>
     </div>
 
+    <div id="tab-reportes" class="panel">
+      <div class="subtabs">
+        <button class="subtab active" id="rep-st-pagos" onclick="repSubtab('pagos')">Reporte de pagos</button>
+        <button class="subtab" id="rep-st-kardex" onclick="repSubtab('kardex')">Kardex Valorizado</button>
+      </div>
+
+      <div id="rep-sub-pagos" class="subpanel active">
+      <div class="card">
+        <h3>Reporte de pagos</h3>
+        <div class="desc">Lista de pagos en el tiempo. Cada fila muestra el método, la cuenta destino y su empresa dueña, la venta, la empresa que gestiona la venta, la(s) empresa(s) dueña(s) del producto (según el lote), el comprobante, las notas y el estado de cuadre de caja. Filtrable por empresa, cuenta, método y fechas. <b>Nota:</b> la empresa emisora de la factura no se registra en el sistema, por eso no aparece como tal.</div>
+        <div class="filtros-fila">
+          <label style="flex:1;min-width:140px">Desde<input type="date" id="rp-desde"></label>
+          <label style="flex:1;min-width:140px">Hasta<input type="date" id="rp-hasta"></label>
+        </div>
+        <div class="filtros-fila">
+          <select id="rp-empresa"><option value="">Empresa que gestiona: todas</option></select>
+          <select id="rp-empresa-prod"><option value="">Empresa del producto: todas</option></select>
+        </div>
+        <div class="filtros-fila">
+          <select id="rp-cuenta"><option value="">Todas las cuentas</option></select>
+          <select id="rp-metodo"><option value="">Todos los métodos</option></select>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
+          <button class="btn" onclick="verPagos()">Ver en pantalla</button>
+          <button class="btn" onclick="descargarPagos()">Descargar en Excel</button>
+          <button class="btn" onclick="descargarPagosPDF()">Descargar en PDF</button>
+          <button class="btn btn-sec" onclick="limpiarFiltrosRP()">Limpiar filtros</button>
+        </div>
+        <div id="rp-result" class="muted" style="margin-top:10px"></div>
+      </div>
+      <div class="card" id="rp-tabla-card" style="display:none">
+        <div id="rp-resumen" style="margin-bottom:10px;font-weight:600"></div>
+        <div id="rp-tabla" style="overflow-x:auto;max-height:60vh;overflow-y:auto"></div>
+      </div>
+      </div>
+
+      <div id="rep-sub-kardex" class="subpanel">
+      <div class="card">
+        <h3>Kardex Valorizado</h3>
+        <div class="desc">Movimientos de stock por producto (entradas, ventas, transferencias, ajustes), valorizados y en línea de tiempo, con su código SUNAT, saldo acumulado y totales por producto. Deja el producto vacío para ver todos. El costo sigue la regla FIFO real: las entradas al costo de su propio lote, y las salidas/ajustes al costo del lote más antiguo con stock (de donde el sistema descuenta).</div>
+        <div class="filtros-fila">
+          <label style="flex:1;min-width:140px">Desde<input type="date" id="kx-desde"></label>
+          <label style="flex:1;min-width:140px">Hasta<input type="date" id="kx-hasta"></label>
+        </div>
+        <div class="filtros-fila">
+          <input id="kx-producto" type="text" placeholder="Producto (nombre)...">
+          <input id="kx-sku" type="text" placeholder="SKU...">
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
+          <button class="btn" onclick="verKardex()">Ver en pantalla</button>
+          <button class="btn" onclick="descargarKardex()">Descargar en Excel</button>
+          <button class="btn" onclick="descargarKardexPDF()">Descargar en PDF</button>
+          <button class="btn btn-sec" onclick="limpiarFiltrosKX()">Limpiar filtros</button>
+        </div>
+        <div id="kx-result" class="muted" style="margin-top:10px"></div>
+      </div>
+      <div class="card" id="kx-tabla-card" style="display:none">
+        <div id="kx-resumen" style="margin-bottom:10px;font-weight:600"></div>
+        <div id="kx-tabla" style="overflow-x:auto;max-height:60vh;overflow-y:auto"></div>
+      </div>
+      </div>
+    </div>
+
     <div id="tab-pagos" class="panel">
       <div class="card">
         <h3>Métodos de pago que ven los clientes</h3>
@@ -525,11 +586,10 @@ async function mostrarApp(){
 // Carga los datos que necesita cada pestaña, solo cuando se abre
 const tabsCargadas={};
 function cargarDatosTab(id){
-  if(id==='usuarios'){ if(!tabsCargadas.usuarios){cargarUsuarios();tabsCargadas.usuarios=1;} }
-  else if(id==='vincular'||id==='crear'){
-    // Estas pestañas usan las listas de clientes/consignaciones
-    if(!tabsCargadas.clientes){cargarClientes();cargarConsignaciones();tabsCargadas.clientes=1;}
+  if(id==='clientes_gestion'){
+    // Pestaña unificada: carga usuarios + listas de clientes/consignaciones
     if(!tabsCargadas.usuarios){cargarUsuarios();tabsCargadas.usuarios=1;}
+    if(!tabsCargadas.clientes){cargarClientes();cargarConsignaciones();tabsCargadas.clientes=1;}
   }
   else if(id==='sync'){cargarEstadoActualizacion();}
   else if(id==='auditoria'){if(!auditoriaCache)cargarAuditoriaGuardada();}
@@ -537,6 +597,7 @@ function cargarDatosTab(id){
     dbInitFechas('tab-'+id);
     if(!dbCargadas[id])dbCargarModulo(id);
   }
+  else if(id==='reportes'){if(!rpFiltrosCargados)cargarFiltrosRP();}
   else if(id==='pagos'){cargarMetodosPago();}
   else if(id==='accesos'){cargarAccesos();}
 }
@@ -750,6 +811,229 @@ async function descargarAuditoria(){
     const a=document.createElement('a');a.href=url;a.download='auditoria_catalogo.xlsx';a.click();
     URL.revokeObjectURL(url);
     res.textContent='✓ Excel descargado.';
+  }catch(e){res.textContent='';showToast(e.message,true);}
+}
+
+// ══════════ REPORTE 3.2 — LISTA DE PAGOS ══════════
+let rpFiltrosCargados=false;
+async function cargarFiltrosRP(){
+  try{
+    const d=await apiCall('/admin/reporte-pagos/filtros','GET');
+    document.getElementById('rp-metodo').innerHTML='<option value="">Todos los métodos</option>'+
+      d.metodos.map(m=>`<option value="${m.id}">${esc(m.name)}</option>`).join('');
+    document.getElementById('rp-cuenta').innerHTML='<option value="">Todas las cuentas</option>'+
+      d.cuentas.map(c=>`<option value="${c.id}">${esc(c.etiqueta)}</option>`).join('');
+    const emps='<option value="">EMP_LABEL</option>'+d.empresas.map(e=>`<option value="${e.id}">${esc(e.nombre)}</option>`).join('');
+    document.getElementById('rp-empresa').innerHTML=emps.replace('EMP_LABEL','Empresa que gestiona: todas');
+    document.getElementById('rp-empresa-prod').innerHTML=emps.replace('EMP_LABEL','Empresa del producto: todas');
+    rpFiltrosCargados=true;
+  }catch(e){showToast('No se pudieron cargar los filtros: '+e.message,true);}
+}
+function rpParams(){
+  const p=new URLSearchParams();
+  const desde=document.getElementById('rp-desde').value, hasta=document.getElementById('rp-hasta').value;
+  if((desde&&!hasta)||(!desde&&hasta)){showToast('Completa ambas fechas o deja las dos vacías',true);return null;}
+  if(desde&&hasta){p.set('desde',desde);p.set('hasta',hasta);}
+  const emp=document.getElementById('rp-empresa').value; if(emp)p.set('empresa',emp);
+  const empP=document.getElementById('rp-empresa-prod').value; if(empP)p.set('empresa_producto',empP);
+  const cta=document.getElementById('rp-cuenta').value; if(cta)p.set('cuenta',cta);
+  const met=document.getElementById('rp-metodo').value; if(met)p.set('metodo',met);
+  return p;
+}
+function limpiarFiltrosRP(){
+  ['rp-desde','rp-hasta'].forEach(id=>document.getElementById(id).value='');
+  ['rp-empresa','rp-empresa-prod','rp-cuenta','rp-metodo'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('rp-result').textContent='';
+  document.getElementById('rp-tabla-card').style.display='none';
+}
+async function verPagos(){
+  const p=rpParams(); if(!p)return;
+  const res=document.getElementById('rp-result');
+  res.textContent='Cargando pagos...';
+  try{
+    const d=await apiCall('/admin/reporte-pagos?'+p.toString(),'GET');
+    res.textContent='';
+    document.getElementById('rp-tabla-card').style.display='block';
+    document.getElementById('rp-resumen').textContent=`${d.total} pagos · Total: S/ ${d.suma.toLocaleString('es-PE',{minimumFractionDigits:2})}`;
+    const cont=document.getElementById('rp-tabla');
+    if(!d.pagos.length){cont.innerHTML='<div class="muted">No hay pagos con esos filtros.</div>';return;}
+    cont.innerHTML='<table class="tabla responsive"><thead><tr><th>Fecha</th><th>Método</th><th>Cuenta</th><th>Empresa cuenta</th><th>Venta</th><th>Gestiona</th><th>Empresa producto</th><th>Comprobante</th><th>Nota pago</th><th>Obs. venta</th><th>Cuadre</th><th>Monto</th></tr></thead><tbody>'+
+      d.pagos.map(x=>`<tr>
+        <td data-label="Fecha">${new Date(x.paid_at).toLocaleString('es-PE')}</td>
+        <td data-label="Método">${esc(x.metodo)}</td>
+        <td data-label="Cuenta">${esc(x.cuenta)}</td>
+        <td data-label="Empresa cuenta">${esc(x.empresa_cuenta)}</td>
+        <td data-label="Venta">${esc(x.venta)}</td>
+        <td data-label="Gestiona">${esc(x.empresa_gestiona)}</td>
+        <td data-label="Empresa producto">${esc(x.empresa_producto)}</td>
+        <td data-label="Comprobante">${esc(x.comprobante)}</td>
+        <td data-label="Nota pago">${esc(x.nota_pago)}</td>
+        <td data-label="Obs. venta">${esc(x.obs_venta)}</td>
+        <td data-label="Cuadre">${x.cuadre==='Cuadrado'?'<span class="badge-g">Cuadrado</span>':'<span class="badge-y">Pendiente</span>'}</td>
+        <td data-label="Monto">S/ ${x.monto.toLocaleString('es-PE',{minimumFractionDigits:2})}</td>
+      </tr>`).join('')+'</tbody></table>';
+  }catch(e){res.textContent='';showToast(e.message,true);}
+}
+async function descargarPagos(){
+  const p=rpParams(); if(!p)return;
+  const res=document.getElementById('rp-result');
+  res.textContent='Generando Excel...';
+  try{
+    const r=await fetch(API+'/admin/reporte-pagos-excel?'+p.toString(),{headers:{'Authorization':'Bearer '+TOKEN}});
+    if(!r.ok)throw new Error('No se pudo generar el Excel');
+    const blob=await r.blob();
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');a.href=url;a.download='pagos.xlsx';a.click();
+    URL.revokeObjectURL(url);
+    res.textContent='✓ Excel descargado.';
+  }catch(e){res.textContent='';showToast(e.message,true);}
+}
+
+// ══════════ Sub-pestañas de Reportes ══════════
+function repSubtab(cual){
+  document.querySelectorAll('#tab-reportes .subpanel').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('#tab-reportes .subtab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('rep-sub-'+cual).classList.add('active');
+  document.getElementById('rep-st-'+cual).classList.add('active');
+}
+
+// ══════════ REPORTE 3.1 — KARDEX VALORIZADO ══════════
+const kxFmt=n=>n==null?'—':'S/ '+Number(n).toLocaleString('es-PE',{minimumFractionDigits:2});
+function kxParams(){
+  const p=new URLSearchParams();
+  const desde=document.getElementById('kx-desde').value, hasta=document.getElementById('kx-hasta').value;
+  if((desde&&!hasta)||(!desde&&hasta)){showToast('Completa ambas fechas o deja las dos vacías',true);return null;}
+  if(desde&&hasta){p.set('desde',desde);p.set('hasta',hasta);}
+  const prod=document.getElementById('kx-producto').value.trim(); if(prod)p.set('producto',prod);
+  const sku=document.getElementById('kx-sku').value.trim(); if(sku)p.set('sku',sku);
+  return p;
+}
+function limpiarFiltrosKX(){
+  ['kx-desde','kx-hasta','kx-producto','kx-sku'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('kx-result').textContent='';
+  document.getElementById('kx-tabla-card').style.display='none';
+}
+async function verKardex(){
+  const p=kxParams(); if(!p)return;
+  const res=document.getElementById('kx-result');
+  res.textContent='Cargando kardex... puede tardar unos segundos.';
+  try{
+    const d=await apiCall('/admin/kardex?'+p.toString(),'GET');
+    res.textContent='';
+    document.getElementById('kx-tabla-card').style.display='block';
+    document.getElementById('kx-resumen').textContent=`${d.total} movimientos`;
+    const cont=document.getElementById('kx-tabla');
+    if(!d.filas.length){cont.innerHTML='<div class="muted">No hay movimientos con esos filtros.</div>';return;}
+    cont.innerHTML='<table class="tabla responsive"><thead><tr><th>Fecha</th><th>Producto</th><th>SKU</th><th>Tipo</th><th>Cód</th><th>Operación</th><th>Cant.</th><th>Costo u.</th><th>Valor</th><th>Precio v.</th><th>Margen</th><th>Saldo cant.</th><th>Saldo valor</th><th>Ubic.</th><th>Doc.</th><th>Nota</th><th>Alerta</th></tr></thead><tbody>'+
+      d.filas.map(f=>{
+        const alertaBadge=f.alerta?(f.alerta.includes('normal')?`<span class="badge-g">${esc(f.alerta)}</span>`:f.alerta==='A pedido'?`<span class="badge-y">A pedido</span>`:`<span class="badge-r">${esc(f.alerta)}</span>`):'';
+        return `<tr>
+        <td data-label="Fecha">${f.fecha?new Date(f.fecha).toLocaleDateString('es-PE'):''}</td>
+        <td data-label="Producto">${esc(f.producto)}${f.variacion&&f.variacion!==f.producto?' — '+esc(f.variacion):''}</td>
+        <td data-label="SKU">${esc(f.sku)}</td>
+        <td data-label="Tipo">${esc(f.tipo)}</td>
+        <td data-label="Cód">${esc(f.codigo_sunat)}</td>
+        <td data-label="Operación">${esc(f.codigo_nombre)}</td>
+        <td data-label="Cant." style="text-align:right">${f.cantidad}</td>
+        <td data-label="Costo u." style="text-align:right">${kxFmt(f.costo_unit)}</td>
+        <td data-label="Valor" style="text-align:right">${kxFmt(f.valor_mov)}</td>
+        <td data-label="Precio v." style="text-align:right">${kxFmt(f.precio_unit)}</td>
+        <td data-label="Margen" style="text-align:right">${kxFmt(f.margen_unit)}</td>
+        <td data-label="Saldo cant." style="text-align:right">${f.saldo_cantidad}</td>
+        <td data-label="Saldo valor" style="text-align:right">${kxFmt(f.saldo_valor)}</td>
+        <td data-label="Ubic.">${esc(f.ubicacion)}</td>
+        <td data-label="Doc.">${esc(f.documento)}</td>
+        <td data-label="Nota">${esc(f.nota)}</td>
+        <td data-label="Alerta">${alertaBadge}</td>
+      </tr>`;}).join('')+'</tbody></table>';
+  }catch(e){res.textContent='';showToast(e.message,true);}
+}
+async function descargarKardex(){
+  const p=kxParams(); if(!p)return;
+  const res=document.getElementById('kx-result');
+  res.textContent='Generando Excel...';
+  try{
+    const r=await fetch(API+'/admin/kardex-excel?'+p.toString(),{headers:{'Authorization':'Bearer '+TOKEN}});
+    if(!r.ok)throw new Error('No se pudo generar el Excel');
+    const blob=await r.blob();
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');a.href=url;a.download='kardex_valorizado.xlsx';a.click();
+    URL.revokeObjectURL(url);
+    res.textContent='✓ Excel descargado.';
+  }catch(e){res.textContent='';showToast(e.message,true);}
+}
+
+// ══════════ Exportación a PDF (jsPDF, apaisado, membrete Kuranko) ══════════
+function exportarPDF(nombreArchivo, titulo, columnas, filas, filtrosTexto){
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation:'landscape', unit:'pt', format:'a4' });
+  const ancho = doc.internal.pageSize.getWidth();
+  const ahora = new Date().toLocaleString('es-PE',{timeZone:'America/Lima'});
+  // Membrete
+  doc.setFontSize(15); doc.setTextColor(0,7,38); doc.setFont(undefined,'bold');
+  doc.text('Kuranko', 40, 34);
+  doc.setFontSize(12); doc.text(titulo, 40, 52);
+  doc.setFontSize(8); doc.setTextColor(90,90,90); doc.setFont(undefined,'normal');
+  doc.text('Exportado: '+ahora, ancho-40, 34, {align:'right'});
+  if(filtrosTexto){ doc.text(filtrosTexto, ancho-40, 48, {align:'right'}); }
+  // Tabla
+  doc.autoTable({
+    startY: 64, head:[columnas], body:filas,
+    styles:{ fontSize:6, cellPadding:2, overflow:'linebreak' },
+    headStyles:{ fillColor:[0,7,38], textColor:255, fontSize:6 },
+    alternateRowStyles:{ fillColor:[245,246,250] },
+    margin:{ left:40, right:40, top:64 },
+    didDrawPage: (data)=>{
+      const pag = doc.internal.getNumberOfPages();
+      doc.setFontSize(7); doc.setTextColor(120,120,120);
+      doc.text('Página '+data.pageNumber+' de '+pag, ancho-40, doc.internal.pageSize.getHeight()-16, {align:'right'});
+    }
+  });
+  doc.save(nombreArchivo);
+}
+function textoFiltros(pairs){
+  const parts=[]; pairs.forEach(([k,v])=>{ if(v)parts.push(k+': '+v); });
+  return parts.length?parts.join('  ·  '):'Sin filtros';
+}
+
+async function descargarPagosPDF(){
+  const p=rpParams(); if(!p)return;
+  const res=document.getElementById('rp-result');
+  res.textContent='Generando PDF...';
+  try{
+    const d=await apiCall('/admin/reporte-pagos?'+p.toString(),'GET');
+    if(!d.pagos.length){res.textContent='No hay pagos con esos filtros.';return;}
+    const cols=['Fecha','Método','Cuenta','Empresa cuenta','Venta','Gestiona','Empresa producto','Comprobante','Nota pago','Obs. venta','Cuadre','Monto'];
+    const filas=d.pagos.map(x=>[
+      new Date(x.paid_at).toLocaleDateString('es-PE'), x.metodo, x.cuenta, x.empresa_cuenta,
+      x.venta, x.empresa_gestiona, x.empresa_producto, x.comprobante, x.nota_pago, x.obs_venta,
+      x.cuadre, x.monto.toLocaleString('es-PE',{minimumFractionDigits:2})
+    ]);
+    const ft=textoFiltros([['Desde',document.getElementById('rp-desde').value],['Hasta',document.getElementById('rp-hasta').value]]);
+    exportarPDF('pagos.pdf','Reporte de pagos',cols,filas,ft+`  ·  ${d.total} pagos · Total S/ ${d.suma.toLocaleString('es-PE',{minimumFractionDigits:2})}`);
+    res.textContent='✓ PDF descargado.';
+  }catch(e){res.textContent='';showToast(e.message,true);}
+}
+
+async function descargarKardexPDF(){
+  const p=kxParams(); if(!p)return;
+  const res=document.getElementById('kx-result');
+  res.textContent='Generando PDF...';
+  try{
+    const d=await apiCall('/admin/kardex?'+p.toString(),'GET');
+    if(!d.filas.length){res.textContent='No hay movimientos con esos filtros.';return;}
+    const cols=['Fecha','Producto','SKU','Tipo','Cód','Operación','Cant','Costo u.','Valor','Precio v.','Margen','Saldo cant','Saldo valor','Ubic.','Doc.','Nota','Alerta'];
+    const fmt=n=>n==null?'—':Number(n).toLocaleString('es-PE',{minimumFractionDigits:2});
+    const filas=d.filas.map(f=>[
+      f.fecha?new Date(f.fecha).toLocaleDateString('es-PE'):'',
+      (f.producto||'')+(f.variacion&&f.variacion!==f.producto?' — '+f.variacion:''),
+      f.sku, f.tipo, f.codigo_sunat, f.codigo_nombre, f.cantidad,
+      fmt(f.costo_unit), fmt(f.valor_mov), fmt(f.precio_unit), fmt(f.margen_unit),
+      f.saldo_cantidad, fmt(f.saldo_valor), f.ubicacion, f.documento, f.nota, f.alerta
+    ]);
+    const ft=textoFiltros([['Desde',document.getElementById('kx-desde').value],['Hasta',document.getElementById('kx-hasta').value],['Producto',document.getElementById('kx-producto').value],['SKU',document.getElementById('kx-sku').value]]);
+    exportarPDF('kardex_valorizado.pdf','Kardex Valorizado',cols,filas,ft+`  ·  ${d.total} movimientos`);
+    res.textContent='✓ PDF descargado.';
   }catch(e){res.textContent='';showToast(e.message,true);}
 }
 
@@ -1021,7 +1305,7 @@ async function cargarEstadoActualizacion(){
   }catch(e){ if(box)box.style.display='none'; }
 }
 // Nombres legibles de los módulos
-const NOMBRE_MODULO={usuarios:'Clientes con acceso',vincular:'Vincular consignación',crear:'Crear accesos',sync:'Sincronización web',auditoria:'Auditoría de catálogo',resumen:'Resumen',rentabilidad:'Rentabilidad',inventario:'Inventario',restock:'Restock',clientes_bi:'Clientes BI',caja_bi:'Pagos y Caja',crm:'CRM Kommo',pagos:'Métodos de pago'};
+const NOMBRE_MODULO={clientes_gestion:'Gestión de clientes',sync:'Sincronización web',auditoria:'Auditoría de catálogo',resumen:'Resumen',rentabilidad:'Rentabilidad',inventario:'Inventario',restock:'Restock',clientes_bi:'Clientes BI',caja_bi:'Pagos y Caja',crm:'CRM Kommo',reportes:'Reportes',pagos:'Métodos de pago'};
 let accesosCache={modulos_disponibles:[],usuarios:[]};
 async function cargarAccesos(){
   try{

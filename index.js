@@ -709,6 +709,30 @@ const TIPO_MOV_NOM = {
   adjustment: 'Ajuste', return: 'Devolución'
 };
 
+// Nombre de archivo con trazabilidad: reporte-AAAAMMDD-HHMM
+function nombreTrazable(base) {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  const stamp = `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
+  return `${base}-${stamp}`;
+}
+
+// Inserta una cabecera informativa en las primeras filas de una hoja Excel.
+// Devuelve el número de filas usadas (para saber dónde empieza la tabla).
+function cabeceraExcel(ws, titulo, filtrosPairs, numCols) {
+  const ahora = new Date().toLocaleString('es-PE', { timeZone: 'America/Lima' });
+  const r1 = ws.addRow(['Kuranko — ' + titulo]);
+  r1.font = { bold: true, size: 14, color: { argb: 'FF000726' } };
+  ws.mergeCells(1, 1, 1, Math.min(numCols, 6));
+  const r2 = ws.addRow(['Exportado: ' + ahora]);
+  r2.font = { size: 9, color: { argb: 'FF5A5A5A' } };
+  const filtrosTxt = filtrosPairs.filter(([k, v]) => v).map(([k, v]) => `${k}: ${v}`).join('   ·   ') || 'Sin filtros';
+  const r3 = ws.addRow(['Filtros — ' + filtrosTxt]);
+  r3.font = { size: 9, color: { argb: 'FF5A5A5A' } };
+  ws.addRow([]); // fila en blanco separadora
+  return 4;
+}
+
 // Costo FIFO vigente de una variación (lote más antiguo con stock, de donde el
 // sistema descuenta en salidas/ajustes). Es la regla real de descuento, no una estimación.
 async function costoFifoVigente(prodPool, variationId) {
@@ -876,6 +900,18 @@ async function obtenerKardex(prodPool, q) {
 }
 
 // Filtros del kardex (no requiere lista fija; el filtro de producto es texto libre)
+// Lista de productos/variaciones para el autocompletar del kardex
+app.get('/admin/kardex/productos', authAdmin, requiereModulo('reportes'), async (req, res) => {
+  try {
+    const [rows] = await prodPool.query(`
+      SELECT pv.sku, pv.name AS variacion, p.name AS producto
+      FROM product_variations pv JOIN products p ON p.id = pv.product_id
+      WHERE pv.deleted_at IS NULL AND pv.sku IS NOT NULL
+      ORDER BY p.name, pv.name LIMIT 5000`);
+    res.json({ productos: rows });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/admin/kardex', authAdmin, requiereModulo('reportes'), async (req, res) => {
   try {
     const filas = await obtenerKardex(prodPool, req.query);
@@ -890,48 +926,39 @@ app.get('/admin/kardex-excel', authAdmin, requiereModulo('reportes'), async (req
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('Kardex Valorizado');
     const soloFecha = (d) => d ? new Date(d).toLocaleDateString('es-PE', { timeZone: 'America/Lima' }) : '';
-    ws.columns = [
-      { header: 'Fecha', key: 'fecha', width: 12 },
-      { header: 'Producto', key: 'producto', width: 30 },
-      { header: 'Variación', key: 'variacion', width: 26 },
-      { header: 'SKU', key: 'sku', width: 18 },
-      { header: 'Tipo', key: 'tipo', width: 14 },
-      { header: 'Cód. SUNAT', key: 'cod', width: 11 },
-      { header: 'Operación', key: 'codn', width: 24 },
-      { header: 'Cantidad', key: 'cant', width: 10 },
-      { header: 'Costo unit.', key: 'costo', width: 12 },
-      { header: 'Valor mov.', key: 'valor', width: 13 },
-      { header: 'Precio venta', key: 'precio', width: 12 },
-      { header: 'Margen unit.', key: 'margen', width: 12 },
-      { header: 'Saldo cant.', key: 'scant', width: 11 },
-      { header: 'Saldo valor', key: 'svalor', width: 13 },
-      { header: 'Ubicación', key: 'ubic', width: 18 },
-      { header: 'Usuario', key: 'user', width: 18 },
-      { header: 'Documento', key: 'doc', width: 18 },
-      { header: 'Nota', key: 'nota', width: 40 },
-      { header: 'Alerta', key: 'alerta', width: 22 }
+
+    // Cabecera informativa (título, fecha de exportación, filtros)
+    const filasCab = cabeceraExcel(ws, 'Kardex Valorizado', [
+      ['Desde', req.query.desde], ['Hasta', req.query.hasta],
+      ['Producto', req.query.producto], ['SKU', req.query.sku],
+      ['Movimientos', filas.length]
+    ], 19);
+
+    const colDefs = [
+      { header: 'Fecha', width: 12 }, { header: 'Producto', width: 30 }, { header: 'Variación', width: 26 },
+      { header: 'SKU', width: 18 }, { header: 'Tipo', width: 14 }, { header: 'Cód. SUNAT', width: 11 },
+      { header: 'Operación', width: 24 }, { header: 'Cantidad', width: 10 }, { header: 'Costo unit.', width: 12 },
+      { header: 'Valor mov.', width: 13 }, { header: 'Precio venta', width: 12 }, { header: 'Margen unit.', width: 12 },
+      { header: 'Saldo cant.', width: 11 }, { header: 'Saldo valor', width: 13 }, { header: 'Ubicación', width: 18 },
+      { header: 'Usuario', width: 18 }, { header: 'Documento', width: 18 }, { header: 'Nota', width: 40 },
+      { header: 'Alerta', width: 22 }
     ];
-    let prodActual = null;
+    colDefs.forEach((c, i) => ws.getColumn(i + 1).width = c.width);
+    const headerRowNum = filasCab + 1;
+    const hr = ws.addRow(colDefs.map(c => c.header));
+    hr.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    hr.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000726' } };
+
     filas.forEach(f => {
-      const clave = f.producto + '|' + f.variacion;
-      if (prodActual !== null && prodActual !== clave) {
-        // separador de totales por producto anterior (opcional visual)
-      }
-      ws.addRow({
-        fecha: soloFecha(f.fecha), producto: f.producto, variacion: f.variacion, sku: f.sku,
-        tipo: f.tipo, cod: f.codigo_sunat, codn: f.codigo_nombre, cant: f.cantidad,
-        costo: f.costo_unit != null ? f.costo_unit : '', valor: f.valor_mov != null ? f.valor_mov : '',
-        precio: f.precio_unit != null ? f.precio_unit : '', margen: f.margen_unit != null ? f.margen_unit : '',
-        scant: f.saldo_cantidad, svalor: f.saldo_valor, ubic: f.ubicacion, user: f.usuario,
-        doc: f.documento, nota: f.nota, alerta: f.alerta
-      });
-      prodActual = clave;
+      ws.addRow([
+        soloFecha(f.fecha), f.producto, f.variacion, f.sku, f.tipo, f.codigo_sunat, f.codigo_nombre,
+        f.cantidad, f.costo_unit != null ? f.costo_unit : '', f.valor_mov != null ? f.valor_mov : '',
+        f.precio_unit != null ? f.precio_unit : '', f.margen_unit != null ? f.margen_unit : '',
+        f.saldo_cantidad, f.saldo_valor, f.ubicacion, f.usuario, f.documento, f.nota, f.alerta
+      ]);
     });
-    const h = ws.getRow(1);
-    h.font = { bold: true, color: { argb: 'FFFFFFFF' } };
-    h.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000726' } };
-    ws.views = [{ state: 'frozen', ySplit: 1 }];
-    ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: 19 } };
+    ws.views = [{ state: 'frozen', ySplit: headerRowNum }];
+    ws.autoFilter = { from: { row: headerRowNum, column: 1 }, to: { row: headerRowNum, column: 19 } };
     [9, 10, 11, 12, 14].forEach(c => ws.getColumn(c).numFmt = '#,##0.00');
 
     // Totales por producto al final
@@ -949,9 +976,9 @@ app.get('/admin/kardex-excel', authAdmin, requiereModulo('reportes'), async (req
       r.getCell(10).numFmt = '#,##0.00';
     });
 
-    const fecha = new Date().toISOString().slice(0, 10);
+    const nombre = nombreTrazable('kardex');
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="kardex_valorizado_${fecha}.xlsx"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${nombre}.xlsx"`);
     await wb.xlsx.write(res);
     res.end();
   } catch (e) { res.status(500).json({ error: 'Error al generar el kardex: ' + e.message }); }
@@ -1065,32 +1092,43 @@ app.get('/admin/reporte-pagos-excel', authAdmin, requiereModulo('reportes'), asy
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('Pagos');
     const fechaLima = (d) => d ? new Date(d).toLocaleString('es-PE', { timeZone: 'America/Lima' }) : '';
-    ws.columns = [
-      { header: 'Fecha', key: 'fecha', width: 18 },
-      { header: 'Método', key: 'metodo', width: 18 },
-      { header: 'Cuenta destino', key: 'cuenta', width: 28 },
-      { header: 'Empresa dueña de la cuenta', key: 'empc', width: 28 },
-      { header: 'Venta', key: 'venta', width: 15 },
-      { header: 'Empresa que gestiona', key: 'empf', width: 26 },
-      { header: 'Empresa(s) del producto', key: 'empp', width: 28 },
-      { header: 'Comprobante', key: 'comp', width: 28 },
-      { header: 'Nota del pago', key: 'notap', width: 34 },
-      { header: 'Observación de venta', key: 'obsv', width: 34 },
-      { header: 'Cuadre', key: 'cuadre', width: 12 },
-      { header: 'Monto', key: 'monto', width: 13 }
+
+    // Empresa(s) que gestiona(n): si filtró por una, esa; si no, las presentes en el resultado
+    let empresaGestionaTxt;
+    if (req.query.empresa) {
+      empresaGestionaTxt = EMPRESAS_BI[req.query.empresa] || `Empresa ${req.query.empresa}`;
+    } else {
+      const setEmp = [...new Set(lista.map(x => x.empresa_gestiona))];
+      empresaGestionaTxt = setEmp.length ? setEmp.join(', ') : 'Todas';
+    }
+
+    const colDefs = [
+      { header: 'Fecha', width: 18 }, { header: 'Método', width: 18 }, { header: 'Cuenta destino', width: 28 },
+      { header: 'Empresa dueña de la cuenta', width: 28 }, { header: 'Venta', width: 15 },
+      { header: 'Empresa que gestiona', width: 26 }, { header: 'Empresa(s) del producto', width: 28 },
+      { header: 'Comprobante', width: 28 }, { header: 'Nota del pago', width: 34 },
+      { header: 'Observación de venta', width: 34 }, { header: 'Cuadre', width: 12 }, { header: 'Monto', width: 13 }
     ];
-    lista.forEach(x => ws.addRow({
-      fecha: fechaLima(x.paid_at), metodo: x.metodo, cuenta: x.cuenta, empc: x.empresa_cuenta,
-      venta: x.venta, empf: x.empresa_gestiona, empp: x.empresa_producto,
-      comp: x.comprobante, notap: x.nota_pago, obsv: x.obs_venta,
-      cuadre: x.cuadre, monto: x.monto
-    }));
-    // Header estilizado
-    const h = ws.getRow(1);
-    h.font = { bold: true, color: { argb: 'FFFFFFFF' } };
-    h.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000726' } };
-    ws.views = [{ state: 'frozen', ySplit: 1 }];
-    ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: 12 } };
+
+    // Cabecera informativa
+    const filasCab = cabeceraExcel(ws, 'Reporte de pagos', [
+      ['Empresa que gestiona', empresaGestionaTxt],
+      ['Desde', req.query.desde], ['Hasta', req.query.hasta],
+      ['Cuenta', req.query.cuenta ? 'filtrada' : ''], ['Método', req.query.metodo ? 'filtrado' : ''],
+      ['Pagos', lista.length]
+    ], 12);
+    colDefs.forEach((c, i) => ws.getColumn(i + 1).width = c.width);
+    const headerRowNum = filasCab + 1;
+    const hr = ws.addRow(colDefs.map(c => c.header));
+    hr.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    hr.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000726' } };
+
+    lista.forEach(x => ws.addRow([
+      fechaLima(x.paid_at), x.metodo, x.cuenta, x.empresa_cuenta, x.venta, x.empresa_gestiona,
+      x.empresa_producto, x.comprobante, x.nota_pago, x.obs_venta, x.cuadre, x.monto
+    ]));
+    ws.views = [{ state: 'frozen', ySplit: headerRowNum }];
+    ws.autoFilter = { from: { row: headerRowNum, column: 1 }, to: { row: headerRowNum, column: 12 } };
     ws.getColumn(12).numFmt = '#,##0.00';
 
     // Totalizadores
@@ -1115,9 +1153,9 @@ app.get('/admin/reporte-pagos-excel', authAdmin, requiereModulo('reportes'), asy
     const g = ws.addRow(['TOTAL GENERAL']); g.font = { bold: true };
     g.getCell(12).value = lista.reduce((s, x) => s + x.monto, 0); g.getCell(12).numFmt = '#,##0.00';
 
-    const fecha = new Date().toISOString().slice(0, 10);
+    const nombre = nombreTrazable('pagos');
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="pagos_${fecha}.xlsx"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${nombre}.xlsx"`);
     await wb.xlsx.write(res);
     res.end();
   } catch (e) { res.status(500).json({ error: 'Error al generar el reporte: ' + e.message }); }

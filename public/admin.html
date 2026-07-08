@@ -605,7 +605,7 @@ function cargarDatosTab(id){
     dbInitFechas('tab-'+id);
     if(!dbCargadas[id])dbCargarModulo(id);
   }
-  else if(id==='reportes'){if(!rpFiltrosCargados)cargarFiltrosRP();cargarProductosKX();}
+  else if(id==='reportes'){if(!rpFiltrosCargados)cargarFiltrosRP();cargarProductosKX();if(!repRestaurado){restaurarPagos();restaurarKardex();repRestaurado=true;}}
   else if(id==='pagos'){cargarMetodosPago();}
   else if(id==='accesos'){cargarAccesos();}
 }
@@ -824,6 +824,7 @@ async function descargarAuditoria(){
 
 // ══════════ REPORTE 3.2 — LISTA DE PAGOS ══════════
 let rpFiltrosCargados=false;
+let repRestaurado=false;
 // Rellena desde/hasta con el primer y último día del mes elegido
 function mesADesdeHasta(valorMes){
   if(!valorMes)return null;
@@ -867,6 +868,35 @@ function limpiarFiltrosRP(){
   document.getElementById('rp-result').textContent='';
   document.getElementById('rp-tabla-card').style.display='none';
 }
+function pintarPagos(d, horaTexto){
+  document.getElementById('rp-tabla-card').style.display='block';
+  document.getElementById('rp-resumen').textContent=`${d.total} pagos · Total: S/ ${d.suma.toLocaleString('es-PE',{minimumFractionDigits:2})} · Última corrida: ${horaTexto}`;
+  const cont=document.getElementById('rp-tabla');
+  if(!d.pagos.length){cont.innerHTML='<div class="muted">No hay pagos con esos filtros.</div>';return;}
+  cont.innerHTML='<table class="tabla responsive"><thead><tr><th>Fecha</th><th>Método</th><th>Cuenta</th><th>Empresa cuenta</th><th>Venta</th><th>Gestiona</th><th>Empresa producto</th><th>Comprobante</th><th>Nota pago</th><th>Obs. venta</th><th>Cuadre</th><th>Monto</th></tr></thead><tbody>'+
+    d.pagos.map(x=>`<tr>
+      <td data-label="Fecha">${new Date(x.paid_at).toLocaleString('es-PE')}</td>
+      <td data-label="Método">${esc(x.metodo)}</td>
+      <td data-label="Cuenta">${esc(x.cuenta)}</td>
+      <td data-label="Empresa cuenta">${esc(x.empresa_cuenta)}</td>
+      <td data-label="Venta">${esc(x.venta)}</td>
+      <td data-label="Gestiona">${esc(x.empresa_gestiona)}</td>
+      <td data-label="Empresa producto">${esc(x.empresa_producto)}</td>
+      <td data-label="Comprobante">${esc(x.comprobante)}</td>
+      <td data-label="Nota pago">${esc(x.nota_pago)}</td>
+      <td data-label="Obs. venta">${esc(x.obs_venta)}</td>
+      <td data-label="Cuadre">${x.cuadre==='Cuadrado'?'<span class="badge-g">Cuadrado</span>':'<span class="badge-y">Pendiente</span>'}</td>
+      <td data-label="Monto">S/ ${x.monto.toLocaleString('es-PE',{minimumFractionDigits:2})}</td>
+    </tr>`).join('')+'</tbody></table>';
+}
+function restaurarPagos(){
+  try{
+    const raw=localStorage.getItem('kuranko_ultima_pagos');
+    if(!raw)return;
+    const guardado=JSON.parse(raw);
+    pintarPagos(guardado.d, guardado.hora+' (guardada)');
+  }catch(e){/* si falla, no pasa nada */}
+}
 async function verPagos(){
   const p=rpParams(); if(!p)return;
   const res=document.getElementById('rp-result');
@@ -874,25 +904,10 @@ async function verPagos(){
   try{
     const d=await apiCall('/admin/reporte-pagos?'+p.toString(),'GET');
     res.textContent='';
-    document.getElementById('rp-tabla-card').style.display='block';
-    document.getElementById('rp-resumen').textContent=`${d.total} pagos · Total: S/ ${d.suma.toLocaleString('es-PE',{minimumFractionDigits:2})} · Última corrida: ${new Date().toLocaleTimeString('es-PE')}`;
-    const cont=document.getElementById('rp-tabla');
-    if(!d.pagos.length){cont.innerHTML='<div class="muted">No hay pagos con esos filtros.</div>';return;}
-    cont.innerHTML='<table class="tabla responsive"><thead><tr><th>Fecha</th><th>Método</th><th>Cuenta</th><th>Empresa cuenta</th><th>Venta</th><th>Gestiona</th><th>Empresa producto</th><th>Comprobante</th><th>Nota pago</th><th>Obs. venta</th><th>Cuadre</th><th>Monto</th></tr></thead><tbody>'+
-      d.pagos.map(x=>`<tr>
-        <td data-label="Fecha">${new Date(x.paid_at).toLocaleString('es-PE')}</td>
-        <td data-label="Método">${esc(x.metodo)}</td>
-        <td data-label="Cuenta">${esc(x.cuenta)}</td>
-        <td data-label="Empresa cuenta">${esc(x.empresa_cuenta)}</td>
-        <td data-label="Venta">${esc(x.venta)}</td>
-        <td data-label="Gestiona">${esc(x.empresa_gestiona)}</td>
-        <td data-label="Empresa producto">${esc(x.empresa_producto)}</td>
-        <td data-label="Comprobante">${esc(x.comprobante)}</td>
-        <td data-label="Nota pago">${esc(x.nota_pago)}</td>
-        <td data-label="Obs. venta">${esc(x.obs_venta)}</td>
-        <td data-label="Cuadre">${x.cuadre==='Cuadrado'?'<span class="badge-g">Cuadrado</span>':'<span class="badge-y">Pendiente</span>'}</td>
-        <td data-label="Monto">S/ ${x.monto.toLocaleString('es-PE',{minimumFractionDigits:2})}</td>
-      </tr>`).join('')+'</tbody></table>';
+    const hora=new Date().toLocaleString('es-PE');
+    pintarPagos(d, hora);
+    // Guardar como última corrida (reemplaza la anterior, no acumula)
+    try{ localStorage.setItem('kuranko_ultima_pagos', JSON.stringify({d,hora})); }catch(e){/* cuota llena, ignorar */}
   }catch(e){res.textContent='';showToast(e.message,true);}
 }
 async function descargarPagos(){
@@ -955,6 +970,42 @@ function limpiarFiltrosKX(){
   document.getElementById('kx-result').textContent='';
   document.getElementById('kx-tabla-card').style.display='none';
 }
+function pintarKardex(d, horaTexto){
+  document.getElementById('kx-tabla-card').style.display='block';
+  document.getElementById('kx-resumen').textContent=`${d.total} movimientos · Última corrida: ${horaTexto}`;
+  const cont=document.getElementById('kx-tabla');
+  if(!d.filas.length){cont.innerHTML='<div class="muted">No hay movimientos con esos filtros.</div>';return;}
+  cont.innerHTML='<table class="tabla responsive"><thead><tr><th>Fecha</th><th>Producto</th><th>SKU</th><th>Tipo</th><th>Cód</th><th>Operación</th><th>Cant.</th><th>Costo u.</th><th>Valor</th><th>Precio v.</th><th>Margen</th><th>Saldo cant.</th><th>Saldo valor</th><th>Ubic.</th><th>Doc.</th><th>Nota</th><th>Alerta</th></tr></thead><tbody>'+
+    d.filas.map(f=>{
+      const alertaBadge=f.alerta?(f.alerta.includes('normal')?`<span class="badge-g">${esc(f.alerta)}</span>`:f.alerta==='A pedido'?`<span class="badge-y">A pedido</span>`:`<span class="badge-r">${esc(f.alerta)}</span>`):'';
+      return `<tr>
+      <td data-label="Fecha">${f.fecha?new Date(f.fecha).toLocaleDateString('es-PE'):''}</td>
+      <td data-label="Producto">${esc(f.producto)}${f.variacion&&f.variacion!==f.producto?' — '+esc(f.variacion):''}</td>
+      <td data-label="SKU">${esc(f.sku)}</td>
+      <td data-label="Tipo">${esc(f.tipo)}</td>
+      <td data-label="Cód">${esc(f.codigo_sunat)}</td>
+      <td data-label="Operación">${esc(f.codigo_nombre)}</td>
+      <td data-label="Cant." style="text-align:right">${f.cantidad}</td>
+      <td data-label="Costo u." style="text-align:right">${kxFmt(f.costo_unit)}</td>
+      <td data-label="Valor" style="text-align:right">${kxFmt(f.valor_mov)}</td>
+      <td data-label="Precio v." style="text-align:right">${kxFmt(f.precio_unit)}</td>
+      <td data-label="Margen" style="text-align:right">${kxFmt(f.margen_unit)}</td>
+      <td data-label="Saldo cant." style="text-align:right">${f.saldo_cantidad}</td>
+      <td data-label="Saldo valor" style="text-align:right">${kxFmt(f.saldo_valor)}</td>
+      <td data-label="Ubic.">${esc(f.ubicacion)}</td>
+      <td data-label="Doc.">${esc(f.documento)}</td>
+      <td data-label="Nota">${esc(f.nota)}</td>
+      <td data-label="Alerta">${alertaBadge}</td>
+    </tr>`;}).join('')+'</tbody></table>';
+}
+function restaurarKardex(){
+  try{
+    const raw=localStorage.getItem('kuranko_ultima_kardex');
+    if(!raw)return;
+    const guardado=JSON.parse(raw);
+    pintarKardex(guardado.d, guardado.hora+' (guardada)');
+  }catch(e){/* si falla, no pasa nada */}
+}
 async function verKardex(){
   const p=kxParams(); if(!p)return;
   const res=document.getElementById('kx-result');
@@ -962,32 +1013,9 @@ async function verKardex(){
   try{
     const d=await apiCall('/admin/kardex?'+p.toString(),'GET');
     res.textContent='';
-    document.getElementById('kx-tabla-card').style.display='block';
-    document.getElementById('kx-resumen').textContent=`${d.total} movimientos · Última corrida: ${new Date().toLocaleTimeString('es-PE')}`;
-    const cont=document.getElementById('kx-tabla');
-    if(!d.filas.length){cont.innerHTML='<div class="muted">No hay movimientos con esos filtros.</div>';return;}
-    cont.innerHTML='<table class="tabla responsive"><thead><tr><th>Fecha</th><th>Producto</th><th>SKU</th><th>Tipo</th><th>Cód</th><th>Operación</th><th>Cant.</th><th>Costo u.</th><th>Valor</th><th>Precio v.</th><th>Margen</th><th>Saldo cant.</th><th>Saldo valor</th><th>Ubic.</th><th>Doc.</th><th>Nota</th><th>Alerta</th></tr></thead><tbody>'+
-      d.filas.map(f=>{
-        const alertaBadge=f.alerta?(f.alerta.includes('normal')?`<span class="badge-g">${esc(f.alerta)}</span>`:f.alerta==='A pedido'?`<span class="badge-y">A pedido</span>`:`<span class="badge-r">${esc(f.alerta)}</span>`):'';
-        return `<tr>
-        <td data-label="Fecha">${f.fecha?new Date(f.fecha).toLocaleDateString('es-PE'):''}</td>
-        <td data-label="Producto">${esc(f.producto)}${f.variacion&&f.variacion!==f.producto?' — '+esc(f.variacion):''}</td>
-        <td data-label="SKU">${esc(f.sku)}</td>
-        <td data-label="Tipo">${esc(f.tipo)}</td>
-        <td data-label="Cód">${esc(f.codigo_sunat)}</td>
-        <td data-label="Operación">${esc(f.codigo_nombre)}</td>
-        <td data-label="Cant." style="text-align:right">${f.cantidad}</td>
-        <td data-label="Costo u." style="text-align:right">${kxFmt(f.costo_unit)}</td>
-        <td data-label="Valor" style="text-align:right">${kxFmt(f.valor_mov)}</td>
-        <td data-label="Precio v." style="text-align:right">${kxFmt(f.precio_unit)}</td>
-        <td data-label="Margen" style="text-align:right">${kxFmt(f.margen_unit)}</td>
-        <td data-label="Saldo cant." style="text-align:right">${f.saldo_cantidad}</td>
-        <td data-label="Saldo valor" style="text-align:right">${kxFmt(f.saldo_valor)}</td>
-        <td data-label="Ubic.">${esc(f.ubicacion)}</td>
-        <td data-label="Doc.">${esc(f.documento)}</td>
-        <td data-label="Nota">${esc(f.nota)}</td>
-        <td data-label="Alerta">${alertaBadge}</td>
-      </tr>`;}).join('')+'</tbody></table>';
+    const hora=new Date().toLocaleString('es-PE');
+    pintarKardex(d, hora);
+    try{ localStorage.setItem('kuranko_ultima_kardex', JSON.stringify({d,hora})); }catch(e){/* cuota llena */}
   }catch(e){res.textContent='';showToast(e.message,true);}
 }
 async function descargarKardex(){

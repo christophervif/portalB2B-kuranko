@@ -703,7 +703,7 @@ async function descargarReporteSync(){
     const url=URL.createObjectURL(blob);
     const a=document.createElement('a');
     a.href=url;
-    a.download='reporte_sync_'+new Date().toISOString().slice(0,10)+'.xlsx';
+    a.download=nombreArchivo('reporte-sync','xlsx');
     document.body.appendChild(a);a.click();a.remove();
     URL.revokeObjectURL(url);
     res.textContent='✓ Reporte descargado.';
@@ -816,7 +816,7 @@ async function descargarAuditoria(){
     if(!r.ok)throw new Error('No se pudo generar el Excel');
     const blob=await r.blob();
     const url=URL.createObjectURL(blob);
-    const a=document.createElement('a');a.href=url;a.download='auditoria_catalogo.xlsx';a.click();
+    const a=document.createElement('a');a.href=url;a.download=nombreArchivo('auditoria','xlsx');a.click();
     URL.revokeObjectURL(url);
     res.textContent='✓ Excel descargado.';
   }catch(e){res.textContent='';showToast(e.message,true);}
@@ -919,7 +919,7 @@ async function descargarPagos(){
     if(!r.ok)throw new Error('No se pudo generar el Excel');
     const blob=await r.blob();
     const url=URL.createObjectURL(blob);
-    const a=document.createElement('a');a.href=url;a.download='pagos.xlsx';a.click();
+    const a=document.createElement('a');a.href=url;a.download=nombreArchivo('pagos','xlsx',mesTexto(document.getElementById('rp-mes').value));a.click();
     URL.revokeObjectURL(url);
     res.textContent='✓ Excel descargado.';
   }catch(e){res.textContent='';showToast(e.message,true);}
@@ -1027,17 +1027,28 @@ async function descargarKardex(){
     if(!r.ok)throw new Error('No se pudo generar el Excel');
     const blob=await r.blob();
     const url=URL.createObjectURL(blob);
-    const a=document.createElement('a');a.href=url;a.download='kardex_valorizado.xlsx';a.click();
+    const a=document.createElement('a');a.href=url;a.download=nombreArchivo('kardex','xlsx',mesTexto(document.getElementById('kx-mes').value));a.click();
     URL.revokeObjectURL(url);
     res.textContent='✓ Excel descargado.';
   }catch(e){res.textContent='';showToast(e.message,true);}
 }
 
 // ══════════ Exportación a PDF (jsPDF, apaisado, membrete Kuranko) ══════════
-function nombrePDF(base){
-  const d=new Date();const p=n=>String(n).padStart(2,'0');
-  return `${base}-${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.pdf`;
+const MESES_ES=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+// Convierte el valor de un <input type="month"> (AAAA-MM) a texto tipo 'mayo2026'
+function mesTexto(valorMes){
+  if(!valorMes)return '';
+  const [a,m]=valorMes.split('-').map(Number);
+  if(!a||!m)return '';
+  return MESES_ES[m-1]+a;
 }
+function nombreArchivo(base, ext, periodo){
+  const d=new Date();const p=n=>String(n).padStart(2,'0');
+  const stamp=`${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
+  const suf=periodo?('-'+periodo):'';
+  return `${base}-${stamp}${suf}.${ext}`;
+}
+function nombrePDF(base, periodo){ return nombreArchivo(base,'pdf',periodo); }
 function exportarPDF(nombreArchivo, titulo, columnas, filas, filtrosTexto){
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation:'landscape', unit:'pt', format:'a4' });
@@ -1084,7 +1095,7 @@ async function descargarPagosPDF(){
       x.cuadre, x.monto.toLocaleString('es-PE',{minimumFractionDigits:2})
     ]);
     const ft=textoFiltros([['Desde',document.getElementById('rp-desde').value],['Hasta',document.getElementById('rp-hasta').value]]);
-    exportarPDF(nombrePDF('pagos'),'Reporte de pagos',cols,filas,ft+`  ·  ${d.total} pagos · Total S/ ${d.suma.toLocaleString('es-PE',{minimumFractionDigits:2})}`);
+    exportarPDF(nombrePDF('pagos',mesTexto(document.getElementById('rp-mes').value)),'Reporte de pagos',cols,filas,ft+`  ·  ${d.total} pagos · Total S/ ${d.suma.toLocaleString('es-PE',{minimumFractionDigits:2})}`);
     res.textContent='✓ PDF descargado.';
   }catch(e){res.textContent='';showToast(e.message,true);}
 }
@@ -1106,7 +1117,7 @@ async function descargarKardexPDF(){
       f.saldo_cantidad, fmt(f.saldo_valor), f.ubicacion, f.documento, f.nota, f.alerta
     ]);
     const ft=textoFiltros([['Desde',document.getElementById('kx-desde').value],['Hasta',document.getElementById('kx-hasta').value],['Producto',document.getElementById('kx-producto').value],['SKU',document.getElementById('kx-sku').value]]);
-    exportarPDF(nombrePDF('kardex'),'Kardex Valorizado',cols,filas,ft+`  ·  ${d.total} movimientos`);
+    exportarPDF(nombrePDF('kardex',mesTexto(document.getElementById('kx-mes').value)),'Kardex Valorizado',cols,filas,ft+`  ·  ${d.total} movimientos`);
     res.textContent='✓ PDF descargado.';
   }catch(e){res.textContent='';showToast(e.message,true);}
 }

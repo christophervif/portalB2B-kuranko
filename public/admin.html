@@ -301,6 +301,7 @@ tr:hover td{background:var(--hover)}
     <div id="tab-resumen" class="panel">
       <div class="card">
         <div class="filtros-fila" style="align-items:center">
+          <label style="font-size:13px">Mes: <input type="month" class="db-mes" onchange="dbAplicarMes(this)"></label>
           <label style="font-size:13px">Desde: <input type="date" class="db-desde"></label>
           <label style="font-size:13px">Hasta: <input type="date" class="db-hasta"></label>
           <button class="btn" onclick="dbCargarActual()">Actualizar</button>
@@ -323,6 +324,7 @@ tr:hover td{background:var(--hover)}
     <div id="tab-rentabilidad" class="panel">
       <div class="card">
         <div class="filtros-fila" style="align-items:center">
+          <label style="font-size:13px">Mes: <input type="month" class="db-mes" onchange="dbAplicarMes(this)"></label>
           <label style="font-size:13px">Desde: <input type="date" class="db-desde"></label>
           <label style="font-size:13px">Hasta: <input type="date" class="db-hasta"></label>
           <button class="btn" onclick="dbCargarActual()">Actualizar</button>
@@ -339,6 +341,7 @@ tr:hover td{background:var(--hover)}
     <div id="tab-inventario" class="panel">
       <div class="card">
         <div class="filtros-fila" style="align-items:center">
+          <label style="font-size:13px">Mes: <input type="month" class="db-mes" onchange="dbAplicarMes(this)"></label>
           <label style="font-size:13px">Desde: <input type="date" class="db-desde"></label>
           <label style="font-size:13px">Hasta: <input type="date" class="db-hasta"></label>
           <button class="btn" onclick="dbCargarActual()">Actualizar</button>
@@ -366,6 +369,7 @@ tr:hover td{background:var(--hover)}
     <div id="tab-clientes_bi" class="panel">
       <div class="card">
         <div class="filtros-fila" style="align-items:center">
+          <label style="font-size:13px">Mes: <input type="month" class="db-mes" onchange="dbAplicarMes(this)"></label>
           <label style="font-size:13px">Desde: <input type="date" class="db-desde"></label>
           <label style="font-size:13px">Hasta: <input type="date" class="db-hasta"></label>
           <button class="btn" onclick="dbCargarActual()">Actualizar</button>
@@ -384,6 +388,7 @@ tr:hover td{background:var(--hover)}
     <div id="tab-caja_bi" class="panel">
       <div class="card">
         <div class="filtros-fila" style="align-items:center">
+          <label style="font-size:13px">Mes: <input type="month" class="db-mes" onchange="dbAplicarMes(this)"></label>
           <label style="font-size:13px">Desde: <input type="date" class="db-desde"></label>
           <label style="font-size:13px">Hasta: <input type="date" class="db-hasta"></label>
           <button class="btn" onclick="dbCargarActual()">Actualizar</button>
@@ -416,6 +421,7 @@ tr:hover td{background:var(--hover)}
         <h3>Reporte de pagos</h3>
         <div class="desc">Lista de pagos en el tiempo. Cada fila muestra el método, la cuenta destino y su empresa dueña, la venta, la empresa que gestiona la venta, la(s) empresa(s) dueña(s) del producto (según el lote), el comprobante, las notas y el estado de cuadre de caja. Filtrable por empresa, cuenta, método y fechas. <b>Nota:</b> la empresa emisora de la factura no se registra en el sistema, por eso no aparece como tal.</div>
         <div class="filtros-fila">
+          <label style="flex:1;min-width:140px">Mes rápido<input type="month" id="rp-mes" onchange="rpAplicarMes()"></label>
           <label style="flex:1;min-width:140px">Desde<input type="date" id="rp-desde"></label>
           <label style="flex:1;min-width:140px">Hasta<input type="date" id="rp-hasta"></label>
         </div>
@@ -446,13 +452,15 @@ tr:hover td{background:var(--hover)}
         <h3>Kardex Valorizado</h3>
         <div class="desc">Movimientos de stock por producto (entradas, ventas, transferencias, ajustes), valorizados y en línea de tiempo, con su código SUNAT, saldo acumulado y totales por producto. Deja el producto vacío para ver todos. El costo sigue la regla FIFO real: las entradas al costo de su propio lote, y las salidas/ajustes al costo del lote más antiguo con stock (de donde el sistema descuenta).</div>
         <div class="filtros-fila">
+          <label style="flex:1;min-width:140px">Mes rápido<input type="month" id="kx-mes" onchange="kxAplicarMes()"></label>
           <label style="flex:1;min-width:140px">Desde<input type="date" id="kx-desde"></label>
           <label style="flex:1;min-width:140px">Hasta<input type="date" id="kx-hasta"></label>
         </div>
         <div class="filtros-fila">
-          <input id="kx-producto" type="text" placeholder="Producto (nombre)...">
-          <input id="kx-sku" type="text" placeholder="SKU...">
-        </div>
+          <input id="kx-producto" type="text" list="kx-lista-productos" placeholder="Producto (escribe o elige)..." autocomplete="off">
+          <input id="kx-sku" type="text" list="kx-lista-skus" placeholder="SKU (escribe o elige)..." autocomplete="off">
+          <datalist id="kx-lista-productos"></datalist>
+          <datalist id="kx-lista-skus"></datalist>        </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
           <button class="btn" onclick="verKardex()">Ver en pantalla</button>
           <button class="btn" onclick="descargarKardex()">Descargar en Excel</button>
@@ -597,7 +605,7 @@ function cargarDatosTab(id){
     dbInitFechas('tab-'+id);
     if(!dbCargadas[id])dbCargarModulo(id);
   }
-  else if(id==='reportes'){if(!rpFiltrosCargados)cargarFiltrosRP();}
+  else if(id==='reportes'){if(!rpFiltrosCargados)cargarFiltrosRP();cargarProductosKX();}
   else if(id==='pagos'){cargarMetodosPago();}
   else if(id==='accesos'){cargarAccesos();}
 }
@@ -816,6 +824,19 @@ async function descargarAuditoria(){
 
 // ══════════ REPORTE 3.2 — LISTA DE PAGOS ══════════
 let rpFiltrosCargados=false;
+// Rellena desde/hasta con el primer y último día del mes elegido
+function mesADesdeHasta(valorMes){
+  if(!valorMes)return null;
+  const [a,m]=valorMes.split('-').map(Number);
+  const desde=`${a}-${String(m).padStart(2,'0')}-01`;
+  const ultimo=new Date(a,m,0).getDate();
+  const hasta=`${a}-${String(m).padStart(2,'0')}-${String(ultimo).padStart(2,'0')}`;
+  return {desde,hasta};
+}
+function rpAplicarMes(){
+  const r=mesADesdeHasta(document.getElementById('rp-mes').value);
+  if(r){document.getElementById('rp-desde').value=r.desde;document.getElementById('rp-hasta').value=r.hasta;}
+}
 async function cargarFiltrosRP(){
   try{
     const d=await apiCall('/admin/reporte-pagos/filtros','GET');
@@ -841,7 +862,7 @@ function rpParams(){
   return p;
 }
 function limpiarFiltrosRP(){
-  ['rp-desde','rp-hasta'].forEach(id=>document.getElementById(id).value='');
+  ['rp-mes','rp-desde','rp-hasta'].forEach(id=>document.getElementById(id).value='');
   ['rp-empresa','rp-empresa-prod','rp-cuenta','rp-metodo'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('rp-result').textContent='';
   document.getElementById('rp-tabla-card').style.display='none';
@@ -854,7 +875,7 @@ async function verPagos(){
     const d=await apiCall('/admin/reporte-pagos?'+p.toString(),'GET');
     res.textContent='';
     document.getElementById('rp-tabla-card').style.display='block';
-    document.getElementById('rp-resumen').textContent=`${d.total} pagos · Total: S/ ${d.suma.toLocaleString('es-PE',{minimumFractionDigits:2})}`;
+    document.getElementById('rp-resumen').textContent=`${d.total} pagos · Total: S/ ${d.suma.toLocaleString('es-PE',{minimumFractionDigits:2})} · Última corrida: ${new Date().toLocaleTimeString('es-PE')}`;
     const cont=document.getElementById('rp-tabla');
     if(!d.pagos.length){cont.innerHTML='<div class="muted">No hay pagos con esos filtros.</div>';return;}
     cont.innerHTML='<table class="tabla responsive"><thead><tr><th>Fecha</th><th>Método</th><th>Cuenta</th><th>Empresa cuenta</th><th>Venta</th><th>Gestiona</th><th>Empresa producto</th><th>Comprobante</th><th>Nota pago</th><th>Obs. venta</th><th>Cuadre</th><th>Monto</th></tr></thead><tbody>'+
@@ -899,6 +920,27 @@ function repSubtab(cual){
 
 // ══════════ REPORTE 3.1 — KARDEX VALORIZADO ══════════
 const kxFmt=n=>n==null?'—':'S/ '+Number(n).toLocaleString('es-PE',{minimumFractionDigits:2});
+function kxAplicarMes(){
+  const r=mesADesdeHasta(document.getElementById('kx-mes').value);
+  if(r){document.getElementById('kx-desde').value=r.desde;document.getElementById('kx-hasta').value=r.hasta;}
+}
+let kxProductosCargados=false;
+async function cargarProductosKX(){
+  if(kxProductosCargados)return;
+  try{
+    const d=await apiCall('/admin/kardex/productos','GET');
+    const dlP=document.getElementById('kx-lista-productos');
+    const dlS=document.getElementById('kx-lista-skus');
+    const vistosP=new Set();
+    dlP.innerHTML=d.productos.map(x=>{
+      if(vistosP.has(x.producto))return '';
+      vistosP.add(x.producto);
+      return `<option value="${esc(x.producto)}">`;
+    }).join('');
+    dlS.innerHTML=d.productos.map(x=>`<option value="${esc(x.sku)}">${esc(x.producto)}</option>`).join('');
+    kxProductosCargados=true;
+  }catch(e){/* si falla, el usuario aún puede escribir manualmente */}
+}
 function kxParams(){
   const p=new URLSearchParams();
   const desde=document.getElementById('kx-desde').value, hasta=document.getElementById('kx-hasta').value;
@@ -909,7 +951,7 @@ function kxParams(){
   return p;
 }
 function limpiarFiltrosKX(){
-  ['kx-desde','kx-hasta','kx-producto','kx-sku'].forEach(id=>document.getElementById(id).value='');
+  ['kx-mes','kx-desde','kx-hasta','kx-producto','kx-sku'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('kx-result').textContent='';
   document.getElementById('kx-tabla-card').style.display='none';
 }
@@ -921,7 +963,7 @@ async function verKardex(){
     const d=await apiCall('/admin/kardex?'+p.toString(),'GET');
     res.textContent='';
     document.getElementById('kx-tabla-card').style.display='block';
-    document.getElementById('kx-resumen').textContent=`${d.total} movimientos`;
+    document.getElementById('kx-resumen').textContent=`${d.total} movimientos · Última corrida: ${new Date().toLocaleTimeString('es-PE')}`;
     const cont=document.getElementById('kx-tabla');
     if(!d.filas.length){cont.innerHTML='<div class="muted">No hay movimientos con esos filtros.</div>';return;}
     cont.innerHTML='<table class="tabla responsive"><thead><tr><th>Fecha</th><th>Producto</th><th>SKU</th><th>Tipo</th><th>Cód</th><th>Operación</th><th>Cant.</th><th>Costo u.</th><th>Valor</th><th>Precio v.</th><th>Margen</th><th>Saldo cant.</th><th>Saldo valor</th><th>Ubic.</th><th>Doc.</th><th>Nota</th><th>Alerta</th></tr></thead><tbody>'+
@@ -964,6 +1006,10 @@ async function descargarKardex(){
 }
 
 // ══════════ Exportación a PDF (jsPDF, apaisado, membrete Kuranko) ══════════
+function nombrePDF(base){
+  const d=new Date();const p=n=>String(n).padStart(2,'0');
+  return `${base}-${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.pdf`;
+}
 function exportarPDF(nombreArchivo, titulo, columnas, filas, filtrosTexto){
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation:'landscape', unit:'pt', format:'a4' });
@@ -1010,7 +1056,7 @@ async function descargarPagosPDF(){
       x.cuadre, x.monto.toLocaleString('es-PE',{minimumFractionDigits:2})
     ]);
     const ft=textoFiltros([['Desde',document.getElementById('rp-desde').value],['Hasta',document.getElementById('rp-hasta').value]]);
-    exportarPDF('pagos.pdf','Reporte de pagos',cols,filas,ft+`  ·  ${d.total} pagos · Total S/ ${d.suma.toLocaleString('es-PE',{minimumFractionDigits:2})}`);
+    exportarPDF(nombrePDF('pagos'),'Reporte de pagos',cols,filas,ft+`  ·  ${d.total} pagos · Total S/ ${d.suma.toLocaleString('es-PE',{minimumFractionDigits:2})}`);
     res.textContent='✓ PDF descargado.';
   }catch(e){res.textContent='';showToast(e.message,true);}
 }
@@ -1032,7 +1078,7 @@ async function descargarKardexPDF(){
       f.saldo_cantidad, fmt(f.saldo_valor), f.ubicacion, f.documento, f.nota, f.alerta
     ]);
     const ft=textoFiltros([['Desde',document.getElementById('kx-desde').value],['Hasta',document.getElementById('kx-hasta').value],['Producto',document.getElementById('kx-producto').value],['SKU',document.getElementById('kx-sku').value]]);
-    exportarPDF('kardex_valorizado.pdf','Kardex Valorizado',cols,filas,ft+`  ·  ${d.total} movimientos`);
+    exportarPDF(nombrePDF('kardex'),'Kardex Valorizado',cols,filas,ft+`  ·  ${d.total} movimientos`);
     res.textContent='✓ PDF descargado.';
   }catch(e){res.textContent='';showToast(e.message,true);}
 }
@@ -1107,6 +1153,17 @@ async function dbCargarModulo(id){
   }catch(e){showToast('Dashboard: '+e.message,true);}
 }
 // Botón "Actualizar" dentro de un panel: recarga esa pestaña con las fechas nuevas
+function dbAplicarMes(elemento){
+  // Rellena el desde/hasta del panel donde está este selector de mes
+  const panel=elemento.closest('.panel'); if(!panel)return;
+  const valorMes=elemento.value; if(!valorMes)return;
+  const [a,m]=valorMes.split('-').map(Number);
+  const ultimo=new Date(a,m,0).getDate();
+  const desde=`${a}-${String(m).padStart(2,'0')}-01`;
+  const hasta=`${a}-${String(m).padStart(2,'0')}-${String(ultimo).padStart(2,'0')}`;
+  const d=panel.querySelector('.db-desde'), h=panel.querySelector('.db-hasta');
+  if(d)d.value=desde; if(h)h.value=hasta;
+}
 function dbCargarActual(){
   const panel=document.querySelector('.panel.active'); if(!panel)return;
   const id=panel.id.replace('tab-','');

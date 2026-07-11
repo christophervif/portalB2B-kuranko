@@ -107,6 +107,10 @@ tr:hover td{background:var(--hover)}
 .kpi.accent{border-color:var(--accent)}
 .card-note{font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5}
 .two-col{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem}
+.deudas-tbl{width:100%;border-collapse:collapse;font-size:13px}
+.deudas-tbl th{background:var(--surface3);color:var(--white);padding:8px 10px;text-align:left;white-space:nowrap;font-weight:600}
+.deudas-tbl td{padding:8px 10px;border-bottom:1px solid var(--border)}
+.deudas-tbl tr.deu-main:hover td{background:var(--hover)}
 @media(max-width:700px){.two-col{grid-template-columns:1fr}}
 .dtable{width:100%;border-collapse:collapse;font-size:13px}
 .dtable th{text-align:left;padding:7px 8px;color:var(--muted);font-weight:600;font-size:11px;border-bottom:1px solid var(--border);cursor:pointer;user-select:none;white-space:nowrap}
@@ -1376,24 +1380,53 @@ function pintarDeudas(d, horaTexto){
     `${d.total} clientes deben · Total: ${deuFmt(d.suma_total)} (normal ${deuFmt(d.suma_normal)} · a pedido ${deuFmt(d.suma_pedido)}) · ${horaTexto}`;
   const cont=document.getElementById('deu-tabla');
   if(!d.clientes.length){cont.innerHTML='<div class="muted">No hay clientes con deuda para ese filtro.</div>';return;}
-  cont.innerHTML='<table class="tabla responsive"><thead><tr><th><input type="checkbox" id="deu-check-all" onclick="deuToggleAll(this)"></th><th>Cliente</th><th>Email</th><th>WhatsApp</th><th>RUC/Doc</th><th>Deuda normal</th><th>Deuda a pedido</th><th>Deuda total</th><th>Items</th><th>N° ventas</th><th>Venta + antigua</th><th>Último pago</th><th>Comprobantes</th><th>A pedido</th></tr></thead><tbody>'+
-    d.clientes.map((x,i)=>`<tr>
-      <td data-label="Sel">${x.email?`<input type="checkbox" class="deu-check" value="${x.customer_id}">`:''}</td>
-      <td data-label="Cliente">${esc(x.cliente)}</td>
-      <td data-label="Email">${x.email?esc(x.email):'<span class="badge-r">⚠ Sin correo</span>'}</td>
-      <td data-label="WhatsApp">${x.phone?`<button class="btn btn-sm btn-ok" onclick="waCobranza(${i})">📱 WhatsApp</button>`:'<span class="badge-r">Sin teléfono</span>'}</td>
-      <td data-label="RUC/Doc">${esc(x.ruc)}</td>
-      <td data-label="Deuda normal" style="text-align:right">${deuFmt(x.deuda_normal)}</td>
-      <td data-label="Deuda a pedido" style="text-align:right">${x.deuda_pedido>0?deuFmt(x.deuda_pedido):'—'}</td>
-      <td data-label="Deuda total" style="text-align:right;font-weight:600">${deuFmt(x.deuda_total)}</td>
-      <td data-label="Items" style="text-align:right">${x.items}</td>
-      <td data-label="N° ventas" style="text-align:right">${x.num_ventas}</td>
-      <td data-label="Venta + antigua">${x.venta_mas_antigua?new Date(x.venta_mas_antigua).toLocaleDateString('es-PE'):'—'}</td>
-      <td data-label="Último pago">${x.ultimo_pago?new Date(x.ultimo_pago).toLocaleDateString('es-PE'):'—'}</td>
-      <td data-label="Comprobantes">${x.comprobantes_lista&&x.comprobantes_lista.length?x.comprobantes_lista.map(c=>esc(c)).join('<br>'):'—'}</td>
-      <td data-label="A pedido">${x.tiene_pedido?'<span class="badge-y">A pedido</span>':''}</td>
-    </tr>`).join('')+'</tbody></table>';
+  const fFecha=v=>v?new Date(v).toLocaleDateString('es-PE'):'—';
+  let html='<table class="tabla deudas-tbl"><thead><tr>'+
+    '<th style="width:28px"><input type="checkbox" id="deu-check-all" onclick="deuToggleAll(this)"></th>'+
+    '<th style="width:24px"></th><th>Cliente</th><th>RUC/Doc</th><th>Contacto</th>'+
+    '<th style="text-align:right">Deuda total</th><th style="text-align:center">Ventas</th><th style="text-align:center">Acción</th></tr></thead><tbody>';
+  d.clientes.forEach((x,i)=>{
+    const contacto=(x.email?`<span title="${esc(x.email)}">✉</span>`:'<span class="badge-r" style="font-size:10px">sin correo</span>')+
+      (x.phone?` <button class="btn btn-sm btn-ok" style="padding:2px 8px" onclick="event.stopPropagation();waCobranza(${i})">📱</button>`:'');
+    const pedidoTag=x.deuda_pedido>0?` <span class="badge-y" style="font-size:10px">a pedido ${deuFmt(x.deuda_pedido)}</span>`:'';
+    // Fila principal
+    html+=`<tr class="deu-main" onclick="deuToggle(${i})" style="cursor:pointer">
+      <td onclick="event.stopPropagation()">${x.email?`<input type="checkbox" class="deu-check" data-ids="${(x.customer_ids||[x.customer_id]).join(',')}">`:''}</td>
+      <td><span id="deu-arrow-${i}" style="display:inline-block;transition:transform .15s">▶</span></td>
+      <td><b>${esc(x.cliente)}</b>${pedidoTag}</td>
+      <td>${esc(x.ruc)||'—'}</td>
+      <td>${contacto}</td>
+      <td style="text-align:right;font-weight:700">${deuFmt(x.deuda_total)}</td>
+      <td style="text-align:center">${x.num_ventas}</td>
+      <td style="text-align:center">${x.email?`<button class="btn btn-sm" style="padding:2px 8px" onclick="event.stopPropagation();enviarCobranzaUno(${i})">✉ Cobrar</button>`:'—'}</td>
+    </tr>`;
+    // Fila de detalle (oculta)
+    const ventasRows=(x.ventas||[]).map(v=>`<tr>
+      <td style="padding:4px 10px">${esc(v.codigo)}</td>
+      <td style="padding:4px 10px">${fFecha(v.fecha)}</td>
+      <td style="padding:4px 10px">${esc(v.comprobante)}${v.a_pedido?' <span class="badge-y" style="font-size:9px">a pedido</span>':''}</td>
+      <td style="padding:4px 10px;text-align:right">${deuFmt(v.deuda)}</td>
+    </tr>`).join('');
+    html+=`<tr id="deu-det-${i}" style="display:none"><td colspan="8" style="background:var(--surface2);padding:8px 16px">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:4px">Detalle de ventas con saldo · Última venta: ${fFecha(x.venta_mas_antigua)} · Último pago: ${fFecha(x.ultimo_pago)}</div>
+      <table style="width:100%;font-size:12px;border-collapse:collapse">
+        <thead><tr style="color:var(--muted);text-align:left">
+          <th style="padding:4px 10px">Venta</th><th style="padding:4px 10px">Fecha</th><th style="padding:4px 10px">Comprobante</th><th style="padding:4px 10px;text-align:right">Saldo</th>
+        </tr></thead><tbody>${ventasRows}</tbody>
+      </table>
+    </td></tr>`;
+  });
+  html+='</tbody></table>';
+  cont.innerHTML=html;
   window._deudasActuales=d.clientes;
+}
+function deuToggle(i){
+  const det=document.getElementById('deu-det-'+i);
+  const arr=document.getElementById('deu-arrow-'+i);
+  if(!det)return;
+  const abierto=det.style.display!=='none';
+  det.style.display=abierto?'none':'table-row';
+  if(arr)arr.style.transform=abierto?'rotate(0deg)':'rotate(90deg)';
 }
 function restaurarDeudas(){
   try{
@@ -1469,17 +1502,22 @@ function waCobranza(indice){
 async function enviarCobranza(){
   const checks=[...document.querySelectorAll('.deu-check:checked')];
   if(!checks.length){showToast('Selecciona al menos un cliente con correo',true);return;}
-  const ids=checks.map(c=>Number(c.value));
-  // Preview: nombres de los seleccionados
-  const filas=checks.map(c=>{
+  let ids=[];
+  checks.forEach(c=>{ (c.dataset.ids||'').split(',').forEach(x=>{if(x)ids.push(Number(x));}); });
+  const nombres=checks.map(c=>{
     const tr=c.closest('tr');
-    const nombre=tr.children[1].textContent.trim();
-    const email=tr.children[2].textContent.trim();
-    const total=tr.querySelector('[data-label="Deuda total"]').textContent.trim();
-    return `• ${nombre} (${email}) — ${total}`;
+    return '• '+tr.querySelector('td:nth-child(3) b').textContent.trim();
   }).join('\n');
-  const msg=`Se enviará un recordatorio formal de pago pendiente a ${ids.length} cliente(s), con copia a info@kuranko.pe:\n\n${filas}\n\n¿Confirmas el envío?`;
-  if(!confirm(msg))return;
+  if(!confirm(`Se enviará un recordatorio formal de pago pendiente a ${checks.length} cliente(s), con copia a info@kuranko.pe:\n\n${nombres}\n\n¿Confirmas el envío?`))return;
+  await ejecutarEnvio(ids);
+}
+async function enviarCobranzaUno(indice){
+  const x=(window._deudasActuales||[])[indice];
+  if(!x||!x.email){showToast('Este cliente no tiene correo',true);return;}
+  if(!confirm(`Enviar recordatorio de pago a ${x.cliente} (${x.email}), con copia a info@kuranko.pe. ¿Confirmas?`))return;
+  await ejecutarEnvio(x.customer_ids||[x.customer_id]);
+}
+async function ejecutarEnvio(ids){
   const res=document.getElementById('deu-resumen');
   const prev=res.textContent;
   res.textContent='Enviando correos...';

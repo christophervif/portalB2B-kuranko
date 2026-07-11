@@ -2033,6 +2033,37 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
     return lista;
   }
 
+  // DIAGNÓSTICO TEMPORAL — quitar después de resolver el bug de productos
+  app.get('/api/deudas-debug', authAdmin, mClientes, async (req, res) => {
+    try {
+      const codes = (req.query.codes || 'VTA-000028,VTA-000035').split(',');
+      // 1) IDs de esas ventas
+      const [ventas] = await prodPool.query(
+        `SELECT id, code, status FROM sales WHERE code IN (?)`, [codes]);
+      const ids = ventas.map(v => v.id);
+      // 2) Items crudos de esas ventas
+      const [itemsCrudos] = await prodPool.query(
+        `SELECT sale_id, product_variation_id, quantity, unit_price FROM sale_items WHERE sale_id IN (?)`, [ids]);
+      // 3) Lo que trae obtenerDeudas para esos clientes
+      const todas = await obtenerDeudas(req.query);
+      const relevantes = [];
+      todas.forEach(cli => {
+        (cli.ventas || []).forEach(v => {
+          if (codes.includes(v.codigo)) {
+            relevantes.push({ cliente: cli.cliente, codigo: v.codigo, num_productos: (v.productos || []).length, productos: v.productos });
+          }
+        });
+      });
+      res.json({
+        ventas_encontradas: ventas,
+        ids,
+        items_crudos: itemsCrudos,
+        en_obtenerDeudas: relevantes,
+        total_clientes_deuda: todas.length
+      });
+    } catch (e) { res.status(500).json({ error: e.message, stack: e.stack }); }
+  });
+
   app.get('/api/clientes-deudas', authAdmin, mClientes, async (req, res) => {
     try {
       const lista = await obtenerDeudas(req.query);

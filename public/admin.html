@@ -121,6 +121,8 @@ tr:hover td{background:var(--hover)}
 .deudas-tbl tr.deu-venta{cursor:pointer}
 .deudas-tbl tr.deu-venta:hover td{background:var(--surface3)}
 .deu-arrow{display:inline-block;transition:transform .15s;color:var(--muted);font-size:11px}
+.ct-ico{cursor:pointer;font-size:15px;margin:0 3px;opacity:.85;transition:opacity .12s}
+.ct-ico:hover{opacity:1}
 #deu-tabla{overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-sm)}
 .deudas-tbl thead th:first-child{border-top-left-radius:var(--radius)}
 .deudas-tbl thead th:last-child{border-top-right-radius:var(--radius)}
@@ -405,9 +407,9 @@ tr:hover td{background:var(--hover)}
           <div class="filtros-fila" style="align-items:center;gap:8px;flex-wrap:wrap">
             <select id="deu-empresa"><option value="">Todas las empresas</option></select>
             <select id="deu-pedido">
+              <option value="ocultar" selected>Ocultar a pedido</option>
               <option value="todos">Ver todos</option>
               <option value="solo">Solo a pedido</option>
-              <option value="ocultar">Ocultar a pedido</option>
             </select>
             <button class="btn" onclick="cargarDeudas()">Ver deudas</button>
             <button class="btn" onclick="descargarDeudasExcel()">Excel</button>
@@ -1399,8 +1401,18 @@ function pintarDeudas(d, horaTexto){
     '<th style="width:22px"></th><th>Cliente</th><th>RUC/Doc</th><th style="text-align:center">Contacto</th>'+
     '<th style="text-align:right">Deuda total</th><th style="text-align:center">Ventas</th><th style="text-align:center">Cobrar</th></tr></thead><tbody>';
   d.clientes.forEach((x,i)=>{
-    const contacto=(x.email?`<span title="${esc(x.email)}" style="color:var(--accent)">✉</span>`:'<span class="badge-r" style="font-size:9px">sin correo</span>')+
-      (x.phone?` <button class="btn btn-sm btn-ok" style="padding:1px 7px" onclick="event.stopPropagation();waCobranza(${i})" title="Enviar WhatsApp">📱</button>`:'');
+    // Contacto: solo aviso con copiar al clic y tooltip
+    let contacto='';
+    if(x.email)contacto+=`<span class="ct-ico" title="${esc(x.email)} (clic para copiar)" onclick="event.stopPropagation();copiarDato('${esc(x.email)}','Correo')">✉</span>`;
+    if(x.phone)contacto+=`<span class="ct-ico" title="${esc(x.phone)} (clic para copiar)" onclick="event.stopPropagation();copiarDato('${esc(x.phone)}','Teléfono')">📱</span>`;
+    if(!x.email&&!x.phone)contacto='<span class="badge-r" style="font-size:9px">sin contacto</span>';
+    // Cobrar: ambos íconos, activos solo si hay ese medio
+    const btnMail=x.email
+      ?`<button class="btn btn-sm" style="padding:3px 9px" title="Enviar correo" onclick="event.stopPropagation();enviarCobranzaUno(${i})">✉</button>`
+      :`<button class="btn btn-sm" style="padding:3px 9px;opacity:.35;cursor:not-allowed" title="Sin correo" disabled>✉</button>`;
+    const btnWa=x.phone
+      ?`<button class="btn btn-sm btn-ok" style="padding:3px 9px" title="Enviar WhatsApp" onclick="event.stopPropagation();waCobranza(${i})">📱</button>`
+      :`<button class="btn btn-sm" style="padding:3px 9px;opacity:.35;cursor:not-allowed" title="Sin teléfono" disabled>📱</button>`;
     const pedidoTag=x.deuda_pedido>0?` <span class="badge-y" style="font-size:9px">a pedido ${deuFmt(x.deuda_pedido)}</span>`:'';
     html+=`<tr class="deu-main" onclick="deuToggle(${i})">
       <td onclick="event.stopPropagation()">${x.email?`<input type="checkbox" class="deu-check" data-ids="${(x.customer_ids||[x.customer_id]).join(',')}">`:''}</td>
@@ -1410,7 +1422,7 @@ function pintarDeudas(d, horaTexto){
       <td style="text-align:center;white-space:nowrap">${contacto}</td>
       <td style="text-align:right;font-weight:700">${deuFmt(x.deuda_total)}</td>
       <td style="text-align:center">${x.num_ventas}</td>
-      <td style="text-align:center">${x.email?`<button class="btn btn-sm" style="padding:2px 8px" onclick="event.stopPropagation();enviarCobranzaUno(${i})">✉</button>`:'—'}</td>
+      <td style="text-align:center;white-space:nowrap">${btnMail} ${btnWa}</td>
     </tr>`;
     // Detalle nivel 1: ventas (cada una expandible a productos)
     const ventasRows=(x.ventas||[]).map((v,j)=>{
@@ -1495,23 +1507,32 @@ async function descargarDeudasPDF(){
   try{
     const d=await apiCall('/api/clientes-deudas?'+deuParams().toString(),'GET');
     if(!d.clientes.length){showToast('No hay deudas para ese filtro',true);return;}
-    const cols=['Cliente','RUC/Doc','Deuda normal','Deuda a pedido','Deuda total','Items','N° ventas','Venta + antigua','Último pago','Comprobantes','A pedido'];
-    const filas=d.clientes.map(x=>[
-      x.cliente, x.ruc,
-      Number(x.deuda_normal).toLocaleString('es-PE',{minimumFractionDigits:2}),
-      x.deuda_pedido>0?Number(x.deuda_pedido).toLocaleString('es-PE',{minimumFractionDigits:2}):'—',
-      Number(x.deuda_total).toLocaleString('es-PE',{minimumFractionDigits:2}),
-      x.items, x.num_ventas,
-      x.venta_mas_antigua?new Date(x.venta_mas_antigua).toLocaleDateString('es-PE'):'—',
-      x.ultimo_pago?new Date(x.ultimo_pago).toLocaleDateString('es-PE'):'—',
-      x.comprobantes_lista&&x.comprobantes_lista.length?x.comprobantes_lista.join('\n'):'—', x.tiene_pedido?'Sí':''
-    ]);
-    const ft=`Total: S/ ${d.suma_total.toLocaleString('es-PE',{minimumFractionDigits:2})} · ${d.total} clientes`;
-    exportarPDF(nombreArchivo('clientes-deudas','pdf'),'Clientes que deben',cols,filas,ft);
+    const cols=['Cliente','RUC/Doc','Venta','Fecha','Comprobante','Saldo','A pedido'];
+    const filas=[];
+    d.clientes.forEach(x=>{
+      (x.ventas||[]).forEach(v=>{
+        filas.push([
+          x.cliente, x.ruc, v.codigo,
+          v.fecha?new Date(v.fecha).toLocaleDateString('es-PE'):'—',
+          v.comprobante||'—',
+          Number(v.deuda).toLocaleString('es-PE',{minimumFractionDigits:2}),
+          v.a_pedido?'Sí':''
+        ]);
+      });
+    });
+    const ft=`Total: S/ ${d.suma_total.toLocaleString('es-PE',{minimumFractionDigits:2})} · ${d.total} clientes · ${filas.length} ventas`;
+    exportarPDF(nombreArchivo('clientes-deudas','pdf'),'Clientes que deben (detalle por venta)',cols,filas,ft);
   }catch(e){showToast(e.message,true);}
 }
 function deuToggleAll(master){
   document.querySelectorAll('.deu-check').forEach(ch=>ch.checked=master.checked);
+}
+function copiarDato(texto,tipo){
+  navigator.clipboard.writeText(texto).then(()=>{
+    showToast(tipo+' copiado: '+texto);
+  }).catch(()=>{
+    showToast('No se pudo copiar',true);
+  });
 }
 function waCobranza(indice){
   const x=(window._deudasActuales||[])[indice];

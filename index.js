@@ -1940,24 +1940,35 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
       (vouchPorVenta[v.sale_id] = vouchPorVenta[v.sale_id] || []).push(`${t} ${v.serie}-${v.number}`);
     });
 
-    // Agrupar por cliente
+    // Agrupar por cliente. Clave: RUC/documento si existe (une duplicados con
+    // mismo RUC pero nombre distinto); si no hay documento, por customer_id.
     const porCliente = {};
     ventas.forEach(v => {
       const deuda = Number(v.total) - Number(v.pagado);
       const esPedido = !!v.es_a_pedido;
-      if (!porCliente[v.customer_id]) {
-        porCliente[v.customer_id] = {
+      const info = cliMap[v.customer_id] || {};
+      const clave = (info.ruc && info.ruc.trim()) ? 'doc:' + info.ruc.trim() : 'id:' + v.customer_id;
+      if (!porCliente[clave]) {
+        porCliente[clave] = {
           customer_id: v.customer_id,
-          cliente: cliMap[v.customer_id]?.nombre || `Cliente ${v.customer_id}`,
-          ruc: cliMap[v.customer_id]?.ruc || '',
-          email: cliMap[v.customer_id]?.email || '',
-          phone: cliMap[v.customer_id]?.phone || '',
+          cliente: info.nombre || `Cliente ${v.customer_id}`,
+          ruc: info.ruc || '',
+          email: info.email || '',
+          phone: info.phone || '',
           deuda_normal: 0, deuda_pedido: 0, items: 0, num_ventas: 0,
           venta_mas_antigua: null, ultimo_pago: ultPagoMap[v.customer_id] || null,
-          comprobantes: new Set(), tiene_pedido: false, empresas: new Set(), ventas: []
+          comprobantes: new Set(), tiene_pedido: false, empresas: new Set(), ventas: [],
+          customer_ids: new Set()
         };
       }
-      const c = porCliente[v.customer_id];
+      const c = porCliente[clave];
+      c.customer_ids.add(v.customer_id);
+      // Si algún registro del grupo tiene email/teléfono, conservarlo
+      if (!c.email && info.email) c.email = info.email;
+      if (!c.phone && info.phone) c.phone = info.phone;
+      // Último pago: el más reciente entre los customer_ids del grupo
+      const up = ultPagoMap[v.customer_id];
+      if (up && (!c.ultimo_pago || new Date(up) > new Date(c.ultimo_pago))) c.ultimo_pago = up;
       if (esPedido) { c.deuda_pedido += deuda; c.tiene_pedido = true; }
       else c.deuda_normal += deuda;
       c.items += Number(v.items);
@@ -1975,6 +1986,7 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
 
     let lista = Object.values(porCliente).map(c => ({
       customer_id: c.customer_id,
+      customer_ids: [...c.customer_ids],
       cliente: c.cliente, ruc: c.ruc, email: c.email, phone: c.phone,
       deuda_normal: c.deuda_normal, deuda_pedido: c.deuda_pedido,
       deuda_total: c.deuda_normal + c.deuda_pedido,
@@ -2077,7 +2089,8 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
     try {
       // Obtener todas las deudas y filtrar los seleccionados que tengan email
       const todas = await obtenerDeudas({});
-      const seleccionados = todas.filter(x => customer_ids.includes(x.customer_id) && x.email);
+      const seleccionados = todas.filter(x =>
+        x.email && (x.customer_ids || [x.customer_id]).some(id => customer_ids.includes(id)));
       if (!seleccionados.length) {
         return res.status(400).json({ error: 'Ninguno de los seleccionados tiene correo válido.' });
       }

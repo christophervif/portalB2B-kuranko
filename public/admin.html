@@ -9,55 +9,60 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <style>
 :root{
-  --bg:#000726;--surface:#0a1238;--surface2:#060d2e;--surface3:#111b44;
-  --border:#1f2a55;--text:#eef1f8;--text2:#c2cae0;--muted:#7681a6;--muted2:#9aa4c4;
-  --accent:#FFB30D;--accent-text:#000726;--accent-h:#e6a00c;--hover:#152050;--white:#ffffff;
-  --bg-ok:#0f3d24;--fg-ok:#4ade80;--bg-warn:#3d2f08;--fg-warn:#FFB30D;--bg-r:#4a1414;--fg-r:#f87171;
+  --bg:#0a1030;--surface:#111a44;--surface2:#0e1640;--surface3:#18224e;
+  --border:#212b54;--text:#eef1f8;--text2:#c6cee2;--muted:#8a93b4;--muted2:#a2abca;
+  --accent:#FFB30D;--accent-text:#000726;--accent-h:#e6a00c;--hover:#1a2450;--white:#ffffff;
+  --bg-ok:#163a29;--fg-ok:#6ee59a;--bg-warn:#3d3315;--fg-warn:#ffcb52;--bg-r:#3f1c20;--fg-r:#f79a9a;
+  --radius:18px;--radius-sm:12px;--radius-lg:22px;
+  --shadow:0 4px 20px rgba(0,0,0,.16);--shadow-sm:0 2px 8px rgba(0,0,0,.10);
 }
 [data-theme="light"]{
-  --bg:#f3f5fb;--surface:#ffffff;--surface2:#f9fafe;--surface3:#eef1f9;
-  --border:#dce2f0;--text:#000726;--text2:#2a3661;--muted:#8b96b8;--muted2:#5a6690;
-  --accent:#FFB30D;--accent-text:#000726;--accent-h:#e6a00c;--hover:#eef1f9;--white:#000726;
-  --bg-ok:#dcfce7;--fg-ok:#15803d;--bg-warn:#fef3c7;--fg-warn:#a06a00;--bg-r:#fee2e2;--fg-r:#dc2626;
+  --bg:#f6f8fd;--surface:#ffffff;--surface2:#fbfcff;--surface3:#f2f5fb;
+  --border:#eaeff8;--text:#1a2140;--text2:#4a5680;--muted:#9aa3c0;--muted2:#727e9f;
+  --accent:#FFB30D;--accent-text:#000726;--accent-h:#e6a00c;--hover:#f6f8fd;--white:#1a2140;
+  --bg-ok:#e8f8ef;--fg-ok:#1f9c56;--bg-warn:#fdf5db;--fg-warn:#9a6b00;--bg-r:#fdeded;--fg-r:#dc4b4b;
+  --radius:18px;--radius-sm:12px;--radius-lg:22px;
+  --shadow:0 4px 24px rgba(30,45,90,.05);--shadow-sm:0 2px 10px rgba(30,45,90,.04);
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;transition:background .2s,color .2s}
 .header{background:var(--surface);border-bottom:1px solid var(--border);padding:1rem 1.5rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
 .header h1{font-size:1rem;font-weight:600;color:var(--white)}
 .header .sub{font-size:12px;color:var(--muted)}
-.btn{background:var(--accent);border:none;color:var(--accent-text);border-radius:8px;padding:8px 16px;font-size:13px;cursor:pointer;font-weight:600}
-.btn:hover{background:var(--accent-h)}.btn:active{transform:scale(.97)}
-.btn-sec{background:var(--surface3);border:1px solid var(--border);color:var(--text2)}
-.btn-sm{padding:6px 12px;font-size:12px}
-.btn-danger{background:var(--bg-r);color:var(--fg-r)}.btn-ok{background:var(--bg-ok);color:var(--fg-ok)}
+.btn{background:var(--accent);border:none;color:var(--accent-text);border-radius:var(--radius-sm);padding:10px 20px;font-size:13px;cursor:pointer;font-weight:600;transition:background .15s,transform .1s,box-shadow .15s;box-shadow:var(--shadow-sm)}
+.btn:hover{background:var(--accent-h);box-shadow:var(--shadow)}.btn:active{transform:scale(.97)}
+.btn-sec{background:var(--surface3);border:1px solid var(--border);color:var(--text2);box-shadow:none}
+.btn-sm{padding:6px 14px;font-size:12px;border-radius:10px}
+.btn-danger{background:var(--bg-r);color:var(--fg-r);box-shadow:none}.btn-ok{background:var(--bg-ok);color:var(--fg-ok);box-shadow:none}
 .wrap{max-width:1100px;margin:0 auto;padding:1.5rem}
-.login-box{max-width:380px;margin:5rem auto;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:2rem;position:relative}
+.login-box{max-width:380px;margin:5rem auto;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:2.25rem;position:relative;box-shadow:var(--shadow)}
 .login-box h2{font-size:1.1rem;margin-bottom:.5rem;color:var(--white)}
 .login-box p{font-size:13px;color:var(--muted);margin-bottom:1.5rem}
 .field{margin-bottom:12px}
 .field label{display:block;font-size:12px;color:var(--muted2);margin-bottom:4px}
-.field input,.field select{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px 12px;font-size:16px}
+.field input,.field select{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:11px 13px;font-size:16px;transition:border-color .15s}
 .field input:focus,.field select:focus{outline:none;border-color:var(--accent)}
 .err{font-size:13px;color:var(--fg-r);margin-top:8px;display:none}
-.tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-bottom:1.25rem;overflow-x:auto}
-.tab{font-size:13px;padding:9px 16px;cursor:pointer;border:none;background:none;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;flex-shrink:0}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-bottom:1.5rem;overflow-x:auto}
+.tab{font-size:13px;padding:10px 17px;cursor:pointer;border:none;background:none;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;flex-shrink:0;transition:color .15s}
+.tab:hover{color:var(--text2)}
 .tab.active{color:var(--white);border-bottom-color:var(--accent)}
 .panel{display:none}.panel.active{display:block}
-.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.25rem;margin-bottom:1rem}
-.card h3{font-size:13px;font-weight:600;margin-bottom:4px;color:var(--white)}
-.card .desc{font-size:12px;color:var(--muted);margin-bottom:1rem;line-height:1.5}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.75rem;margin-bottom:1.35rem;box-shadow:var(--shadow-sm)}
+.card h3{font-size:14px;font-weight:600;margin-bottom:6px;color:var(--white)}
+.card .desc{font-size:12px;color:var(--muted);margin-bottom:1.15rem;line-height:1.6}
 .vincular-row{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end}
 @media(max-width:640px){.vincular-row{grid-template-columns:1fr}.vincular-row .btn{width:100%}}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th{text-align:left;padding:8px;color:var(--muted2);font-weight:500;font-size:11px;border-bottom:1px solid var(--border);text-transform:uppercase}
 td{padding:8px;border-bottom:1px solid var(--border);color:var(--text2)}
 tr:hover td{background:var(--hover)}
-.badge{font-size:11px;padding:3px 9px;border-radius:20px;font-weight:600}
+.badge{font-size:11px;padding:3px 10px;border-radius:20px;font-weight:600}
 .badge-on{background:var(--bg-ok);color:var(--fg-ok)}.badge-off{background:var(--bg-r);color:var(--fg-r)}
 .badge-warn{background:var(--bg-warn);color:var(--fg-warn)}
-.toast{position:fixed;bottom:20px;right:20px;background:var(--bg-ok);color:var(--fg-ok);padding:12px 20px;border-radius:8px;font-size:13px;display:none;z-index:100;border:1px solid var(--border);max-width:320px}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--bg-ok);color:var(--fg-ok);padding:13px 20px;border-radius:var(--radius-sm);font-size:13px;display:none;z-index:100;border:1px solid var(--border);max-width:320px;box-shadow:var(--shadow)}
 .toast.err{background:var(--bg-r);color:var(--fg-r)}
-.search{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:9px 12px;font-size:14px;margin-bottom:10px}
+.search{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:10px 13px;font-size:14px;margin-bottom:10px}
 .muted{color:var(--muted);font-size:12px}
 .loading{text-align:center;padding:2rem;color:var(--muted)}
 .combo{position:relative}
@@ -96,21 +101,29 @@ tr:hover td{background:var(--hover)}
 .subpanel{display:none}
 .subpanel.active{display:block}
 .filtros-fila{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
-.filtros-fila select,.filtros-fila input{flex:1;min-width:180px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--card-bg,transparent);color:inherit;font-size:13px}
-.dbcard{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:1rem;margin-bottom:1rem}
+.filtros-fila select,.filtros-fila input{flex:1;min-width:180px;padding:9px 12px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--surface2);color:inherit;font-size:13px;transition:border-color .15s}
+.filtros-fila select:focus,.filtros-fila input:focus{outline:none;border-color:var(--accent)}
+.dbcard{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:1.15rem;margin-bottom:1.15rem;box-shadow:var(--shadow-sm)}
 .dbcard h4{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:1rem}
 .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:1.25rem}
-.kpi{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:1rem}
+.kpi{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:1.1rem}
 .kpi-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
 .kpi-val{font-size:1.3rem;font-weight:600;color:var(--white)}
 .kpi-sub{font-size:11px;color:var(--accent);margin-top:3px}
 .kpi.accent{border-color:var(--accent)}
 .card-note{font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5}
 .two-col{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem}
-.deudas-tbl{width:100%;border-collapse:collapse;font-size:13px}
-.deudas-tbl th{background:var(--surface3);color:var(--white);padding:8px 10px;text-align:left;white-space:nowrap;font-weight:600}
-.deudas-tbl td{padding:8px 10px;border-bottom:1px solid var(--border)}
+.deudas-tbl{width:100%;border-collapse:collapse;font-size:13px;min-width:640px}
+.deudas-tbl th{background:var(--surface3);color:var(--muted2);padding:10px 12px;text-align:left;white-space:nowrap;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.03em}
+.deudas-tbl td{padding:11px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+.deudas-tbl tr.deu-main{cursor:pointer;transition:background .12s}
 .deudas-tbl tr.deu-main:hover td{background:var(--hover)}
+.deudas-tbl tr.deu-venta{cursor:pointer}
+.deudas-tbl tr.deu-venta:hover td{background:var(--surface3)}
+.deu-arrow{display:inline-block;transition:transform .15s;color:var(--muted);font-size:11px}
+#deu-tabla{overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-sm)}
+.deudas-tbl thead th:first-child{border-top-left-radius:var(--radius)}
+.deudas-tbl thead th:last-child{border-top-right-radius:var(--radius)}
 @media(max-width:700px){.two-col{grid-template-columns:1fr}}
 .dtable{width:100%;border-collapse:collapse;font-size:13px}
 .dtable th{text-align:left;padding:7px 8px;color:var(--muted);font-weight:600;font-size:11px;border-bottom:1px solid var(--border);cursor:pointer;user-select:none;white-space:nowrap}
@@ -122,7 +135,7 @@ tr:hover td{background:var(--hover)}
 .dtable tr:last-child td{border:none}
 .dtable tr:hover td{background:var(--hover)}
 .badge{font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600}
-.badge-g{background:#14532d;color:#86efac}.badge-y{background:#713f12;color:#fde68a}.badge-r{background:#7f1d1d;color:#fca5a5}
+.badge-g{background:var(--bg-ok);color:var(--fg-ok);padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600}.badge-y{background:var(--bg-warn);color:var(--fg-warn);padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600}.badge-r{background:var(--bg-r);color:var(--fg-r);padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600}
 .badge-alto{background:#3C3489;color:#CECBF6}.badge-medio{background:#633806;color:#FAC775}.badge-bajo{background:#444441;color:#D3D1C7}
 .empresa-card{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:1rem;margin-bottom:10px}
 .empresa-name{font-size:14px;font-weight:600;margin-bottom:10px}
@@ -1381,34 +1394,47 @@ function pintarDeudas(d, horaTexto){
   const cont=document.getElementById('deu-tabla');
   if(!d.clientes.length){cont.innerHTML='<div class="muted">No hay clientes con deuda para ese filtro.</div>';return;}
   const fFecha=v=>v?new Date(v).toLocaleDateString('es-PE'):'—';
-  let html='<table class="tabla deudas-tbl"><thead><tr>'+
-    '<th style="width:28px"><input type="checkbox" id="deu-check-all" onclick="deuToggleAll(this)"></th>'+
-    '<th style="width:24px"></th><th>Cliente</th><th>RUC/Doc</th><th>Contacto</th>'+
-    '<th style="text-align:right">Deuda total</th><th style="text-align:center">Ventas</th><th style="text-align:center">Acción</th></tr></thead><tbody>';
+  let html='<table class="deudas-tbl"><thead><tr>'+
+    '<th style="width:30px"><input type="checkbox" id="deu-check-all" onclick="deuToggleAll(this)"></th>'+
+    '<th style="width:22px"></th><th>Cliente</th><th>RUC/Doc</th><th style="text-align:center">Contacto</th>'+
+    '<th style="text-align:right">Deuda total</th><th style="text-align:center">Ventas</th><th style="text-align:center">Cobrar</th></tr></thead><tbody>';
   d.clientes.forEach((x,i)=>{
-    const contacto=(x.email?`<span title="${esc(x.email)}">✉</span>`:'<span class="badge-r" style="font-size:10px">sin correo</span>')+
-      (x.phone?` <button class="btn btn-sm btn-ok" style="padding:2px 8px" onclick="event.stopPropagation();waCobranza(${i})">📱</button>`:'');
-    const pedidoTag=x.deuda_pedido>0?` <span class="badge-y" style="font-size:10px">a pedido ${deuFmt(x.deuda_pedido)}</span>`:'';
-    // Fila principal
-    html+=`<tr class="deu-main" onclick="deuToggle(${i})" style="cursor:pointer">
+    const contacto=(x.email?`<span title="${esc(x.email)}" style="color:var(--accent)">✉</span>`:'<span class="badge-r" style="font-size:9px">sin correo</span>')+
+      (x.phone?` <button class="btn btn-sm btn-ok" style="padding:1px 7px" onclick="event.stopPropagation();waCobranza(${i})" title="Enviar WhatsApp">📱</button>`:'');
+    const pedidoTag=x.deuda_pedido>0?` <span class="badge-y" style="font-size:9px">a pedido ${deuFmt(x.deuda_pedido)}</span>`:'';
+    html+=`<tr class="deu-main" onclick="deuToggle(${i})">
       <td onclick="event.stopPropagation()">${x.email?`<input type="checkbox" class="deu-check" data-ids="${(x.customer_ids||[x.customer_id]).join(',')}">`:''}</td>
-      <td><span id="deu-arrow-${i}" style="display:inline-block;transition:transform .15s">▶</span></td>
+      <td><span id="deu-arrow-${i}" class="deu-arrow">▶</span></td>
       <td><b>${esc(x.cliente)}</b>${pedidoTag}</td>
       <td>${esc(x.ruc)||'—'}</td>
-      <td>${contacto}</td>
+      <td style="text-align:center;white-space:nowrap">${contacto}</td>
       <td style="text-align:right;font-weight:700">${deuFmt(x.deuda_total)}</td>
       <td style="text-align:center">${x.num_ventas}</td>
-      <td style="text-align:center">${x.email?`<button class="btn btn-sm" style="padding:2px 8px" onclick="event.stopPropagation();enviarCobranzaUno(${i})">✉ Cobrar</button>`:'—'}</td>
+      <td style="text-align:center">${x.email?`<button class="btn btn-sm" style="padding:2px 8px" onclick="event.stopPropagation();enviarCobranzaUno(${i})">✉</button>`:'—'}</td>
     </tr>`;
-    // Fila de detalle (oculta)
-    const ventasRows=(x.ventas||[]).map(v=>`<tr>
-      <td style="padding:4px 10px">${esc(v.codigo)}</td>
-      <td style="padding:4px 10px">${fFecha(v.fecha)}</td>
-      <td style="padding:4px 10px">${esc(v.comprobante)}${v.a_pedido?' <span class="badge-y" style="font-size:9px">a pedido</span>':''}</td>
-      <td style="padding:4px 10px;text-align:right">${deuFmt(v.deuda)}</td>
-    </tr>`).join('');
-    html+=`<tr id="deu-det-${i}" style="display:none"><td colspan="8" style="background:var(--surface2);padding:8px 16px">
-      <div style="font-size:12px;color:var(--muted);margin-bottom:4px">Detalle de ventas con saldo · Última venta: ${fFecha(x.venta_mas_antigua)} · Último pago: ${fFecha(x.ultimo_pago)}</div>
+    // Detalle nivel 1: ventas (cada una expandible a productos)
+    const ventasRows=(x.ventas||[]).map((v,j)=>{
+      const prods=(v.productos||[]).map(pr=>`<tr>
+        <td style="padding:3px 10px 3px 24px">${esc(pr.producto)}${pr.variacion&&pr.variacion!==pr.producto?' — '+esc(pr.variacion):''}</td>
+        <td style="padding:3px 10px">${esc(pr.sku)}</td>
+        <td style="padding:3px 10px;text-align:right">${pr.cantidad}</td>
+        <td style="padding:3px 10px;text-align:right">${deuFmt(pr.precio)}</td>
+      </tr>`).join('')||'<tr><td colspan="4" style="padding:3px 24px;color:var(--muted)">Sin productos registrados</td></tr>';
+      return `<tr class="deu-venta" onclick="deuToggleVenta(${i},${j})">
+          <td style="padding:5px 10px"><span id="deu-varrow-${i}-${j}" class="deu-arrow" style="font-size:9px">▶</span> ${esc(v.codigo)}</td>
+          <td style="padding:5px 10px">${fFecha(v.fecha)}</td>
+          <td style="padding:5px 10px">${esc(v.comprobante)}${v.a_pedido?' <span class="badge-y" style="font-size:9px">a pedido</span>':''}</td>
+          <td style="padding:5px 10px;text-align:right;font-weight:600">${deuFmt(v.deuda)}</td>
+        </tr>
+        <tr id="deu-prod-${i}-${j}" style="display:none"><td colspan="4" style="padding:0">
+          <table style="width:100%;font-size:11px;border-collapse:collapse;background:var(--surface3)">
+            <thead><tr style="color:var(--muted)"><th style="padding:3px 10px 3px 24px;text-align:left">Producto</th><th style="padding:3px 10px;text-align:left">SKU</th><th style="padding:3px 10px;text-align:right">Cant.</th><th style="padding:3px 10px;text-align:right">Precio</th></tr></thead>
+            <tbody>${prods}</tbody>
+          </table>
+        </td></tr>`;
+    }).join('');
+    html+=`<tr id="deu-det-${i}" style="display:none"><td colspan="8" style="background:var(--surface2);padding:8px 14px">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Ventas con saldo (clic en cada una para ver productos) · Venta más antigua: ${fFecha(x.venta_mas_antigua)} · Último pago: ${fFecha(x.ultimo_pago)}</div>
       <table style="width:100%;font-size:12px;border-collapse:collapse">
         <thead><tr style="color:var(--muted);text-align:left">
           <th style="padding:4px 10px">Venta</th><th style="padding:4px 10px">Fecha</th><th style="padding:4px 10px">Comprobante</th><th style="padding:4px 10px;text-align:right">Saldo</th>
@@ -1423,6 +1449,15 @@ function pintarDeudas(d, horaTexto){
 function deuToggle(i){
   const det=document.getElementById('deu-det-'+i);
   const arr=document.getElementById('deu-arrow-'+i);
+  if(!det)return;
+  const abierto=det.style.display!=='none';
+  det.style.display=abierto?'none':'table-row';
+  if(arr)arr.style.transform=abierto?'rotate(0deg)':'rotate(90deg)';
+}
+function deuToggleVenta(i,j){
+  event.stopPropagation();
+  const det=document.getElementById('deu-prod-'+i+'-'+j);
+  const arr=document.getElementById('deu-varrow-'+i+'-'+j);
   if(!det)return;
   const abierto=det.style.display!=='none';
   det.style.display=abierto?'none':'table-row';

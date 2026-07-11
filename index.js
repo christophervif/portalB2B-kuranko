@@ -1912,17 +1912,25 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
     const custIds = [...new Set(ventas.map(v => v.customer_id))];
     const saleIds = ventas.map(v => v.id);
 
-    // Productos (items) de cada venta con deuda
+    // Productos (items) de cada venta con deuda.
+    // Se filtran con la MISMA condición de las ventas con deuda (subconsulta),
+    // en vez de un IN con miles de IDs que podía saturarse.
+    const itemsWhere = w.map(x => x.replace(/\bs\./g, 'sv.')).join(' AND ');
     const [items] = await prodPool.query(`
       SELECT si.sale_id, si.quantity, si.unit_price, si.product_variation_id,
         pv.sku, pv.name AS variacion, p.name AS producto
       FROM sale_items si
       LEFT JOIN product_variations pv ON pv.id = si.product_variation_id
       LEFT JOIN products p ON p.id = pv.product_id
-      WHERE si.sale_id IN (?)`, [saleIds]);
+      WHERE si.sale_id IN (
+        SELECT sv.id FROM sales sv
+        WHERE ${itemsWhere}
+          AND (sv.total - COALESCE((SELECT SUM(sp.amount) FROM sale_payments sp WHERE sp.sale_id = sv.id AND sp.voided_at IS NULL),0)) > 0
+      )`, p);
     const itemsPorVenta = {};
     items.forEach(it => {
-      (itemsPorVenta[it.sale_id] = itemsPorVenta[it.sale_id] || []).push({
+      const k = Number(it.sale_id);
+      (itemsPorVenta[k] = itemsPorVenta[k] || []).push({
         producto: it.producto || (it.variacion ? '' : `(producto #${it.product_variation_id})`),
         variacion: it.variacion || '', sku: it.sku || '—',
         cantidad: Number(it.quantity), precio: Number(it.unit_price)
@@ -1998,7 +2006,7 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
         codigo: v.code, fecha: v.created_at, deuda: deuda,
         comprobante: (vouchPorVenta[v.id] || []).join(' · ') || '—',
         a_pedido: esPedido,
-        productos: itemsPorVenta[v.id] || []
+        productos: itemsPorVenta[Number(v.id)] || []
       });
     });
 

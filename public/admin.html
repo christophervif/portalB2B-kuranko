@@ -382,6 +382,24 @@ tr:hover td{background:var(--hover)}
           <div class="dbcard"><h4>Top clientes</h4><div style="overflow-x:auto"><table class="dtable" id="tbl-clientes"></table></div></div>
           <div class="dbcard"><h4>Clientes en riesgo de fuga (60+ días)</h4><div style="overflow-x:auto"><table class="dtable" id="tbl-riesgo"></table></div></div>
         </div>
+        <div class="dbcard">
+          <h4>Clientes que deben (cuentas por cobrar)</h4>
+          <p class="card-note">Ventas confirmadas o pendientes de pago con saldo. La deuda "a pedido" se separa en su propia columna.</p>
+          <div class="filtros-fila" style="align-items:center;gap:8px;flex-wrap:wrap">
+            <select id="deu-empresa"><option value="">Todas las empresas</option></select>
+            <select id="deu-pedido">
+              <option value="todos">Ver todos</option>
+              <option value="solo">Solo a pedido</option>
+              <option value="ocultar">Ocultar a pedido</option>
+            </select>
+            <button class="btn" onclick="cargarDeudas()">Ver deudas</button>
+            <button class="btn" onclick="descargarDeudasExcel()">Excel</button>
+            <button class="btn" onclick="descargarDeudasPDF()">PDF</button>
+            <button class="btn btn-ok" onclick="enviarCobranza()">✉ Enviar cobranza a seleccionados</button>
+          </div>
+          <div id="deu-resumen" style="margin:8px 0;font-weight:600"></div>
+          <div id="deu-tabla" style="overflow-x:auto;max-height:60vh;overflow-y:auto"></div>
+        </div>
       </div>
     </div>
 
@@ -1333,6 +1351,143 @@ async function dbClientes(){
     {k:'pedidos_hist',t:'Pedidos',fmt:dbFmtN,num:1},
     {k:'dias_sin_comprar',t:'Días sin comprar',fmt:v=>`<span class="badge badge-r">${dbFmtN(v)}</span>`,num:1}
   ],'dias_sin_comprar');
+  // Cargar empresas en el filtro de deudas (una vez)
+  if(!window._deuEmpresasCargadas){
+    try{
+      const f=await apiCall('/admin/reporte-pagos/filtros','GET');
+      document.getElementById('deu-empresa').innerHTML='<option value="">Todas las empresas</option>'+
+        f.empresas.map(e=>`<option value="${e.id}">${esc(e.nombre)}</option>`).join('');
+      window._deuEmpresasCargadas=true;
+    }catch(e){}
+  }
+  restaurarDeudas();
+}
+
+// ══════════ Clientes que deben (cuentas por cobrar) ══════════
+function deuParams(){
+  const p=new URLSearchParams();
+  const emp=document.getElementById('deu-empresa').value; if(emp)p.set('empresa',emp);
+  const ped=document.getElementById('deu-pedido').value; if(ped&&ped!=='todos')p.set('a_pedido',ped);
+  return p;
+}
+const deuFmt=n=>n==null?'—':'S/ '+Number(n).toLocaleString('es-PE',{minimumFractionDigits:2});
+function pintarDeudas(d, horaTexto){
+  document.getElementById('deu-resumen').textContent=
+    `${d.total} clientes deben · Total: ${deuFmt(d.suma_total)} (normal ${deuFmt(d.suma_normal)} · a pedido ${deuFmt(d.suma_pedido)}) · ${horaTexto}`;
+  const cont=document.getElementById('deu-tabla');
+  if(!d.clientes.length){cont.innerHTML='<div class="muted">No hay clientes con deuda para ese filtro.</div>';return;}
+  cont.innerHTML='<table class="tabla responsive"><thead><tr><th><input type="checkbox" id="deu-check-all" onclick="deuToggleAll(this)"></th><th>Cliente</th><th>Email</th><th>WhatsApp</th><th>RUC/Doc</th><th>Deuda normal</th><th>Deuda a pedido</th><th>Deuda total</th><th>Items</th><th>N° ventas</th><th>Venta + antigua</th><th>Último pago</th><th>Comprobantes</th><th>A pedido</th></tr></thead><tbody>'+
+    d.clientes.map((x,i)=>`<tr>
+      <td data-label="Sel">${x.email?`<input type="checkbox" class="deu-check" value="${x.customer_id}">`:''}</td>
+      <td data-label="Cliente">${esc(x.cliente)}</td>
+      <td data-label="Email">${x.email?esc(x.email):'<span class="badge-r">⚠ Sin correo</span>'}</td>
+      <td data-label="WhatsApp">${x.phone?`<button class="btn btn-sm btn-ok" onclick="waCobranza(${i})">📱 WhatsApp</button>`:'<span class="badge-r">Sin teléfono</span>'}</td>
+      <td data-label="RUC/Doc">${esc(x.ruc)}</td>
+      <td data-label="Deuda normal" style="text-align:right">${deuFmt(x.deuda_normal)}</td>
+      <td data-label="Deuda a pedido" style="text-align:right">${x.deuda_pedido>0?deuFmt(x.deuda_pedido):'—'}</td>
+      <td data-label="Deuda total" style="text-align:right;font-weight:600">${deuFmt(x.deuda_total)}</td>
+      <td data-label="Items" style="text-align:right">${x.items}</td>
+      <td data-label="N° ventas" style="text-align:right">${x.num_ventas}</td>
+      <td data-label="Venta + antigua">${x.venta_mas_antigua?new Date(x.venta_mas_antigua).toLocaleDateString('es-PE'):'—'}</td>
+      <td data-label="Último pago">${x.ultimo_pago?new Date(x.ultimo_pago).toLocaleDateString('es-PE'):'—'}</td>
+      <td data-label="Comprobantes">${x.comprobantes_lista&&x.comprobantes_lista.length?x.comprobantes_lista.map(c=>esc(c)).join('<br>'):'—'}</td>
+      <td data-label="A pedido">${x.tiene_pedido?'<span class="badge-y">A pedido</span>':''}</td>
+    </tr>`).join('')+'</tbody></table>';
+  window._deudasActuales=d.clientes;
+}
+function restaurarDeudas(){
+  try{
+    const raw=localStorage.getItem('kuranko_ultima_deudas');
+    if(!raw)return;
+    const g=JSON.parse(raw);
+    pintarDeudas(g.d, g.hora+' (guardada)');
+  }catch(e){}
+}
+async function cargarDeudas(){
+  const res=document.getElementById('deu-resumen');
+  res.textContent='Cargando deudas...';
+  try{
+    const d=await apiCall('/api/clientes-deudas?'+deuParams().toString(),'GET');
+    const hora=new Date().toLocaleString('es-PE');
+    pintarDeudas(d, hora);
+    try{ localStorage.setItem('kuranko_ultima_deudas', JSON.stringify({d,hora})); }catch(e){}
+  }catch(e){res.textContent='';showToast(e.message,true);}
+}
+async function descargarDeudasExcel(){
+  try{
+    const r=await fetch(API+'/api/clientes-deudas-excel?'+deuParams().toString(),{headers:{'Authorization':'Bearer '+TOKEN}});
+    if(!r.ok)throw new Error('No se pudo generar el Excel');
+    const blob=await r.blob();
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');a.href=url;a.download=nombreArchivo('clientes-deudas','xlsx');a.click();
+    URL.revokeObjectURL(url);
+  }catch(e){showToast(e.message,true);}
+}
+async function descargarDeudasPDF(){
+  try{
+    const d=await apiCall('/api/clientes-deudas?'+deuParams().toString(),'GET');
+    if(!d.clientes.length){showToast('No hay deudas para ese filtro',true);return;}
+    const cols=['Cliente','RUC/Doc','Deuda normal','Deuda a pedido','Deuda total','Items','N° ventas','Venta + antigua','Último pago','Comprobantes','A pedido'];
+    const filas=d.clientes.map(x=>[
+      x.cliente, x.ruc,
+      Number(x.deuda_normal).toLocaleString('es-PE',{minimumFractionDigits:2}),
+      x.deuda_pedido>0?Number(x.deuda_pedido).toLocaleString('es-PE',{minimumFractionDigits:2}):'—',
+      Number(x.deuda_total).toLocaleString('es-PE',{minimumFractionDigits:2}),
+      x.items, x.num_ventas,
+      x.venta_mas_antigua?new Date(x.venta_mas_antigua).toLocaleDateString('es-PE'):'—',
+      x.ultimo_pago?new Date(x.ultimo_pago).toLocaleDateString('es-PE'):'—',
+      x.comprobantes_lista&&x.comprobantes_lista.length?x.comprobantes_lista.join('\n'):'—', x.tiene_pedido?'Sí':''
+    ]);
+    const ft=`Total: S/ ${d.suma_total.toLocaleString('es-PE',{minimumFractionDigits:2})} · ${d.total} clientes`;
+    exportarPDF(nombreArchivo('clientes-deudas','pdf'),'Clientes que deben',cols,filas,ft);
+  }catch(e){showToast(e.message,true);}
+}
+function deuToggleAll(master){
+  document.querySelectorAll('.deu-check').forEach(ch=>ch.checked=master.checked);
+}
+function waCobranza(indice){
+  const x=(window._deudasActuales||[])[indice];
+  if(!x||!x.phone){showToast('Este cliente no tiene teléfono',true);return;}
+  // Normalizar número: quitar todo lo que no sea dígito; si tiene 9 dígitos, anteponer 51 (Perú)
+  let num=(''+x.phone).replace(/\D/g,'');
+  if(num.length===9)num='51'+num;
+  const monto='S/ '+Number(x.deuda_total).toLocaleString('es-PE',{minimumFractionDigits:2});
+  const fFecha=d=>d?new Date(d).toLocaleDateString('es-PE'):'—';
+  const detalle=(x.ventas||[]).map(v=>{
+    const m='S/ '+Number(v.deuda).toLocaleString('es-PE',{minimumFractionDigits:2});
+    return `• ${v.codigo} (${fFecha(v.fecha)}) — ${v.comprobante}${v.a_pedido?' (a pedido)':''} — ${m}`;
+  }).join('\n')||'—';
+  const msg=`Hola ${x.cliente} 👋, le saludamos de *Kuranko*.\n\n`+
+    `Le escribimos para recordarle de manera amable que tiene un saldo pendiente de *${monto}* por ${x.num_ventas} compra(s) registrada(s).\n\n`+
+    `*Detalle:*\n${detalle}\n\n`+
+    `Cuando pueda, agradeceríamos mucho coordinar el pago. Si ya lo realizó, por favor háganoslo saber para actualizar su estado. 🙏\n\n`+
+    `_(También le enviamos esta información por correo electrónico.)_\n\n`+
+    `¡Gracias por su preferencia!`;
+  const url='https://wa.me/'+num+'?text='+encodeURIComponent(msg);
+  window.open(url,'_blank');
+}
+async function enviarCobranza(){
+  const checks=[...document.querySelectorAll('.deu-check:checked')];
+  if(!checks.length){showToast('Selecciona al menos un cliente con correo',true);return;}
+  const ids=checks.map(c=>Number(c.value));
+  // Preview: nombres de los seleccionados
+  const filas=checks.map(c=>{
+    const tr=c.closest('tr');
+    const nombre=tr.children[1].textContent.trim();
+    const email=tr.children[2].textContent.trim();
+    const total=tr.querySelector('[data-label="Deuda total"]').textContent.trim();
+    return `• ${nombre} (${email}) — ${total}`;
+  }).join('\n');
+  const msg=`Se enviará un recordatorio formal de pago pendiente a ${ids.length} cliente(s), con copia a info@kuranko.pe:\n\n${filas}\n\n¿Confirmas el envío?`;
+  if(!confirm(msg))return;
+  const res=document.getElementById('deu-resumen');
+  const prev=res.textContent;
+  res.textContent='Enviando correos...';
+  try{
+    const r=await apiCall('/api/clientes-deudas-cobrar','POST',{customer_ids:ids});
+    res.textContent=prev;
+    showToast(`Correos enviados: ${r.enviados} de ${r.total}`, r.enviados<r.total);
+  }catch(e){res.textContent=prev;showToast(e.message,true);}
 }
 
 async function dbCaja(){

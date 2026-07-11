@@ -860,6 +860,10 @@ async function descargarAuditoria(){
 }
 
 // ══════════ REPORTE 3.2 — LISTA DE PAGOS ══════════
+// Versión del formato de las corridas guardadas en memoria.
+// Subir este número cuando cambie la estructura de datos de un reporte,
+// para que las corridas viejas guardadas se descarten en vez de mostrarse desactualizadas.
+const MEM_VERSION=2;
 let rpFiltrosCargados=false;
 let repRestaurado=false;
 // Rellena desde/hasta con el primer y último día del mes elegido
@@ -931,6 +935,7 @@ function restaurarPagos(){
     const raw=localStorage.getItem('kuranko_ultima_pagos');
     if(!raw)return;
     const guardado=JSON.parse(raw);
+    if(guardado.v!==MEM_VERSION){localStorage.removeItem('kuranko_ultima_pagos');return;}
     pintarPagos(guardado.d, guardado.hora+' (guardada)');
   }catch(e){/* si falla, no pasa nada */}
 }
@@ -944,7 +949,7 @@ async function verPagos(){
     const hora=new Date().toLocaleString('es-PE');
     pintarPagos(d, hora);
     // Guardar como última corrida (reemplaza la anterior, no acumula)
-    try{ localStorage.setItem('kuranko_ultima_pagos', JSON.stringify({d,hora})); }catch(e){/* cuota llena, ignorar */}
+    try{ localStorage.setItem('kuranko_ultima_pagos', JSON.stringify({v:MEM_VERSION,d,hora})); }catch(e){/* cuota llena, ignorar */}
   }catch(e){res.textContent='';showToast(e.message,true);}
 }
 async function descargarPagos(){
@@ -1040,6 +1045,7 @@ function restaurarKardex(){
     const raw=localStorage.getItem('kuranko_ultima_kardex');
     if(!raw)return;
     const guardado=JSON.parse(raw);
+    if(guardado.v!==MEM_VERSION){localStorage.removeItem('kuranko_ultima_kardex');return;}
     pintarKardex(guardado.d, guardado.hora+' (guardada)');
   }catch(e){/* si falla, no pasa nada */}
 }
@@ -1052,7 +1058,7 @@ async function verKardex(){
     res.textContent='';
     const hora=new Date().toLocaleString('es-PE');
     pintarKardex(d, hora);
-    try{ localStorage.setItem('kuranko_ultima_kardex', JSON.stringify({d,hora})); }catch(e){/* cuota llena */}
+    try{ localStorage.setItem('kuranko_ultima_kardex', JSON.stringify({v:MEM_VERSION,d,hora})); }catch(e){/* cuota llena */}
   }catch(e){res.textContent='';showToast(e.message,true);}
 }
 async function descargarKardex(){
@@ -1480,6 +1486,7 @@ function restaurarDeudas(){
     const raw=localStorage.getItem('kuranko_ultima_deudas');
     if(!raw)return;
     const g=JSON.parse(raw);
+    if(g.v!==MEM_VERSION){localStorage.removeItem('kuranko_ultima_deudas');return;}
     pintarDeudas(g.d, g.hora+' (guardada)');
   }catch(e){}
 }
@@ -1490,7 +1497,7 @@ async function cargarDeudas(){
     const d=await apiCall('/api/clientes-deudas?'+deuParams().toString(),'GET');
     const hora=new Date().toLocaleString('es-PE');
     pintarDeudas(d, hora);
-    try{ localStorage.setItem('kuranko_ultima_deudas', JSON.stringify({d,hora})); }catch(e){}
+    try{ localStorage.setItem('kuranko_ultima_deudas', JSON.stringify({v:MEM_VERSION,d,hora})); }catch(e){}
   }catch(e){res.textContent='';showToast(e.message,true);}
 }
 async function descargarDeudasExcel(){

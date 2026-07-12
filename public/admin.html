@@ -863,7 +863,7 @@ async function descargarAuditoria(){
 // Versión del formato de las corridas guardadas en memoria.
 // Subir este número cuando cambie la estructura de datos de un reporte,
 // para que las corridas viejas guardadas se descarten en vez de mostrarse desactualizadas.
-const MEM_VERSION=2;
+const MEM_VERSION=3;
 let rpFiltrosCargados=false;
 let repRestaurado=false;
 // Rellena desde/hasta con el primer y último día del mes elegido
@@ -1437,14 +1437,15 @@ function pintarDeudas(d, horaTexto){
         <td style="padding:3px 10px">${esc(pr.sku)}</td>
         <td style="padding:3px 10px;text-align:right">${pr.cantidad}</td>
         <td style="padding:3px 10px;text-align:right">${deuFmt(pr.precio)}</td>
-      </tr>`).join('')||'<tr><td colspan="4" style="padding:3px 24px;color:var(--muted)">Sin productos registrados</td></tr>';
+      </tr>`).join('')||'<tr><td colspan="5" style="padding:3px 24px;color:var(--muted)">Sin productos registrados</td></tr>';
       return `<tr class="deu-venta" onclick="deuToggleVenta(${i},${j})">
           <td style="padding:5px 10px"><span id="deu-varrow-${i}-${j}" class="deu-arrow" style="font-size:9px">▶</span> ${esc(v.codigo)}</td>
           <td style="padding:5px 10px">${fFecha(v.fecha)}</td>
+          <td style="padding:5px 10px">${v.ultimo_pago_venta?fFecha(v.ultimo_pago_venta):'<span style="color:var(--muted)">sin abonos</span>'}</td>
           <td style="padding:5px 10px">${esc(v.comprobante)}${v.a_pedido?' <span class="badge-y" style="font-size:9px">a pedido</span>':''}</td>
           <td style="padding:5px 10px;text-align:right;font-weight:600">${deuFmt(v.deuda)}</td>
         </tr>
-        <tr id="deu-prod-${i}-${j}" style="display:none"><td colspan="4" style="padding:0">
+        <tr id="deu-prod-${i}-${j}" style="display:none"><td colspan="5" style="padding:0">
           <table style="width:100%;font-size:11px;border-collapse:collapse;background:var(--surface3)">
             <thead><tr style="color:var(--muted)"><th style="padding:3px 10px 3px 24px;text-align:left">Producto</th><th style="padding:3px 10px;text-align:left">SKU</th><th style="padding:3px 10px;text-align:right">Cant.</th><th style="padding:3px 10px;text-align:right">Precio</th></tr></thead>
             <tbody>${prods}</tbody>
@@ -1455,7 +1456,7 @@ function pintarDeudas(d, horaTexto){
       <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Ventas con saldo (clic en cada una para ver productos) · Venta más antigua: ${fFecha(x.venta_mas_antigua)} · Último pago: ${fFecha(x.ultimo_pago)}</div>
       <table style="width:100%;font-size:12px;border-collapse:collapse">
         <thead><tr style="color:var(--muted);text-align:left">
-          <th style="padding:4px 10px">Venta</th><th style="padding:4px 10px">Fecha</th><th style="padding:4px 10px">Comprobante</th><th style="padding:4px 10px;text-align:right">Saldo</th>
+          <th style="padding:4px 10px">Venta</th><th style="padding:4px 10px">Fecha</th><th style="padding:4px 10px">Último abono</th><th style="padding:4px 10px">Comprobante</th><th style="padding:4px 10px;text-align:right">Saldo</th>
         </tr></thead><tbody>${ventasRows}</tbody>
       </table>
     </td></tr>`;
@@ -1514,13 +1515,14 @@ async function descargarDeudasPDF(){
   try{
     const d=await apiCall('/api/clientes-deudas?'+deuParams().toString(),'GET');
     if(!d.clientes.length){showToast('No hay deudas para ese filtro',true);return;}
-    const cols=['Cliente','RUC/Doc','Venta','Fecha','Comprobante','Saldo','A pedido'];
+    const cols=['Cliente','RUC/Doc','Venta','Fecha','Último abono','Comprobante','Saldo','A pedido'];
     const filas=[];
     d.clientes.forEach(x=>{
       (x.ventas||[]).forEach(v=>{
         filas.push([
           x.cliente, x.ruc, v.codigo,
           v.fecha?new Date(v.fecha).toLocaleDateString('es-PE'):'—',
+          v.ultimo_pago_venta?new Date(v.ultimo_pago_venta).toLocaleDateString('es-PE'):'—',
           v.comprobante||'—',
           Number(v.deuda).toLocaleString('es-PE',{minimumFractionDigits:2}),
           v.a_pedido?'Sí':''

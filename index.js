@@ -1912,6 +1912,15 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
     const custIds = [...new Set(ventas.map(v => v.customer_id))];
     const saleIds = ventas.map(v => v.id);
 
+    // Último pago (abono) de cada venta con deuda
+    const [pagosPorVenta] = await prodPool.query(`
+      SELECT sale_id, MAX(paid_at) AS ultimo_pago
+      FROM sale_payments
+      WHERE voided_at IS NULL AND sale_id IN (?)
+      GROUP BY sale_id`, [saleIds]);
+    const ultPagoVenta = {};
+    pagosPorVenta.forEach(r => ultPagoVenta[Number(r.sale_id)] = r.ultimo_pago);
+
     // Productos (items) de cada venta con deuda.
     // Se filtran con la MISMA condición de las ventas con deuda (subconsulta),
     // en vez de un IN con miles de IDs que podía saturarse.
@@ -2004,6 +2013,7 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
       // Detalle de esta venta
       c.ventas.push({
         codigo: v.code, fecha: v.created_at, deuda: deuda,
+        ultimo_pago_venta: ultPagoVenta[Number(v.id)] || null,
         comprobante: (vouchPorVenta[v.id] || []).join(' · ') || '—',
         a_pedido: esPedido,
         productos: itemsPorVenta[Number(v.id)] || []
@@ -2058,11 +2068,12 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
       const pedTxt = req.query.a_pedido === 'solo' ? 'Solo a pedido' : req.query.a_pedido === 'ocultar' ? 'Ocultando a pedido' : 'Todas';
       const filasCab = cabeceraExcel(ws, 'Clientes que deben', [
         ['Empresa', empTxt], ['Ventas a pedido', pedTxt], ['Clientes', lista.length]
-      ], 7);
+      ], 8);
 
       const colDefs = [
         { header: 'Cliente', width: 32 }, { header: 'RUC/Doc', width: 16 },
         { header: 'Venta', width: 15 }, { header: 'Fecha', width: 12 },
+        { header: 'Último abono', width: 13 },
         { header: 'Comprobante', width: 28 }, { header: 'Saldo', width: 14 },
         { header: 'A pedido', width: 10 }
       ];
@@ -2078,20 +2089,21 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
         (x.ventas || []).forEach(v => {
           ws.addRow([
             x.cliente, x.ruc, v.codigo, fechaLima(v.fecha),
+            v.ultimo_pago_venta ? fechaLima(v.ultimo_pago_venta) : '—',
             v.comprobante || '—', v.deuda, v.a_pedido ? 'Sí' : ''
           ]);
           sumaTotal += v.deuda;
         });
       });
       ws.views = [{ state: 'frozen', ySplit: headerRowNum }];
-      ws.autoFilter = { from: { row: headerRowNum, column: 1 }, to: { row: headerRowNum, column: 7 } };
-      ws.getColumn(6).numFmt = '#,##0.00';
+      ws.autoFilter = { from: { row: headerRowNum, column: 1 }, to: { row: headerRowNum, column: 8 } };
+      ws.getColumn(7).numFmt = '#,##0.00';
 
       // Total
       ws.addRow([]);
       const t = ws.addRow(['TOTAL']); t.font = { bold: true };
-      t.getCell(6).value = sumaTotal;
-      t.getCell(6).numFmt = '#,##0.00';
+      t.getCell(7).value = sumaTotal;
+      t.getCell(7).numFmt = '#,##0.00';
 
       const nombre = nombreTrazable('clientes-deudas');
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');

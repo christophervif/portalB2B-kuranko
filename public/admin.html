@@ -73,12 +73,12 @@ tr:hover td{background:var(--hover)}
 .combo-item .ruc{color:var(--muted);font-size:11px}
 @media(max-width:600px){
   .wrap{padding:1rem}
-  table thead{display:none}
-  table,tbody,tr,td{display:block;width:100%}
-  tbody tr{background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;padding:6px}
-  td{border:none;padding:6px 10px;display:flex;justify-content:space-between;align-items:center;gap:10px;text-align:right}
-  td::before{content:attr(data-label);color:var(--muted);font-size:11px;text-transform:uppercase;font-weight:600;text-align:left}
-  td[data-label="Acciones"]{flex-wrap:wrap;justify-content:flex-end}
+  table.cardmode thead{display:none}
+  table.cardmode,table.cardmode tbody,table.cardmode tr,table.cardmode td{display:block;width:100%}
+  table.cardmode tbody tr{background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;padding:6px}
+  table.cardmode td{border:none;padding:6px 10px;display:flex;justify-content:space-between;align-items:center;gap:10px;text-align:right}
+  table.cardmode td::before{content:attr(data-label);color:var(--muted);font-size:11px;text-transform:uppercase;font-weight:600;text-align:left}
+  table.cardmode td[data-label="Acciones"]{flex-wrap:wrap;justify-content:flex-end}
 }
 .modulos-check{display:flex;flex-wrap:wrap;gap:10px 20px;margin:8px 0}
 .chk{display:inline-flex;align-items:center;gap:7px;font-size:13px;cursor:pointer;white-space:nowrap}
@@ -161,8 +161,17 @@ tr:hover td{background:var(--hover)}
   table.responsive{min-width:0 !important}
   .kpi-grid{grid-template-columns:1fr 1fr}
   .two-col{grid-template-columns:1fr}
-  .filtros-fila{flex-direction:column}
-  .filtros-fila input,.filtros-fila select{width:100%}
+  .filtros-fila{flex-direction:column;align-items:stretch}
+  .filtros-fila input,.filtros-fila select,.filtros-fila .btn{width:100%}
+  .filtros-fila label{width:100%}
+  .filtros-fila label input{margin-top:2px}
+  /* Tablas nuevas (deudas, conciliación): mantener encabezado, scroll horizontal cómodo */
+  .deudas-tbl{font-size:12px;min-width:560px}
+  .deudas-tbl thead th{padding:8px 8px;font-size:10px}
+  .deudas-tbl td{padding:9px 8px}
+  #deu-tabla,#conc-tabla{-webkit-overflow-scrolling:touch}
+  .dbcard{padding:12px}
+  .card{padding:1.15rem}
 }
 </style>
 </head>

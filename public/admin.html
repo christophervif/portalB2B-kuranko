@@ -1663,8 +1663,9 @@ async function cargarConciliacion(){
     // Del sistema (company_id + code)
     (sistema||[]).forEach(r=>{
       if(!r.metodo_code)return;
-      const clave=r.company_id+'|||'+r.metodo_code;
-      combinado[clave]=combinado[clave]||{empresa:r.company_id,canal:r.metodo_code,sistema:0,sheet:0};
+      const eid=(r.company_id==null)?'null':r.company_id;
+      const clave=eid+'|||'+r.metodo_code;
+      combinado[clave]=combinado[clave]||{empresa:eid,canal:r.metodo_code,sistema:0,sheet:0};
       combinado[clave].sistema+=Number(r.total);
     });
     pintarConciliacion(Object.values(combinado));
@@ -1680,7 +1681,7 @@ function pintarConciliacion(filas){
   const manual=concLeerManual();
   let html='';
   Object.keys(porEmp).sort().forEach(eid=>{
-    const nombre=CONC_ID_EMPRESA[eid]||('Empresa '+eid);
+    const nombre=CONC_ID_EMPRESA[eid]||(eid==='null'||eid==='undefined'||!eid?'Sin empresa asignada':'Empresa '+eid);
     html+=`<div style="font-weight:700;margin:14px 0 6px;color:var(--white)">${esc(nombre)}</div>`;
     html+='<table class="deudas-tbl"><thead><tr><th>Canal / Método</th><th style="text-align:right">Sistema</th><th style="text-align:right">Google Sheet</th><th style="text-align:right">Manual (yo)</th><th style="text-align:right">Dif. Sistema–Sheet</th></tr></thead><tbody>';
     porEmp[eid].sort((a,b)=>a.canal.localeCompare(b.canal)).forEach(f=>{

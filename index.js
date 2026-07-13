@@ -2286,13 +2286,15 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
       : `AND sp.paid_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)`;
     try {
       const [rows] = await prodPool.query(`
-        SELECT s.company_id, ci.code AS metodo_code, ci.name AS metodo_nombre,
+        SELECT COALESCE(ba.party_id, s.company_id) AS company_id,
+          ci.code AS metodo_code, ci.name AS metodo_nombre,
           COUNT(*) AS cantidad, COALESCE(SUM(sp.amount),0) AS total
         FROM sale_payments sp
         LEFT JOIN catalog_items ci ON ci.id = sp.payment_method_id
         LEFT JOIN sales s ON s.id = sp.sale_id
+        LEFT JOIN bank_accounts ba ON ba.id = sp.bank_account_id
         WHERE sp.voided_at IS NULL ${f}
-        GROUP BY s.company_id, ci.code, ci.name`);
+        GROUP BY COALESCE(ba.party_id, s.company_id), ci.code, ci.name`);
       res.json(rows);
     } catch (e) { res.status(500).json({ error: e.message }); }
   });

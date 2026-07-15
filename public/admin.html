@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Admin — Portal B2B Kuranko</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/hammerjs/2.0.8/hammer.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-zoom/2.0.1/chartjs-plugin-zoom.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <style>
@@ -200,18 +202,15 @@ tr:hover td{background:var(--hover)}
   <div class="wrap">
     <div class="tabs">
       <button class="tab active" onclick="tab('clientes_gestion',this)">Gestión de clientes</button>
-      <button class="tab" onclick="tab('sync',this)">Sincronización web</button>
-      <button class="tab" onclick="tab('auditoria',this)">Auditoría de catálogo</button>
-      <button class="tab" onclick="tab('resumen',this)">Resumen</button>
+      <button class="tab" data-modulos="resumen,caja_bi" onclick="tab('ventas_ingresos',this)">Ventas e ingresos</button>
       <button class="tab" onclick="tab('rentabilidad',this)">Rentabilidad</button>
+      <button class="tab" onclick="tab('clientes_bi',this)">Clientes BI</button>
       <button class="tab" onclick="tab('inventario',this)">Inventario</button>
       <button class="tab" onclick="tab('restock',this)">Restock</button>
-      <button class="tab" onclick="tab('clientes_bi',this)">Clientes BI</button>
-      <button class="tab" onclick="tab('caja_bi',this)">Pagos y Caja</button>
+      <button class="tab" onclick="tab('reportes',this)">Contabilidad</button>
+      <button class="tab" onclick="tab('auditoria',this)">Auditoría de catálogo</button>
       <button class="tab" onclick="tab('crm',this)">CRM Kommo</button>
-      <button class="tab" onclick="tab('reportes',this)">Reportes</button>
-      <button class="tab" onclick="tab('pagos',this)">Métodos de pago</button>
-      <button class="tab" onclick="tab('accesos',this)">Control de accesos</button>
+      <button class="tab" data-modulos="sync,pagos,accesos" onclick="tab('sistemas',this)">Sistemas</button>
     </div>
 
     <div id="tab-clientes_gestion" class="panel active">
@@ -268,27 +267,7 @@ tr:hover td{background:var(--hover)}
       </div>
     </div>
 
-    <div id="tab-sync" class="panel">
-      <div class="card">
-        <h3>Reporte de sincronización con la web</h3>
-        <div class="desc">Descarga el estado de la última sincronización ERP → kuranko.pe en Excel. Se genera al momento y no se almacena. Tiene tres pestañas:<br>
-        <b>Variaciones:</b> productos que cambiaron de stock o precio en la última corrida.<br>
-        <b>Actualizados en WooCommerce:</b> los que efectivamente se aplicaron en la web.<br>
-        <b>Alertas de vinculación:</b> productos cuyo SKU no coincide con la web.</div>
-        <button class="btn" onclick="descargarReporteSync()">Descargar reporte (Excel)</button>
-        <div id="sync-result" class="muted" style="margin-top:10px"></div>
-      </div>
-      <div class="card">
-        <h3>Actualización completa manual</h3>
-        <div class="desc">Normalmente el puente solo actualiza lo que cambió. Si necesitas forzar una revisión de <b>todos</b> los productos (por ejemplo, tras cambios masivos en el ERP), solicítala aquí. <b>No se ejecuta al instante:</b> se aplicará en la próxima sincronización automática de las 2 AM (hora Perú), para no sobrecargar la web. Igual valida que coincidan WooCommerce ID y SKU.</div>
-        <div id="solicitud-estado" class="estado-box" style="display:none"></div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-          <button class="btn" id="btn-solicitar" onclick="solicitarActualizacion()">Solicitar actualización completa</button>
-          <button class="btn danger" id="btn-cancelar" onclick="cancelarActualizacion()" style="display:none">Cancelar solicitud</button>
-        </div>
-        <div id="solicitud-result" class="muted" style="margin-top:10px"></div>
-      </div>
-    </div>
+    
 
     <div id="tab-auditoria" class="panel">
       <div class="card">
@@ -324,9 +303,28 @@ tr:hover td{background:var(--hover)}
           </div>
         </div>
       </div>
+
+      <div class="card">
+        <h3>Chequeo de empresa en ventas</h3>
+        <div class="desc">Detecta ventas donde la <b>empresa vendedora</b> falta o no coincide con la empresa dueña de los productos. <b>Solo revisa y lista</b> — no corrige nada en el ERP. Úsalo para saber qué ventas revisar manualmente.</div>
+        <div class="filtros-fila" style="align-items:center;gap:8px;flex-wrap:wrap">
+          <select id="chq-tipo">
+            <option value="no_coincide">Empresa no coincide (grave)</option>
+            <option value="sin_empresa">Sin empresa vendedora (grave)</option>
+            <option value="sin_lote">Producto sin lote (informativo)</option>
+            <option value="">Todos los problemas</option>
+          </select>
+          <button class="btn" onclick="cargarChequeo()">Revisar ventas</button>
+          <button class="btn" onclick="descargarChequeoExcel()">Excel</button>
+        </div>
+        <div id="chq-resumen" style="margin:8px 0;font-size:13px;color:var(--muted)"></div>
+        <div id="chq-tabla" style="overflow-x:auto;max-height:60vh;overflow-y:auto"></div>
+      </div>
     </div>
 
-    <div id="tab-resumen" class="panel">
+    
+
+    <div id="tab-ventas_ingresos" class="panel">
       <div class="card">
         <div class="filtros-fila" style="align-items:center">
           <label style="font-size:13px">Mes: <input type="month" class="db-mes" onchange="dbAplicarMes(this)"></label>
@@ -335,18 +333,107 @@ tr:hover td{background:var(--hover)}
           <button class="btn" onclick="dbCargarActual()">Actualizar</button>
         </div>
         <div id="kpis-grid" class="kpi-grid"></div>
-        <div class="dbcard"><h4>Valor de ventas por día</h4>
-          <div style="display:flex;gap:16px;margin-bottom:10px;font-size:12px;color:var(--muted)">
-            <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#534AB7"></span> Diseños Corp. SAC</span>
-            <span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#0F6E56"></span> Christopher Villasante</span>
-          </div>
-          <div style="position:relative;height:220px"><canvas id="ch-dias"></canvas></div>
+        <div class="dbcard"><h4>Ventas e ingresos por día</h4>
+          <p class="card-note">Las <b>ventas</b> se separan por la empresa que gestiona la venta; los <b>ingresos</b>, por la empresa dueña de la cuenta donde entró el pago. Clic en la leyenda para mostrar u ocultar cada línea.</p>
+          <div style="position:relative;height:320px"><canvas id="ch-dias"></canvas></div>
+          <div style="font-size:11px;color:var(--muted);margin-top:6px">Arrastra para desplazarte · rueda del mouse o pellizca para acercar · doble clic para restablecer el zoom</div>
         </div>
         <div class="two-col">
           <div class="dbcard"><h4>Por empresa</h4><div id="empresas-box"></div></div>
           <div class="dbcard"><h4>B2B vs B2C</h4><div style="position:relative;height:220px"><canvas id="ch-tipo"></canvas></div></div>
         </div>
+        <div class="two-col">
+          <div class="dbcard"><h4>Métodos de pago</h4><div style="position:relative;height:240px"><canvas id="ch-pagos"></canvas></div></div>
+          <div class="dbcard"><h4>Resumen de cobros</h4><div id="pagos-tabla"></div></div>
+        </div>
+        <div class="dbcard">
+          <h4>Conciliación de pagos online</h4>
+          <p class="card-note">Ingresos registrados en el Google Sheet (Izipay, Mercado Pago) verificados contra lo que tiene el sistema. Filtra por fecha de voucher.</p>
+          <div class="filtros-fila" style="align-items:center;gap:8px;flex-wrap:wrap">
+            <label style="font-size:13px">Día: <input type="date" id="conc-dia" onchange="concUsarDia()"></label>
+            <span style="color:var(--muted);font-size:12px">o rango:</span>
+            <label style="font-size:13px">Desde: <input type="date" id="conc-desde"></label>
+            <label style="font-size:13px">Hasta: <input type="date" id="conc-hasta"></label>
+            <button class="btn" onclick="cargarConciliacion()">Cargar</button>
+            <button class="btn btn-sec btn-sm" onclick="concHoy()">Hoy</button>
+            <button class="btn btn-sec btn-sm" onclick="concAyer()">Ayer</button>
+          </div>
+          <div id="conc-resumen" style="margin:8px 0;font-size:13px;color:var(--muted)"></div>
+          <div id="conc-tabla" style="overflow-x:auto"></div>
+        </div>
       </div>
+    </div>
+
+    <div id="tab-sistemas" class="panel">
+      <div class="card">
+        <div class="subtabs">
+          <button class="subtab active" id="sis-t-sync" data-modulo="sync" onclick="subtabSis('sync')">Sincronización web</button>
+          <button class="subtab" id="sis-t-pagos" data-modulo="pagos" onclick="subtabSis('pagos')">Métodos de pago</button>
+          <button class="subtab" id="sis-t-accesos" data-modulo="accesos" onclick="subtabSis('accesos')">Control de accesos</button>
+        </div>
+      </div>
+      <div id="sis-sync" class="subpanel active">
+      <div class="card">
+        <h3>Reporte de sincronización con la web</h3>
+        <div class="desc">Descarga el estado de la última sincronización ERP → kuranko.pe en Excel. Se genera al momento y no se almacena. Tiene tres pestañas:<br>
+        <b>Variaciones:</b> productos que cambiaron de stock o precio en la última corrida.<br>
+        <b>Actualizados en WooCommerce:</b> los que efectivamente se aplicaron en la web.<br>
+        <b>Alertas de vinculación:</b> productos cuyo SKU no coincide con la web.</div>
+        <button class="btn" onclick="descargarReporteSync()">Descargar reporte (Excel)</button>
+        <div id="sync-result" class="muted" style="margin-top:10px"></div>
+      </div>
+      <div class="card">
+        <h3>Actualización completa manual</h3>
+        <div class="desc">Normalmente el puente solo actualiza lo que cambió. Si necesitas forzar una revisión de <b>todos</b> los productos (por ejemplo, tras cambios masivos en el ERP), solicítala aquí. <b>No se ejecuta al instante:</b> se aplicará en la próxima sincronización automática de las 2 AM (hora Perú), para no sobrecargar la web. Igual valida que coincidan WooCommerce ID y SKU.</div>
+        <div id="solicitud-estado" class="estado-box" style="display:none"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+          <button class="btn" id="btn-solicitar" onclick="solicitarActualizacion()">Solicitar actualización completa</button>
+          <button class="btn danger" id="btn-cancelar" onclick="cancelarActualizacion()" style="display:none">Cancelar solicitud</button>
+        </div>
+        <div id="solicitud-result" class="muted" style="margin-top:10px"></div>
+      </div>
+    </div>
+      <div id="sis-pagos" class="subpanel">
+      <div class="card">
+        <h3>Métodos de pago que ven los clientes</h3>
+        <div class="desc">Lo que escribas aquí es lo que verán tus clientes al tocar "¿Cómo pagar?" en su portal. Puedes incluir saltos de línea. Deja un campo vacío si no quieres mostrar ese método.</div>
+        <div class="field">
+          <label>Transferencia / Depósito</label>
+          <textarea id="pago-transferencia" rows="4" placeholder="Ej:&#10;Banco BCP - Cuenta Corriente Soles&#10;N° 123-4567890-1-23&#10;CCI: 002-123-004567890123-45&#10;Titular: Diseños Corporativos SAC&#10;RUC: 20514359661"></textarea>
+        </div>
+        <div class="field">
+          <label>Yape / Plin</label>
+          <textarea id="pago-yape" rows="3" placeholder="Ej:&#10;Yape: 999 888 777 (Christopher Villasante)&#10;Plin: 999 888 777"></textarea>
+        </div>
+        <div class="field">
+          <label>Tarjeta (Izipay)</label>
+          <textarea id="pago-tarjeta" rows="3" placeholder="Ej:&#10;Escríbenos por WhatsApp y te enviamos un link de pago seguro de Izipay para pagar con tu tarjeta Visa, Mastercard, Amex o Diners."></textarea>
+        </div>
+        <button class="btn" onclick="guardarMetodosPago()">Guardar métodos de pago</button>
+        <div id="pagos-result" class="muted" style="margin-top:10px"></div>
+      </div>
+    </div>
+      <div id="sis-accesos" class="subpanel">
+      <div class="card">
+        <h3>Usuarios administradores</h3>
+        <div class="desc">Los usuarios de tu equipo se configuran en las variables de Railway (rápido y seguro). Aquí ves los que están activos y qué módulos puede ver cada uno.</div>
+        <div id="acc-lista" class="muted">Cargando...</div>
+      </div>
+      <div class="card">
+        <h3>¿Cómo agregar o cambiar un usuario?</h3>
+        <div class="desc">
+          En Railway → tu servicio del portal → pestaña <b>Variables</b>, agrega estas tres variables por cada usuario (numeradas del 2 en adelante):
+          <div class="cod">
+            ADMIN2_USER = supervisor<br>
+            ADMIN2_PASSWORD = suClaveSegura<br>
+            ADMIN2_MODULOS = usuarios,vincular,crear
+          </div>
+          Para un segundo usuario usa <b>ADMIN3_USER</b>, <b>ADMIN3_PASSWORD</b>, <b>ADMIN3_MODULOS</b>, y así.<br><br>
+          <b>Módulos disponibles</b> (escríbelos separados por coma, sin espacios): <span id="acc-modulos-lista" class="cod-inline"></span><br><br>
+          Tras guardar las variables, Railway reinicia el portal solo y el usuario ya puede entrar. Para quitar un usuario, borra sus variables.
+        </div>
+      </div>
+    </div>
     </div>
 
     <div id="tab-rentabilidad" class="panel">
@@ -431,32 +518,7 @@ tr:hover td{background:var(--hover)}
       </div>
     </div>
 
-    <div id="tab-caja_bi" class="panel">
-      <div class="card">
-        <div class="filtros-fila" style="align-items:center">
-          <label style="font-size:13px">Mes: <input type="month" class="db-mes" onchange="dbAplicarMes(this)"></label>
-          <label style="font-size:13px">Desde: <input type="date" class="db-desde"></label>
-          <label style="font-size:13px">Hasta: <input type="date" class="db-hasta"></label>
-          <button class="btn" onclick="dbCargarActual()">Actualizar</button>
-        </div>
-        <div class="two-col">
-          <div class="dbcard"><h4>Métodos de pago</h4><div style="position:relative;height:240px"><canvas id="ch-pagos"></canvas></div></div>
-          <div class="dbcard"><h4>Resumen de cobros</h4><div id="pagos-tabla"></div></div>
-        </div>
-        <div class="dbcard"><h4>Cierres de caja</h4><div style="overflow-x:auto"><table class="dtable" id="tbl-caja"></table></div></div>
-        <div class="dbcard">
-          <h4>Conciliación de pagos online (Google Sheet)</h4>
-          <p class="card-note">Compara lo que registra el sistema con los vouchers del Google Sheet (Izipay, Mercado Pago) y lo que anotas manualmente. Filtra por fecha de voucher. El dato manual se guarda por rango en este navegador.</p>
-          <div class="filtros-fila" style="align-items:center;gap:8px;flex-wrap:wrap">
-            <label style="font-size:13px">Desde: <input type="date" id="conc-desde"></label>
-            <label style="font-size:13px">Hasta: <input type="date" id="conc-hasta"></label>
-            <button class="btn" onclick="cargarConciliacion()">Cargar</button>
-          </div>
-          <div id="conc-resumen" style="margin:8px 0;font-size:13px;color:var(--muted)"></div>
-          <div id="conc-tabla" style="overflow-x:auto"></div>
-        </div>
-      </div>
-    </div>
+    
 
     <div id="tab-crm" class="panel">
       <div class="card">
@@ -533,48 +595,9 @@ tr:hover td{background:var(--hover)}
       </div>
     </div>
 
-    <div id="tab-pagos" class="panel">
-      <div class="card">
-        <h3>Métodos de pago que ven los clientes</h3>
-        <div class="desc">Lo que escribas aquí es lo que verán tus clientes al tocar "¿Cómo pagar?" en su portal. Puedes incluir saltos de línea. Deja un campo vacío si no quieres mostrar ese método.</div>
-        <div class="field">
-          <label>Transferencia / Depósito</label>
-          <textarea id="pago-transferencia" rows="4" placeholder="Ej:&#10;Banco BCP - Cuenta Corriente Soles&#10;N° 123-4567890-1-23&#10;CCI: 002-123-004567890123-45&#10;Titular: Diseños Corporativos SAC&#10;RUC: 20514359661"></textarea>
-        </div>
-        <div class="field">
-          <label>Yape / Plin</label>
-          <textarea id="pago-yape" rows="3" placeholder="Ej:&#10;Yape: 999 888 777 (Christopher Villasante)&#10;Plin: 999 888 777"></textarea>
-        </div>
-        <div class="field">
-          <label>Tarjeta (Izipay)</label>
-          <textarea id="pago-tarjeta" rows="3" placeholder="Ej:&#10;Escríbenos por WhatsApp y te enviamos un link de pago seguro de Izipay para pagar con tu tarjeta Visa, Mastercard, Amex o Diners."></textarea>
-        </div>
-        <button class="btn" onclick="guardarMetodosPago()">Guardar métodos de pago</button>
-        <div id="pagos-result" class="muted" style="margin-top:10px"></div>
-      </div>
-    </div>
+    
 
-    <div id="tab-accesos" class="panel">
-      <div class="card">
-        <h3>Usuarios administradores</h3>
-        <div class="desc">Los usuarios de tu equipo se configuran en las variables de Railway (rápido y seguro). Aquí ves los que están activos y qué módulos puede ver cada uno.</div>
-        <div id="acc-lista" class="muted">Cargando...</div>
-      </div>
-      <div class="card">
-        <h3>¿Cómo agregar o cambiar un usuario?</h3>
-        <div class="desc">
-          En Railway → tu servicio del portal → pestaña <b>Variables</b>, agrega estas tres variables por cada usuario (numeradas del 2 en adelante):
-          <div class="cod">
-            ADMIN2_USER = supervisor<br>
-            ADMIN2_PASSWORD = suClaveSegura<br>
-            ADMIN2_MODULOS = usuarios,vincular,crear
-          </div>
-          Para un segundo usuario usa <b>ADMIN3_USER</b>, <b>ADMIN3_PASSWORD</b>, <b>ADMIN3_MODULOS</b>, y así.<br><br>
-          <b>Módulos disponibles</b> (escríbelos separados por coma, sin espacios): <span id="acc-modulos-lista" class="cod-inline"></span><br><br>
-          Tras guardar las variables, Railway reinicia el portal solo y el usuario ya puede entrar. Para quitar un usuario, borra sus variables.
-        </div>
-      </div>
-    </div>
+    
   </div>
 </div>
 
@@ -623,13 +646,28 @@ function aplicarPermisos(){
     const m=(b.getAttribute('onclick')||'').match(/tab\('([^']+)'/);
     if(!m)return;
     const modulo=m[1];
+    const grupo=b.getAttribute('data-modulos'); // pestaña que agrupa varios módulos
     let visible;
-    if(modulo==='accesos') visible=ES_MAESTRO;                 // solo el maestro
-    else if(ES_MAESTRO) visible=true;                          // maestro ve todo
-    else visible=MIS_MODULOS.includes(modulo);                // secundario: según permisos
+    if(grupo){
+      // Visible si es maestro o tiene alguno de los módulos del grupo.
+      // 'accesos' no cuenta para abrir el grupo (es solo-maestro).
+      const mods=grupo.split(',').filter(x=>x!=='accesos');
+      visible=ES_MAESTRO||mods.some(x=>MIS_MODULOS.includes(x));
+    }
+    else if(modulo==='accesos') visible=ES_MAESTRO;             // solo el maestro
+    else if(ES_MAESTRO) visible=true;                           // maestro ve todo
+    else visible=MIS_MODULOS.includes(modulo);                 // secundario: según permisos
     b.style.display=visible?'':'none';
     b.classList.remove('active');
     if(visible&&!primeraVisible)primeraVisible=b;
+  });
+  // Sub-pestañas dentro de los grupos: ocultar las que no tenga permitidas
+  document.querySelectorAll('.subtab[data-modulo]').forEach(st=>{
+    const mod=st.getAttribute('data-modulo');
+    let ok;
+    if(mod==='accesos') ok=ES_MAESTRO;
+    else ok=ES_MAESTRO||MIS_MODULOS.includes(mod);
+    st.style.display=ok?'':'none';
   });
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
   // Abrir la primera pestaña visible
@@ -655,6 +693,18 @@ function cargarDatosTab(id){
     // Pestaña unificada: carga usuarios + listas de clientes/consignaciones
     if(!tabsCargadas.usuarios){cargarUsuarios();tabsCargadas.usuarios=1;}
     if(!tabsCargadas.clientes){cargarClientes();cargarConsignaciones();tabsCargadas.clientes=1;}
+  }
+  else if(id==='sistemas'){
+    // Grupo: Sincronización web + Métodos de pago + Control de accesos
+    cargarEstadoActualizacion();
+    if(typeof cargarMetodosPago==='function')cargarMetodosPago();
+  }
+  else if(id==='ventas_ingresos'){
+    // Panel unificado: resumen de ventas + ingresos/caja con un solo filtro de fecha
+    dbInitFechas('tab-ventas_ingresos');
+    if(!dbCargadas['resumen'])dbCargarModulo('resumen');
+    if(!dbCargadas['caja_bi'])dbCargarModulo('caja_bi');
+    concInitDia();
   }
   else if(id==='sync'){cargarEstadoActualizacion();}
   else if(id==='auditoria'){if(!auditoriaCache)cargarAuditoriaGuardada();}
@@ -829,12 +879,68 @@ function mostrarAuditoria(desdeCache){
   renderAlertasAud();
 }
 function esc(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-function subtabAud(cual){
-  document.querySelectorAll('.subpanel').forEach(p=>p.classList.remove('active'));
-  document.querySelectorAll('.subtab').forEach(t=>t.classList.remove('active'));
-  document.getElementById('sub-'+cual).classList.add('active');
-  document.getElementById('st-'+cual).classList.add('active');
+// ══════════ Chequeo de empresa en ventas ══════════
+const CHQ_EMPRESAS={1:'Diseños Corporativos SAC',2:'Christopher Villasante F.'};
+const CHQ_PROB={sin_empresa:{t:'Sin empresa vendedora',c:'badge-r'},no_coincide:{t:'Empresa no coincide',c:'badge-r'},sin_lote:{t:'Producto sin lote',c:'badge-y'}};
+function chqParams(){
+  const p=new URLSearchParams();
+  const t=document.getElementById('chq-tipo').value;
+  if(t)p.set('tipo',t);
+  return p;
 }
+async function cargarChequeo(){
+  const res=document.getElementById('chq-resumen');
+  const cont=document.getElementById('chq-tabla');
+  res.textContent='Revisando ventas... puede tardar unos segundos.';
+  cont.innerHTML='';
+  try{
+    const d=await apiCall('/admin/chequeo-empresas?'+chqParams().toString(),'GET');
+    res.innerHTML=`<b>${d.total}</b> venta(s) con problema · `+
+      `Sin empresa: ${d.conteo.sin_empresa||0} · No coincide: ${d.conteo.no_coincide||0} · Sin lote: ${d.conteo.sin_lote||0}`+
+      (d.total>500?' <span class="badge-y">Mostrando las 500 más recientes</span>':'');
+    if(!d.ventas.length){cont.innerHTML='<div class="muted">✓ No se encontraron ventas con ese problema.</div>';return;}
+    cont.innerHTML='<table class="deudas-tbl"><thead><tr><th>Venta</th><th>Fecha</th><th>Estado</th><th>Empresa vendedora</th><th>Empresa(s) del producto</th><th>Problema(s)</th><th style="text-align:right">Total</th></tr></thead><tbody>'+
+      d.ventas.map(v=>`<tr>
+        <td><b>${esc(v.code)}</b></td>
+        <td>${v.fecha?new Date(v.fecha).toLocaleDateString('es-PE'):'—'}</td>
+        <td>${esc(v.status)}</td>
+        <td>${v.empresa_venta!=null?esc(CHQ_EMPRESAS[v.empresa_venta]||('Empresa '+v.empresa_venta)):'<span class="badge-r">vacío</span>'}</td>
+        <td>${v.empresas_producto.length?v.empresas_producto.map(e=>esc(CHQ_EMPRESAS[e]||('Empresa '+e))).join(', '):'<span class="muted">sin lote</span>'}</td>
+        <td>${v.problemas.map(p=>`<span class="${(CHQ_PROB[p]||{}).c||'badge-y'}" style="font-size:9px">${esc((CHQ_PROB[p]||{}).t||p)}</span>`).join(' ')}</td>
+        <td style="text-align:right">S/ ${Number(v.total).toLocaleString('es-PE',{minimumFractionDigits:2})}</td>
+      </tr>`).join('')+'</tbody></table>';
+  }catch(e){res.textContent='';showToast(e.message,true);}
+}
+async function descargarChequeoExcel(){
+  try{
+    const r=await fetch(API+'/admin/chequeo-empresas-excel?'+chqParams().toString(),{headers:{'Authorization':'Bearer '+TOKEN}});
+    if(!r.ok)throw new Error('No se pudo generar el Excel');
+    const blob=await r.blob();
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');a.href=url;a.download=nombreArchivo('chequeo-empresas','xlsx');a.click();
+    URL.revokeObjectURL(url);
+  }catch(e){showToast(e.message,true);}
+}
+
+function subtabAud(cual){
+  // Solo los subpaneles de auditoría (ids sub-alertas / sub-pendientes)
+  ['alertas','pendientes'].forEach(x=>{
+    const p=document.getElementById('sub-'+x), t=document.getElementById('st-'+x);
+    if(p)p.classList.toggle('active',x===cual);
+    if(t)t.classList.toggle('active',x===cual);
+  });
+}
+function subtabSis(cual){
+  // Grupo Sistemas: sync | pagos | accesos
+  ['sync','pagos','accesos'].forEach(x=>{
+    const p=document.getElementById('sis-'+x), t=document.getElementById('sis-t-'+x);
+    if(p)p.classList.toggle('active',x===cual);
+    if(t)t.classList.toggle('active',x===cual);
+  });
+  if(cual==='sync')cargarEstadoActualizacion();
+  if(cual==='pagos'&&typeof cargarMetodosPago==='function')cargarMetodosPago();
+}
+
 function renderPendientesAud(){
   const cont=document.getElementById('aud-pendientes');
   const q=(document.getElementById('aud-buscar-pend').value||'').toLowerCase().trim();
@@ -1190,10 +1296,18 @@ let dbCharts={}, dbCargadas={};
 const dbFmt=n=>new Intl.NumberFormat('es-PE',{style:'currency',currency:'PEN',maximumFractionDigits:0}).format(n||0);
 const dbFmtN=n=>new Intl.NumberFormat('es-PE').format(n||0);
 // Lee las fechas del panel actualmente visible (cada panel tiene su barra .db-desde/.db-hasta)
-function dbFechasPanelActivo(){
+// Devuelve el contenedor cuyos filtros de fecha se deben usar:
+// si el panel activo tiene subpaneles (grupos), el subpanel activo manda.
+function dbContenedorActivo(){
   const panel=document.querySelector('.panel.active');
-  if(!panel)return '';
-  const d=panel.querySelector('.db-desde'), h=panel.querySelector('.db-hasta');
+  if(!panel)return null;
+  const sub=panel.querySelector('.subpanel.active');
+  return (sub&&sub.querySelector('.db-desde'))?sub:panel;
+}
+function dbFechasPanelActivo(){
+  const cont=dbContenedorActivo();
+  if(!cont)return '';
+  const d=cont.querySelector('.db-desde'), h=cont.querySelector('.db-hasta');
   return (d&&h&&d.value&&h.value)?`?desde=${d.value}&hasta=${h.value}`:'';
 }
 async function dbApi(ep){
@@ -1256,8 +1370,8 @@ async function dbCargarModulo(id){
 }
 // Botón "Actualizar" dentro de un panel: recarga esa pestaña con las fechas nuevas
 function dbAplicarMes(elemento){
-  // Rellena el desde/hasta del panel donde está este selector de mes
-  const panel=elemento.closest('.panel'); if(!panel)return;
+  // Rellena el desde/hasta del panel (o subpanel) donde está este selector de mes
+  const panel=elemento.closest('.subpanel')||elemento.closest('.panel'); if(!panel)return;
   const valorMes=elemento.value; if(!valorMes)return;
   const [a,m]=valorMes.split('-').map(Number);
   const ultimo=new Date(a,m,0).getDate();
@@ -1268,7 +1382,13 @@ function dbAplicarMes(elemento){
 }
 function dbCargarActual(){
   const panel=document.querySelector('.panel.active'); if(!panel)return;
-  const id=panel.id.replace('tab-','');
+  let id=panel.id.replace('tab-','');
+  // El panel unificado recarga sus dos módulos con el mismo filtro
+  if(id==='ventas_ingresos'){
+    dbCargadas['resumen']=0; dbCargadas['caja_bi']=0;
+    dbCargarModulo('resumen'); dbCargarModulo('caja_bi');
+    return;
+  }
   dbCargadas[id]=0;
   dbCargarModulo(id);
 }
@@ -1283,14 +1403,50 @@ async function dbResumen(){
     {l:'Clientes únicos',v:dbFmtN(k.clientes_unicos),s:'en el período'},
     {l:'Canceladas',v:dbFmtN(k.canceladas),s:'anuladas'},
   ].map(x=>`<div class="kpi ${x.a?'accent':''}"><div class="kpi-label">${x.l}</div><div class="kpi-val">${x.v}</div><div class="kpi-sub">${x.s}</div></div>`).join('');
-  const dias=await dbApi('/api/ventas-por-dia');
-  const fechas=[...new Set(dias.map(r=>r.fecha))].sort();
-  const e1=fechas.map(f=>{const r=dias.find(x=>x.fecha===f&&x.company_id===1);return r?+r.total:0;});
-  const e2=fechas.map(f=>{const r=dias.find(x=>x.fecha===f&&x.company_id===2);return r?+r.total:0;});
-  dbMkChart('ch-dias','line',{labels:fechas,datasets:[
-    {label:'Diseños',data:e1,borderColor:'#534AB7',backgroundColor:'rgba(83,74,183,.12)',fill:true,tension:.4,pointRadius:2},
-    {label:'Christopher',data:e2,borderColor:'#0F6E56',backgroundColor:'rgba(15,110,86,.12)',fill:true,tension:.4,pointRadius:2,borderDash:[4,3]}
-  ]},{scales:{x:{ticks:{color:'#94a3b8',font:{size:10},maxTicksLimit:10},grid:{color:'rgba(255,255,255,.06)'}},y:{ticks:{color:'#94a3b8',font:{size:10},callback:v=>'S/'+dbFmtN(v)},grid:{color:'rgba(255,255,255,.06)'}}},plugins:{legend:{display:false}}});
+  // Ventas por día (por empresa) + ingresos cobrados (por dueño de la cuenta)
+  const [dias,ingresos]=await Promise.all([dbApi('/api/ventas-por-dia'),dbApi('/api/ingresos-por-dia')]);
+  const soloDia=v=>String(v).slice(0,10);
+  const fechas=[...new Set([...dias.map(r=>soloDia(r.fecha)),...ingresos.map(r=>soloDia(r.fecha))])].sort();
+  const serieVenta=cid=>fechas.map(f=>{const r=dias.find(x=>soloDia(x.fecha)===f&&x.company_id===cid);return r?+r.total:0;});
+  const serieIng=cid=>fechas.map(f=>{const r=ingresos.find(x=>soloDia(x.fecha)===f&&x.company_id===cid);return r?+r.total:0;});
+  const v1=serieVenta(1), v2=serieVenta(2);
+  const i1=serieIng(1), i2=serieIng(2);
+  // Totales (suman todo lo del día, incluidos los que no tienen empresa asignada)
+  const vT=fechas.map(f=>dias.filter(x=>soloDia(x.fecha)===f).reduce((a,x)=>a+(+x.total),0));
+  const iT=fechas.map(f=>ingresos.filter(x=>soloDia(x.fecha)===f).reduce((a,x)=>a+(+x.total),0));
+  const etiq=fechas.map(f=>{const p=f.split('-');return p[2]+'/'+p[1];});
+  dbMkChart('ch-dias','line',{labels:etiq,datasets:[
+    {label:'Ventas Diseños',data:v1,borderColor:'#534AB7',backgroundColor:'rgba(83,74,183,.12)',fill:true,tension:.35,pointRadius:2,pointHoverRadius:5,order:4},
+    {label:'Ventas Christopher',data:v2,borderColor:'#0F6E56',backgroundColor:'rgba(15,110,86,.12)',fill:true,tension:.35,pointRadius:2,pointHoverRadius:5,borderDash:[4,3],order:5},
+    {label:'Ventas TOTAL',data:vT,borderColor:'#8b93b8',backgroundColor:'transparent',fill:false,tension:.35,pointRadius:0,pointHoverRadius:5,borderWidth:2,borderDash:[2,2],order:3,hidden:true},
+    {label:'Ingresos Diseños',data:i1,borderColor:'#FFB30D',backgroundColor:'transparent',fill:false,tension:.35,pointRadius:2,pointHoverRadius:5,borderWidth:2,order:2,hidden:true},
+    {label:'Ingresos Christopher',data:i2,borderColor:'#D85A30',backgroundColor:'transparent',fill:false,tension:.35,pointRadius:2,pointHoverRadius:5,borderWidth:2,borderDash:[4,3],order:2,hidden:true},
+    {label:'Ingresos TOTAL',data:iT,borderColor:'#FFB30D',backgroundColor:'rgba(255,179,13,.06)',fill:false,tension:.35,pointRadius:3,pointHoverRadius:6,borderWidth:2.5,order:1}
+  ]},{
+    interaction:{mode:'index',intersect:false},
+    scales:{
+      x:{ticks:{color:'#94a3b8',font:{size:10},maxRotation:0,autoSkip:true,maxTicksLimit:14},grid:{color:'rgba(255,255,255,.06)'}},
+      y:{ticks:{color:'#94a3b8',font:{size:10},callback:v=>'S/'+dbFmtN(v)},grid:{color:'rgba(255,255,255,.06)'}}
+    },
+    plugins:{
+      legend:{display:true,position:'bottom',labels:{color:'#94a3b8',font:{size:10},padding:8,boxWidth:14,usePointStyle:false}},
+      tooltip:{callbacks:{
+        title:items=>{const i=items[0].dataIndex;return fechas[i];},
+        label:c=>c.dataset.label+': '+dbFmt(c.raw)
+      }},
+      zoom:{
+        pan:{enabled:true,mode:'x'},
+        zoom:{wheel:{enabled:true},pinch:{enabled:true},mode:'x'},
+        limits:{x:{minRange:3}}
+      }
+    }
+  });
+  // Doble clic para restablecer el zoom
+  const cvDias=document.getElementById('ch-dias');
+  if(cvDias&&!cvDias._dblSet){
+    cvDias.addEventListener('dblclick',()=>{const ch=dbCharts&&dbCharts['ch-dias'];if(ch&&ch.resetZoom)ch.resetZoom();});
+    cvDias._dblSet=true;
+  }
   const emp=await dbApi('/api/kpis-empresas');
   document.getElementById('empresas-box').innerHTML=emp.map(r=>`
     <div class="empresa-card"><div class="empresa-name">${r.empresa}</div>
@@ -1625,20 +1781,33 @@ function concParams(){
   if(d)p.set('desde',d); if(h)p.set('hasta',h);
   return p;
 }
-function concClaveManual(){
-  // Clave de guardado del manual, por rango de fechas
-  const d=document.getElementById('conc-desde').value||'x';
-  const h=document.getElementById('conc-hasta').value||'x';
-  return 'kuranko_conc_manual_'+d+'_'+h;
+// Selector de día rápido: al elegir un día, llena desde y hasta con esa fecha
+function concUsarDia(){
+  const dia=document.getElementById('conc-dia').value;
+  if(!dia)return;
+  document.getElementById('conc-desde').value=dia;
+  document.getElementById('conc-hasta').value=dia;
+  cargarConciliacion();
 }
-function concLeerManual(){
-  try{return JSON.parse(localStorage.getItem(concClaveManual())||'{}');}catch(e){return {};}
+function concFijarDia(fechaISO){
+  document.getElementById('conc-dia').value=fechaISO;
+  document.getElementById('conc-desde').value=fechaISO;
+  document.getElementById('conc-hasta').value=fechaISO;
+  cargarConciliacion();
 }
-function concGuardarManual(clave,valor){
-  const m=concLeerManual();
-  m[clave]=valor;
-  try{localStorage.setItem(concClaveManual(),JSON.stringify(m));}catch(e){}
+function concHoy(){ concFijarDia(new Date().toISOString().split('T')[0]); }
+function concAyer(){ concFijarDia(new Date(Date.now()-864e5).toISOString().split('T')[0]); }
+function concInitDia(){
+  // Al abrir, dejar el día de hoy puesto (sin cargar solo)
+  const hoy=new Date().toISOString().split('T')[0];
+  const dia=document.getElementById('conc-dia');
+  if(dia&&!dia.value){
+    dia.value=hoy;
+    document.getElementById('conc-desde').value=hoy;
+    document.getElementById('conc-hasta').value=hoy;
+  }
 }
+
 async function cargarConciliacion(){
   const resumen=document.getElementById('conc-resumen');
   const cont=document.getElementById('conc-tabla');
@@ -1674,29 +1843,37 @@ async function cargarConciliacion(){
 }
 function pintarConciliacion(filas){
   const cont=document.getElementById('conc-tabla');
-  if(!filas.length){cont.innerHTML='<div class="muted">No hay datos para ese rango.</div>';return;}
-  // Agrupar por empresa
+  // Solo los canales que existen en el Google Sheet (pagos online).
+  // Los métodos que el Sheet no reporta (Yape, efectivo, etc.) no se concilian aquí.
+  const online=filas.filter(f=>f.sheet>0);
+  if(!online.length){cont.innerHTML='<div class="muted">No hay pagos online en el Google Sheet para esa fecha.</div>';return;}
   const porEmp={};
-  filas.forEach(f=>{(porEmp[f.empresa]=porEmp[f.empresa]||[]).push(f);});
-  const manual=concLeerManual();
+  online.forEach(f=>{(porEmp[f.empresa]=porEmp[f.empresa]||[]).push(f);});
   let html='';
   Object.keys(porEmp).sort().forEach(eid=>{
     const nombre=CONC_ID_EMPRESA[eid]||(eid==='null'||eid==='undefined'||!eid?'Sin empresa asignada':'Empresa '+eid);
     html+=`<div style="font-weight:700;margin:14px 0 6px;color:var(--white)">${esc(nombre)}</div>`;
-    html+='<table class="deudas-tbl"><thead><tr><th>Canal / Método</th><th style="text-align:right">Sistema</th><th style="text-align:right">Google Sheet</th><th style="text-align:right">Manual (yo)</th><th style="text-align:right">Dif. Sistema–Sheet</th></tr></thead><tbody>';
+    html+='<table class="deudas-tbl"><thead><tr><th>Canal</th><th style="text-align:right">Google Sheet</th><th style="text-align:right">Sistema</th><th style="text-align:right">Diferencia</th><th style="text-align:center">Estado</th></tr></thead><tbody>';
+    let tSheet=0,tSist=0;
     porEmp[eid].sort((a,b)=>a.canal.localeCompare(b.canal)).forEach(f=>{
       const dif=f.sistema-f.sheet;
-      const difColor=Math.abs(dif)<0.01?'var(--fg-ok)':'var(--fg-r)';
-      const mkey=eid+'|||'+f.canal;
-      const mval=manual[mkey]!=null?manual[mkey]:'';
+      const ok=Math.abs(dif)<0.01;
+      tSheet+=f.sheet; tSist+=f.sistema;
       html+=`<tr>
         <td>${esc(f.canal)}</td>
-        <td style="text-align:right">${concFmt(f.sistema)}</td>
         <td style="text-align:right">${concFmt(f.sheet)}</td>
-        <td style="text-align:right"><input type="number" step="0.01" value="${mval}" placeholder="0.00" style="width:100px;text-align:right;padding:4px 6px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text)" onchange="concGuardarManual('${mkey}',this.value)"></td>
-        <td style="text-align:right;color:${difColor};font-weight:600">${concFmt(dif)}</td>
+        <td style="text-align:right">${concFmt(f.sistema)}</td>
+        <td style="text-align:right;color:${ok?'var(--fg-ok)':'var(--fg-r)'};font-weight:600">${concFmt(dif)}</td>
+        <td style="text-align:center">${ok?'<span class="badge-g" style="font-size:9px">cuadra</span>':'<span class="badge-r" style="font-size:9px">revisar</span>'}</td>
       </tr>`;
     });
+    const difT=tSist-tSheet;
+    html+=`<tr style="border-top:2px solid var(--border);font-weight:700">
+      <td>Total</td>
+      <td style="text-align:right">${concFmt(tSheet)}</td>
+      <td style="text-align:right">${concFmt(tSist)}</td>
+      <td style="text-align:right;color:${Math.abs(difT)<0.01?'var(--fg-ok)':'var(--fg-r)'}">${concFmt(difT)}</td>
+      <td></td></tr>`;
     html+='</tbody></table>';
   });
   cont.innerHTML=html;
@@ -1709,13 +1886,6 @@ async function dbCaja(){
     {plugins:{legend:{position:'bottom',labels:{color:'#94a3b8',font:{size:11},padding:10}},tooltip:{callbacks:{label:c=>dbFmt(c.raw)}}}});
   document.getElementById('pagos-tabla').innerHTML='<table class="dtable"><thead><tr><th>Método</th><th>N°</th><th>Total</th></tr></thead><tbody>'+
     pagos.map(p=>`<tr><td>${p.metodo||'Sin nombre'}</td><td>${dbFmtN(p.cantidad)}</td><td style="color:var(--accent);font-weight:600">${dbFmt(p.total)}</td></tr>`).join('')+'</tbody></table>';
-  const caja=await dbApi('/api/cierres-caja');
-  dbSortTable('tbl-caja',caja,[
-    {k:'closure_date',t:'Fecha',fmt:v=>v},
-    {k:'status',t:'Estado',fmt:v=>`<span class="badge ${v==='closed'?'badge-g':'badge-y'}">${v}</span>`},
-    {k:'total_general',t:'Total',fmt:dbFmt,num:1},
-    {k:'notes',t:'Notas',fmt:v=>`<span style="color:var(--muted);font-size:12px">${v||'-'}</span>`}
-  ],'closure_date');
 }
 
 async function dbCRM(){
@@ -1768,7 +1938,7 @@ async function cargarEstadoActualizacion(){
   }catch(e){ if(box)box.style.display='none'; }
 }
 // Nombres legibles de los módulos
-const NOMBRE_MODULO={clientes_gestion:'Gestión de clientes',sync:'Sincronización web',auditoria:'Auditoría de catálogo',resumen:'Resumen',rentabilidad:'Rentabilidad',inventario:'Inventario',restock:'Restock',clientes_bi:'Clientes BI',caja_bi:'Pagos y Caja',crm:'CRM Kommo',reportes:'Reportes',pagos:'Métodos de pago'};
+const NOMBRE_MODULO={clientes_gestion:'Gestión de clientes',sync:'Sincronización web (en Sistemas)',auditoria:'Auditoría de catálogo',resumen:'Resumen de ventas (en Ventas e ingresos)',rentabilidad:'Rentabilidad',inventario:'Inventario',restock:'Restock',clientes_bi:'Clientes BI',caja_bi:'Ingresos y caja (en Ventas e ingresos)',crm:'CRM Kommo',reportes:'Contabilidad',pagos:'Métodos de pago (en Sistemas)'};
 let accesosCache={modulos_disponibles:[],usuarios:[]};
 async function cargarAccesos(){
   try{

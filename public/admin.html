@@ -698,6 +698,7 @@ function cargarDatosTab(id){
     // Grupo: Sincronización web + Métodos de pago + Control de accesos
     cargarEstadoActualizacion();
     if(typeof cargarMetodosPago==='function')cargarMetodosPago();
+    if(ES_MAESTRO&&typeof cargarAccesos==='function')cargarAccesos();
   }
   else if(id==='ventas_ingresos'){
     // Panel unificado: resumen de ventas + ingresos/caja con un solo filtro de fecha
@@ -939,6 +940,7 @@ function subtabSis(cual){
   });
   if(cual==='sync')cargarEstadoActualizacion();
   if(cual==='pagos'&&typeof cargarMetodosPago==='function')cargarMetodosPago();
+  if(cual==='accesos'&&typeof cargarAccesos==='function')cargarAccesos();
 }
 
 function renderPendientesAud(){

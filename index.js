@@ -1369,6 +1369,112 @@ app.get('/admin/auditoria', authAdmin, requiereModulo('auditoria'), async (req, 
 });
 
 // ─── Auditoría de catálogo en Excel (2 pestañas) ─────────────────────────────
+// ── CHEQUEO: coherencia de empresa vendedora vs dueño de los productos ──
+// Detecta: (1) ventas sin empresa vendedora, (2) ventas donde algún producto
+// pertenece a otra empresa, (3) productos sin lote (sin dueño identificable).
+// Solo LECTURA: no corrige nada en el ERP, solo lista para revisar.
+async function obtenerChequeoEmpresas(q) {
+  const { tipo } = q; // 'sin_empresa' | 'no_coincide' | 'sin_lote' | undefined (todos)
+  const [rows] = await prodPool.query(`
+    SELECT s.id, s.code, s.company_id AS empresa_venta, s.status, s.created_at, s.total,
+      si.id AS item_id, si.is_backorder, si.pending_stock_entry_id,
+      sb.company_id AS empresa_producto,
+      pv.sku, p.name AS producto
+    FROM sales s
+    JOIN sale_items si ON si.sale_id = s.id
+    LEFT JOIN stock_batches sb ON sb.id = si.stock_batch_id
+    LEFT JOIN product_variations pv ON pv.id = si.product_variation_id
+    LEFT JOIN products p ON p.id = pv.product_id
+    WHERE s.deleted_at IS NULL AND s.status != 'cancelled'
+    ORDER BY s.created_at DESC`);
+
+  // Agrupar por venta
+  const porVenta = {};
+  rows.forEach(r => {
+    if (!porVenta[r.id]) {
+      porVenta[r.id] = {
+        id: r.id, code: r.code, empresa_venta: r.empresa_venta,
+        status: r.status, fecha: r.created_at, total: Number(r.total),
+        items: [], problemas: new Set()
+      };
+    }
+    const v = porVenta[r.id];
+    const aPedido = !!(r.is_backorder || r.pending_stock_entry_id);
+    v.items.push({
+      sku: r.sku || '—', producto: r.producto || '—',
+      empresa_producto: r.empresa_producto, a_pedido: aPedido
+    });
+    // Detectar problemas
+    if (r.empresa_venta == null) v.problemas.add('sin_empresa');
+    if (r.empresa_producto == null) v.problemas.add('sin_lote');
+    else if (r.empresa_venta != null && Number(r.empresa_producto) !== Number(r.empresa_venta)) {
+      v.problemas.add('no_coincide');
+    }
+  });
+
+  let lista = Object.values(porVenta)
+    .filter(v => v.problemas.size > 0)
+    .map(v => ({
+      ...v,
+      problemas: [...v.problemas],
+      empresas_producto: [...new Set(v.items.map(i => i.empresa_producto).filter(x => x != null))],
+      num_items: v.items.length
+    }));
+
+  if (tipo) lista = lista.filter(v => v.problemas.includes(tipo));
+  return lista;
+}
+
+app.get('/admin/chequeo-empresas', authAdmin, requiereModulo('auditoria'), async (req, res) => {
+  try {
+    const lista = await obtenerChequeoEmpresas(req.query);
+    const conteo = { sin_empresa: 0, no_coincide: 0, sin_lote: 0 };
+    lista.forEach(v => v.problemas.forEach(p => conteo[p] = (conteo[p] || 0) + 1));
+    res.json({ total: lista.length, conteo, ventas: lista.slice(0, 500) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/admin/chequeo-empresas-excel', authAdmin, requiereModulo('auditoria'), async (req, res) => {
+  try {
+    const lista = await obtenerChequeoEmpresas(req.query);
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Chequeo empresas');
+    const fechaLima = (d) => d ? new Date(d).toLocaleDateString('es-PE', { timeZone: 'America/Lima' }) : '';
+    const NOMBRE_PROB = { sin_empresa: 'Sin empresa vendedora', no_coincide: 'Empresa no coincide', sin_lote: 'Producto sin lote' };
+
+    const filasCab = cabeceraExcel(ws, 'Chequeo de empresa en ventas', [
+      ['Filtro', req.query.tipo ? NOMBRE_PROB[req.query.tipo] : 'Todos'],
+      ['Ventas con problema', lista.length]
+    ], 8);
+    const colDefs = [
+      { header: 'Venta', width: 15 }, { header: 'Fecha', width: 12 }, { header: 'Estado', width: 15 },
+      { header: 'Empresa vendedora', width: 26 }, { header: 'Empresa(s) del producto', width: 26 },
+      { header: 'Problema(s)', width: 40 }, { header: 'Items', width: 8 }, { header: 'Total', width: 13 }
+    ];
+    colDefs.forEach((c, i) => ws.getColumn(i + 1).width = c.width);
+    const hr = ws.addRow(colDefs.map(c => c.header));
+    hr.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    hr.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000726' } };
+
+    lista.forEach(v => ws.addRow([
+      v.code, fechaLima(v.fecha), v.status,
+      v.empresa_venta != null ? (EMPRESAS_BI[v.empresa_venta] || 'Empresa ' + v.empresa_venta) : '(vacío)',
+      v.empresas_producto.length ? v.empresas_producto.map(e => EMPRESAS_BI[e] || 'Empresa ' + e).join(', ') : '(sin lote)',
+      v.problemas.map(p => NOMBRE_PROB[p] || p).join(' · '),
+      v.num_items, v.total
+    ]));
+    ws.views = [{ state: 'frozen', ySplit: filasCab + 1 }];
+    ws.getColumn(8).numFmt = '#,##0.00';
+
+    const nombre = nombreTrazable('chequeo-empresas');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${nombre}.xlsx"`);
+    await wb.xlsx.write(res);
+    res.end();
+  } catch (e) { res.status(500).json({ error: 'Error al generar: ' + e.message }); }
+});
+
 app.get('/admin/auditoria-excel', authAdmin, requiereModulo('auditoria'), async (req, res) => {
   try {
     const { pendientes, alertas } = await calcularAuditoria();
@@ -1697,6 +1803,28 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
         SELECT DATE(s.created_at) AS fecha, s.company_id, COUNT(*) AS cantidad, COALESCE(SUM(s.total),0) AS total
         FROM sales s WHERE s.deleted_at IS NULL AND s.status IN ${VV} ${f}
         GROUP BY DATE(s.created_at), s.company_id ORDER BY fecha ASC`);
+      res.json(rows);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Ingresos realmente cobrados por día, separados por la empresa DUEÑA DE LA CUENTA
+  // donde entró el pago (misma lógica que el cierre de caja). Si el pago no tiene
+  // cuenta asignada, se cae al company_id de la venta.
+  app.get('/api/ingresos-por-dia', authAdmin, mResumen, async (req, res) => {
+    const { desde, hasta } = req.query;
+    const f = desde && hasta ? `AND sp.paid_at BETWEEN '${desde}' AND '${hasta} 23:59:59'`
+      : `AND sp.paid_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)`;
+    try {
+      const [rows] = await prodPool.query(`
+        SELECT DATE(sp.paid_at) AS fecha,
+          COALESCE(ba.party_id, s.company_id) AS company_id,
+          COUNT(*) AS cantidad, COALESCE(SUM(sp.amount),0) AS total
+        FROM sale_payments sp
+        LEFT JOIN sales s ON s.id = sp.sale_id
+        LEFT JOIN bank_accounts ba ON ba.id = sp.bank_account_id
+        WHERE sp.voided_at IS NULL ${f}
+        GROUP BY DATE(sp.paid_at), COALESCE(ba.party_id, s.company_id)
+        ORDER BY fecha ASC`);
       res.json(rows);
     } catch (e) { res.status(500).json({ error: e.message }); }
   });

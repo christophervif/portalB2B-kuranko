@@ -334,7 +334,7 @@ tr:hover td{background:var(--hover)}
         </div>
         <div id="kpis-grid" class="kpi-grid"></div>
         <div class="dbcard"><h4>Ventas e ingresos por día</h4>
-          <p class="card-note">Las <b>ventas</b> se separan por la empresa que gestiona la venta; los <b>ingresos</b>, por la empresa dueña de la cuenta donde entró el pago. Clic en la leyenda para mostrar u ocultar cada línea.</p>
+          <p class="card-note">Las <b>ventas</b> y el <b>margen</b> (ganancia FIFO) se separan por la empresa que gestiona la venta; los <b>ingresos</b>, por la empresa dueña de la cuenta donde entró el pago. Clic en la leyenda para mostrar u ocultar cada línea.</p>
           <div style="position:relative;height:320px"><canvas id="ch-dias"></canvas></div>
           <div style="font-size:11px;color:var(--muted);margin-top:6px">Arrastra para desplazarte · rueda del mouse o pellizca para acercar · doble clic para restablecer el zoom</div>
         </div>
@@ -464,6 +464,29 @@ tr:hover td{background:var(--hover)}
         <div id="inv-kpis" class="kpi-grid"></div>
         <div class="dbcard"><h4>Stock por sucursal</h4>
           <div style="overflow-x:auto"><table class="dtable" id="tbl-sucursal"></table></div></div>
+        <div class="dbcard">
+          <h4>Promociones recomendadas</h4>
+          <p class="card-note" id="promo-desc">Productos con stock que no venden hace 4+ meses: dinero congelado, candidatos clásicos a descuento.</p>
+          <div class="filtros-fila" style="align-items:center;gap:8px;flex-wrap:wrap">
+            <select id="promo-criterio" onchange="promoCambioCriterio()">
+              <option value="estancado">Stock estancado (4+ meses sin vender)</option>
+              <option value="sobrestock">Sobre-stock (12+ meses para agotar)</option>
+              <option value="margen_lento">Margen alto + venta lenta</option>
+              <option value="lote_antiguo">Lotes antiguos (1+ año en almacén)</option>
+              <option value="casi_agotado">Casi agotados con demanda (última unidad)</option>
+            </select>
+            <select id="promo-marca"><option value="">Todas las marcas</option></select>
+            <input id="promo-margen" type="number" min="0" max="100" placeholder="Margen mín. %" style="width:120px">
+            <input id="promo-capital" type="number" min="0" placeholder="Capital mín. S/" style="width:130px">
+            <button class="btn" onclick="cargarPromos()">Ver candidatos</button>
+            <button class="btn" onclick="descargarPromosExcel()">Excel</button>
+          </div>
+          <div class="filtros-fila" style="align-items:center;gap:8px">
+            <input id="promo-buscar" type="text" placeholder="Buscar por nombre o SKU..." oninput="promoFiltrarTexto()" style="flex:1;min-width:200px">
+          </div>
+          <div id="promo-resumen" style="margin:8px 0;font-size:13px;color:var(--muted)"></div>
+          <div id="promo-tabla" style="overflow-x:auto;max-height:60vh;overflow-y:auto"></div>
+        </div>
       </div>
     </div>
 
@@ -931,6 +954,76 @@ function subtabAud(cual){
     if(t)t.classList.toggle('active',x===cual);
   });
 }
+// ══════════ Promociones recomendadas ══════════
+const PROMO_DESCS={
+  estancado:'Productos con stock que no venden hace 4+ meses: dinero congelado, candidatos clásicos a descuento.',
+  sobrestock:'Mucho stock para su ritmo de venta: a este paso tardarías 12+ meses en agotarlo.',
+  margen_lento:'Margen de 40%+ pero venta lenta: puedes bajar el precio sin perder plata.',
+  lote_antiguo:'El lote más viejo lleva 1+ año en almacén: riesgo de obsolescencia (los modelos cambian de temporada).',
+  casi_agotado:'Venden bien y quedan 3 o menos unidades: no para descuento, sino para promo de urgencia ("última unidad").'
+};
+function promoCambioCriterio(){
+  const c=document.getElementById('promo-criterio').value;
+  document.getElementById('promo-desc').textContent=PROMO_DESCS[c]||'';
+}
+function promoParams(){
+  const p=new URLSearchParams();
+  p.set('criterio',document.getElementById('promo-criterio').value);
+  const marca=document.getElementById('promo-marca').value; if(marca)p.set('marca',marca);
+  const margen=document.getElementById('promo-margen').value; if(margen)p.set('margen_min',margen);
+  const capital=document.getElementById('promo-capital').value; if(capital)p.set('capital_min',capital);
+  return p;
+}
+async function cargarPromos(){
+  const res=document.getElementById('promo-resumen');
+  const cont=document.getElementById('promo-tabla');
+  res.textContent='Analizando inventario y ventas...';
+  cont.innerHTML='';
+  try{
+    const d=await apiCall('/api/promo-candidatos?'+promoParams().toString(),'GET');
+    // Llenar el desplegable de marcas (con las del criterio actual), conservando la selección
+    const selMarca=document.getElementById('promo-marca');
+    const marcaActual=selMarca.value;
+    selMarca.innerHTML='<option value="">Todas las marcas</option>'+
+      (d.marcas||[]).map(m=>`<option value="${esc(m)}"${m===marcaActual?' selected':''}>${esc(m)}</option>`).join('');
+    const cap='S/ '+Number(d.capital_total||0).toLocaleString('es-PE',{minimumFractionDigits:2});
+    res.innerHTML=`<b>${d.total}</b> candidato(s) · Capital involucrado: <b>${cap}</b>`+(d.total>300?' <span class="badge-y">mostrando 300</span>':'');
+    if(!d.items.length){cont.innerHTML='<div class="muted">✓ Ningún producto cumple este criterio con esos filtros.</div>';return;}
+    const c=document.getElementById('promo-criterio').value;
+    const esUrgencia=c==='casi_agotado';
+    window._promoItems=d.items;
+    cont.innerHTML='<table class="deudas-tbl" id="promo-tbl"><thead><tr><th>SKU</th><th>Marca</th><th>Producto</th><th style="text-align:right">Stock</th><th style="text-align:right">Capital</th><th style="text-align:right">'+(esUrgencia?'Unid. 12m':'Días sin venta')+'</th><th style="text-align:right">Meses p/ agotar</th><th style="text-align:right">Precio prom.</th><th style="text-align:right">Margen</th></tr></thead><tbody>'+
+      d.items.map(x=>`<tr data-txt="${esc((x.sku+' '+x.producto).toLowerCase())}">
+        <td>${esc(x.sku)}</td>
+        <td>${esc(x.marca)}</td>
+        <td>${esc(x.producto)}</td>
+        <td style="text-align:right">${x.stock}</td>
+        <td style="text-align:right">S/ ${Number(x.capital).toLocaleString('es-PE',{minimumFractionDigits:2})}</td>
+        <td style="text-align:right">${esUrgencia?x.unidades_12m:(x.dias_sin_venta!=null?x.dias_sin_venta:'<span class="badge-r" style="font-size:9px">nunca (12m)</span>')}</td>
+        <td style="text-align:right">${x.meses_para_agotar!=null?x.meses_para_agotar:'—'}</td>
+        <td style="text-align:right">${x.precio_prom!=null?'S/ '+Number(x.precio_prom).toLocaleString('es-PE',{minimumFractionDigits:2}):'—'}</td>
+        <td style="text-align:right">${x.margen_pct!=null?x.margen_pct+'%':'—'}</td>
+      </tr>`).join('')+'</tbody></table>';
+    promoFiltrarTexto();
+  }catch(e){res.textContent='';showToast(e.message,true);}
+}
+function promoFiltrarTexto(){
+  const q=(document.getElementById('promo-buscar').value||'').toLowerCase().trim();
+  document.querySelectorAll('#promo-tbl tbody tr').forEach(tr=>{
+    tr.style.display=(!q||tr.dataset.txt.includes(q))?'':'none';
+  });
+}
+async function descargarPromosExcel(){
+  try{
+    const r=await fetch(API+'/api/promo-candidatos-excel?'+promoParams().toString(),{headers:{'Authorization':'Bearer '+TOKEN}});
+    if(!r.ok)throw new Error('No se pudo generar el Excel');
+    const blob=await r.blob();
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');a.href=url;a.download=nombreArchivo('promociones','xlsx');a.click();
+    URL.revokeObjectURL(url);
+  }catch(e){showToast(e.message,true);}
+}
+
 function subtabSis(cual){
   // Grupo Sistemas: sync | pagos | accesos
   ['sync','pagos','accesos'].forEach(x=>{
@@ -1406,13 +1499,16 @@ async function dbResumen(){
     {l:'Canceladas',v:dbFmtN(k.canceladas),s:'anuladas'},
   ].map(x=>`<div class="kpi ${x.a?'accent':''}"><div class="kpi-label">${x.l}</div><div class="kpi-val">${x.v}</div><div class="kpi-sub">${x.s}</div></div>`).join('');
   // Ventas por día (por empresa) + ingresos cobrados (por dueño de la cuenta)
-  const [dias,ingresos]=await Promise.all([dbApi('/api/ventas-por-dia'),dbApi('/api/ingresos-por-dia')]);
+  const [dias,ingresos,margen]=await Promise.all([dbApi('/api/ventas-por-dia'),dbApi('/api/ingresos-por-dia'),dbApi('/api/margen-por-dia')]);
   const soloDia=v=>String(v).slice(0,10);
-  const fechas=[...new Set([...dias.map(r=>soloDia(r.fecha)),...ingresos.map(r=>soloDia(r.fecha))])].sort();
+  const fechas=[...new Set([...dias.map(r=>soloDia(r.fecha)),...ingresos.map(r=>soloDia(r.fecha)),...margen.map(r=>soloDia(r.fecha))])].sort();
   const serieVenta=cid=>fechas.map(f=>{const r=dias.find(x=>soloDia(x.fecha)===f&&x.company_id===cid);return r?+r.total:0;});
   const serieIng=cid=>fechas.map(f=>{const r=ingresos.find(x=>soloDia(x.fecha)===f&&x.company_id===cid);return r?+r.total:0;});
   const v1=serieVenta(1), v2=serieVenta(2);
   const i1=serieIng(1), i2=serieIng(2);
+  const serieMg=cid=>fechas.map(f=>{const r=margen.find(x=>soloDia(x.fecha)===f&&x.company_id===cid);return r?+r.total:0;});
+  const m1=serieMg(1), m2=serieMg(2);
+  const mT=fechas.map(f=>margen.filter(x=>soloDia(x.fecha)===f).reduce((a,x)=>a+(+x.total),0));
   // Totales (suman todo lo del día, incluidos los que no tienen empresa asignada)
   const vT=fechas.map(f=>dias.filter(x=>soloDia(x.fecha)===f).reduce((a,x)=>a+(+x.total),0));
   const iT=fechas.map(f=>ingresos.filter(x=>soloDia(x.fecha)===f).reduce((a,x)=>a+(+x.total),0));
@@ -1423,7 +1519,10 @@ async function dbResumen(){
     {label:'Ventas TOTAL',data:vT,borderColor:'#8b93b8',backgroundColor:'transparent',fill:false,tension:.35,pointRadius:0,pointHoverRadius:5,borderWidth:2,borderDash:[2,2],order:3,hidden:true},
     {label:'Ingresos Diseños',data:i1,borderColor:'#FFB30D',backgroundColor:'transparent',fill:false,tension:.35,pointRadius:2,pointHoverRadius:5,borderWidth:2,order:2,hidden:true},
     {label:'Ingresos Christopher',data:i2,borderColor:'#D85A30',backgroundColor:'transparent',fill:false,tension:.35,pointRadius:2,pointHoverRadius:5,borderWidth:2,borderDash:[4,3],order:2,hidden:true},
-    {label:'Ingresos TOTAL',data:iT,borderColor:'#FFB30D',backgroundColor:'rgba(255,179,13,.06)',fill:false,tension:.35,pointRadius:3,pointHoverRadius:6,borderWidth:2.5,order:1}
+    {label:'Ingresos TOTAL',data:iT,borderColor:'#FFB30D',backgroundColor:'rgba(255,179,13,.06)',fill:false,tension:.35,pointRadius:3,pointHoverRadius:6,borderWidth:2.5,order:1},
+    {label:'Margen Diseños',data:m1,borderColor:'#3FB6C9',backgroundColor:'transparent',fill:false,tension:.35,pointRadius:2,pointHoverRadius:5,borderWidth:2,order:2,hidden:true},
+    {label:'Margen Christopher',data:m2,borderColor:'#B65CC9',backgroundColor:'transparent',fill:false,tension:.35,pointRadius:2,pointHoverRadius:5,borderWidth:2,borderDash:[4,3],order:2,hidden:true},
+    {label:'Margen TOTAL',data:mT,borderColor:'#4ADE80',backgroundColor:'transparent',fill:false,tension:.35,pointRadius:2,pointHoverRadius:5,borderWidth:2.5,borderDash:[6,3],order:1,hidden:true}
   ]},{
     interaction:{mode:'index',intersect:false},
     scales:{

@@ -1015,12 +1015,17 @@ async function obtenerPagos(q) {
   const [pagos] = await prodPool.query(`
     SELECT sp.id, sp.paid_at, sp.amount, sp.notes AS nota_pago,
       s.id AS sale_id, s.code AS venta_codigo, s.company_id, s.observations AS obs_venta,
+      s.created_at AS venta_fecha,
+      CASE WHEN cli.is_company=1 THEN cli.business_name
+           ELSE TRIM(CONCAT(COALESCE(cli.first_name,''),' ',COALESCE(cli.last_name,''))) END AS cliente_nombre,
+      cli.document_number AS cliente_doc, cli.is_company AS cliente_es_empresa,
       mp.name AS metodo,
       ba.account_number, banco.name AS banco, ba.party_id AS cuenta_party_id,
       dueno.business_name AS empresa_cuenta,
       CASE WHEN cc.status='closed' THEN 'Cuadrado' ELSE 'Pendiente' END AS cuadre
     FROM sale_payments sp
     JOIN sales s ON s.id = sp.sale_id
+    LEFT JOIN parties cli ON cli.id = s.customer_id
     LEFT JOIN catalog_items mp ON mp.id = sp.payment_method_id
     LEFT JOIN bank_accounts ba ON ba.id = sp.bank_account_id
     LEFT JOIN catalog_items banco ON banco.id = ba.bank_id
@@ -1052,20 +1057,43 @@ async function obtenerPagos(q) {
     (vouchPorVenta[v.sale_id] = vouchPorVenta[v.sale_id] || []).push(`${t} ${v.serie}-${v.number}`);
   });
 
+  // ¿Estas ventas tienen pagos FUERA del rango de fechas filtrado?
+  // Sirve para avisar que el subtotal mostrado no es todo lo pagado de esa venta.
+  const pagosFuera = {};
+  if (desde && hasta) {
+    const [fuera] = await prodPool.query(`
+      SELECT sale_id, COUNT(*) AS n, COALESCE(SUM(amount),0) AS monto
+      FROM sale_payments
+      WHERE voided_at IS NULL AND sale_id IN (?)
+        AND DATE(paid_at) NOT BETWEEN ? AND ?
+      GROUP BY sale_id`, [saleIds, desde, hasta]);
+    fuera.forEach(r => pagosFuera[r.sale_id] = { n: Number(r.n), monto: Number(r.monto) });
+  }
+
   let lista = pagos.map(pg => {
     const empSet = empProdPorVenta[pg.sale_id];
     const empProd = empSet ? [...empSet].map(id => EMPRESAS_BI[id] || `Empresa ${id}`).join(', ') : '—';
+    const fuera = pagosFuera[pg.sale_id];
     return {
       paid_at: pg.paid_at,
+      cliente: pg.cliente_nombre && pg.cliente_nombre.trim() ? pg.cliente_nombre.trim() : '—',
+      cliente_doc: pg.cliente_doc || '—',
+      // El ERP no guarda el tipo de documento: se deduce por el largo (11 = RUC, 8 = DNI)
+      cliente_doc_tipo: !pg.cliente_doc ? '—'
+        : (String(pg.cliente_doc).length === 11 ? 'RUC'
+          : String(pg.cliente_doc).length === 8 ? 'DNI' : 'Otro'),
       metodo: pg.metodo || 'Sin método',
       cuenta: pg.banco ? `${pg.banco} ${pg.account_number || ''}`.trim() : '—',
       empresa_cuenta: pg.empresa_cuenta || '—',
       venta: pg.venta_codigo,
-      empresa_gestiona: EMPRESAS_BI[pg.company_id] || `Empresa ${pg.company_id}`,
+      empresa_gestiona: pg.company_id != null ? (EMPRESAS_BI[pg.company_id] || `Empresa ${pg.company_id}`) : '(vacío)',
       empresa_producto: empProd,
       comprobante: (vouchPorVenta[pg.sale_id] || []).join(' · ') || '—',
       nota_pago: pg.nota_pago || '', obs_venta: pg.obs_venta || '',
       cuadre: pg.cuadre, monto: Number(pg.amount),
+      _sale_id: pg.sale_id,
+      _pagos_fuera: fuera ? fuera.n : 0,
+      _monto_fuera: fuera ? fuera.monto : 0,
       _empresas_prod_ids: empSet ? [...empSet] : []
     };
   });
@@ -1075,6 +1103,27 @@ async function obtenerPagos(q) {
     lista = lista.filter(x => x._empresas_prod_ids.includes(Number(empresa_producto)));
   }
   lista.forEach(x => delete x._empresas_prod_ids);
+
+  // Agrupar por venta manteniendo el orden cronológico DENTRO de cada venta.
+  // Las ventas se ordenan por la fecha de su primer pago (para que el reporte
+  // siga una línea de tiempo natural).
+  const primerPago = {};
+  lista.forEach(x => {
+    const t = new Date(x.paid_at).getTime();
+    if (primerPago[x._sale_id] == null || t < primerPago[x._sale_id]) primerPago[x._sale_id] = t;
+  });
+  lista.sort((a, b) => {
+    const d = primerPago[a._sale_id] - primerPago[b._sale_id];
+    if (d !== 0) return d;
+    if (a._sale_id !== b._sale_id) return a._sale_id - b._sale_id;
+    return new Date(a.paid_at) - new Date(b.paid_at);
+  });
+
+  // Total de cada venta (suma de los pagos que cumplen los filtros)
+  const totalVenta = {};
+  lista.forEach(x => totalVenta[x._sale_id] = (totalVenta[x._sale_id] || 0) + x.monto);
+  lista.forEach(x => x._total_venta = totalVenta[x._sale_id]);
+
   return lista;
 }
 
@@ -1103,11 +1152,14 @@ app.get('/admin/reporte-pagos-excel', authAdmin, requiereModulo('reportes'), asy
     }
 
     const colDefs = [
-      { header: 'Fecha', width: 18 }, { header: 'Método', width: 18 }, { header: 'Cuenta destino', width: 28 },
+      { header: 'Fecha', width: 18 }, { header: 'Cliente', width: 32 },
+      { header: 'Tipo doc.', width: 10 }, { header: 'DNI/RUC', width: 15 },
+      { header: 'Método', width: 18 }, { header: 'Cuenta destino', width: 28 },
       { header: 'Empresa dueña de la cuenta', width: 28 }, { header: 'Venta', width: 15 },
       { header: 'Empresa que gestiona', width: 26 }, { header: 'Empresa(s) del producto', width: 28 },
       { header: 'Comprobante', width: 28 }, { header: 'Nota del pago', width: 34 },
-      { header: 'Observación de venta', width: 34 }, { header: 'Cuadre', width: 12 }, { header: 'Monto', width: 13 }
+      { header: 'Observación de venta', width: 34 }, { header: 'Cuadre', width: 12 }, { header: 'Monto', width: 13 },
+      { header: 'Total venta', width: 14 }, { header: 'Pagos fuera del rango', width: 22 }
     ];
 
     // Cabecera informativa
@@ -1116,20 +1168,27 @@ app.get('/admin/reporte-pagos-excel', authAdmin, requiereModulo('reportes'), asy
       ['Desde', req.query.desde], ['Hasta', req.query.hasta],
       ['Cuenta', req.query.cuenta ? 'filtrada' : ''], ['Método', req.query.metodo ? 'filtrado' : ''],
       ['Pagos', lista.length]
-    ], 12);
+    ], 17);
     colDefs.forEach((c, i) => ws.getColumn(i + 1).width = c.width);
     const headerRowNum = filasCab + 1;
     const hr = ws.addRow(colDefs.map(c => c.header));
     hr.font = { bold: true, color: { argb: 'FFFFFFFF' } };
     hr.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000726' } };
 
-    lista.forEach(x => ws.addRow([
-      fechaLima(x.paid_at), x.metodo, x.cuenta, x.empresa_cuenta, x.venta, x.empresa_gestiona,
-      x.empresa_producto, x.comprobante, x.nota_pago, x.obs_venta, x.cuadre, x.monto
-    ]));
+    // Una fila por pago (plano, apto para filtrar y tablas dinámicas).
+    // "Total venta" se repite en las filas de la misma venta a propósito.
+    lista.forEach(x => {
+      ws.addRow([
+        fechaLima(x.paid_at), x.cliente, x.cliente_doc_tipo, x.cliente_doc, x.metodo, x.cuenta,
+        x.empresa_cuenta, x.venta, x.empresa_gestiona, x.empresa_producto, x.comprobante,
+        x.nota_pago, x.obs_venta, x.cuadre, x.monto, x._total_venta,
+        x._pagos_fuera > 0 ? `${x._pagos_fuera} pago(s): S/ ${x._monto_fuera.toFixed(2)}` : ''
+      ]);
+    });
     ws.views = [{ state: 'frozen', ySplit: headerRowNum }];
-    ws.autoFilter = { from: { row: headerRowNum, column: 1 }, to: { row: headerRowNum, column: 12 } };
-    ws.getColumn(12).numFmt = '#,##0.00';
+    ws.autoFilter = { from: { row: headerRowNum, column: 1 }, to: { row: headerRowNum, column: 17 } };
+    ws.getColumn(15).numFmt = '#,##0.00';
+    ws.getColumn(16).numFmt = '#,##0.00';
 
     // Totalizadores
     ws.addRow([]);
@@ -1143,7 +1202,7 @@ app.get('/admin/reporte-pagos-excel', authAdmin, requiereModulo('reportes'), asy
     const bloque = (titulo, obj) => {
       const r = ws.addRow([titulo]); r.font = { bold: true };
       Object.entries(obj).forEach(([k, v]) => {
-        const row = ws.addRow(['', k]); row.getCell(12).value = v; row.getCell(12).numFmt = '#,##0.00';
+        const row = ws.addRow(['', k]); row.getCell(15).value = v; row.getCell(15).numFmt = '#,##0.00';
       });
     };
     bloque('TOTALES POR EMPRESA DUEÑA DE LA CUENTA', totEmpC);
@@ -1151,7 +1210,7 @@ app.get('/admin/reporte-pagos-excel', authAdmin, requiereModulo('reportes'), asy
     bloque('TOTALES POR CUENTA', totCta);
     bloque('TOTALES POR MÉTODO', totMet);
     const g = ws.addRow(['TOTAL GENERAL']); g.font = { bold: true };
-    g.getCell(12).value = lista.reduce((s, x) => s + x.monto, 0); g.getCell(12).numFmt = '#,##0.00';
+    g.getCell(15).value = lista.reduce((s, x) => s + x.monto, 0); g.getCell(15).numFmt = '#,##0.00';
 
     const nombre = nombreTrazable('pagos');
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');

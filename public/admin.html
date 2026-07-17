@@ -1084,7 +1084,7 @@ async function descargarAuditoria(){
 // Versión del formato de las corridas guardadas en memoria.
 // Subir este número cuando cambie la estructura de datos de un reporte,
 // para que las corridas viejas guardadas se descarten en vez de mostrarse desactualizadas.
-const MEM_VERSION=5;
+const MEM_VERSION=6;
 let rpFiltrosCargados=false;
 let repRestaurado=false;
 // Rellena desde/hasta con el primer y último día del mes elegido
@@ -1135,6 +1135,7 @@ function pintarPagos(d, horaTexto){
   document.getElementById('rp-resumen').textContent=`${d.total} pagos · Total: S/ ${d.suma.toLocaleString('es-PE',{minimumFractionDigits:2})} · Última corrida: ${horaTexto}`;
   const cont=document.getElementById('rp-tabla');
   if(!d.pagos.length){cont.innerHTML='<div class="muted">No hay pagos con esos filtros.</div>';return;}
+  const nota='<div style="background:var(--surface2);border-left:3px solid var(--accent);padding:8px 12px;border-radius:8px;margin-bottom:10px;font-size:12px;color:var(--muted)">Todos los pagos listados son <b>dinero ya recibido</b>. La columna <b>Cierre de caja</b> indica si el cierre administrativo de ese día se hizo, <b>no</b> si el pago está pendiente. El <b>saldo</b> es lo que falta cobrar de esa venta.</div>';
   const money=n=>'S/ '+Number(n).toLocaleString('es-PE',{minimumFractionDigits:2});
   let filas='';
   d.pagos.forEach((x,i)=>{
@@ -1152,8 +1153,9 @@ function pintarPagos(d, horaTexto){
       <td>${esc(x.comprobante)}</td>
       <td>${esc(x.nota_pago)}</td>
       <td>${esc(x.obs_venta)}</td>
-      <td>${x.cuadre==='Cuadrado'?'<span class="badge-g">Cuadrado</span>':'<span class="badge-y">Pendiente</span>'}</td>
+      <td>${x.cuadre==='Cerrado'?'<span class="badge-g">Cerrado</span>':'<span class="badge-y">Sin cerrar</span>'}</td>
       <td style="text-align:right">${money(x.monto)}</td>
+      <td style="text-align:right">${x.venta_saldo>0?`<span style="color:var(--fg-r);font-weight:600">${money(x.venta_saldo)}</span>`:'<span class="badge-g" style="font-size:9px">pagada</span>'}</td>
     </tr>`;
     // Subtotal al cerrar cada venta
     const sig=d.pagos[i+1];
@@ -1163,12 +1165,13 @@ function pintarPagos(d, horaTexto){
         ? ` <span class="badge-y" style="font-size:9px" title="Este subtotal solo suma los pagos del rango filtrado">⚠ ${x._pagos_fuera} pago(s) fuera del rango: ${money(x._monto_fuera)}</span>`
         : '';
       filas+=`<tr style="background:var(--surface2);font-weight:700">
-        <td colspan="14" style="text-align:right">Total ${esc(x.venta)} (${n} pago${n>1?'s':''})${aviso}</td>
+        <td colspan="14" style="text-align:right">Cobrado en el rango · ${esc(x.venta)} (${n} pago${n>1?'s':''})${aviso}</td>
         <td style="text-align:right;color:var(--accent)">${money(x._total_venta)}</td>
+        <td style="text-align:right">${x.venta_saldo>0?`<span style="color:var(--fg-r)">falta ${money(x.venta_saldo)}</span>`:'<span class="badge-g" style="font-size:9px">pagada</span>'}</td>
       </tr>`;
     }
   });
-  cont.innerHTML='<table class="deudas-tbl"><thead><tr><th>Fecha</th><th>Cliente</th><th>Tipo doc.</th><th>DNI/RUC</th><th>Método</th><th>Cuenta</th><th>Empresa cuenta</th><th>Venta</th><th>Gestiona</th><th>Empresa producto</th><th>Comprobante</th><th>Nota pago</th><th>Obs. venta</th><th>Cuadre</th><th style="text-align:right">Monto</th></tr></thead><tbody>'+filas+'</tbody></table>';
+  cont.innerHTML=nota+'<table class="deudas-tbl"><thead><tr><th>Fecha</th><th>Cliente</th><th>Tipo doc.</th><th>DNI/RUC</th><th>Método</th><th>Cuenta</th><th>Empresa cuenta</th><th>Venta</th><th>Gestiona</th><th>Empresa producto</th><th>Comprobante</th><th>Nota pago</th><th>Obs. venta</th><th>Cierre de caja</th><th style="text-align:right">Monto</th><th style="text-align:right">Saldo venta</th></tr></thead><tbody>'+filas+'</tbody></table>';
 }
 function restaurarPagos(){
   try{
@@ -1332,7 +1335,7 @@ function nombreArchivo(base, ext, periodo){
   return `${base}-${stamp}${suf}.${ext}`;
 }
 function nombrePDF(base, periodo){ return nombreArchivo(base,'pdf',periodo); }
-function exportarPDF(nombreArchivo, titulo, columnas, filas, filtrosTexto){
+function exportarPDF(nombreArchivo, titulo, columnas, filas, filtrosTexto, nota){
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation:'landscape', unit:'pt', format:'a4' });
   const ancho = doc.internal.pageSize.getWidth();
@@ -1344,13 +1347,21 @@ function exportarPDF(nombreArchivo, titulo, columnas, filas, filtrosTexto){
   doc.setFontSize(8); doc.setTextColor(90,90,90); doc.setFont(undefined,'normal');
   doc.text('Exportado: '+ahora, ancho-40, 34, {align:'right'});
   if(filtrosTexto){ doc.text(filtrosTexto, ancho-40, 48, {align:'right'}); }
+  // Nota aclaratoria opcional (debajo del membrete, empuja la tabla)
+  let inicioTabla = 64;
+  if(nota){
+    doc.setFontSize(7.5); doc.setTextColor(60,60,60);
+    const lineas = doc.splitTextToSize(nota, ancho-80);
+    doc.text(lineas, 40, 66);
+    inicioTabla = 66 + lineas.length*9 + 4;
+  }
   // Tabla
   doc.autoTable({
-    startY: 64, head:[columnas], body:filas,
+    startY: inicioTabla, head:[columnas], body:filas,
     styles:{ fontSize:6, cellPadding:2, overflow:'linebreak' },
     headStyles:{ fillColor:[0,7,38], textColor:255, fontSize:6 },
     alternateRowStyles:{ fillColor:[245,246,250] },
-    margin:{ left:40, right:40, top:64 },
+    margin:{ left:40, right:40, top:inicioTabla },
     didDrawPage: (data)=>{
       const pag = doc.internal.getNumberOfPages();
       doc.setFontSize(7); doc.setTextColor(120,120,120);
@@ -1371,26 +1382,29 @@ async function descargarPagosPDF(){
   try{
     const d=await apiCall('/admin/reporte-pagos?'+p.toString(),'GET');
     if(!d.pagos.length){res.textContent='No hay pagos con esos filtros.';return;}
-    const cols=['Fecha','Cliente','Tipo','DNI/RUC','Método','Cuenta','Empresa cuenta','Venta','Gestiona','Empresa producto','Comprobante','Nota pago','Obs. venta','Cuadre','Monto'];
+    const cols=['Fecha','Cliente','Tipo','DNI/RUC','Método','Cuenta','Empresa cuenta','Venta','Gestiona','Empresa producto','Comprobante','Nota pago','Obs. venta','Cierre caja','Monto','Saldo venta'];
     const filas=[];
     d.pagos.forEach((x,i)=>{
       filas.push([
         new Date(x.paid_at).toLocaleDateString('es-PE'), x.cliente, x.cliente_doc_tipo, x.cliente_doc,
         x.metodo, x.cuenta, x.empresa_cuenta, x.venta, x.empresa_gestiona, x.empresa_producto,
         x.comprobante, x.nota_pago, x.obs_venta, x.cuadre,
-        x.monto.toLocaleString('es-PE',{minimumFractionDigits:2})
+        x.monto.toLocaleString('es-PE',{minimumFractionDigits:2}),
+        x.venta_saldo>0?Number(x.venta_saldo).toLocaleString('es-PE',{minimumFractionDigits:2}):'pagada'
       ]);
       // Subtotal al cerrar cada venta
       const sig=d.pagos[i+1];
       if(!sig||sig._sale_id!==x._sale_id){
         const n=d.pagos.filter(y=>y._sale_id===x._sale_id).length;
         const aviso=x._pagos_fuera>0?`  (!) ${x._pagos_fuera} pago(s) fuera del rango: S/ ${Number(x._monto_fuera).toLocaleString('es-PE',{minimumFractionDigits:2})}`:'';
-        filas.push([{content:`Total ${x.venta} (${n} pago${n>1?'s':''})${aviso}`,colSpan:14,styles:{halign:'right',fontStyle:'bold',fillColor:[239,239,244]}},
-          {content:Number(x._total_venta).toLocaleString('es-PE',{minimumFractionDigits:2}),styles:{halign:'right',fontStyle:'bold',fillColor:[239,239,244]}}]);
+        filas.push([{content:`Cobrado en el rango · ${x.venta} (${n} pago${n>1?'s':''})${aviso}`,colSpan:14,styles:{halign:'right',fontStyle:'bold',fillColor:[239,239,244]}},
+          {content:Number(x._total_venta).toLocaleString('es-PE',{minimumFractionDigits:2}),styles:{halign:'right',fontStyle:'bold',fillColor:[239,239,244]}},
+          {content:x.venta_saldo>0?'falta '+Number(x.venta_saldo).toLocaleString('es-PE',{minimumFractionDigits:2}):'pagada',styles:{halign:'right',fontStyle:'bold',fillColor:[239,239,244]}}]);
       }
     });
     const ft=textoFiltros([['Desde',document.getElementById('rp-desde').value],['Hasta',document.getElementById('rp-hasta').value]]);
-    exportarPDF(nombrePDF('pagos',mesTexto(document.getElementById('rp-mes').value)),'Reporte de pagos',cols,filas,ft+`  ·  ${d.total} pagos · Total S/ ${d.suma.toLocaleString('es-PE',{minimumFractionDigits:2})}`);
+    const aclara='IMPORTANTE: todos los pagos listados son dinero YA RECIBIDO. La columna "Cierre caja" indica si el cierre administrativo de ese día se realizó, NO si el pago está pendiente. "Saldo venta" es lo que falta cobrar de esa venta.';
+    exportarPDF(nombrePDF('pagos',mesTexto(document.getElementById('rp-mes').value)),'Reporte de pagos',cols,filas,ft+`  ·  ${d.total} pagos · Total S/ ${d.suma.toLocaleString('es-PE',{minimumFractionDigits:2})}`,aclara);
     res.textContent='✓ PDF descargado.';
   }catch(e){res.textContent='';showToast(e.message,true);}
 }

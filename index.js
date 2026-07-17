@@ -1022,7 +1022,8 @@ async function obtenerPagos(q) {
       mp.name AS metodo,
       ba.account_number, banco.name AS banco, ba.party_id AS cuenta_party_id,
       dueno.business_name AS empresa_cuenta,
-      CASE WHEN cc.status='closed' THEN 'Cuadrado' ELSE 'Pendiente' END AS cuadre
+      s.total AS venta_total,
+      CASE WHEN cc.status='closed' THEN 'Cerrado' ELSE 'Sin cerrar' END AS cuadre
     FROM sale_payments sp
     JOIN sales s ON s.id = sp.sale_id
     LEFT JOIN parties cli ON cli.id = s.customer_id
@@ -1056,6 +1057,15 @@ async function obtenerPagos(q) {
     const t = v.type === 'factura' ? 'Factura' : v.type === 'boleta' ? 'Boleta' : v.type;
     (vouchPorVenta[v.sale_id] = vouchPorVenta[v.sale_id] || []).push(`${t} ${v.serie}-${v.number}`);
   });
+
+  // Total pagado HISTÓRICO de cada venta (todos sus pagos, sin filtro de fecha).
+  // Con esto se calcula el saldo real que falta cobrar.
+  const pagadoTotal = {};
+  const [ph] = await prodPool.query(`
+    SELECT sale_id, COALESCE(SUM(amount),0) AS pagado
+    FROM sale_payments WHERE voided_at IS NULL AND sale_id IN (?)
+    GROUP BY sale_id`, [saleIds]);
+  ph.forEach(r => pagadoTotal[r.sale_id] = Number(r.pagado));
 
   // ¿Estas ventas tienen pagos FUERA del rango de fechas filtrado?
   // Sirve para avisar que el subtotal mostrado no es todo lo pagado de esa venta.
@@ -1091,6 +1101,9 @@ async function obtenerPagos(q) {
       comprobante: (vouchPorVenta[pg.sale_id] || []).join(' · ') || '—',
       nota_pago: pg.nota_pago || '', obs_venta: pg.obs_venta || '',
       cuadre: pg.cuadre, monto: Number(pg.amount),
+      venta_total: Number(pg.venta_total || 0),
+      venta_pagado: pagadoTotal[pg.sale_id] || 0,
+      venta_saldo: Math.max(0, Number(pg.venta_total || 0) - (pagadoTotal[pg.sale_id] || 0)),
       _sale_id: pg.sale_id,
       _pagos_fuera: fuera ? fuera.n : 0,
       _monto_fuera: fuera ? fuera.monto : 0,
@@ -1158,8 +1171,10 @@ app.get('/admin/reporte-pagos-excel', authAdmin, requiereModulo('reportes'), asy
       { header: 'Empresa dueña de la cuenta', width: 28 }, { header: 'Venta', width: 15 },
       { header: 'Empresa que gestiona', width: 26 }, { header: 'Empresa(s) del producto', width: 28 },
       { header: 'Comprobante', width: 28 }, { header: 'Nota del pago', width: 34 },
-      { header: 'Observación de venta', width: 34 }, { header: 'Cuadre', width: 12 }, { header: 'Monto', width: 13 },
-      { header: 'Total venta', width: 14 }, { header: 'Pagos fuera del rango', width: 22 }
+      { header: 'Observación de venta', width: 34 }, { header: 'Cierre de caja', width: 14 },
+      { header: 'Monto pagado', width: 14 },
+      { header: 'Cobrado en el rango', width: 18 }, { header: 'Saldo por cobrar', width: 16 },
+      { header: 'Pagos fuera del rango', width: 22 }
     ];
 
     // Cabecera informativa
@@ -1167,8 +1182,9 @@ app.get('/admin/reporte-pagos-excel', authAdmin, requiereModulo('reportes'), asy
       ['Empresa que gestiona', empresaGestionaTxt],
       ['Desde', req.query.desde], ['Hasta', req.query.hasta],
       ['Cuenta', req.query.cuenta ? 'filtrada' : ''], ['Método', req.query.metodo ? 'filtrado' : ''],
-      ['Pagos', lista.length]
-    ], 17);
+      ['Pagos', lista.length],
+      ['IMPORTANTE', 'Todos los pagos listados son dinero YA RECIBIDO. "Cierre de caja" indica si el cierre administrativo del día se realizó, NO si el pago está pendiente.']
+    ], 18);
     colDefs.forEach((c, i) => ws.getColumn(i + 1).width = c.width);
     const headerRowNum = filasCab + 1;
     const hr = ws.addRow(colDefs.map(c => c.header));
@@ -1181,14 +1197,13 @@ app.get('/admin/reporte-pagos-excel', authAdmin, requiereModulo('reportes'), asy
       ws.addRow([
         fechaLima(x.paid_at), x.cliente, x.cliente_doc_tipo, x.cliente_doc, x.metodo, x.cuenta,
         x.empresa_cuenta, x.venta, x.empresa_gestiona, x.empresa_producto, x.comprobante,
-        x.nota_pago, x.obs_venta, x.cuadre, x.monto, x._total_venta,
+        x.nota_pago, x.obs_venta, x.cuadre, x.monto, x._total_venta, x.venta_saldo,
         x._pagos_fuera > 0 ? `${x._pagos_fuera} pago(s): S/ ${x._monto_fuera.toFixed(2)}` : ''
       ]);
     });
     ws.views = [{ state: 'frozen', ySplit: headerRowNum }];
-    ws.autoFilter = { from: { row: headerRowNum, column: 1 }, to: { row: headerRowNum, column: 17 } };
-    ws.getColumn(15).numFmt = '#,##0.00';
-    ws.getColumn(16).numFmt = '#,##0.00';
+    ws.autoFilter = { from: { row: headerRowNum, column: 1 }, to: { row: headerRowNum, column: 18 } };
+    [15, 16, 17].forEach(c => ws.getColumn(c).numFmt = '#,##0.00');
 
     // Totalizadores
     ws.addRow([]);

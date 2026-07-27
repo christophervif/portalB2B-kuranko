@@ -202,8 +202,7 @@ tr:hover td{background:var(--hover)}
   <div class="wrap">
     <div class="tabs">
       <button class="tab active" onclick="tab('clientes_gestion',this)">Gestión de clientes</button>
-      <button class="tab" data-modulos="resumen,caja_bi" onclick="tab('ventas_ingresos',this)">Ventas e ingresos</button>
-      <button class="tab" onclick="tab('rentabilidad',this)">Rentabilidad</button>
+      <button class="tab" data-modulos="resumen,caja_bi,rentabilidad" onclick="tab('ventas_ingresos',this)">Ventas e ingresos</button>
       <button class="tab" onclick="tab('clientes_bi',this)">Clientes BI</button>
       <button class="tab" onclick="tab('inventario',this)">Inventario</button>
       <button class="tab" onclick="tab('restock',this)">Restock</button>
@@ -346,6 +345,16 @@ tr:hover td{background:var(--hover)}
           <div class="dbcard"><h4>Métodos de pago</h4><div style="position:relative;height:240px"><canvas id="ch-pagos"></canvas></div></div>
           <div class="dbcard"><h4>Resumen de cobros</h4><div id="pagos-tabla"></div></div>
         </div>
+        <div class="dbcard" style="border-top:2px solid var(--accent);padding-top:14px">
+          <h4>Rentabilidad</h4>
+          <p class="card-note">Ganancia real por método FIFO: precio de venta menos costo del lote. Solo cuenta las líneas con costo conocido.</p>
+        </div>
+        <div id="rent-kpis" class="kpi-grid"></div>
+        <div id="rent-avisos"></div>
+        <div class="dbcard"><h4>Top 15 productos por ganancia FIFO</h4>
+          <div style="position:relative" id="ch-prod-wrap"><canvas id="ch-prod"></canvas></div></div>
+        <div class="dbcard"><h4>Rentabilidad por marca</h4>
+          <div style="overflow-x:auto"><table class="dtable" id="tbl-marcas"></table></div></div>
         <div class="dbcard">
           <h4>Conciliación de pagos online</h4>
           <p class="card-note">Ingresos registrados en el Google Sheet (Izipay, Mercado Pago) verificados contra lo que tiene el sistema. Filtra por fecha de voucher.</p>
@@ -436,23 +445,6 @@ tr:hover td{background:var(--hover)}
     </div>
     </div>
 
-    <div id="tab-rentabilidad" class="panel">
-      <div class="card">
-        <div class="filtros-fila" style="align-items:center">
-          <label style="font-size:13px">Mes: <input type="month" class="db-mes" onchange="dbAplicarMes(this)"></label>
-          <label style="font-size:13px">Desde: <input type="date" class="db-desde"></label>
-          <label style="font-size:13px">Hasta: <input type="date" class="db-hasta"></label>
-          <button class="btn" onclick="dbCargarActual()">Actualizar</button>
-        </div>
-        <div id="rent-kpis" class="kpi-grid"></div>
-        <div id="rent-avisos"></div>
-        <div class="dbcard"><h4>Top 15 productos por ganancia FIFO</h4>
-          <div style="position:relative" id="ch-prod-wrap"><canvas id="ch-prod"></canvas></div></div>
-        <div class="dbcard"><h4>Rentabilidad por marca</h4>
-          <div style="overflow-x:auto"><table class="dtable" id="tbl-marcas"></table></div></div>
-      </div>
-    </div>
-
     <div id="tab-inventario" class="panel">
       <div class="card">
         <div class="filtros-fila" style="align-items:center">
@@ -464,6 +456,16 @@ tr:hover td{background:var(--hover)}
         <div id="inv-kpis" class="kpi-grid"></div>
         <div class="dbcard"><h4>Stock por sucursal</h4>
           <div style="overflow-x:auto"><table class="dtable" id="tbl-sucursal"></table></div></div>
+        <div class="two-col">
+          <div class="dbcard"><h4>Top 15 · Capital parado por producto</h4>
+            <p class="card-note">Los productos con más dinero invertido que llevan 4+ meses sin venderse.</p>
+            <div id="inv-estancados"><div class="muted">Cargando...</div></div>
+          </div>
+          <div class="dbcard"><h4>Top 15 · Capital parado por marca</h4>
+            <p class="card-note">Marcas con más dinero en stock que peor rotan (12+ meses para agotarse al ritmo actual).</p>
+            <div id="inv-marcas"><div class="muted">Cargando...</div></div>
+          </div>
+        </div>
         <div class="dbcard">
           <h4>Promociones recomendadas</h4>
           <p class="card-note" id="promo-desc">Productos con stock que no venden hace 4+ meses: dinero congelado, candidatos clásicos a descuento.</p>
@@ -501,6 +503,28 @@ tr:hover td{background:var(--hover)}
         </div>
         <button class="btn" onclick="dbCargarActual()" style="margin-bottom:12px">Actualizar</button>
         <div style="overflow-x:auto"><table class="dtable" id="tbl-restock" style="min-width:880px"></table></div>
+      </div>
+
+      <div class="card">
+        <h4>Exportar inventario</h4>
+        <p class="card-note">Catálogo completo con ventas, margen y rotación. Filtra y descárgalo en Excel o PDF.</p>
+        <div class="filtros-fila" style="align-items:center;gap:8px;flex-wrap:wrap">
+          <select id="inv-ex-marca"><option value="">Todas las marcas</option></select>
+          <input id="inv-ex-cat" type="text" placeholder="Categoría contiene..." style="width:150px">
+          <input id="inv-ex-subcat" type="text" placeholder="Subcategoría contiene..." style="width:160px">
+          <input id="inv-ex-mgmin" type="number" placeholder="Margen mín. %" style="width:120px">
+          <input id="inv-ex-mgmax" type="number" placeholder="Margen máx. %" style="width:120px">
+        </div>
+        <div class="filtros-fila" style="align-items:center;gap:14px;flex-wrap:wrap">
+          <label style="font-size:13px"><input type="checkbox" id="inv-ex-stock"> Solo con stock</label>
+          <label style="font-size:13px"><input type="checkbox" id="inv-ex-ventas"> Solo con ventas</label>
+          <input id="inv-ex-buscar" type="text" placeholder="Buscar SKU o nombre..." oninput="invExFiltrarTexto()" style="flex:1;min-width:180px">
+          <button class="btn" onclick="cargarInvExport()">Ver</button>
+          <button class="btn" onclick="invExportExcel()">Excel</button>
+          <button class="btn" onclick="invExportPDF()">PDF</button>
+        </div>
+        <div id="inv-ex-resumen" style="margin:8px 0;font-size:13px;color:var(--muted)"></div>
+        <div id="inv-ex-tabla" style="overflow-x:auto;max-height:60vh;overflow-y:auto"></div>
       </div>
     </div>
 
@@ -728,6 +752,7 @@ function cargarDatosTab(id){
     dbInitFechas('tab-ventas_ingresos');
     if(!dbCargadas['resumen'])dbCargarModulo('resumen');
     if(!dbCargadas['caja_bi'])dbCargarModulo('caja_bi');
+    if(!dbCargadas['rentabilidad'])dbCargarModulo('rentabilidad');
     concInitDia();
   }
   else if(id==='sync'){cargarEstadoActualizacion();}
@@ -962,6 +987,145 @@ const PROMO_DESCS={
   lote_antiguo:'El lote más viejo lleva 1+ año en almacén: riesgo de obsolescencia (los modelos cambian de temporada).',
   casi_agotado:'Venden bien y quedan 3 o menos unidades: no para descuento, sino para promo de urgencia ("última unidad").'
 };
+// ══════════ Capital parado (Inventario) ══════════
+// Barras proporcionales para ver de un vistazo dónde está el dinero detenido.
+async function cargarInvAnalisis(){
+  const cp=document.getElementById('inv-estancados'), cm=document.getElementById('inv-marcas');
+  if(!cp||!cm)return;
+  const money=n=>'S/ '+Number(n||0).toLocaleString('es-PE',{maximumFractionDigits:0});
+  try{
+    const d=await apiCall('/api/inventario-analisis','GET');
+    // Productos
+    if(!d.productos.length){cp.innerHTML='<div class="muted">✓ Sin productos estancados.</div>';}
+    else{
+      const max=d.productos[0].capital||1;
+      cp.innerHTML=`<div style="font-size:12px;color:var(--muted);margin-bottom:8px">Total parado: <b>${money(d.capital_estancado)}</b></div>`+
+        d.productos.map(x=>{
+          const pct=Math.max(2,Math.round(x.capital/max*100));
+          const tiempo=x.dias_sin_venta==null?'nunca vendido (12m)':x.dias_sin_venta+' días sin venta';
+          return `<div style="margin-bottom:9px">
+            <div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;margin-bottom:2px">
+              <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(x.producto)}">${esc(x.producto)}</span>
+              <b style="white-space:nowrap">${money(x.capital)}</b>
+            </div>
+            <div style="height:6px;background:var(--surface3);border-radius:4px;overflow:hidden">
+              <div style="height:100%;width:${pct}%;background:var(--accent);border-radius:4px"></div>
+            </div>
+            <div style="font-size:10.5px;color:var(--muted);margin-top:2px">${x.stock} und · ${tiempo}</div>
+          </div>`;
+        }).join('');
+    }
+    // Marcas
+    if(!d.marcas.length){cm.innerHTML='<div class="muted">✓ Ninguna marca con rotación lenta.</div>';}
+    else{
+      const maxM=d.marcas[0].capital||1;
+      cm.innerHTML=`<div style="font-size:12px;color:var(--muted);margin-bottom:8px">Total parado: <b>${money(d.capital_marcas)}</b></div>`+
+        d.marcas.map(m=>{
+          const pct=Math.max(2,Math.round(m.capital/maxM*100));
+          const rot=m.meses_para_agotar==null?'sin ventas en 12m':`${m.meses_para_agotar} meses para agotar`;
+          return `<div style="margin-bottom:9px">
+            <div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;margin-bottom:2px">
+              <b style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.marca)}</b>
+              <b style="white-space:nowrap">${money(m.capital)}</b>
+            </div>
+            <div style="height:6px;background:var(--surface3);border-radius:4px;overflow:hidden">
+              <div style="height:100%;width:${pct}%;background:var(--warn,#FFB30D);border-radius:4px"></div>
+            </div>
+            <div style="font-size:10.5px;color:var(--muted);margin-top:2px">${m.referencias} referencias · ${m.stock} und · ${rot}</div>
+          </div>`;
+        }).join('');
+    }
+  }catch(e){
+    cp.innerHTML='<div class="muted">No se pudo cargar.</div>';
+    cm.innerHTML='<div class="muted">No se pudo cargar.</div>';
+  }
+}
+
+// ══════════ Exportar inventario (Restock) ══════════
+function invExParams(){
+  const p=new URLSearchParams();
+  const g=(id)=>document.getElementById(id).value.trim();
+  if(g('inv-ex-marca'))p.set('marca',g('inv-ex-marca'));
+  if(g('inv-ex-cat'))p.set('categoria',g('inv-ex-cat'));
+  if(g('inv-ex-subcat'))p.set('subcategoria',g('inv-ex-subcat'));
+  if(g('inv-ex-mgmin'))p.set('margen_min',g('inv-ex-mgmin'));
+  if(g('inv-ex-mgmax'))p.set('margen_max',g('inv-ex-mgmax'));
+  if(document.getElementById('inv-ex-stock').checked)p.set('solo_stock','1');
+  if(document.getElementById('inv-ex-ventas').checked)p.set('solo_ventas','1');
+  return p;
+}
+async function cargarInvExport(){
+  const res=document.getElementById('inv-ex-resumen');
+  const cont=document.getElementById('inv-ex-tabla');
+  res.textContent='Cargando inventario...';
+  cont.innerHTML='';
+  try{
+    const d=await apiCall('/api/inventario-export?'+invExParams().toString(),'GET');
+    // Llenar desplegable de marcas conservando selección
+    const sel=document.getElementById('inv-ex-marca');
+    const marcaAct=sel.value;
+    sel.innerHTML='<option value="">Todas las marcas</option>'+
+      (d.marcas||[]).map(m=>`<option value="${esc(m)}"${m===marcaAct?' selected':''}>${esc(m)}</option>`).join('');
+    res.innerHTML=`<b>${d.total}</b> producto(s)`+(d.items.length>500?' · mostrando 500 en pantalla (Excel/PDF traen todo)':'');
+    if(!d.items.length){cont.innerHTML='<div class="muted">Sin productos con esos filtros.</div>';return;}
+    const money=n=>n==null?'—':'S/ '+Number(n).toLocaleString('es-PE',{minimumFractionDigits:2});
+    window._invExItems=d.items;
+    cont.innerHTML='<table class="deudas-tbl" id="inv-ex-tbl"><thead><tr>'+
+      '<th>SKU</th><th>Producto</th><th>Marca</th><th>Categoría</th><th style="text-align:right">Stock</th><th style="text-align:right">Costo prom.</th><th style="text-align:right">Precio</th><th style="text-align:right">Margen</th><th style="text-align:right">Vend. 90d</th><th style="text-align:right">Vend. hist.</th><th style="text-align:right">Venta hist.</th><th style="text-align:right">Días s/venta</th></tr></thead><tbody>'+
+      d.items.slice(0,500).map(x=>`<tr data-txt="${esc((x.sku+' '+x.producto).toLowerCase())}">
+        <td>${esc(x.sku)}</td><td>${esc(x.producto)}</td><td>${esc(x.marca)}</td><td>${esc(x.categoria)}</td>
+        <td style="text-align:right">${x.stock}</td>
+        <td style="text-align:right">${money(x.costo_prom)}</td>
+        <td style="text-align:right">${money(x.precio_venta)}</td>
+        <td style="text-align:right">${x.margen_pct!=null?x.margen_pct+'%':'—'}</td>
+        <td style="text-align:right">${x.und_90d}</td>
+        <td style="text-align:right">${x.und_hist}</td>
+        <td style="text-align:right">${money(x.venta_hist)}</td>
+        <td style="text-align:right">${x.dias_sin_venta!=null?x.dias_sin_venta:'<span class="badge-r" style="font-size:9px">nunca</span>'}</td>
+      </tr>`).join('')+'</tbody></table>';
+    invExFiltrarTexto();
+  }catch(e){res.textContent='';showToast(e.message,true);}
+}
+function invExFiltrarTexto(){
+  const q=(document.getElementById('inv-ex-buscar').value||'').toLowerCase().trim();
+  document.querySelectorAll('#inv-ex-tbl tbody tr').forEach(tr=>{
+    tr.style.display=(!q||tr.dataset.txt.includes(q))?'':'none';
+  });
+}
+async function invExportExcel(){
+  try{
+    const r=await fetch(API+'/api/inventario-export-excel?'+invExParams().toString(),{headers:{'Authorization':'Bearer '+TOKEN}});
+    if(!r.ok)throw new Error('No se pudo generar el Excel');
+    const blob=await r.blob();
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');a.href=url;a.download=nombreArchivo('inventario','xlsx');a.click();
+    URL.revokeObjectURL(url);
+  }catch(e){showToast(e.message,true);}
+}
+async function invExportPDF(){
+  try{
+    const d=await apiCall('/api/inventario-export?'+invExParams().toString(),'GET');
+    if(!d.items.length){showToast('Sin productos para exportar',true);return;}
+    const {jsPDF}=window.jspdf;
+    const doc=new jsPDF({orientation:'landscape',unit:'pt',format:'a4'});
+    doc.setFontSize(14);doc.text('Inventario con ventas y margen',40,40);
+    doc.setFontSize(9);doc.setTextColor(120);
+    doc.text(`${d.total} productos · Generado: ${new Date().toLocaleString('es-PE')}`,40,56);
+    const cols=['SKU','Producto','Marca','Cat.','Stock','Costo','Precio','Mg%','90d','Hist.','Venta hist.','Días'];
+    const filas=d.items.map(x=>[
+      x.sku, x.producto, x.marca, x.categoria, x.stock,
+      x.costo_prom!=null?x.costo_prom.toLocaleString('es-PE',{minimumFractionDigits:2}):'—',
+      x.precio_venta!=null?x.precio_venta.toLocaleString('es-PE',{minimumFractionDigits:2}):'—',
+      x.margen_pct!=null?x.margen_pct+'%':'—', x.und_90d, x.und_hist,
+      x.venta_hist!=null?x.venta_hist.toLocaleString('es-PE',{minimumFractionDigits:2}):'—',
+      x.dias_sin_venta!=null?x.dias_sin_venta:'nunca'
+    ]);
+    doc.autoTable({startY:66,head:[cols],body:filas,styles:{fontSize:7,cellPadding:2},
+      headStyles:{fillColor:[0,7,38]},columnStyles:{1:{cellWidth:150}},margin:{left:40,right:40}});
+    doc.save(nombreArchivo('inventario','pdf'));
+  }catch(e){showToast(e.message,true);}
+}
+
 function promoCambioCriterio(){
   const c=document.getElementById('promo-criterio').value;
   document.getElementById('promo-desc').textContent=PROMO_DESCS[c]||'';
@@ -1084,7 +1248,7 @@ async function descargarAuditoria(){
 // Versión del formato de las corridas guardadas en memoria.
 // Subir este número cuando cambie la estructura de datos de un reporte,
 // para que las corridas viejas guardadas se descarten en vez de mostrarse desactualizadas.
-const MEM_VERSION=6;
+const MEM_VERSION=7;
 let rpFiltrosCargados=false;
 let repRestaurado=false;
 // Rellena desde/hasta con el primer y último día del mes elegido
@@ -1135,7 +1299,7 @@ function pintarPagos(d, horaTexto){
   document.getElementById('rp-resumen').textContent=`${d.total} pagos · Total: S/ ${d.suma.toLocaleString('es-PE',{minimumFractionDigits:2})} · Última corrida: ${horaTexto}`;
   const cont=document.getElementById('rp-tabla');
   if(!d.pagos.length){cont.innerHTML='<div class="muted">No hay pagos con esos filtros.</div>';return;}
-  const nota='<div style="background:var(--surface2);border-left:3px solid var(--accent);padding:8px 12px;border-radius:8px;margin-bottom:10px;font-size:12px;color:var(--muted)">Todos los pagos listados son <b>dinero ya recibido</b>. La columna <b>Cierre de caja</b> indica si el cierre administrativo de ese día se hizo, <b>no</b> si el pago está pendiente. El <b>saldo</b> es lo que falta cobrar de esa venta.</div>';
+  const nota='<div style="background:var(--surface2);border-left:3px solid var(--accent);padding:8px 12px;border-radius:8px;margin-bottom:10px;font-size:12px;color:var(--muted)">Todos los pagos listados son <b>dinero ya recibido</b>. La columna <b>Cierre de caja</b> indica si el cierre administrativo de ese día se hizo, <b>no</b> si el pago está pendiente. El <b>monto del pago</b> es esa transacción; el <b>valor de la venta</b> es lo que cuesta; el <b>saldo por cobrar</b> es lo que falta (contando todos los pagos, aunque estén fuera del filtro).</div>';
   const money=n=>'S/ '+Number(n).toLocaleString('es-PE',{minimumFractionDigits:2});
   let filas='';
   d.pagos.forEach((x,i)=>{
@@ -1155,6 +1319,7 @@ function pintarPagos(d, horaTexto){
       <td>${esc(x.obs_venta)}</td>
       <td>${x.cuadre==='Cerrado'?'<span class="badge-g">Cerrado</span>':'<span class="badge-y">Sin cerrar</span>'}</td>
       <td style="text-align:right">${money(x.monto)}</td>
+      <td style="text-align:right;color:var(--muted)">${money(x.venta_total)}</td>
       <td style="text-align:right">${x.venta_saldo>0?`<span style="color:var(--fg-r);font-weight:600">${money(x.venta_saldo)}</span>`:'<span class="badge-g" style="font-size:9px">pagada</span>'}</td>
     </tr>`;
     // Subtotal al cerrar cada venta
@@ -1167,11 +1332,12 @@ function pintarPagos(d, horaTexto){
       filas+=`<tr style="background:var(--surface2);font-weight:700">
         <td colspan="14" style="text-align:right">Cobrado en el rango · ${esc(x.venta)} (${n} pago${n>1?'s':''})${aviso}</td>
         <td style="text-align:right;color:var(--accent)">${money(x._total_venta)}</td>
+        <td style="text-align:right;color:var(--muted)">${money(x.venta_total)}</td>
         <td style="text-align:right">${x.venta_saldo>0?`<span style="color:var(--fg-r)">falta ${money(x.venta_saldo)}</span>`:'<span class="badge-g" style="font-size:9px">pagada</span>'}</td>
       </tr>`;
     }
   });
-  cont.innerHTML=nota+'<table class="deudas-tbl"><thead><tr><th>Fecha</th><th>Cliente</th><th>Tipo doc.</th><th>DNI/RUC</th><th>Método</th><th>Cuenta</th><th>Empresa cuenta</th><th>Venta</th><th>Gestiona</th><th>Empresa producto</th><th>Comprobante</th><th>Nota pago</th><th>Obs. venta</th><th>Cierre de caja</th><th style="text-align:right">Monto</th><th style="text-align:right">Saldo venta</th></tr></thead><tbody>'+filas+'</tbody></table>';
+  cont.innerHTML=nota+'<table class="deudas-tbl"><thead><tr><th>Fecha</th><th>Cliente</th><th>Tipo doc.</th><th>DNI/RUC</th><th>Método</th><th>Cuenta</th><th>Empresa cuenta</th><th>Venta</th><th>Gestiona</th><th>Empresa producto</th><th>Comprobante</th><th>Nota pago</th><th>Obs. venta</th><th>Cierre de caja</th><th style="text-align:right">Monto del pago</th><th style="text-align:right">Valor de la venta</th><th style="text-align:right">Saldo por cobrar</th></tr></thead><tbody>'+filas+'</tbody></table>';
 }
 function restaurarPagos(){
   try{
@@ -1382,7 +1548,7 @@ async function descargarPagosPDF(){
   try{
     const d=await apiCall('/admin/reporte-pagos?'+p.toString(),'GET');
     if(!d.pagos.length){res.textContent='No hay pagos con esos filtros.';return;}
-    const cols=['Fecha','Cliente','Tipo','DNI/RUC','Método','Cuenta','Empresa cuenta','Venta','Gestiona','Empresa producto','Comprobante','Nota pago','Obs. venta','Cierre caja','Monto','Saldo venta'];
+    const cols=['Fecha','Cliente','Tipo','DNI/RUC','Método','Cuenta','Empresa cuenta','Venta','Gestiona','Empresa producto','Comprobante','Nota pago','Obs. venta','Cierre caja','Monto pago','Valor venta','Saldo x cobrar'];
     const filas=[];
     d.pagos.forEach((x,i)=>{
       filas.push([
@@ -1390,6 +1556,7 @@ async function descargarPagosPDF(){
         x.metodo, x.cuenta, x.empresa_cuenta, x.venta, x.empresa_gestiona, x.empresa_producto,
         x.comprobante, x.nota_pago, x.obs_venta, x.cuadre,
         x.monto.toLocaleString('es-PE',{minimumFractionDigits:2}),
+        Number(x.venta_total).toLocaleString('es-PE',{minimumFractionDigits:2}),
         x.venta_saldo>0?Number(x.venta_saldo).toLocaleString('es-PE',{minimumFractionDigits:2}):'pagada'
       ]);
       // Subtotal al cerrar cada venta
@@ -1525,8 +1692,8 @@ function dbCargarActual(){
   let id=panel.id.replace('tab-','');
   // El panel unificado recarga sus dos módulos con el mismo filtro
   if(id==='ventas_ingresos'){
-    dbCargadas['resumen']=0; dbCargadas['caja_bi']=0;
-    dbCargarModulo('resumen'); dbCargarModulo('caja_bi');
+    dbCargadas['resumen']=0; dbCargadas['caja_bi']=0; dbCargadas['rentabilidad']=0;
+    dbCargarModulo('resumen'); dbCargarModulo('caja_bi'); dbCargarModulo('rentabilidad');
     return;
   }
   dbCargadas[id]=0;
@@ -1638,6 +1805,7 @@ async function dbRentabilidad(){
 
 async function dbInventario(){
   const r=await dbApi('/api/inventario-resumen');
+  cargarInvAnalisis();
   document.getElementById('inv-kpis').innerHTML=[
     {l:'Unidades en stock',v:dbFmtN(r.unidades_totales),s:dbFmtN(r.skus_distintos)+' SKUs',a:1},
     {l:'Disponibles',v:dbFmtN(r.disponibles),s:'para venta'},
@@ -2084,7 +2252,7 @@ async function cargarEstadoActualizacion(){
   }catch(e){ if(box)box.style.display='none'; }
 }
 // Nombres legibles de los módulos
-const NOMBRE_MODULO={clientes_gestion:'Gestión de clientes',sync:'Sincronización web (en Sistemas)',auditoria:'Auditoría de catálogo',resumen:'Resumen de ventas (en Ventas e ingresos)',rentabilidad:'Rentabilidad',inventario:'Inventario',restock:'Restock',clientes_bi:'Clientes BI',caja_bi:'Ingresos y caja (en Ventas e ingresos)',crm:'CRM Kommo',reportes:'Contabilidad',pagos:'Métodos de pago (en Sistemas)'};
+const NOMBRE_MODULO={clientes_gestion:'Gestión de clientes',sync:'Sincronización web (en Sistemas)',auditoria:'Auditoría de catálogo',resumen:'Resumen de ventas (en Ventas e ingresos)',rentabilidad:'Rentabilidad (en Ventas e ingresos)',inventario:'Inventario',restock:'Restock',clientes_bi:'Clientes BI',caja_bi:'Ingresos y caja (en Ventas e ingresos)',crm:'CRM Kommo',reportes:'Contabilidad',pagos:'Métodos de pago (en Sistemas)'};
 let accesosCache={modulos_disponibles:[],usuarios:[]};
 async function cargarAccesos(){
   try{

@@ -510,8 +510,8 @@ tr:hover td{background:var(--hover)}
         <p class="card-note">Catálogo completo con ventas, margen y rotación. Filtra y descárgalo en Excel o PDF.</p>
         <div class="filtros-fila" style="align-items:center;gap:8px;flex-wrap:wrap">
           <select id="inv-ex-marca"><option value="">Todas las marcas</option></select>
-          <input id="inv-ex-cat" type="text" placeholder="Categoría contiene..." style="width:150px">
-          <input id="inv-ex-subcat" type="text" placeholder="Subcategoría contiene..." style="width:160px">
+          <select id="inv-ex-cat"><option value="">Todas las categorías</option></select>
+          <select id="inv-ex-subcat"><option value="">Todas las subcategorías</option></select>
           <input id="inv-ex-mgmin" type="number" placeholder="Margen mín. %" style="width:120px">
           <input id="inv-ex-mgmax" type="number" placeholder="Margen máx. %" style="width:120px">
         </div>
@@ -1054,36 +1054,65 @@ function invExParams(){
   if(document.getElementById('inv-ex-ventas').checked)p.set('solo_ventas','1');
   return p;
 }
-async function cargarInvExport(){
+let invExFiltrosListos=false;
+// Llena los desplegables (marca, categoría, subcategoría) al abrir la pestaña
+async function cargarInvExFiltros(){
+  if(invExFiltrosListos)return;
+  try{
+    const d=await apiCall('/api/inventario-export-filtros','GET');
+    const llenar=(id,lista,etiqueta)=>{
+      const sel=document.getElementById(id); if(!sel)return;
+      const act=sel.value;
+      sel.innerHTML=`<option value="">${etiqueta}</option>`+
+        (lista||[]).map(x=>`<option value="${esc(x)}"${x===act?' selected':''}>${esc(x)}</option>`).join('');
+    };
+    llenar('inv-ex-marca',d.marcas,'Todas las marcas');
+    llenar('inv-ex-cat',d.categorias,'Todas las categorías');
+    llenar('inv-ex-subcat',d.subcategorias,'Todas las subcategorías');
+    invExFiltrosListos=true;
+  }catch(e){/* si falla, los desplegables quedan vacíos y se llenan al dar Ver */}
+}
+function pintarInvExport(d,horaTexto){
   const res=document.getElementById('inv-ex-resumen');
   const cont=document.getElementById('inv-ex-tabla');
+  res.innerHTML=`<b>${d.total}</b> producto(s)`+(d.items.length>500?' · mostrando 500 en pantalla (Excel/PDF traen todo)':'')+(horaTexto?` · Última corrida: ${horaTexto}`:'');
+  if(!d.items.length){cont.innerHTML='<div class="muted">Sin productos con esos filtros.</div>';return;}
+  const money=n=>n==null?'—':'S/ '+Number(n).toLocaleString('es-PE',{minimumFractionDigits:2});
+  window._invExItems=d.items;
+  cont.innerHTML='<table class="deudas-tbl" id="inv-ex-tbl"><thead><tr>'+
+    '<th>SKU</th><th>Producto</th><th>Marca</th><th>Categoría</th><th style="text-align:right">Stock</th><th style="text-align:right">Costo prom.</th><th style="text-align:right">Precio</th><th style="text-align:right">Margen</th><th style="text-align:right">Vend. 90d</th><th style="text-align:right">Vend. hist.</th><th style="text-align:right">Venta hist.</th><th style="text-align:right">Días s/venta</th></tr></thead><tbody>'+
+    d.items.slice(0,500).map(x=>`<tr data-txt="${esc((x.sku+' '+x.producto).toLowerCase())}">
+      <td>${esc(x.sku)}</td><td>${esc(x.producto)}</td><td>${esc(x.marca)}</td><td>${esc(x.categoria)}</td>
+      <td style="text-align:right">${x.stock}</td>
+      <td style="text-align:right">${money(x.costo_prom)}</td>
+      <td style="text-align:right">${money(x.precio_venta)}</td>
+      <td style="text-align:right">${x.margen_pct!=null?x.margen_pct+'%':'—'}</td>
+      <td style="text-align:right">${x.und_90d}</td>
+      <td style="text-align:right">${x.und_hist}</td>
+      <td style="text-align:right">${money(x.venta_hist)}</td>
+      <td style="text-align:right">${x.dias_sin_venta!=null?x.dias_sin_venta:'<span class="badge-r" style="font-size:9px">nunca</span>'}</td>
+    </tr>`).join('')+'</tbody></table>';
+  invExFiltrarTexto();
+}
+function restaurarInvEx(){
+  try{
+    const raw=localStorage.getItem('kuranko_ultima_invex');
+    if(!raw)return;
+    const g=JSON.parse(raw);
+    if(g.v!==MEM_VERSION){localStorage.removeItem('kuranko_ultima_invex');return;}
+    pintarInvExport(g.d, g.hora+' (guardada)');
+  }catch(e){/* nada */}
+}
+async function cargarInvExport(){
+  const res=document.getElementById('inv-ex-resumen');
+  document.getElementById('inv-ex-tabla').innerHTML='';
   res.textContent='Cargando inventario...';
-  cont.innerHTML='';
   try{
     const d=await apiCall('/api/inventario-export?'+invExParams().toString(),'GET');
-    // Llenar desplegable de marcas conservando selección
-    const sel=document.getElementById('inv-ex-marca');
-    const marcaAct=sel.value;
-    sel.innerHTML='<option value="">Todas las marcas</option>'+
-      (d.marcas||[]).map(m=>`<option value="${esc(m)}"${m===marcaAct?' selected':''}>${esc(m)}</option>`).join('');
-    res.innerHTML=`<b>${d.total}</b> producto(s)`+(d.items.length>500?' · mostrando 500 en pantalla (Excel/PDF traen todo)':'');
-    if(!d.items.length){cont.innerHTML='<div class="muted">Sin productos con esos filtros.</div>';return;}
-    const money=n=>n==null?'—':'S/ '+Number(n).toLocaleString('es-PE',{minimumFractionDigits:2});
-    window._invExItems=d.items;
-    cont.innerHTML='<table class="deudas-tbl" id="inv-ex-tbl"><thead><tr>'+
-      '<th>SKU</th><th>Producto</th><th>Marca</th><th>Categoría</th><th style="text-align:right">Stock</th><th style="text-align:right">Costo prom.</th><th style="text-align:right">Precio</th><th style="text-align:right">Margen</th><th style="text-align:right">Vend. 90d</th><th style="text-align:right">Vend. hist.</th><th style="text-align:right">Venta hist.</th><th style="text-align:right">Días s/venta</th></tr></thead><tbody>'+
-      d.items.slice(0,500).map(x=>`<tr data-txt="${esc((x.sku+' '+x.producto).toLowerCase())}">
-        <td>${esc(x.sku)}</td><td>${esc(x.producto)}</td><td>${esc(x.marca)}</td><td>${esc(x.categoria)}</td>
-        <td style="text-align:right">${x.stock}</td>
-        <td style="text-align:right">${money(x.costo_prom)}</td>
-        <td style="text-align:right">${money(x.precio_venta)}</td>
-        <td style="text-align:right">${x.margen_pct!=null?x.margen_pct+'%':'—'}</td>
-        <td style="text-align:right">${x.und_90d}</td>
-        <td style="text-align:right">${x.und_hist}</td>
-        <td style="text-align:right">${money(x.venta_hist)}</td>
-        <td style="text-align:right">${x.dias_sin_venta!=null?x.dias_sin_venta:'<span class="badge-r" style="font-size:9px">nunca</span>'}</td>
-      </tr>`).join('')+'</tbody></table>';
-    invExFiltrarTexto();
+    const hora=new Date().toLocaleString('es-PE');
+    pintarInvExport(d,hora);
+    // Memoria: SIEMPRE se reemplaza la corrida anterior (una sola guardada)
+    try{ localStorage.setItem('kuranko_ultima_invex', JSON.stringify({v:MEM_VERSION,d,hora})); }catch(e){/* cuota llena */}
   }catch(e){res.textContent='';showToast(e.message,true);}
 }
 function invExFiltrarTexto(){
@@ -1668,7 +1697,7 @@ async function dbCargarModulo(id){
     if(id==='resumen')await dbResumen();
     else if(id==='rentabilidad')await dbRentabilidad();
     else if(id==='inventario')await dbInventario();
-    else if(id==='restock')await dbRestock();
+    else if(id==='restock'){await dbRestock();cargarInvExFiltros();if(!window._invExItems)restaurarInvEx();}
     else if(id==='clientes_bi')await dbClientes();
     else if(id==='caja_bi')await dbCaja();
     else if(id==='crm')await dbCRM();

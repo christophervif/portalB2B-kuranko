@@ -1172,8 +1172,8 @@ app.get('/admin/reporte-pagos-excel', authAdmin, requiereModulo('reportes'), asy
       { header: 'Empresa que gestiona', width: 26 }, { header: 'Empresa(s) del producto', width: 28 },
       { header: 'Comprobante', width: 28 }, { header: 'Nota del pago', width: 34 },
       { header: 'Observación de venta', width: 34 }, { header: 'Cierre de caja', width: 14 },
-      { header: 'Monto pagado', width: 14 },
-      { header: 'Cobrado en el rango', width: 18 }, { header: 'Saldo por cobrar', width: 16 },
+      { header: 'Monto del pago', width: 15 }, { header: 'Valor de la venta', width: 16 },
+      { header: 'Pagado en el rango', width: 17 }, { header: 'Saldo por cobrar', width: 16 },
       { header: 'Pagos fuera del rango', width: 22 }
     ];
 
@@ -1183,8 +1183,9 @@ app.get('/admin/reporte-pagos-excel', authAdmin, requiereModulo('reportes'), asy
       ['Desde', req.query.desde], ['Hasta', req.query.hasta],
       ['Cuenta', req.query.cuenta ? 'filtrada' : ''], ['Método', req.query.metodo ? 'filtrado' : ''],
       ['Pagos', lista.length],
-      ['IMPORTANTE', 'Todos los pagos listados son dinero YA RECIBIDO. "Cierre de caja" indica si el cierre administrativo del día se realizó, NO si el pago está pendiente.']
-    ], 18);
+      ['IMPORTANTE', 'Todos los pagos listados son dinero YA RECIBIDO. "Cierre de caja" indica si el cierre administrativo del día se realizó, NO si el pago está pendiente.'],
+      ['Columnas', 'Monto del pago = esa transacción · Valor de la venta = lo que cuesta la venta · Pagado en el rango = suma de pagos del filtro · Saldo por cobrar = lo que falta (sobre todos los pagos históricos)']
+    ], 19);
     colDefs.forEach((c, i) => ws.getColumn(i + 1).width = c.width);
     const headerRowNum = filasCab + 1;
     const hr = ws.addRow(colDefs.map(c => c.header));
@@ -1192,18 +1193,18 @@ app.get('/admin/reporte-pagos-excel', authAdmin, requiereModulo('reportes'), asy
     hr.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000726' } };
 
     // Una fila por pago (plano, apto para filtrar y tablas dinámicas).
-    // "Total venta" se repite en las filas de la misma venta a propósito.
+    // Los datos de la venta (valor, pagado, saldo) se repiten en sus filas a propósito.
     lista.forEach(x => {
       ws.addRow([
         fechaLima(x.paid_at), x.cliente, x.cliente_doc_tipo, x.cliente_doc, x.metodo, x.cuenta,
         x.empresa_cuenta, x.venta, x.empresa_gestiona, x.empresa_producto, x.comprobante,
-        x.nota_pago, x.obs_venta, x.cuadre, x.monto, x._total_venta, x.venta_saldo,
+        x.nota_pago, x.obs_venta, x.cuadre, x.monto, x.venta_total, x._total_venta, x.venta_saldo,
         x._pagos_fuera > 0 ? `${x._pagos_fuera} pago(s): S/ ${x._monto_fuera.toFixed(2)}` : ''
       ]);
     });
     ws.views = [{ state: 'frozen', ySplit: headerRowNum }];
-    ws.autoFilter = { from: { row: headerRowNum, column: 1 }, to: { row: headerRowNum, column: 18 } };
-    [15, 16, 17].forEach(c => ws.getColumn(c).numFmt = '#,##0.00');
+    ws.autoFilter = { from: { row: headerRowNum, column: 1 }, to: { row: headerRowNum, column: 19 } };
+    [15, 16, 17, 18].forEach(c => ws.getColumn(c).numFmt = '#,##0.00');
 
     // Totalizadores
     ws.addRow([]);
@@ -1831,6 +1832,160 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
   const mRent = requiereModulo('rentabilidad');
   const mInv = requiereModulo('inventario');
   const mRestock = requiereModulo('restock');
+
+  // ── EXPORTADOR DE INVENTARIO (Restock) ──
+  // Catálogo con stock, ventas, margen y rotación. Filtros: marca, categoría,
+  // subcategoría, solo con stock, solo con ventas, rango de margen.
+  async function obtenerInventarioExport(f) {
+    f = f || {};
+    // Stock y costo promedio ponderado por variación
+    const [stock] = await prodPool.query(`
+      SELECT sb.product_variation_id,
+        SUM(sb.quantity) AS stock,
+        SUM(sb.quantity * sb.cost_price) AS capital,
+        MIN(sb.entry_date) AS lote_mas_antiguo
+      FROM stock_batches sb WHERE sb.quantity > 0
+      GROUP BY sb.product_variation_id`);
+    const stockMap = {};
+    stock.forEach(r => stockMap[r.product_variation_id] = {
+      stock: Number(r.stock), capital: Number(r.capital),
+      costo_prom: Number(r.stock) > 0 ? Number(r.capital) / Number(r.stock) : 0,
+      lote_mas_antiguo: r.lote_mas_antiguo
+    });
+
+    // Ventas: 90 días, histórico total y última venta
+    const [ventas] = await prodPool.query(`
+      SELECT si.product_variation_id,
+        SUM(CASE WHEN s.created_at >= DATE_SUB(NOW(), INTERVAL 90 DAY) THEN si.quantity ELSE 0 END) AS und_90d,
+        SUM(si.quantity) AS und_hist,
+        SUM(si.total) AS venta_hist,
+        MAX(s.created_at) AS ultima_venta
+      FROM sale_items si JOIN sales s ON s.id = si.sale_id
+      WHERE s.deleted_at IS NULL AND s.status IN ${VV}
+      GROUP BY si.product_variation_id`);
+    const vMap = {};
+    ventas.forEach(v => vMap[v.product_variation_id] = v);
+
+    // Categoría y subcategoría (por jerarquía parent_id) del producto
+    const [cats] = await prodPool.query(`
+      SELECT ppc.product_id, c.name AS cat, c.parent_id, padre.name AS cat_padre
+      FROM product_product_category ppc
+      JOIN product_categories c ON c.id = ppc.product_category_id
+      LEFT JOIN product_categories padre ON padre.id = c.parent_id`);
+    // Para cada producto: si la categoría tiene padre, es subcategoría; el padre es la categoría
+    const catMap = {};
+    cats.forEach(r => {
+      const m = catMap[r.product_id] = catMap[r.product_id] || { categoria: new Set(), subcategoria: new Set() };
+      if (r.parent_id) { m.categoria.add(r.cat_padre); m.subcategoria.add(r.cat); }
+      else m.categoria.add(r.cat);
+    });
+
+    // Catálogo base (variaciones activas)
+    const [prods] = await prodPool.query(`
+      SELECT pv.id AS vid, pv.sku, pv.name AS variacion,
+        pv.regular_price, pv.sale_price,
+        p.id AS pid, p.name AS producto
+      FROM product_variations pv
+      JOIN products p ON p.id = pv.product_id
+      WHERE pv.deleted_at IS NULL AND p.deleted_at IS NULL
+        AND pv.status = 'active'`);
+
+    const hoy = Date.now();
+    const dias = d => d ? Math.floor((hoy - new Date(d).getTime()) / 864e5) : null;
+
+    let items = prods.map(p => {
+      const st = stockMap[p.vid] || { stock: 0, capital: 0, costo_prom: 0, lote_mas_antiguo: null };
+      const v = vMap[p.vid] || {};
+      const c = catMap[p.pid] || {};
+      const precio = p.sale_price != null && Number(p.sale_price) > 0 ? Number(p.sale_price) : Number(p.regular_price || 0);
+      const costo = st.costo_prom;
+      const margenPct = precio > 0 ? Math.round((precio - costo) / precio * 1000) / 10 : null;
+      const und90 = Number(v.und_90d || 0);
+      const ritmoMes = und90 / 3; // 90 días = 3 meses
+      return {
+        sku: p.sku,
+        producto: p.producto + (p.variacion && p.variacion !== p.producto ? ' — ' + p.variacion : ''),
+        marca: (p.producto || '').trim().split(/\s+/)[0] || '—',
+        categoria: c.categoria ? [...c.categoria].join(', ') : '—',
+        subcategoria: c.subcategoria ? [...c.subcategoria].join(', ') : '—',
+        stock: st.stock,
+        costo_prom: Math.round(costo * 100) / 100,
+        capital: Math.round(st.capital * 100) / 100,
+        precio_venta: precio,
+        margen_pct: margenPct,
+        ganancia_unit: Math.round((precio - costo) * 100) / 100,
+        und_90d: und90,
+        und_hist: Number(v.und_hist || 0),
+        venta_hist: Math.round(Number(v.venta_hist || 0) * 100) / 100,
+        ultima_venta: v.ultima_venta || null,
+        dias_sin_venta: dias(v.ultima_venta),
+        meses_para_agotar: ritmoMes > 0 ? Math.round((st.stock / ritmoMes) * 10) / 10 : null
+      };
+    });
+
+    // Filtros
+    if (f.marca) items = items.filter(x => x.marca.toLowerCase() === f.marca.toLowerCase());
+    if (f.categoria) items = items.filter(x => x.categoria.toLowerCase().includes(f.categoria.toLowerCase()));
+    if (f.subcategoria) items = items.filter(x => x.subcategoria.toLowerCase().includes(f.subcategoria.toLowerCase()));
+    if (f.solo_stock === '1') items = items.filter(x => x.stock > 0);
+    if (f.solo_ventas === '1') items = items.filter(x => x.und_hist > 0);
+    if (f.margen_min) items = items.filter(x => x.margen_pct != null && x.margen_pct >= Number(f.margen_min));
+    if (f.margen_max) items = items.filter(x => x.margen_pct != null && x.margen_pct <= Number(f.margen_max));
+
+    items.sort((a, b) => b.capital - a.capital);
+
+    // Listas para los desplegables (marcas, categorías, subcategorías presentes)
+    const marcas = [...new Set(items.map(x => x.marca))].filter(m => m !== '—').sort();
+    return { total: items.length, items, marcas };
+  }
+
+  app.get('/api/inventario-export', authAdmin, mRestock, async (req, res) => {
+    try { res.json(await obtenerInventarioExport(req.query)); }
+    catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get('/api/inventario-export-excel', authAdmin, mRestock, async (req, res) => {
+    try {
+      const d = await obtenerInventarioExport(req.query);
+      const ExcelJS = require('exceljs');
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('Inventario');
+      const fechaLima = x => x ? new Date(x).toLocaleDateString('es-PE', { timeZone: 'America/Lima' }) : '';
+      const filasCab = cabeceraExcel(ws, 'Inventario con ventas y margen', [
+        ['Marca', req.query.marca || 'Todas'],
+        ['Categoría', req.query.categoria || 'Todas'],
+        ['Productos', d.total]
+      ], 16);
+      const colDefs = [
+        { header: 'SKU', width: 18 }, { header: 'Producto', width: 46 }, { header: 'Marca', width: 14 },
+        { header: 'Categoría', width: 18 }, { header: 'Subcategoría', width: 18 },
+        { header: 'Stock', width: 9 }, { header: 'Costo prom. (S/)', width: 14 },
+        { header: 'Capital (S/)', width: 13 }, { header: 'Precio venta (S/)', width: 14 },
+        { header: 'Margen %', width: 10 }, { header: 'Ganancia unit. (S/)', width: 15 },
+        { header: 'Vendidas 90d', width: 12 }, { header: 'Vendidas histórico', width: 15 },
+        { header: 'Venta histórica (S/)', width: 17 }, { header: 'Última venta', width: 13 },
+        { header: 'Días sin venta', width: 13 }
+      ];
+      colDefs.forEach((c, i) => ws.getColumn(i + 1).width = c.width);
+      const hr = ws.addRow(colDefs.map(c => c.header));
+      hr.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      hr.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000726' } };
+      d.items.forEach(x => ws.addRow([
+        x.sku, x.producto, x.marca, x.categoria, x.subcategoria, x.stock, x.costo_prom,
+        x.capital, x.precio_venta, x.margen_pct, x.ganancia_unit, x.und_90d, x.und_hist,
+        x.venta_hist, fechaLima(x.ultima_venta), x.dias_sin_venta != null ? x.dias_sin_venta : 'nunca'
+      ]));
+      ws.views = [{ state: 'frozen', ySplit: filasCab + 1 }];
+      ws.autoFilter = { from: { row: filasCab + 1, column: 1 }, to: { row: filasCab + 1, column: 16 } };
+      [7, 8, 9, 11, 14].forEach(c => ws.getColumn(c).numFmt = '#,##0.00');
+      const nombre = nombreTrazable('inventario');
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="${nombre}.xlsx"`);
+      await wb.xlsx.write(res);
+      res.end();
+    } catch (e) { res.status(500).json({ error: 'Error al generar: ' + e.message }); }
+  });
+
   const mClientes = requiereModulo('clientes_bi');
   const mCaja = requiereModulo('caja_bi');
   const mCrm = requiereModulo('crm');
@@ -2145,6 +2300,91 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
       await wb.xlsx.write(res);
       res.end();
     } catch (e) { res.status(500).json({ error: 'Error al generar: ' + e.message }); }
+  });
+
+  // ── ANÁLISIS DE CAPITAL INMOVILIZADO (Inventario) ──
+  // Solo stock, capital y rotación. NO incluye márgenes ni ganancias:
+  // esta pestaña la ve el supervisor y esos datos son de Rentabilidad.
+  app.get('/api/inventario-analisis', authAdmin, mInv, async (req, res) => {
+    try {
+      const [stock] = await prodPool.query(`
+        SELECT sb.product_variation_id,
+          SUM(sb.quantity) AS stock,
+          SUM(sb.quantity * sb.cost_price) AS capital,
+          MIN(sb.entry_date) AS lote_mas_antiguo
+        FROM stock_batches sb
+        WHERE sb.quantity > 0
+        GROUP BY sb.product_variation_id`);
+      if (!stock.length) return res.json({ productos: [], marcas: [] });
+      const ids = stock.map(r => r.product_variation_id);
+
+      const [ventas] = await prodPool.query(`
+        SELECT si.product_variation_id,
+          SUM(si.quantity) AS unidades_12m, MAX(s.created_at) AS ultima_venta
+        FROM sale_items si JOIN sales s ON s.id = si.sale_id
+        WHERE s.deleted_at IS NULL AND s.status IN ${VV}
+          AND s.created_at >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
+          AND si.product_variation_id IN (?)
+        GROUP BY si.product_variation_id`, [ids]);
+      const vMap = {}; ventas.forEach(v => vMap[v.product_variation_id] = v);
+
+      const [nombres] = await prodPool.query(`
+        SELECT pv.id, pv.sku, pv.name AS variacion, p.name AS producto
+        FROM product_variations pv LEFT JOIN products p ON p.id = pv.product_id
+        WHERE pv.id IN (?)`, [ids]);
+      const nMap = {}; nombres.forEach(n => nMap[n.id] = n);
+
+      const hoy = Date.now();
+      const dias = f => f ? Math.floor((hoy - new Date(f).getTime()) / 864e5) : null;
+
+      const items = stock.map(r => {
+        const v = vMap[r.product_variation_id] || {};
+        const n = nMap[r.product_variation_id] || {};
+        const und12 = Number(v.unidades_12m || 0);
+        const stockN = Number(r.stock);
+        const ritmoMes = und12 / 12;
+        return {
+          sku: n.sku || '—',
+          marca: (n.producto || '').trim().split(/\s+/)[0] || '—',
+          producto: (n.producto || '') + (n.variacion && n.variacion !== n.producto ? ' — ' + n.variacion : ''),
+          stock: stockN,
+          capital: Number(r.capital || 0),
+          unidades_12m: und12,
+          dias_sin_venta: dias(v.ultima_venta),
+          meses_para_agotar: ritmoMes > 0 ? Math.round((stockN / ritmoMes) * 10) / 10 : null
+        };
+      });
+
+      // 1) Los 15 productos con más capital parado que no rotan
+      const estancados = items
+        .filter(x => x.dias_sin_venta == null || x.dias_sin_venta >= 120)
+        .sort((a, b) => b.capital - a.capital)
+        .slice(0, 15);
+
+      // 2) Las 15 marcas con más dinero en stock que peor rotan
+      const porMarca = {};
+      items.forEach(x => {
+        const m = porMarca[x.marca] = porMarca[x.marca] ||
+          { marca: x.marca, capital: 0, stock: 0, unidades_12m: 0, referencias: 0, sin_venta: 0 };
+        m.capital += x.capital; m.stock += x.stock;
+        m.unidades_12m += x.unidades_12m; m.referencias++;
+        if (x.dias_sin_venta == null || x.dias_sin_venta >= 120) m.sin_venta++;
+      });
+      const marcas = Object.values(porMarca).map(m => {
+        const ritmoMes = m.unidades_12m / 12;
+        return { ...m, meses_para_agotar: ritmoMes > 0 ? Math.round((m.stock / ritmoMes) * 10) / 10 : null };
+      })
+        // "peor vendidas": tardan 12+ meses en agotarse, o directamente no venden
+        .filter(m => m.meses_para_agotar == null || m.meses_para_agotar >= 12)
+        .sort((a, b) => b.capital - a.capital)
+        .slice(0, 15);
+
+      res.json({
+        productos: estancados, marcas,
+        capital_estancado: estancados.reduce((s, x) => s + x.capital, 0),
+        capital_marcas: marcas.reduce((s, x) => s + x.capital, 0)
+      });
+    } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
   app.get('/api/inventario-resumen', authAdmin, mInv, async (req, res) => {

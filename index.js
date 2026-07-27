@@ -1925,8 +1925,10 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
 
     // Filtros
     if (f.marca) items = items.filter(x => x.marca.toLowerCase() === f.marca.toLowerCase());
-    if (f.categoria) items = items.filter(x => x.categoria.toLowerCase().includes(f.categoria.toLowerCase()));
-    if (f.subcategoria) items = items.filter(x => x.subcategoria.toLowerCase().includes(f.subcategoria.toLowerCase()));
+    if (f.categoria) items = items.filter(x =>
+      x.categoria.split(', ').some(c => c.toLowerCase() === f.categoria.toLowerCase()));
+    if (f.subcategoria) items = items.filter(x =>
+      x.subcategoria.split(', ').some(c => c.toLowerCase() === f.subcategoria.toLowerCase()));
     if (f.solo_stock === '1') items = items.filter(x => x.stock > 0);
     if (f.solo_ventas === '1') items = items.filter(x => x.und_hist > 0);
     if (f.margen_min) items = items.filter(x => x.margen_pct != null && x.margen_pct >= Number(f.margen_min));
@@ -1938,6 +1940,26 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
     const marcas = [...new Set(items.map(x => x.marca))].filter(m => m !== '—').sort();
     return { total: items.length, items, marcas };
   }
+
+  // Llena los desplegables del exportador (marcas, categorías, subcategorías)
+  // sin cargar el catálogo completo. Se llama al abrir la pestaña.
+  app.get('/api/inventario-export-filtros', authAdmin, mRestock, async (req, res) => {
+    try {
+      const [prods] = await prodPool.query(`
+        SELECT DISTINCT TRIM(SUBSTRING_INDEX(TRIM(p.name), ' ', 1)) AS marca
+        FROM products p
+        WHERE p.deleted_at IS NULL AND p.name IS NOT NULL AND p.name != ''
+        ORDER BY marca`);
+      const [cats] = await prodPool.query(`
+        SELECT id, name, parent_id FROM product_categories
+        WHERE is_active = 1 ORDER BY name`);
+      res.json({
+        marcas: prods.map(r => r.marca).filter(Boolean),
+        categorias: cats.filter(c => c.parent_id == null).map(c => c.name),
+        subcategorias: cats.filter(c => c.parent_id != null).map(c => c.name)
+      });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
 
   app.get('/api/inventario-export', authAdmin, mRestock, async (req, res) => {
     try { res.json(await obtenerInventarioExport(req.query)); }

@@ -1651,6 +1651,65 @@ app.post('/admin/cancelar-actualizacion', authAdmin, requiereModulo('sync'), asy
   } catch (e) { res.status(500).json({ error: 'Error al cancelar: ' + e.message }); }
 });
 
+// ─── Cola de SKUs manuales (se fuerzan en la próxima corrida del puente) ──
+async function asegurarColaSku() {
+  await portalPool.query(`
+    CREATE TABLE IF NOT EXISTS sync_cola_sku (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      sku VARCHAR(255) NOT NULL,
+      agregado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+      atendido TINYINT(1) DEFAULT 0,
+      atendido_en DATETIME NULL
+    )`);
+}
+
+// Agregar SKUs a la cola. Acepta texto pegado desde Excel (uno por línea, comas, o espacios).
+app.post('/admin/sync-cola-sku', authAdmin, requiereModulo('sync'), async (req, res) => {
+  try {
+    await asegurarColaSku();
+    const texto = (req.body && req.body.skus) || '';
+    // Separar por saltos de línea, comas, tabs, punto y coma o espacios múltiples
+    const skus = [...new Set(
+      String(texto).split(/[\r\n,;\t]+/).map(s => s.trim()).filter(Boolean)
+    )];
+    if (!skus.length) return res.status(400).json({ error: 'No se recibieron SKUs.' });
+    if (skus.length > 5000) return res.status(400).json({ error: 'Demasiados SKUs (máximo 5000 por vez).' });
+    // Insertar solo los que no estén ya pendientes en la cola
+    const [existentes] = await portalPool.query(
+      `SELECT sku FROM sync_cola_sku WHERE atendido = 0`);
+    const yaEnCola = new Set(existentes.map(r => (r.sku || '').trim().toLowerCase()));
+    const nuevos = skus.filter(s => !yaEnCola.has(s.toLowerCase()));
+    if (nuevos.length) {
+      await portalPool.query(
+        `INSERT INTO sync_cola_sku (sku) VALUES ?`, [nuevos.map(s => [s])]);
+    }
+    res.json({
+      ok: true, recibidos: skus.length, agregados: nuevos.length,
+      ya_estaban: skus.length - nuevos.length,
+      mensaje: `${nuevos.length} SKU(s) en cola. Se aplicarán en la próxima corrida (2 AM) o cuando ejecutes el puente en Railway.`
+    });
+  } catch (e) { res.status(500).json({ error: 'Error al encolar: ' + e.message }); }
+});
+
+// Ver qué hay en la cola pendiente
+app.get('/admin/sync-cola-sku', authAdmin, requiereModulo('sync'), async (req, res) => {
+  try {
+    await asegurarColaSku();
+    const [rows] = await portalPool.query(
+      `SELECT sku, agregado_en FROM sync_cola_sku WHERE atendido = 0 ORDER BY agregado_en DESC`);
+    res.json({ total: rows.length, skus: rows });
+  } catch (e) { res.json({ total: 0, skus: [] }); }
+});
+
+// Vaciar la cola pendiente (por si te equivocaste al pegar)
+app.post('/admin/sync-cola-sku-vaciar', authAdmin, requiereModulo('sync'), async (req, res) => {
+  try {
+    const [r] = await portalPool.query(
+      `UPDATE sync_cola_sku SET atendido = 1, atendido_en = NOW() WHERE atendido = 0`);
+    res.json({ ok: true, vaciados: r.affectedRows || 0 });
+  } catch (e) { res.status(500).json({ error: 'Error al vaciar: ' + e.message }); }
+});
+
 // ─── Ver accesos (SOLO admin maestro) — lectura de las variables de Railway ──
 app.get('/admin/accesos', authAdmin, soloMaestro, async (req, res) => {
   const secundarios = leerAdminsSecundarios();

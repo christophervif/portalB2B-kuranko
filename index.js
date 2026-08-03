@@ -1252,7 +1252,7 @@ app.get('/admin/reporte-sync', authAdmin, requiereModulo('sync'), async (req, re
     try {
       const [rows] = await portalPool.query(
         `SELECT variation_id, woocommerce_id, tipo, stock_antes, precio_antes,
-                stock_despues, precio_despues, se_aplico
+                stock_despues, precio_despues, oferta_antes, oferta_despues, se_aplico
          FROM sync_detalle ORDER BY se_aplico DESC, woocommerce_id`);
       variaciones = rows;
       aplicados = rows.filter(r => r.se_aplico === 1);
@@ -1273,7 +1273,8 @@ app.get('/admin/reporte-sync', authAdmin, requiereModulo('sync'), async (req, re
         sku: inf.sku || '', wc: v.woocommerce_id, tipo: inf.product_type || v.tipo,
         nombre: inf.nombre || '',
         stock_despues: v.stock_despues, precio_despues: v.precio_despues,
-        stock_antes: v.stock_antes, precio_antes: v.precio_antes
+        stock_antes: v.stock_antes, precio_antes: v.precio_antes,
+        oferta_antes: v.oferta_antes, oferta_despues: v.oferta_despues
       };
     };
     const filasVariaciones = variaciones.map(armaFila);
@@ -1330,14 +1331,17 @@ app.get('/admin/reporte-sync', authAdmin, requiereModulo('sync'), async (req, re
       { header: 'Stock anterior', key: 'sa', width: 13 },
       { header: 'Stock aplicado', key: 'sd', width: 13 },
       { header: 'Precio anterior', key: 'pa', width: 14 },
-      { header: 'Precio aplicado', key: 'pd', width: 14 }
+      { header: 'Precio aplicado', key: 'pd', width: 14 },
+      { header: 'Oferta anterior', key: 'oa', width: 14 },
+      { header: 'Oferta aplicada', key: 'od', width: 14 }
     ];
     filasVariaciones.forEach(f => ws1.addRow({
       sku: f.sku, wc: f.wc, tipo: f.tipo, nombre: f.nombre,
       sa: num(f.stock_antes), sd: num(f.stock_despues),
-      pa: num(f.precio_antes), pd: num(f.precio_despues)
+      pa: num(f.precio_antes), pd: num(f.precio_despues),
+      oa: num(f.oferta_antes), od: num(f.oferta_despues)
     }));
-    ponerEncabezado(ws1, 8);
+    ponerEncabezado(ws1, 10);
     estiloHeader(ws1.getRow(3));
     ws1.views = [{ state: 'frozen', ySplit: 3 }];
 
@@ -1366,14 +1370,17 @@ app.get('/admin/reporte-sync', authAdmin, requiereModulo('sync'), async (req, re
       { header: 'Stock anterior', key: 'sa', width: 13 },
       { header: 'Stock aplicado', key: 'sd', width: 13 },
       { header: 'Precio anterior', key: 'pa', width: 14 },
-      { header: 'Precio aplicado', key: 'pd', width: 14 }
+      { header: 'Precio aplicado', key: 'pd', width: 14 },
+      { header: 'Oferta anterior', key: 'oa', width: 14 },
+      { header: 'Oferta aplicada', key: 'od', width: 14 }
     ];
     filasAplicados.forEach(f => ws5.addRow({
       sku: f.sku, wc: f.wc, tipo: f.tipo, nombre: f.nombre,
       sa: num(f.stock_antes), sd: num(f.stock_despues),
-      pa: num(f.precio_antes), pd: num(f.precio_despues)
+      pa: num(f.precio_antes), pd: num(f.precio_despues),
+      oa: num(f.oferta_antes), od: num(f.oferta_despues)
     }));
-    ponerEncabezado(ws5, 8);
+    ponerEncabezado(ws5, 10);
     estiloHeader(ws5.getRow(3));
     ws5.views = [{ state: 'frozen', ySplit: 3 }];
 
@@ -1657,10 +1664,14 @@ async function asegurarColaSku() {
     CREATE TABLE IF NOT EXISTS sync_cola_sku (
       id INT AUTO_INCREMENT PRIMARY KEY,
       sku VARCHAR(255) NOT NULL,
+      actualizar_oferta TINYINT(1) DEFAULT 0,
       agregado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
       atendido TINYINT(1) DEFAULT 0,
       atendido_en DATETIME NULL
     )`);
+  try {
+    await portalPool.query(`ALTER TABLE sync_cola_sku ADD COLUMN actualizar_oferta TINYINT(1) DEFAULT 0`);
+  } catch (e) { /* la columna ya existe */ }
 }
 
 // Agregar SKUs a la cola. Acepta texto pegado desde Excel (uno por línea, comas, o espacios).
@@ -1668,6 +1679,7 @@ app.post('/admin/sync-cola-sku', authAdmin, requiereModulo('sync'), async (req, 
   try {
     await asegurarColaSku();
     const texto = (req.body && req.body.skus) || '';
+    const actualizarOferta = !!(req.body && req.body.actualizar_oferta);
     // Separar por saltos de línea, comas, tabs, punto y coma o espacios múltiples
     const skus = [...new Set(
       String(texto).split(/[\r\n,;\t]+/).map(s => s.trim()).filter(Boolean)
@@ -1681,12 +1693,13 @@ app.post('/admin/sync-cola-sku', authAdmin, requiereModulo('sync'), async (req, 
     const nuevos = skus.filter(s => !yaEnCola.has(s.toLowerCase()));
     if (nuevos.length) {
       await portalPool.query(
-        `INSERT INTO sync_cola_sku (sku) VALUES ?`, [nuevos.map(s => [s])]);
+        `INSERT INTO sync_cola_sku (sku, actualizar_oferta) VALUES ?`,
+        [nuevos.map(s => [s, actualizarOferta ? 1 : 0])]);
     }
     res.json({
       ok: true, recibidos: skus.length, agregados: nuevos.length,
-      ya_estaban: skus.length - nuevos.length,
-      mensaje: `${nuevos.length} SKU(s) en cola. Se aplicarán en la próxima corrida (2 AM) o cuando ejecutes el puente en Railway.`
+      ya_estaban: skus.length - nuevos.length, actualizar_oferta: actualizarOferta,
+      mensaje: `${nuevos.length} SKU(s) en cola${actualizarOferta ? ' (con precio oferta)' : ''}. Se aplicarán en la próxima corrida (2 AM) o cuando ejecutes el puente en Railway.`
     });
   } catch (e) { res.status(500).json({ error: 'Error al encolar: ' + e.message }); }
 });
@@ -1696,8 +1709,9 @@ app.get('/admin/sync-cola-sku', authAdmin, requiereModulo('sync'), async (req, r
   try {
     await asegurarColaSku();
     const [rows] = await portalPool.query(
-      `SELECT sku, agregado_en FROM sync_cola_sku WHERE atendido = 0 ORDER BY agregado_en DESC`);
-    res.json({ total: rows.length, skus: rows });
+      `SELECT sku, actualizar_oferta, agregado_en FROM sync_cola_sku WHERE atendido = 0 ORDER BY agregado_en DESC`);
+    const conOferta = rows.filter(r => r.actualizar_oferta === 1).length;
+    res.json({ total: rows.length, con_oferta: conOferta, skus: rows });
   } catch (e) { res.json({ total: 0, skus: [] }); }
 });
 

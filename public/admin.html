@@ -407,6 +407,10 @@ tr:hover td{background:var(--hover)}
         <div class="desc">¿Ajustaste el stock de algunos productos y quieres forzar su actualización sin remover todo? Pega aquí la columna de SKUs (cópiala de tu Excel y pégala tal cual, uno por línea). Se <b>suman</b> a los que ya iban a actualizarse en la próxima corrida de las 2 AM, y se fuerzan aunque no hayan cambiado. Los SKUs que no existan en el ERP aparecerán en Alertas de vinculación.</div>
         <textarea id="sync-skus" rows="6" placeholder="Pega aquí los SKUs (uno por línea)&#10;R03LIQ11ST0003&#10;F02FRE05MA0009&#10;..." style="width:100%;box-sizing:border-box;padding:10px;border-radius:10px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-family:monospace;font-size:13px;resize:vertical"></textarea>
         <div id="sync-skus-cola" class="muted" style="margin:8px 0;font-size:13px"></div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:6px 0;cursor:pointer">
+          <input type="checkbox" id="sync-skus-oferta">
+          <span>También actualizar el <b>precio oferta</b> de estos productos (si el ERP no tiene oferta, se deja vacío y se muestra el precio regular).</span>
+        </label>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
           <button class="btn" onclick="encolarSkus()">Poner en cola</button>
           <button class="btn danger" id="btn-vaciar-cola" onclick="vaciarColaSkus()" style="display:none">Vaciar cola</button>
@@ -884,7 +888,8 @@ async function verColaSkus(){
     const cont=document.getElementById('sync-skus-cola');
     const btnV=document.getElementById('btn-vaciar-cola');
     if(d.total>0){
-      cont.innerHTML=`<b>${d.total}</b> SKU(s) en cola, esperando la próxima corrida.`;
+      const oferta=d.con_oferta>0?` · ${d.con_oferta} con precio oferta`:'';
+      cont.innerHTML=`<b>${d.total}</b> SKU(s) en cola, esperando la próxima corrida${oferta}.`;
       if(btnV)btnV.style.display='';
     }else{
       cont.textContent='No hay SKUs en cola.';
@@ -897,11 +902,13 @@ async function encolarSkus(){
   const res=document.getElementById('sync-skus-result');
   const texto=(ta.value||'').trim();
   if(!texto){res.textContent='Pega al menos un SKU.';return;}
+  const oferta=document.getElementById('sync-skus-oferta').checked;
   res.textContent='Guardando en cola...';
   try{
-    const d=await apiCall('/admin/sync-cola-sku','POST',{skus:texto});
+    const d=await apiCall('/admin/sync-cola-sku','POST',{skus:texto,actualizar_oferta:oferta});
     res.innerHTML=`✓ ${d.mensaje}`+(d.ya_estaban>0?` (${d.ya_estaban} ya estaban en cola)`:'');
     ta.value='';
+    document.getElementById('sync-skus-oferta').checked=false;
     verColaSkus();
   }catch(e){res.textContent='';showToast(e.message,true);}
 }

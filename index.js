@@ -2219,22 +2219,44 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
     try {
       await asegurarTablaCreditos();
       const [rows] = await portalPool.query(
-        `SELECT * FROM creditos_cliente WHERE anulado = 0 ORDER BY creado_en DESC`);
+        `SELECT * FROM creditos_cliente ORDER BY anulado ASC, creado_en DESC`);
       const CONC = { 1: 'Diseños Corporativos SAC', 2: 'Christopher Villasante F.' };
+
+      // Para créditos viejos sin empresa vendedora guardada, buscarla en el ERP por su venta
+      const sinVendedora = rows.filter(c => !c.empresa_vendedora && c.venta_ref && c.anulado !== 1);
+      const vendedoraPorVenta = {};
+      if (sinVendedora.length) {
+        const codes = [...new Set(sinVendedora.map(c => c.venta_ref))];
+        try {
+          const [ventas] = await prodPool.query(
+            `SELECT code, company_id FROM sales WHERE code IN (?)`, [codes]);
+          ventas.forEach(v => { vendedoraPorVenta[v.code] = v.company_id; });
+        } catch (e) { /* si falla, quedan en '—' */ }
+      }
+
       const lista = rows.map(c => {
         const saldo = Math.round((Number(c.monto) - Number(c.usado)) * 100) / 100;
+        // Empresa vendedora: la guardada, o la recuperada del ERP para registros viejos
+        const vendId = c.empresa_vendedora || vendedoraPorVenta[c.venta_ref] || null;
+        const anulado = c.anulado === 1;
         return {
           id: c.id, cliente: c.cliente_nombre || '—', cliente_doc: c.cliente_doc || '—',
           monto: Number(c.monto), usado: Number(c.usado), saldo,
           fecha: c.fecha, origen: c.origen, venta_ref: c.venta_ref,
           empresa_cuenta: c.empresa_id ? (CONC[c.empresa_id] || c.cuenta_ref) : (c.cuenta_ref || '—'),
-          empresa_vendedora: c.empresa_vendedora ? (CONC[c.empresa_vendedora] || ('Empresa ' + c.empresa_vendedora)) : '—',
-          estado: saldo <= 0 ? 'agotado' : (Number(c.usado) > 0 ? 'parcial' : 'disponible'),
+          empresa_vendedora: vendId ? (CONC[vendId] || ('Empresa ' + vendId)) : '—',
+          estado: anulado ? 'anulado'
+            : (saldo <= 0 ? 'agotado' : (Number(c.usado) > 0 ? 'parcial' : 'disponible')),
+          anulado,
+          anulado_por: c.anulado_por || null,
+          anulado_en: c.anulado_en || null,
           registrado_por: c.registrado_por, creado_en: c.creado_en
         };
       });
-      const totalDisponible = lista.reduce((s, x) => s + x.saldo, 0);
-      res.json({ total: lista.length, total_disponible: totalDisponible, creditos: lista });
+      // El total disponible NO cuenta los anulados
+      const totalDisponible = lista.filter(x => !x.anulado).reduce((s, x) => s + x.saldo, 0);
+      const activos = lista.filter(x => !x.anulado).length;
+      res.json({ total: lista.length, activos, total_disponible: totalDisponible, creditos: lista });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 

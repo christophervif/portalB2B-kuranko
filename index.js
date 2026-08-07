@@ -2115,34 +2115,43 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
       const q = (req.query.q || '').trim();
       const [rows] = await prodPool.query(`
         SELECT s.id, s.code, s.total, s.created_at, s.customer_id,
-          COALESCE(SUM(sp.amount),0) AS pagado,
+          COALESCE(SUM(CASE WHEN sp.voided_at IS NULL THEN sp.amount ELSE 0 END),0) AS pagado_activo,
+          COALESCE(SUM(CASE WHEN sp.voided_at IS NOT NULL THEN sp.amount ELSE 0 END),0) AS pagado_anulado,
           CASE WHEN cli.is_company=1 THEN cli.business_name
                ELSE TRIM(CONCAT(COALESCE(cli.first_name,''),' ',COALESCE(cli.last_name,''))) END AS cliente,
           cli.document_number AS cliente_doc,
           (SELECT ba.party_id FROM sale_payments sp2
            LEFT JOIN bank_accounts ba ON ba.id = sp2.bank_account_id
-           WHERE sp2.sale_id = s.id AND sp2.voided_at IS NULL AND ba.party_id IS NOT NULL
+           WHERE sp2.sale_id = s.id AND ba.party_id IS NOT NULL
            LIMIT 1) AS empresa_id
         FROM sales s
-        LEFT JOIN sale_payments sp ON sp.sale_id = s.id AND sp.voided_at IS NULL
+        LEFT JOIN sale_payments sp ON sp.sale_id = s.id
         LEFT JOIN parties cli ON cli.id = s.customer_id
         WHERE s.status = 'cancelled' AND s.deleted_at IS NULL
         GROUP BY s.id
-        HAVING pagado > 0
+        HAVING (pagado_activo + pagado_anulado) > 0
         ORDER BY s.created_at DESC
-        LIMIT 200`);
+        LIMIT 500`);
       // Marcar cuáles ya tienen crédito registrado (para no duplicar)
       await asegurarTablaCreditos();
       const [yaReg] = await portalPool.query(
         `SELECT venta_ref FROM creditos_cliente WHERE anulado = 0 AND venta_ref IS NOT NULL`);
       const registradas = new Set(yaReg.map(r => r.venta_ref));
-      let lista = rows.map(r => ({
-        code: r.code, total: Number(r.total), pagado: Number(r.pagado),
-        fecha: r.created_at, customer_id: r.customer_id,
-        cliente: (r.cliente || '').trim() || '—', cliente_doc: r.cliente_doc || '—',
-        empresa_id: r.empresa_id,
-        ya_registrada: registradas.has(r.code)
-      }));
+      let lista = rows.map(r => {
+        const activo = Number(r.pagado_activo), anulado = Number(r.pagado_anulado);
+        // El "dinero que entró" es el total pagado (activo + anulado); ese es el tope del crédito
+        const pagado = Math.round((activo + anulado) * 100) / 100;
+        return {
+          code: r.code, total: Number(r.total), pagado,
+          pagado_activo: activo, pagado_anulado: anulado,
+          // Etiqueta: normal = pago anulado (esperado al cancelar); "activo" = anomalía
+          tiene_pago_activo: activo > 0,
+          fecha: r.created_at, customer_id: r.customer_id,
+          cliente: (r.cliente || '').trim() || '—', cliente_doc: r.cliente_doc || '—',
+          empresa_id: r.empresa_id,
+          ya_registrada: registradas.has(r.code)
+        };
+      });
       if (q) {
         const ql = q.toLowerCase();
         lista = lista.filter(x =>
@@ -2163,10 +2172,11 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
       const monto = Number(b.monto);
       if (!(monto > 0)) return res.status(400).json({ error: 'El monto debe ser mayor a cero.' });
       // Verificar contra el ERP que el monto no exceda lo realmente pagado en esa venta
+      // (cuenta pagos activos Y anulados: al cancelar se anula el pago, pero el dinero entró)
       const [[vRef]] = await prodPool.query(`
         SELECT COALESCE(SUM(sp.amount),0) AS pagado
         FROM sales s
-        LEFT JOIN sale_payments sp ON sp.sale_id = s.id AND sp.voided_at IS NULL
+        LEFT JOIN sale_payments sp ON sp.sale_id = s.id
         WHERE s.code = ? AND s.status = 'cancelled' AND s.deleted_at IS NULL
         GROUP BY s.id`, [b.venta_ref]);
       if (!vRef) return res.status(400).json({ error: 'No se encontró esa venta cancelada con pago.' });

@@ -1947,30 +1947,43 @@ async function dbRestock(){
 
 // ══════════ Créditos a favor del cliente ══════════
 const credMoney=n=>'S/ '+Number(n||0).toLocaleString('es-PE',{minimumFractionDigits:2});
+let _credMostrarAnulados=false;
 async function cargarCreditos(){
-  const res=document.getElementById('cred-resumen');
   const cont=document.getElementById('cred-tabla');
   if(!cont)return;
   try{
     const d=await apiCall('/api/creditos','GET');
-    res.innerHTML=`${d.total} crédito(s) · Total disponible a favor de clientes: <b>${credMoney(d.total_disponible)}</b>`;
-    if(!d.creditos.length){cont.innerHTML='<div class="muted">Sin créditos registrados.</div>';return;}
-    const badge=e=>e==='agotado'?'<span class="badge-r" style="font-size:9px">agotado</span>':e==='parcial'?'<span class="badge-y" style="font-size:9px">usado parcial</span>':'<span class="badge-g" style="font-size:9px">disponible</span>';
-    cont.innerHTML='<table class="deudas-tbl"><thead><tr><th>Cliente</th><th>RUC/DNI</th><th>Fecha</th><th>Origen</th><th>Vendió</th><th>Dinero en cuenta de</th><th style="text-align:right">Monto</th><th style="text-align:right">Usado</th><th style="text-align:right">Saldo</th><th>Estado</th><th>Registró</th>'+(ES_MAESTRO?'<th></th>':'')+'</tr></thead><tbody>'+
-      d.creditos.map(c=>`<tr>
+    window._credTodos=d.creditos;
+    pintarCreditos();
+  }catch(e){document.getElementById('cred-resumen').textContent='';showToast(e.message,true);}
+}
+function pintarCreditos(){
+  const cont=document.getElementById('cred-tabla');
+  const res=document.getElementById('cred-resumen');
+  const todos=window._credTodos||[];
+  const anulados=todos.filter(c=>c.anulado).length;
+  const activos=todos.length-anulados;
+  const totalDisp=todos.filter(c=>!c.anulado).reduce((s,x)=>s+x.saldo,0);
+  const toggle=anulados>0?` · <a href="#" onclick="event.preventDefault();_credMostrarAnulados=!_credMostrarAnulados;pintarCreditos();" style="color:var(--accent);text-decoration:underline">${_credMostrarAnulados?'ocultar':'ver'} ${anulados} anulado(s)</a>`:'';
+  res.innerHTML=`${activos} crédito(s) activo(s) · Total disponible a favor de clientes: <b>${credMoney(totalDisp)}</b>${toggle}`;
+  // Por defecto los anulados se ocultan
+  const creditos=_credMostrarAnulados?todos:todos.filter(c=>!c.anulado);
+  if(!creditos.length){cont.innerHTML='<div class="muted">Sin créditos '+(_credMostrarAnulados?'registrados':'activos')+'.</div>';return;}
+    const badge=e=>e==='anulado'?'<span class="badge-r" style="font-size:9px">anulado</span>':e==='agotado'?'<span class="badge-r" style="font-size:9px">agotado</span>':e==='parcial'?'<span class="badge-y" style="font-size:9px">usado parcial</span>':'<span class="badge-g" style="font-size:9px">disponible</span>';
+    cont.innerHTML='<table class="deudas-tbl"><thead><tr><th>Cliente</th><th>RUC/DNI</th><th>Fecha</th><th style="min-width:280px">Nota / origen</th><th>Empresa vendedora</th><th>Dinero en cuenta de</th><th style="text-align:right">Monto</th><th style="text-align:right">Usado</th><th style="text-align:right">Saldo</th><th>Estado</th><th>Registró</th>'+(ES_MAESTRO?'<th></th>':'')+'</tr></thead><tbody>'+
+      creditos.map(c=>`<tr${c.anulado?' style="opacity:.55"':''}>
         <td>${esc(c.cliente)}</td><td>${esc(c.cliente_doc)}</td>
         <td>${c.fecha?new Date(c.fecha).toLocaleDateString('es-PE'):'—'}</td>
-        <td style="max-width:200px;font-size:12px">${esc(c.origen||'—')}</td>
-        <td style="font-size:12px">${esc(c.empresa_vendedora||'—')}</td>
-        <td style="font-size:12px">${esc(c.empresa_cuenta||'—')}</td>
-        <td style="text-align:right">${credMoney(c.monto)}</td>
+        <td style="min-width:280px;font-size:12px;white-space:normal;line-height:1.4">${esc(c.origen||'—')}${c.anulado&&c.anulado_por?`<br><span style="color:var(--fg-r);font-size:11px">Anulado por ${esc(c.anulado_por)}${c.anulado_en?' el '+new Date(c.anulado_en).toLocaleDateString('es-PE'):''}</span>`:''}</td>
+        <td style="font-size:12px;white-space:nowrap">${esc(c.empresa_vendedora||'—')}</td>
+        <td style="font-size:12px;white-space:nowrap">${esc(c.empresa_cuenta||'—')}</td>
+        <td style="text-align:right${c.anulado?';text-decoration:line-through':''}">${credMoney(c.monto)}</td>
         <td style="text-align:right">${credMoney(c.usado)}</td>
-        <td style="text-align:right;font-weight:600">${credMoney(c.saldo)}</td>
+        <td style="text-align:right;font-weight:600">${c.anulado?'—':credMoney(c.saldo)}</td>
         <td>${badge(c.estado)}</td>
         <td style="font-size:11px;color:var(--muted)">${esc(c.registrado_por||'—')}</td>
-        ${ES_MAESTRO?`<td><button class="btn btn-sm danger" onclick="anularCredito(${c.id})">Anular</button></td>`:''}
+        ${ES_MAESTRO?`<td>${c.anulado?'':`<button class="btn btn-sm danger" onclick="anularCredito(${c.id})">Anular</button>`}</td>`:''}
       </tr>`).join('')+'</tbody></table>';
-  }catch(e){res.textContent='';showToast(e.message,true);}
 }
 function abrirBuscadorCanceladas(){
   document.getElementById('cred-buscador').style.display='block';

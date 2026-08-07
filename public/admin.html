@@ -578,6 +578,23 @@ tr:hover td{background:var(--hover)}
           <div id="deu-resumen" style="margin:8px 0;font-weight:600"></div>
           <div id="deu-tabla" style="overflow-x:auto;max-height:60vh;overflow-y:auto"></div>
         </div>
+
+        <div class="dbcard">
+          <h4>Clientes que tienen crédito (saldo a favor)</h4>
+          <p class="card-note">Dinero que un cliente pagó pero quedó a su favor (venta cancelada que ya había recibido pago). Cada crédito nace de una venta cancelada con pago y queda registrado con quién lo creó.</p>
+          <div id="cred-resumen" style="margin:8px 0;font-weight:600"></div>
+          <div id="cred-tabla" style="overflow-x:auto;max-height:50vh;overflow-y:auto"></div>
+          <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:14px">
+            <button class="btn" onclick="abrirBuscadorCanceladas()">+ Registrar crédito (desde venta cancelada)</button>
+          </div>
+          <div id="cred-buscador" style="display:none;margin-top:12px;background:var(--surface2);border-radius:12px;padding:14px">
+            <div class="filtros-fila" style="align-items:center;gap:8px">
+              <input id="cred-buscar" type="text" placeholder="Buscar venta cancelada por código, cliente o RUC..." oninput="buscarCanceladas()" style="flex:1;min-width:200px">
+              <button class="btn" onclick="cerrarBuscadorCanceladas()">Cerrar</button>
+            </div>
+            <div id="cred-canceladas" style="margin-top:10px;max-height:40vh;overflow-y:auto"></div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -1928,7 +1945,122 @@ async function dbRestock(){
   ],'ganancia_hist');
 }
 
+// ══════════ Créditos a favor del cliente ══════════
+const credMoney=n=>'S/ '+Number(n||0).toLocaleString('es-PE',{minimumFractionDigits:2});
+async function cargarCreditos(){
+  const res=document.getElementById('cred-resumen');
+  const cont=document.getElementById('cred-tabla');
+  if(!cont)return;
+  try{
+    const d=await apiCall('/api/creditos','GET');
+    res.innerHTML=`${d.total} crédito(s) · Total disponible a favor de clientes: <b>${credMoney(d.total_disponible)}</b>`;
+    if(!d.creditos.length){cont.innerHTML='<div class="muted">Sin créditos registrados.</div>';return;}
+    const badge=e=>e==='agotado'?'<span class="badge-r" style="font-size:9px">agotado</span>':e==='parcial'?'<span class="badge-y" style="font-size:9px">usado parcial</span>':'<span class="badge-g" style="font-size:9px">disponible</span>';
+    cont.innerHTML='<table class="deudas-tbl"><thead><tr><th>Cliente</th><th>RUC/DNI</th><th>Fecha</th><th>Origen</th><th>Empresa</th><th style="text-align:right">Monto</th><th style="text-align:right">Usado</th><th style="text-align:right">Saldo</th><th>Estado</th><th>Registró</th>'+(ES_MAESTRO?'<th></th>':'')+'</tr></thead><tbody>'+
+      d.creditos.map(c=>`<tr>
+        <td>${esc(c.cliente)}</td><td>${esc(c.cliente_doc)}</td>
+        <td>${c.fecha?new Date(c.fecha).toLocaleDateString('es-PE'):'—'}</td>
+        <td style="max-width:220px;font-size:12px">${esc(c.origen||'—')}</td>
+        <td style="font-size:12px">${esc(c.empresa||'—')}</td>
+        <td style="text-align:right">${credMoney(c.monto)}</td>
+        <td style="text-align:right">${credMoney(c.usado)}</td>
+        <td style="text-align:right;font-weight:600">${credMoney(c.saldo)}</td>
+        <td>${badge(c.estado)}</td>
+        <td style="font-size:11px;color:var(--muted)">${esc(c.registrado_por||'—')}</td>
+        ${ES_MAESTRO?`<td><button class="btn btn-sm danger" onclick="anularCredito(${c.id})">Anular</button></td>`:''}
+      </tr>`).join('')+'</tbody></table>';
+  }catch(e){res.textContent='';showToast(e.message,true);}
+}
+function abrirBuscadorCanceladas(){
+  document.getElementById('cred-buscador').style.display='block';
+  buscarCanceladas();
+}
+function cerrarBuscadorCanceladas(){
+  document.getElementById('cred-buscador').style.display='none';
+}
+let _credCanceladas=[];
+async function buscarCanceladas(){
+  const q=(document.getElementById('cred-buscar').value||'').trim();
+  const cont=document.getElementById('cred-canceladas');
+  cont.innerHTML='<div class="muted">Buscando...</div>';
+  try{
+    const d=await apiCall('/api/creditos-ventas-canceladas?q='+encodeURIComponent(q),'GET');
+    _credCanceladas=d.ventas;
+    if(!d.ventas.length){cont.innerHTML='<div class="muted">No hay ventas canceladas con pago que coincidan.</div>';return;}
+    cont.innerHTML='<table class="deudas-tbl"><thead><tr><th>Venta</th><th>Cliente</th><th>RUC/DNI</th><th>Fecha</th><th style="text-align:right">Pagado (a favor)</th><th></th></tr></thead><tbody>'+
+      d.ventas.map((v,i)=>`<tr>
+        <td><b>${esc(v.code)}</b></td>
+        <td>${esc(v.cliente)}</td><td>${esc(v.cliente_doc)}</td>
+        <td>${v.fecha?new Date(v.fecha).toLocaleDateString('es-PE'):'—'}</td>
+        <td style="text-align:right;font-weight:600">${credMoney(v.pagado)}</td>
+        <td>${v.ya_registrada?'<span class="badge-y" style="font-size:9px">ya registrada</span>':`<button class="btn btn-sm" onclick="registrarCredito(${i})">Registrar</button>`}</td>
+      </tr>`).join('')+'</tbody></table>';
+  }catch(e){cont.innerHTML='';showToast(e.message,true);}
+}
+function registrarCredito(i){
+  const v=_credCanceladas[i];
+  if(!v)return;
+  // Formulario con monto editable (tope = lo pagado) y nota
+  const cont=document.getElementById('cred-canceladas');
+  const form=document.createElement('div');
+  form.style.cssText='margin-top:10px;border:1.5px solid var(--accent);border-radius:12px;padding:14px;background:var(--surface)';
+  form.innerHTML=`
+    <div style="font-weight:600;margin-bottom:10px">Registrar crédito · ${esc(v.code)}</div>
+    <div style="display:flex;justify-content:space-between;font-size:12.5px;padding:5px 0;border-bottom:1px solid var(--border)">
+      <span class="muted">Cliente</span><span>${esc(v.cliente)}</span></div>
+    <div style="display:flex;justify-content:space-between;font-size:12.5px;padding:5px 0;border-bottom:1px solid var(--border)">
+      <span class="muted">Total de la venta</span><span>${credMoney(v.total)}</span></div>
+    <div style="display:flex;justify-content:space-between;font-size:12.5px;padding:5px 0;border-bottom:1px solid var(--border)">
+      <span class="muted">Pagado (máximo a favor)</span><span style="font-weight:700;color:var(--accent)">${credMoney(v.pagado)}</span></div>
+    <div style="margin-top:10px">
+      <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Monto que queda a favor (máx. ${credMoney(v.pagado)})</label>
+      <input id="cred-monto-input" type="number" step="0.01" min="0" max="${v.pagado}" value="${v.pagado}"
+        style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid var(--accent);border-radius:10px;background:var(--surface);color:var(--text);font-size:15px;font-weight:600">
+    </div>
+    <div style="margin-top:10px">
+      <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Nota (en qué se usó el resto, opcional)</label>
+      <input id="cred-nota-input" type="text" placeholder="Ej: S/ 500 se aplicaron a VTA-000210"
+        style="width:100%;box-sizing:border-box;padding:8px 12px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text);font-size:13px">
+    </div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="btn" style="flex:1" onclick="confirmarCredito(${i})">Registrar crédito</button>
+      <button class="btn" onclick="buscarCanceladas()">Cancelar</button>
+    </div>
+    <div id="cred-form-error" style="color:var(--fg-r);font-size:12px;margin-top:8px"></div>`;
+  cont.innerHTML='';
+  cont.appendChild(form);
+  setTimeout(()=>{const inp=document.getElementById('cred-monto-input');if(inp){inp.focus();inp.select();}},50);
+}
+async function confirmarCredito(i){
+  const v=_credCanceladas[i];
+  if(!v)return;
+  const err=document.getElementById('cred-form-error');
+  const monto=Number(document.getElementById('cred-monto-input').value);
+  const nota=(document.getElementById('cred-nota-input').value||'').trim();
+  if(!(monto>0)){err.textContent='El monto debe ser mayor a cero.';return;}
+  if(monto>v.pagado+0.01){err.textContent=`El monto no puede superar lo pagado (${credMoney(v.pagado)}).`;return;}
+  try{
+    await apiCall('/api/creditos','POST',{
+      customer_id:v.customer_id, cliente_nombre:v.cliente, cliente_doc:v.cliente_doc,
+      monto, fecha:v.fecha?new Date(v.fecha).toISOString().slice(0,10):null,
+      origen:`Pago de venta cancelada ${v.code}`, nota, venta_ref:v.code, empresa_id:v.empresa_id
+    });
+    showToast('Crédito registrado.');
+    buscarCanceladas();
+    cargarCreditos();
+  }catch(e){err.textContent=e.message;}
+}
+async function anularCredito(id){
+  if(!confirm('¿Anular este crédito? Quedará registrado quién y cuándo lo anuló.'))return;
+  try{
+    await apiCall('/api/creditos/'+id+'/anular','POST',{});
+    showToast('Crédito anulado.');
+    cargarCreditos();
+  }catch(e){showToast(e.message,true);}
+}
+
 async function dbClientes(){
+  cargarCreditos();
   const r=await dbApi('/api/retencion');
   document.getElementById('ret-kpis').innerHTML=[
     {l:'Total clientes',v:dbFmtN(r.total_clientes),s:'con compras',a:1},

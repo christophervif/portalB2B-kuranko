@@ -2082,6 +2082,156 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
   });
 
   const mClientes = requiereModulo('clientes_bi');
+
+  // ── CRÉDITOS A FAVOR DEL CLIENTE (saldo a favor / anticipos) ──
+  // Se guardan en la base del PORTAL (no en el ERP de Renzo). Cada crédito nace
+  // de una venta cancelada que recibió pago (ese pago quedó a favor del cliente).
+  async function asegurarTablaCreditos() {
+    await portalPool.query(`
+      CREATE TABLE IF NOT EXISTS creditos_cliente (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        customer_id BIGINT,
+        cliente_nombre VARCHAR(255),
+        cliente_doc VARCHAR(50),
+        monto DECIMAL(12,2) NOT NULL,
+        usado DECIMAL(12,2) NOT NULL DEFAULT 0,
+        fecha DATE,
+        origen VARCHAR(500),
+        venta_ref VARCHAR(50),
+        cuenta_ref VARCHAR(255),
+        empresa_id BIGINT,
+        estado VARCHAR(20) DEFAULT 'disponible',
+        registrado_por VARCHAR(100),
+        creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+        anulado TINYINT(1) DEFAULT 0,
+        anulado_por VARCHAR(100),
+        anulado_en DATETIME NULL
+      )`);
+  }
+
+  // Buscar ventas canceladas que recibieron pago (candidatas a generar crédito)
+  app.get('/api/creditos-ventas-canceladas', authAdmin, mClientes, async (req, res) => {
+    try {
+      const q = (req.query.q || '').trim();
+      const [rows] = await prodPool.query(`
+        SELECT s.id, s.code, s.total, s.created_at, s.customer_id,
+          COALESCE(SUM(sp.amount),0) AS pagado,
+          CASE WHEN cli.is_company=1 THEN cli.business_name
+               ELSE TRIM(CONCAT(COALESCE(cli.first_name,''),' ',COALESCE(cli.last_name,''))) END AS cliente,
+          cli.document_number AS cliente_doc,
+          (SELECT ba.party_id FROM sale_payments sp2
+           LEFT JOIN bank_accounts ba ON ba.id = sp2.bank_account_id
+           WHERE sp2.sale_id = s.id AND sp2.voided_at IS NULL AND ba.party_id IS NOT NULL
+           LIMIT 1) AS empresa_id
+        FROM sales s
+        LEFT JOIN sale_payments sp ON sp.sale_id = s.id AND sp.voided_at IS NULL
+        LEFT JOIN parties cli ON cli.id = s.customer_id
+        WHERE s.status = 'cancelled' AND s.deleted_at IS NULL
+        GROUP BY s.id
+        HAVING pagado > 0
+        ORDER BY s.created_at DESC
+        LIMIT 200`);
+      // Marcar cuáles ya tienen crédito registrado (para no duplicar)
+      await asegurarTablaCreditos();
+      const [yaReg] = await portalPool.query(
+        `SELECT venta_ref FROM creditos_cliente WHERE anulado = 0 AND venta_ref IS NOT NULL`);
+      const registradas = new Set(yaReg.map(r => r.venta_ref));
+      let lista = rows.map(r => ({
+        code: r.code, total: Number(r.total), pagado: Number(r.pagado),
+        fecha: r.created_at, customer_id: r.customer_id,
+        cliente: (r.cliente || '').trim() || '—', cliente_doc: r.cliente_doc || '—',
+        empresa_id: r.empresa_id,
+        ya_registrada: registradas.has(r.code)
+      }));
+      if (q) {
+        const ql = q.toLowerCase();
+        lista = lista.filter(x =>
+          x.code.toLowerCase().includes(ql) ||
+          x.cliente.toLowerCase().includes(ql) ||
+          (x.cliente_doc || '').includes(q));
+      }
+      res.json({ total: lista.length, ventas: lista });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Registrar un crédito a partir de una venta cancelada
+  app.post('/api/creditos', authAdmin, mClientes, async (req, res) => {
+    try {
+      await asegurarTablaCreditos();
+      const b = req.body || {};
+      if (!b.venta_ref) return res.status(400).json({ error: 'Falta la venta de referencia.' });
+      const monto = Number(b.monto);
+      if (!(monto > 0)) return res.status(400).json({ error: 'El monto debe ser mayor a cero.' });
+      // Verificar contra el ERP que el monto no exceda lo realmente pagado en esa venta
+      const [[vRef]] = await prodPool.query(`
+        SELECT COALESCE(SUM(sp.amount),0) AS pagado
+        FROM sales s
+        LEFT JOIN sale_payments sp ON sp.sale_id = s.id AND sp.voided_at IS NULL
+        WHERE s.code = ? AND s.status = 'cancelled' AND s.deleted_at IS NULL
+        GROUP BY s.id`, [b.venta_ref]);
+      if (!vRef) return res.status(400).json({ error: 'No se encontró esa venta cancelada con pago.' });
+      const pagadoReal = Number(vRef.pagado);
+      // Tolerancia de 1 céntimo por redondeo
+      if (monto > pagadoReal + 0.01) {
+        return res.status(400).json({
+          error: `El monto (S/ ${monto.toFixed(2)}) no puede superar lo pagado en la venta (S/ ${pagadoReal.toFixed(2)}).`
+        });
+      }
+      // Evitar duplicar el crédito de una misma venta
+      const [dup] = await portalPool.query(
+        `SELECT id FROM creditos_cliente WHERE venta_ref = ? AND anulado = 0`, [b.venta_ref]);
+      if (dup.length) return res.status(400).json({ error: 'Esa venta ya tiene un crédito registrado.' });
+      const CONC = { 1: 'Diseños Corporativos SAC', 2: 'Christopher Villasante F.' };
+      // El origen combina el motivo base con la nota del usuario (en qué se usó el resto)
+      let origen = b.origen || `Pago de venta cancelada ${b.venta_ref}`;
+      if (b.nota && b.nota.trim()) origen += ` — ${b.nota.trim()}`;
+      await portalPool.query(
+        `INSERT INTO creditos_cliente
+          (customer_id, cliente_nombre, cliente_doc, monto, fecha, origen, venta_ref, cuenta_ref, empresa_id, registrado_por)
+         VALUES (?,?,?,?,?,?,?,?,?,?)`,
+        [b.customer_id || null, b.cliente_nombre || null, b.cliente_doc || null,
+         monto, b.fecha || new Date().toISOString().slice(0, 10),
+         origen, b.venta_ref, (b.empresa_id ? CONC[b.empresa_id] : null) || b.cuenta_ref || null,
+         b.empresa_id || null, (req.admin && req.admin.usuario) || 'admin']);
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Listar créditos registrados (con su saldo disponible)
+  app.get('/api/creditos', authAdmin, mClientes, async (req, res) => {
+    try {
+      await asegurarTablaCreditos();
+      const [rows] = await portalPool.query(
+        `SELECT * FROM creditos_cliente WHERE anulado = 0 ORDER BY creado_en DESC`);
+      const CONC = { 1: 'Diseños Corporativos SAC', 2: 'Christopher Villasante F.' };
+      const lista = rows.map(c => {
+        const saldo = Math.round((Number(c.monto) - Number(c.usado)) * 100) / 100;
+        return {
+          id: c.id, cliente: c.cliente_nombre || '—', cliente_doc: c.cliente_doc || '—',
+          monto: Number(c.monto), usado: Number(c.usado), saldo,
+          fecha: c.fecha, origen: c.origen, venta_ref: c.venta_ref,
+          empresa: c.empresa_id ? (CONC[c.empresa_id] || c.cuenta_ref) : (c.cuenta_ref || '—'),
+          estado: saldo <= 0 ? 'agotado' : (Number(c.usado) > 0 ? 'parcial' : 'disponible'),
+          registrado_por: c.registrado_por, creado_en: c.creado_en
+        };
+      });
+      const totalDisponible = lista.reduce((s, x) => s + x.saldo, 0);
+      res.json({ total: lista.length, total_disponible: totalDisponible, creditos: lista });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Anular un crédito (solo el maestro, deja rastro de quién y cuándo)
+  app.post('/api/creditos/:id/anular', authAdmin, mClientes, async (req, res) => {
+    try {
+      if (!req.admin || !req.admin.maestro)
+        return res.status(403).json({ error: 'Solo el administrador maestro puede anular créditos.' });
+      await portalPool.query(
+        `UPDATE creditos_cliente SET anulado = 1, anulado_por = ?, anulado_en = NOW() WHERE id = ?`,
+        [req.admin.usuario, req.params.id]);
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
   const mCaja = requiereModulo('caja_bi');
   const mCrm = requiereModulo('crm');
   const rango = (desde, hasta, campo='s.created_at') =>

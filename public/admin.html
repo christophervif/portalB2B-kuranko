@@ -581,7 +581,7 @@ tr:hover td{background:var(--hover)}
 
         <div class="dbcard">
           <h4>Clientes que tienen crédito (saldo a favor)</h4>
-          <p class="card-note">Dinero que un cliente pagó pero quedó a su favor (venta cancelada que ya había recibido pago). Cada crédito nace de una venta cancelada con pago y queda registrado con quién lo creó.</p>
+          <p class="card-note">Dinero que un cliente pagó pero quedó a su favor (venta cancelada que ya había recibido pago). Al cancelar, el ERP anula el pago, pero el dinero ya entró: por eso también salen esas ventas. Tú decides venta por venta cuáles quedaron a favor (no devolviste) y cuáles no. Cada crédito queda registrado con quién lo creó.</p>
           <div id="cred-resumen" style="margin:8px 0;font-weight:600"></div>
           <div id="cred-tabla" style="overflow-x:auto;max-height:50vh;overflow-y:auto"></div>
           <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:14px">
@@ -1989,7 +1989,7 @@ async function buscarCanceladas(){
     if(!d.ventas.length){cont.innerHTML='<div class="muted">No hay ventas canceladas con pago que coincidan.</div>';return;}
     cont.innerHTML='<table class="deudas-tbl"><thead><tr><th>Venta</th><th>Cliente</th><th>RUC/DNI</th><th>Fecha</th><th style="text-align:right">Pagado (a favor)</th><th></th></tr></thead><tbody>'+
       d.ventas.map((v,i)=>`<tr>
-        <td><b>${esc(v.code)}</b></td>
+        <td><b>${esc(v.code)}</b>${v.tiene_pago_activo?' <span class="badge-y" style="font-size:9px" title="Esta venta cancelada tiene un pago activo: normalmente al cancelar el pago se anula. Revísala.">⚠ pago activo</span>':''}</td>
         <td>${esc(v.cliente)}</td><td>${esc(v.cliente_doc)}</td>
         <td>${v.fecha?new Date(v.fecha).toLocaleDateString('es-PE'):'—'}</td>
         <td style="text-align:right;font-weight:600">${credMoney(v.pagado)}</td>

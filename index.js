@@ -2100,6 +2100,7 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
         venta_ref VARCHAR(50),
         cuenta_ref VARCHAR(255),
         empresa_id BIGINT,
+        empresa_vendedora BIGINT,
         estado VARCHAR(20) DEFAULT 'disponible',
         registrado_por VARCHAR(100),
         creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -2107,6 +2108,10 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
         anulado_por VARCHAR(100),
         anulado_en DATETIME NULL
       )`);
+    // Por si la tabla ya existía sin la columna de empresa vendedora
+    try {
+      await portalPool.query(`ALTER TABLE creditos_cliente ADD COLUMN empresa_vendedora BIGINT`);
+    } catch (e) { /* la columna ya existe */ }
   }
 
   // Buscar ventas canceladas que recibieron pago (candidatas a generar crédito)
@@ -2115,6 +2120,7 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
       const q = (req.query.q || '').trim();
       const [rows] = await prodPool.query(`
         SELECT s.id, s.code, s.total, s.created_at, s.customer_id,
+          s.company_id AS empresa_vendedora,
           COALESCE(SUM(CASE WHEN sp.voided_at IS NULL THEN sp.amount ELSE 0 END),0) AS pagado_activo,
           COALESCE(SUM(CASE WHEN sp.voided_at IS NOT NULL THEN sp.amount ELSE 0 END),0) AS pagado_anulado,
           CASE WHEN cli.is_company=1 THEN cli.business_name
@@ -2149,6 +2155,7 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
           fecha: r.created_at, customer_id: r.customer_id,
           cliente: (r.cliente || '').trim() || '—', cliente_doc: r.cliente_doc || '—',
           empresa_id: r.empresa_id,
+          empresa_vendedora: r.empresa_vendedora,
           ya_registrada: registradas.has(r.code)
         };
       });
@@ -2197,12 +2204,12 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
       if (b.nota && b.nota.trim()) origen += ` — ${b.nota.trim()}`;
       await portalPool.query(
         `INSERT INTO creditos_cliente
-          (customer_id, cliente_nombre, cliente_doc, monto, fecha, origen, venta_ref, cuenta_ref, empresa_id, registrado_por)
-         VALUES (?,?,?,?,?,?,?,?,?,?)`,
+          (customer_id, cliente_nombre, cliente_doc, monto, fecha, origen, venta_ref, cuenta_ref, empresa_id, empresa_vendedora, registrado_por)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
         [b.customer_id || null, b.cliente_nombre || null, b.cliente_doc || null,
          monto, b.fecha || new Date().toISOString().slice(0, 10),
          origen, b.venta_ref, (b.empresa_id ? CONC[b.empresa_id] : null) || b.cuenta_ref || null,
-         b.empresa_id || null, (req.admin && req.admin.usuario) || 'admin']);
+         b.empresa_id || null, b.empresa_vendedora || null, (req.admin && req.admin.usuario) || 'admin']);
       res.json({ ok: true });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
@@ -2220,7 +2227,8 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
           id: c.id, cliente: c.cliente_nombre || '—', cliente_doc: c.cliente_doc || '—',
           monto: Number(c.monto), usado: Number(c.usado), saldo,
           fecha: c.fecha, origen: c.origen, venta_ref: c.venta_ref,
-          empresa: c.empresa_id ? (CONC[c.empresa_id] || c.cuenta_ref) : (c.cuenta_ref || '—'),
+          empresa_cuenta: c.empresa_id ? (CONC[c.empresa_id] || c.cuenta_ref) : (c.cuenta_ref || '—'),
+          empresa_vendedora: c.empresa_vendedora ? (CONC[c.empresa_vendedora] || ('Empresa ' + c.empresa_vendedora)) : '—',
           estado: saldo <= 0 ? 'agotado' : (Number(c.usado) > 0 ? 'parcial' : 'disponible'),
           registrado_por: c.registrado_por, creado_en: c.creado_en
         };

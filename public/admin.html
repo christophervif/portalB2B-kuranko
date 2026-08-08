@@ -1970,7 +1970,7 @@ function pintarCreditos(){
   const creditos=_credMostrarAnulados?todos:todos.filter(c=>!c.anulado);
   if(!creditos.length){cont.innerHTML='<div class="muted">Sin créditos '+(_credMostrarAnulados?'registrados':'activos')+'.</div>';return;}
     const badge=e=>e==='anulado'?'<span class="badge-r" style="font-size:9px">anulado</span>':e==='agotado'?'<span class="badge-r" style="font-size:9px">agotado</span>':e==='parcial'?'<span class="badge-y" style="font-size:9px">usado parcial</span>':'<span class="badge-g" style="font-size:9px">disponible</span>';
-    cont.innerHTML='<table class="deudas-tbl"><thead><tr><th>Cliente</th><th>RUC/DNI</th><th>Fecha</th><th style="min-width:280px">Nota / origen</th><th>Empresa vendedora</th><th>Dinero en cuenta de</th><th style="text-align:right">Monto</th><th style="text-align:right">Usado</th><th style="text-align:right">Saldo</th><th>Estado</th><th>Registró</th>'+(ES_MAESTRO?'<th></th>':'')+'</tr></thead><tbody>'+
+    cont.innerHTML='<table class="deudas-tbl"><thead><tr><th>Cliente</th><th>RUC/DNI</th><th>Fecha</th><th style="min-width:280px">Nota / origen</th><th>Empresa vendedora</th><th>Dinero en cuenta de</th><th style="text-align:right">Monto</th><th style="text-align:right">Usado</th><th style="text-align:right">Saldo</th><th>Estado</th><th>Registró</th>'+(ES_MAESTRO?'<th></th>':'')+'<th></th></tr></thead><tbody>'+
       creditos.map(c=>`<tr${c.anulado?' style="opacity:.55"':''}>
         <td>${esc(c.cliente)}</td><td>${esc(c.cliente_doc)}</td>
         <td>${c.fecha?new Date(c.fecha).toLocaleDateString('es-PE'):'—'}</td>
@@ -1983,6 +1983,7 @@ function pintarCreditos(){
         <td>${badge(c.estado)}</td>
         <td style="font-size:11px;color:var(--muted)">${esc(c.registrado_por||'—')}</td>
         ${ES_MAESTRO?`<td>${c.anulado?'':`<button class="btn btn-sm danger" onclick="anularCredito(${c.id})">Anular</button>`}</td>`:''}
+        <td>${!c.anulado&&c.saldo>0?`<button class="btn btn-sm" onclick="comprobanteCredito(${c.id})">Comprobante</button>`:''}</td>
       </tr>`).join('')+'</tbody></table>';
 }
 function abrirBuscadorCanceladas(){
@@ -2065,6 +2066,86 @@ async function confirmarCredito(i){
     cargarCreditos();
   }catch(e){err.textContent=e.message;}
 }
+const LOGO_CRED_URL='https://kuranko.pe/wp-content/uploads/2024/03/Imagotipo-2-color-1.png';
+let _logoCredData=null;
+// Carga el logo una vez y lo cachea como dataURL (para incrustarlo en el PDF)
+async function cargarLogoCred(){
+  if(_logoCredData!==null)return _logoCredData;
+  try{
+    const r=await fetch(LOGO_CRED_URL);
+    const blob=await r.blob();
+    _logoCredData=await new Promise(res=>{
+      const fr=new FileReader();fr.onloadend=()=>res(fr.result);fr.onerror=()=>res(false);
+      fr.readAsDataURL(blob);
+    });
+  }catch(e){_logoCredData=false;}
+  return _logoCredData;
+}
+async function comprobanteCredito(id){
+  const c=(window._credTodos||[]).find(x=>x.id===id);
+  if(!c)return;
+  try{
+    const {jsPDF}=window.jspdf;
+    const doc=new jsPDF({unit:'pt',format:'a4'});
+    const W=doc.internal.pageSize.getWidth();
+    const money=n=>'S/ '+Number(n||0).toLocaleString('es-PE',{minimumFractionDigits:2});
+
+    // Marco
+    doc.setDrawColor(0,7,38);doc.setLineWidth(1.5);
+    doc.rect(40,40,W-80,760);
+
+    // Logo de Kuranko centrado (única identidad del comprobante)
+    const logo=await cargarLogoCred();
+    if(logo){
+      try{
+        const lw=170, lh=67;
+        doc.addImage(logo,'PNG',(W-lw)/2,70,lw,lh);
+      }catch(e){}
+    }
+
+    // Título
+    doc.setFont('helvetica','bold');doc.setFontSize(18);doc.setTextColor(0,7,38);
+    doc.text('COMPROBANTE DE CRÉDITO A FAVOR',W/2,180,{align:'center'});
+    doc.setDrawColor(255,179,13);doc.setLineWidth(2);
+    doc.line(W/2-160,193,W/2+160,193);
+
+    // Nº de comprobante y fecha
+    doc.setFont('helvetica','normal');doc.setFontSize(10);doc.setTextColor(90);
+    const nro='CR-'+String(c.id).padStart(5,'0');
+    doc.text('N° '+nro,60,215);
+    doc.text('Fecha de emisión: '+new Date().toLocaleDateString('es-PE'),W-60,215,{align:'right'});
+
+    // Recuadro de datos
+    doc.setDrawColor(210);doc.setLineWidth(0.8);
+    doc.roundedRect(60,240,W-120,180,6,6);
+    const fila=(y,lbl,val,bold)=>{
+      doc.setFont('helvetica','normal');doc.setFontSize(10);doc.setTextColor(120);
+      doc.text(lbl,80,y);
+      doc.setFont('helvetica',bold?'bold':'normal');doc.setFontSize(bold?14:11);
+      doc.setTextColor(0,7,38);doc.text(String(val),W-80,y,{align:'right'});
+    };
+    fila(272,'Cliente:',c.cliente);
+    fila(300,'RUC / DNI:',c.cliente_doc||'—');
+    fila(328,'Origen:',c.venta_ref||'—');
+    // Línea divisoria antes del monto
+    doc.setDrawColor(230);doc.line(80,352,W-80,352);
+    fila(384,'Monto disponible a favor:',money(c.saldo),true);
+
+    // Nota
+    doc.setFont('helvetica','italic');doc.setFontSize(9);doc.setTextColor(130);
+    const nota='Este documento es una constancia interna de saldo a favor del cliente. No constituye un comprobante de pago electrónico (boleta o factura) para efectos tributarios ante SUNAT. El crédito podrá aplicarse a compras futuras según disponibilidad.';
+    doc.text(doc.splitTextToSize(nota,W-140),70,470);
+
+    // Validez digital (sin firma manuscrita)
+    doc.setFont('helvetica','normal');doc.setFontSize(9);doc.setTextColor(110);
+    doc.text('Documento generado digitalmente. Válido sin firma.',W/2,600,{align:'center'});
+    doc.setFont('helvetica','bold');doc.setFontSize(10);doc.setTextColor(0,7,38);
+    doc.text('Kuranko',W/2,617,{align:'center'});
+
+    doc.save(`comprobante-credito-${nro}.pdf`);
+  }catch(e){showToast('No se pudo generar: '+e.message,true);}
+}
+
 async function anularCredito(id){
   if(!confirm('¿Anular este crédito? Quedará registrado quién y cuándo lo anuló.'))return;
   try{

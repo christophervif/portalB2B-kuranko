@@ -337,7 +337,7 @@ app.post('/admin/login', async (req, res) => {
     if (usuario.trim() === ADMIN_USER && password === ADMIN_PASSWORD) {
       const token = jwt.sign(
         { rol: 'admin', usuario: ADMIN_USER, maestro: true, modulos: MODULOS_ADMIN },
-        JWT_SECRET, { expiresIn: '4h' });
+        JWT_SECRET, { expiresIn: '7d' });
       return res.json({ token, maestro: true, modulos: MODULOS_ADMIN });
     }
     // 2) Admin secundario (definido en variables de Railway) — sin tocar la base de datos
@@ -346,7 +346,7 @@ app.post('/admin/login', async (req, res) => {
     if (match) {
       const token = jwt.sign(
         { rol: 'admin', usuario: match.usuario, maestro: false, modulos: match.modulos },
-        JWT_SECRET, { expiresIn: '4h' });
+        JWT_SECRET, { expiresIn: '7d' });
       return res.json({ token, maestro: false, modulos: match.modulos });
     }
     return res.status(401).json({ error: 'Credenciales de administrador incorrectas' });
@@ -1877,6 +1877,24 @@ app.post('/admin/metodos-pago', authAdmin, requiereModulo('pagos'), async (req, 
 const https = require('https');
 const EMPRESAS_BI = { 1: 'Diseños Corporativos SAC', 2: 'Christopher Villasante F.' };
 const VV = "('paid','confirmed','pending_payment')";
+
+// Arma "Producto — extra" evitando repetir el nombre cuando la variación ya lo contiene.
+// Ej: producto "Crafty Carbon RR 2026" + variación "Crafty Carbon RR 2026, Admiral Blue, M/L"
+//     → "Crafty Carbon RR 2026 — Admiral Blue, M/L"
+function nombreProdVar(producto, variacion) {
+  const p = (producto || '').trim();
+  const v = (variacion || '').trim();
+  if (!v || v === p) return p || '—';
+  // Si la variación empieza igual que el producto, mostrar solo lo que añade
+  if (v.toLowerCase().startsWith(p.toLowerCase())) {
+    const extra = v.slice(p.length).replace(/^[\s,—-]+/, '').trim();
+    return extra ? p + ' — ' + extra : p;
+  }
+  // Si el producto ya contiene a la variación, con el producto basta
+  if (p.toLowerCase().includes(v.toLowerCase())) return p;
+  return p + ' — ' + v;
+}
+
 const KOMMO_GANADO = 142, KOMMO_PERDIDO = 143;
 
 const GANANCIA_NORMAL = `
@@ -1977,7 +1995,7 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
       const ritmoMes = und90 / 3; // 90 días = 3 meses
       return {
         sku: p.sku,
-        producto: p.producto + (p.variacion && p.variacion !== p.producto ? ' — ' + p.variacion : ''),
+        producto: nombreProdVar(p.producto, p.variacion),
         marca: (p.producto || '').trim().split(/\s+/)[0] || '—',
         categoria: c.categoria ? [...c.categoria].join(', ') : '—',
         subcategoria: c.subcategoria ? [...c.subcategoria].join(', ') : '—',
@@ -2488,7 +2506,7 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
         return {
           sku: n.sku || '—',
           marca,
-          producto: (n.producto || '') + (n.variacion && n.variacion !== n.producto ? ' — ' + n.variacion : ''),
+          producto: nombreProdVar(n.producto, n.variacion),
           stock: stockN,
           capital: Number(r.capital || 0),
           dias_sin_venta: dias(v.ultima_venta),           // null = nunca vendió en 12m
@@ -2631,7 +2649,7 @@ const kommoFetch = (endpoint) => new Promise((resolve, reject) => {
         return {
           sku: n.sku || '—',
           marca: (n.producto || '').trim().split(/\s+/)[0] || '—',
-          producto: (n.producto || '') + (n.variacion && n.variacion !== n.producto ? ' — ' + n.variacion : ''),
+          producto: nombreProdVar(n.producto, n.variacion),
           stock: stockN,
           capital: Number(r.capital || 0),
           unidades_12m: und12,

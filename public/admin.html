@@ -472,15 +472,17 @@ tr:hover td{background:var(--hover)}
         <div id="inv-kpis" class="kpi-grid"></div>
         <div class="dbcard"><h4>Stock por sucursal</h4>
           <div style="overflow-x:auto"><table class="dtable" id="tbl-sucursal"></table></div></div>
-        <div class="two-col">
-          <div class="dbcard"><h4>Top 15 · Capital parado por producto</h4>
-            <p class="card-note">Los productos con más dinero invertido que llevan 4+ meses sin venderse.</p>
-            <div id="inv-estancados"><div class="muted">Cargando...</div></div>
+        <div class="dbcard">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+            <h4 style="margin:0">Capital parado — Top 15</h4>
+            <div style="display:flex;gap:4px;background:var(--surface3);padding:3px;border-radius:10px">
+              <button class="btn btn-sm" id="cap-btn-prod" onclick="capVista('producto')" style="background:var(--accent);color:#000726">Por producto</button>
+              <button class="btn btn-sm" id="cap-btn-marca" onclick="capVista('marca')" style="background:transparent">Por marca</button>
+            </div>
           </div>
-          <div class="dbcard"><h4>Top 15 · Capital parado por marca</h4>
-            <p class="card-note">Marcas con más dinero en stock que peor rotan (12+ meses para agotarse al ritmo actual).</p>
-            <div id="inv-marcas"><div class="muted">Cargando...</div></div>
-          </div>
+          <p class="card-note" id="cap-nota">Los productos con más dinero invertido que llevan 4+ meses sin venderse.</p>
+          <div id="inv-estancados"><div class="muted">Cargando...</div></div>
+          <div id="inv-marcas" style="display:none"><div class="muted">Cargando...</div></div>
         </div>
         <div class="dbcard">
           <h4>Promociones recomendadas</h4>
@@ -708,15 +710,15 @@ async function loginAdmin(){
   try{
     const r=await fetch(API+'/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({usuario:u,password:p})});
     const d=await r.json();if(!r.ok)throw new Error(d.error);
-    TOKEN=d.token;sessionStorage.setItem('admtoken',TOKEN);
+    TOKEN=d.token;localStorage.setItem('admtoken',TOKEN);
     ES_MAESTRO=!!d.maestro;MIS_MODULOS=Array.isArray(d.modulos)?d.modulos:[];
-    sessionStorage.setItem('admmaestro',ES_MAESTRO?'1':'0');
-    sessionStorage.setItem('admmodulos',MIS_MODULOS.join(','));
+    localStorage.setItem('admmaestro',ES_MAESTRO?'1':'0');
+    localStorage.setItem('admmodulos',MIS_MODULOS.join(','));
     mostrarApp();
   }catch(err){e.textContent=err.message;e.style.display='block';}
 }
-function logout(){TOKEN='';ES_MAESTRO=false;MIS_MODULOS=[];sessionStorage.removeItem('admtoken');sessionStorage.removeItem('admmaestro');sessionStorage.removeItem('admmodulos');document.getElementById('app-screen').style.display='none';document.getElementById('login-screen').style.display='block';}
-function tab(id,btn){document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));document.getElementById('tab-'+id).classList.add('active');btn.classList.add('active');cargarDatosTab(id);}
+function logout(){TOKEN='';ES_MAESTRO=false;MIS_MODULOS=[];localStorage.removeItem('admtoken');localStorage.removeItem('admmaestro');localStorage.removeItem('admmodulos');localStorage.removeItem('admtab');document.getElementById('app-screen').style.display='none';document.getElementById('login-screen').style.display='block';}
+function tab(id,btn){document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));document.getElementById('tab-'+id).classList.add('active');btn.classList.add('active');try{localStorage.setItem('admtab',id);}catch(e){}cargarDatosTab(id);}
 
 // Muestra u oculta las pestañas según los permisos del usuario que entró
 function aplicarPermisos(){
@@ -750,11 +752,22 @@ function aplicarPermisos(){
     st.style.display=ok?'':'none';
   });
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
-  // Abrir la primera pestaña visible
-  if(primeraVisible){
-    const m=primeraVisible.getAttribute('onclick').match(/tab\('([^']+)'/)[1];
+  // Abrir la última pestaña recordada (si el usuario aún puede verla); si no, la primera visible
+  let objetivo=primeraVisible;
+  try{
+    const recordada=localStorage.getItem('admtab');
+    if(recordada){
+      const btnRec=Array.from(botones).find(b=>{
+        const mm=(b.getAttribute('onclick')||'').match(/tab\('([^']+)'/);
+        return mm && mm[1]===recordada && b.style.display!=='none';
+      });
+      if(btnRec)objetivo=btnRec;
+    }
+  }catch(e){}
+  if(objetivo){
+    const m=objetivo.getAttribute('onclick').match(/tab\('([^']+)'/)[1];
     document.getElementById('tab-'+m).classList.add('active');
-    primeraVisible.classList.add('active');
+    objetivo.classList.add('active');
     cargarDatosTab(m);
   }
 }
@@ -1062,6 +1075,23 @@ const PROMO_DESCS={
 };
 // ══════════ Capital parado (Inventario) ══════════
 // Barras proporcionales para ver de un vistazo dónde está el dinero detenido.
+// Alterna entre la lista por producto y la lista por marca
+function capVista(cual){
+  const esProd=cual==='producto';
+  document.getElementById('inv-estancados').style.display=esProd?'':'none';
+  document.getElementById('inv-marcas').style.display=esProd?'none':'';
+  document.getElementById('cap-nota').textContent=esProd
+    ? 'Los productos con más dinero invertido que llevan 4+ meses sin venderse.'
+    : 'Marcas con más dinero en stock que peor rotan (12+ meses para agotarse al ritmo actual).';
+  const bp=document.getElementById('cap-btn-prod'), bm=document.getElementById('cap-btn-marca');
+  if(bp&&bm){
+    bp.style.background=esProd?'var(--accent)':'transparent';
+    bp.style.color=esProd?'#000726':'';
+    bm.style.background=esProd?'transparent':'var(--accent)';
+    bm.style.color=esProd?'':'#000726';
+  }
+}
+
 async function cargarInvAnalisis(){
   const cp=document.getElementById('inv-estancados'), cm=document.getElementById('inv-marcas');
   if(!cp||!cm)return;
@@ -2620,8 +2650,8 @@ async function toggleActivo(id,activo){
 }
 
 API=window.location.origin;
-const saved=sessionStorage.getItem('admtoken');
-if(saved){TOKEN=saved;ES_MAESTRO=sessionStorage.getItem('admmaestro')==='1';MIS_MODULOS=(sessionStorage.getItem('admmodulos')||'').split(',').filter(Boolean);mostrarApp();}
+const saved=localStorage.getItem('admtoken');
+if(saved){TOKEN=saved;ES_MAESTRO=localStorage.getItem('admmaestro')==='1';MIS_MODULOS=(localStorage.getItem('admmodulos')||'').split(',').filter(Boolean);mostrarApp();}
 aplicarTema(document.documentElement.getAttribute('data-theme')||'dark');
 document.getElementById('adm-pass').addEventListener('keypress',e=>{if(e.key==='Enter')loginAdmin();});
 </script>

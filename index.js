@@ -1060,7 +1060,8 @@ async function obtenerPagos(q) {
     (vouchPorVenta[v.sale_id] = vouchPorVenta[v.sale_id] || []).push(`${t} ${v.serie}-${v.number}`);
     (compDetallePorVenta[v.sale_id] = compDetallePorVenta[v.sale_id] || []).push({
       tipo: v.type, codigo: `${v.serie}-${v.number}`,
-      fecha: v.emission_date, importe: Number(v.amount || 0)
+      fecha: v.emission_date, importe: Number(v.amount || 0),
+      sale_id: v.sale_id
     });
     // Marcar el tipo de la venta: si tiene facturas y boletas, 'mixto'
     const prev = tipoCompPorVenta[v.sale_id];
@@ -1258,20 +1259,27 @@ app.get('/admin/reporte-pagos-excel', authAdmin, requiereModulo('reportes'), asy
         (p._comp_detalle || []).forEach(cd => {
           if (cd.tipo !== tipoComp) return;
           const g2 = porComp[cd.codigo] = porComp[cd.codigo] || {
-            codigo: cd.codigo, fecha_emision: cd.fecha, importe_comp: cd.importe,
-            cliente: p.cliente, cliente_doc: p.cliente_doc, pagos: []
+            codigo: cd.codigo, fecha_emision: cd.fecha, importe_comp: 0,
+            cliente: p.cliente, cliente_doc: p.cliente_doc, pagos: [],
+            _ventas_contadas: new Set(), ventas: new Set()
           };
-          g2.pagos.push({ fecha: p.paid_at, monto: p.monto, metodo: p.metodo, banco: p.cuenta });
+          if (p.venta && p.venta !== '—') g2.ventas.add(p.venta);
+          // El importe de la factura suma el amount de cada VENTA distinta que la comparte
+          if (!g2._ventas_contadas.has(cd.sale_id)) {
+            g2.importe_comp += Number(cd.importe || 0);
+            g2._ventas_contadas.add(cd.sale_id);
+          }
+          g2.pagos.push({ fecha: p.paid_at, monto: p.monto, metodo: p.metodo, banco: p.cuenta, venta: p.venta });
         });
       });
       const grupos = Object.values(porComp).sort((a, b) =>
         new Date(a.fecha_emision || 0) - new Date(b.fecha_emision || 0));
 
-      ws2.mergeCells('A1:H1');
+      ws2.mergeCells('A1:I1');
       ws2.getCell('A1').value = `${etiqueta} emitidas y sus pagos — ${req.query.desde || ''} a ${req.query.hasta || ''}`;
       ws2.getCell('A1').font = { bold: true, size: 13 };
       ws2.addRow([]);
-      const hr = ws2.addRow(['Nº Comprobante', 'Fecha emisión', 'Cliente / Método', 'RUC/DNI / Banco',
+      const hr = ws2.addRow(['Nº Comprobante', 'Venta(s)', 'Fecha emisión', 'Cliente / Método', 'RUC/DNI / Banco',
         'Importe comprobante', 'Total pagado', 'Diferencia', 'Estado']);
       hr.font = { bold: true, color: { argb: 'FFFFFFFF' } };
       hr.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000726' } };
@@ -1284,22 +1292,23 @@ app.get('/admin/reporte-pagos-excel', authAdmin, requiereModulo('reportes'), asy
         const totalPagado = gr.pagos.reduce((s, x) => s + Number(x.monto), 0);
         const dif = Math.round((Number(gr.importe_comp) - totalPagado) * 100) / 100;
         const estado = Math.abs(dif) < 0.01 ? 'Cuadra' : (dif > 0 ? 'Falta cobrar' : 'Pagado de más');
+        const ventasTxt = [...gr.ventas].join(', ') || '—';
         const fila = ws2.addRow([
-          gr.codigo, gr.fecha_emision ? fechaLima(gr.fecha_emision).split(',')[0] : '',
+          gr.codigo, ventasTxt, gr.fecha_emision ? fechaLima(gr.fecha_emision).split(',')[0] : '',
           gr.cliente, gr.cliente_doc,
           Number(gr.importe_comp), totalPagado, dif, estado
         ]);
         fila.font = { bold: true };
-        if (Math.abs(dif) >= 0.01) fila.getCell(8).font = { color: { argb: 'FFCC0000' }, bold: true };
-        // Sub-filas: cada pago (depósito) que cubrió el comprobante
+        if (Math.abs(dif) >= 0.01) fila.getCell(9).font = { color: { argb: 'FFCC0000' }, bold: true };
+        // Sub-filas: cada pago (depósito) que cubrió el comprobante, con su venta
         gr.pagos.forEach(pg => {
-          const sub = ws2.addRow(['', '   ↳ ' + fechaLima(pg.fecha).split(',')[0],
+          const sub = ws2.addRow(['', pg.venta || '', '   ↳ ' + fechaLima(pg.fecha).split(',')[0],
             pg.metodo, pg.banco || '—', '', Number(pg.monto), '', '']);
           sub.font = { color: { argb: 'FF666666' }, size: 10 };
         });
       });
-      [5, 6, 7].forEach(c => ws2.getColumn(c).numFmt = '#,##0.00');
-      [20, 22, 30, 24, 18, 15, 13, 14].forEach((w, i) => ws2.getColumn(i + 1).width = w);
+      [6, 7, 8].forEach(c => ws2.getColumn(c).numFmt = '#,##0.00');
+      [20, 20, 22, 30, 24, 18, 15, 13, 14].forEach((w, i) => ws2.getColumn(i + 1).width = w);
       ws2.views = [{ state: 'frozen', ySplit: headerRow2 }];
     };
 

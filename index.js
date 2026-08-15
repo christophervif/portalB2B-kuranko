@@ -1247,16 +1247,16 @@ app.get('/admin/reporte-pagos-excel', authAdmin, requiereModulo('reportes'), asy
     const g = ws.addRow(['TOTAL GENERAL']); g.font = { bold: true };
     g.getCell(15).value = lista.reduce((s, x) => s + x.monto, 0); g.getCell(15).numFmt = '#,##0.00';
 
-    // ── Hoja 2: agrupada por comprobante (solo si se filtró facturas o boletas) ──
-    const tcomp = req.query.tipo_comprobante;
-    if (tcomp === 'factura' || tcomp === 'boleta') {
-      const etiqueta = tcomp === 'factura' ? 'Facturas' : 'Boletas';
+    // ── Hojas agrupadas por comprobante ──
+    // Función que arma una hoja para un tipo ('factura' o 'boleta')
+    const armarHojaComprobante = (tipoComp) => {
+      const etiqueta = tipoComp === 'factura' ? 'Facturas' : 'Boletas';
       const ws2 = wb.addWorksheet('Por ' + etiqueta.toLowerCase());
       // Juntar los pagos por cada comprobante de ese tipo
       const porComp = {};
       lista.forEach(p => {
         (p._comp_detalle || []).forEach(cd => {
-          if (cd.tipo !== tcomp) return;
+          if (cd.tipo !== tipoComp) return;
           const g2 = porComp[cd.codigo] = porComp[cd.codigo] || {
             codigo: cd.codigo, fecha_emision: cd.fecha, importe_comp: cd.importe,
             cliente: p.cliente, cliente_doc: p.cliente_doc, pagos: []
@@ -1277,6 +1277,9 @@ app.get('/admin/reporte-pagos-excel', authAdmin, requiereModulo('reportes'), asy
       hr.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000726' } };
       const headerRow2 = hr.number;
 
+      if (!grupos.length) {
+        ws2.addRow(['(No hay ' + etiqueta.toLowerCase() + ' con pagos en este rango)']);
+      }
       grupos.forEach(gr => {
         const totalPagado = gr.pagos.reduce((s, x) => s + Number(x.monto), 0);
         const dif = Math.round((Number(gr.importe_comp) - totalPagado) * 100) / 100;
@@ -1298,6 +1301,18 @@ app.get('/admin/reporte-pagos-excel', authAdmin, requiereModulo('reportes'), asy
       [5, 6, 7].forEach(c => ws2.getColumn(c).numFmt = '#,##0.00');
       [20, 22, 30, 24, 18, 15, 13, 14].forEach((w, i) => ws2.getColumn(i + 1).width = w);
       ws2.views = [{ state: 'frozen', ySplit: headerRow2 }];
+    };
+
+    // Según el filtro: solo facturas → 1 hoja; solo boletas → 1 hoja; ambos → las 2
+    const tcomp = req.query.tipo_comprobante;
+    if (tcomp === 'factura') {
+      armarHojaComprobante('factura');
+    } else if (tcomp === 'boleta') {
+      armarHojaComprobante('boleta');
+    } else {
+      // "Facturas y boletas": incluir las dos hojas agrupadas
+      armarHojaComprobante('factura');
+      armarHojaComprobante('boleta');
     }
 
     const nombre = nombreTrazable('pagos');

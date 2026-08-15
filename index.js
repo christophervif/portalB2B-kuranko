@@ -1253,34 +1253,54 @@ app.get('/admin/reporte-pagos-excel', authAdmin, requiereModulo('reportes'), asy
     const armarHojaComprobante = (tipoComp) => {
       const etiqueta = tipoComp === 'factura' ? 'Facturas' : 'Boletas';
       const ws2 = wb.addWorksheet('Por ' + etiqueta.toLowerCase());
-      // Juntar los pagos por cada comprobante de ese tipo
-      const porComp = {};
+      // Agrupar por VENTA: cada venta junta todos sus comprobantes de este tipo y todos sus pagos.
+      // Así, si una venta tiene varias boletas, se muestran juntas y los importes cuadran
+      // (evita contar el mismo pago en cada comprobante de la misma venta).
+      const porVenta = {};
       lista.forEach(p => {
-        (p._comp_detalle || []).forEach(cd => {
-          if (cd.tipo !== tipoComp) return;
-          const g2 = porComp[cd.codigo] = porComp[cd.codigo] || {
-            codigo: cd.codigo, fecha_emision: cd.fecha, importe_comp: 0,
-            cliente: p.cliente, cliente_doc: p.cliente_doc, pagos: [],
-            _ventas_contadas: new Set(), ventas: new Set()
-          };
-          if (p.venta && p.venta !== '—') g2.ventas.add(p.venta);
-          // El importe de la factura suma el amount de cada VENTA distinta que la comparte
-          if (!g2._ventas_contadas.has(cd.sale_id)) {
-            g2.importe_comp += Number(cd.importe || 0);
-            g2._ventas_contadas.add(cd.sale_id);
+        const comps = (p._comp_detalle || []).filter(cd => cd.tipo === tipoComp);
+        if (!comps.length) return; // este pago no pertenece a una venta con comprobante de este tipo
+        const key = p.venta || ('sid_' + (comps[0].sale_id || Math.random()));
+        const g2 = porVenta[key] = porVenta[key] || {
+          venta: p.venta || '—', cliente: p.cliente, cliente_doc: p.cliente_doc,
+          comprobantes: new Map(), // codigo → { importe, fecha } (únicos por venta)
+          pagos: [], _pagos_ids: new Set(),
+          pagado_total: p.venta_pagado || 0,   // todo lo pagado de la venta (histórico)
+          monto_fuera: p._monto_fuera || 0     // lo pagado fuera del rango filtrado
+        };
+        // Registrar los comprobantes de esta venta (sin duplicar por código)
+        comps.forEach(cd => {
+          if (!g2.comprobantes.has(cd.codigo)) {
+            g2.comprobantes.set(cd.codigo, { importe: Number(cd.importe || 0), fecha: cd.fecha });
           }
-          g2.pagos.push({ fecha: p.paid_at, monto: p.monto, metodo: p.metodo, banco: p.cuenta, venta: p.venta });
         });
+        // Registrar el pago una sola vez (cada fila de 'lista' es un pago único de esta venta)
+        const pid = p.paid_at + '|' + p.monto + '|' + p.metodo;
+        if (!g2._pagos_ids.has(pid)) {
+          g2.pagos.push({ fecha: p.paid_at, monto: p.monto, metodo: p.metodo, banco: p.cuenta });
+          g2._pagos_ids.add(pid);
+        }
       });
-      const grupos = Object.values(porComp).sort((a, b) =>
-        new Date(a.fecha_emision || 0) - new Date(b.fecha_emision || 0));
+
+      // Convertir a filas: por cada venta, sumar importes de sus comprobantes y sus pagos
+      const grupos = Object.values(porVenta).map(g => {
+        const codigos = [...g.comprobantes.keys()];
+        const importeTotal = [...g.comprobantes.values()].reduce((s, c) => s + c.importe, 0);
+        const fechaMin = [...g.comprobantes.values()]
+          .map(c => c.fecha).filter(Boolean).sort()[0] || null;
+        return {
+          venta: g.venta, codigos, importe_comp: importeTotal, fecha_emision: fechaMin,
+          cliente: g.cliente, cliente_doc: g.cliente_doc, pagos: g.pagos,
+          pagado_total: g.pagado_total, monto_fuera: g.monto_fuera
+        };
+      }).sort((a, b) => new Date(a.fecha_emision || 0) - new Date(b.fecha_emision || 0));
 
       ws2.mergeCells('A1:I1');
       ws2.getCell('A1').value = `${etiqueta} emitidas y sus pagos — ${req.query.desde || ''} a ${req.query.hasta || ''}`;
       ws2.getCell('A1').font = { bold: true, size: 13 };
       ws2.addRow([]);
-      const hr = ws2.addRow(['Nº Comprobante', 'Venta(s)', 'Fecha emisión', 'Cliente / Método', 'RUC/DNI / Banco',
-        'Importe comprobante', 'Total pagado', 'Diferencia', 'Estado']);
+      const hr = ws2.addRow(['Comprobante(s)', 'Venta', 'Fecha emisión', 'Cliente / Método', 'RUC/DNI / Banco',
+        'Importe comprobante', 'Pagado en el rango', 'Pagos otros meses', 'Estado']);
       hr.font = { bold: true, color: { argb: 'FFFFFFFF' } };
       hr.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000726' } };
       const headerRow2 = hr.number;
@@ -1289,26 +1309,34 @@ app.get('/admin/reporte-pagos-excel', authAdmin, requiereModulo('reportes'), asy
         ws2.addRow(['(No hay ' + etiqueta.toLowerCase() + ' con pagos en este rango)']);
       }
       grupos.forEach(gr => {
-        const totalPagado = gr.pagos.reduce((s, x) => s + Number(x.monto), 0);
-        const dif = Math.round((Number(gr.importe_comp) - totalPagado) * 100) / 100;
-        const estado = Math.abs(dif) < 0.01 ? 'Cuadra' : (dif > 0 ? 'Falta cobrar' : 'Pagado de más');
-        const ventasTxt = [...gr.ventas].join(', ') || '—';
+        const pagadoRango = gr.pagos.reduce((s, x) => s + Number(x.monto), 0);
+        const importe = Number(gr.importe_comp);
+        const pagadoTotal = Number(gr.pagado_total) || pagadoRango;
+        const fuera = Number(gr.monto_fuera) || 0;
+        // El estado se decide con el pagado TOTAL (histórico), no solo el del rango
+        const difTotal = Math.round((importe - pagadoTotal) * 100) / 100;
+        let estado;
+        if (Math.abs(difTotal) < 0.01) estado = 'Cuadra';
+        else if (difTotal > 0) estado = 'Falta cobrar S/ ' + difTotal.toFixed(2);
+        else estado = 'Pagado de más S/ ' + Math.abs(difTotal).toFixed(2);
+        const textoFuera = fuera > 0 ? 'S/ ' + fuera.toFixed(2) + ' en otros meses' : '';
         const fila = ws2.addRow([
-          gr.codigo, ventasTxt, gr.fecha_emision ? fechaLima(gr.fecha_emision).split(',')[0] : '',
+          gr.codigos.join(' + '), gr.venta,
+          gr.fecha_emision ? fechaLima(gr.fecha_emision).split(',')[0] : '',
           gr.cliente, gr.cliente_doc,
-          Number(gr.importe_comp), totalPagado, dif, estado
+          importe, pagadoRango, textoFuera, estado
         ]);
         fila.font = { bold: true };
-        if (Math.abs(dif) >= 0.01) fila.getCell(9).font = { color: { argb: 'FFCC0000' }, bold: true };
-        // Sub-filas: cada pago (depósito) que cubrió el comprobante, con su venta
+        if (Math.abs(difTotal) >= 0.01) fila.getCell(9).font = { color: { argb: 'FFCC0000' }, bold: true };
+        // Sub-filas: cada pago (depósito) de la venta que cayó en el rango
         gr.pagos.forEach(pg => {
-          const sub = ws2.addRow(['', pg.venta || '', '   ↳ ' + fechaLima(pg.fecha).split(',')[0],
+          const sub = ws2.addRow(['', '', '   ↳ ' + fechaLima(pg.fecha).split(',')[0],
             pg.metodo, pg.banco || '—', '', Number(pg.monto), '', '']);
           sub.font = { color: { argb: 'FF666666' }, size: 10 };
         });
       });
-      [6, 7, 8].forEach(c => ws2.getColumn(c).numFmt = '#,##0.00');
-      [20, 20, 22, 30, 24, 18, 15, 13, 14].forEach((w, i) => ws2.getColumn(i + 1).width = w);
+      [6, 7].forEach(c => ws2.getColumn(c).numFmt = '#,##0.00');
+      [24, 16, 22, 30, 24, 18, 17, 20, 20].forEach((w, i) => ws2.getColumn(i + 1).width = w);
       ws2.views = [{ state: 'frozen', ySplit: headerRow2 }];
     };
 

@@ -633,6 +633,7 @@ tr:hover td{background:var(--hover)}
         <div class="filtros-fila">
           <select id="rp-cuenta"><option value="">Todas las cuentas</option></select>
           <select id="rp-metodo"><option value="">Todos los métodos</option></select>
+          <select id="rp-tipocomp"><option value="">Facturas y boletas</option><option value="factura">Solo facturas</option><option value="boleta">Solo boletas</option></select>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
           <button class="btn" onclick="verPagos()">Ver en pantalla</button>
@@ -1418,6 +1419,7 @@ function rpParams(){
   const empP=document.getElementById('rp-empresa-prod').value; if(empP)p.set('empresa_producto',empP);
   const cta=document.getElementById('rp-cuenta').value; if(cta)p.set('cuenta',cta);
   const met=document.getElementById('rp-metodo').value; if(met)p.set('metodo',met);
+  const tc=document.getElementById('rp-tipocomp').value; if(tc)p.set('tipo_comprobante',tc);
   return p;
 }
 function limpiarFiltrosRP(){

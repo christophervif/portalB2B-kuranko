@@ -1004,7 +1004,7 @@ app.get('/admin/reporte-pagos/filtros', authAdmin, requiereModulo('reportes'), a
 
 // Función compartida: arma la lista de pagos según filtros
 async function obtenerPagos(q) {
-  const { desde, hasta, empresa, empresa_producto, cuenta, metodo } = q;
+  const { desde, hasta, empresa, empresa_producto, cuenta, metodo, tipo_comprobante } = q;
   const w = ['sp.voided_at IS NULL', 's.deleted_at IS NULL'];
   const p = [];
   if (desde && hasta) { w.push('DATE(sp.paid_at) BETWEEN ? AND ?'); p.push(desde, hasta); }
@@ -1051,11 +1051,21 @@ async function obtenerPagos(q) {
 
   // Comprobantes por venta
   const [vouchers] = await prodPool.query(`
-    SELECT sale_id, type, serie, number FROM sale_vouchers WHERE sale_id IN (?)`, [saleIds]);
+    SELECT sale_id, type, serie, number, emission_date, amount FROM sale_vouchers WHERE sale_id IN (?)`, [saleIds]);
   const vouchPorVenta = {};
+  const tipoCompPorVenta = {};   // 'factura' | 'boleta' | 'mixto' por venta
+  const compDetallePorVenta = {}; // detalle de comprobantes por venta (para la hoja agrupada)
   vouchers.forEach(v => {
     const t = v.type === 'factura' ? 'Factura' : v.type === 'boleta' ? 'Boleta' : v.type;
     (vouchPorVenta[v.sale_id] = vouchPorVenta[v.sale_id] || []).push(`${t} ${v.serie}-${v.number}`);
+    (compDetallePorVenta[v.sale_id] = compDetallePorVenta[v.sale_id] || []).push({
+      tipo: v.type, codigo: `${v.serie}-${v.number}`,
+      fecha: v.emission_date, importe: Number(v.amount || 0)
+    });
+    // Marcar el tipo de la venta: si tiene facturas y boletas, 'mixto'
+    const prev = tipoCompPorVenta[v.sale_id];
+    if (!prev) tipoCompPorVenta[v.sale_id] = v.type;
+    else if (prev !== v.type) tipoCompPorVenta[v.sale_id] = 'mixto';
   });
 
   // Total pagado HISTÓRICO de cada venta (todos sus pagos, sin filtro de fecha).
@@ -1099,6 +1109,8 @@ async function obtenerPagos(q) {
       empresa_gestiona: pg.company_id != null ? (EMPRESAS_BI[pg.company_id] || `Empresa ${pg.company_id}`) : '(vacío)',
       empresa_producto: empProd,
       comprobante: (vouchPorVenta[pg.sale_id] || []).join(' · ') || '—',
+      tipo_comprobante: tipoCompPorVenta[pg.sale_id] || null,
+      _comp_detalle: compDetallePorVenta[pg.sale_id] || [],
       nota_pago: pg.nota_pago || '', obs_venta: pg.obs_venta || '',
       cuadre: pg.cuadre, monto: Number(pg.amount),
       venta_total: Number(pg.venta_total || 0),
@@ -1116,6 +1128,13 @@ async function obtenerPagos(q) {
     lista = lista.filter(x => x._empresas_prod_ids.includes(Number(empresa_producto)));
   }
   lista.forEach(x => delete x._empresas_prod_ids);
+
+  // Filtro por tipo de comprobante (factura / boleta). 'mixto' cuenta para ambos.
+  if (tipo_comprobante === 'factura') {
+    lista = lista.filter(x => x.tipo_comprobante === 'factura' || x.tipo_comprobante === 'mixto');
+  } else if (tipo_comprobante === 'boleta') {
+    lista = lista.filter(x => x.tipo_comprobante === 'boleta' || x.tipo_comprobante === 'mixto');
+  }
 
   // Agrupar por venta manteniendo el orden cronológico DENTRO de cada venta.
   // Las ventas se ordenan por la fecha de su primer pago (para que el reporte
@@ -1227,6 +1246,59 @@ app.get('/admin/reporte-pagos-excel', authAdmin, requiereModulo('reportes'), asy
     bloque('TOTALES POR MÉTODO', totMet);
     const g = ws.addRow(['TOTAL GENERAL']); g.font = { bold: true };
     g.getCell(15).value = lista.reduce((s, x) => s + x.monto, 0); g.getCell(15).numFmt = '#,##0.00';
+
+    // ── Hoja 2: agrupada por comprobante (solo si se filtró facturas o boletas) ──
+    const tcomp = req.query.tipo_comprobante;
+    if (tcomp === 'factura' || tcomp === 'boleta') {
+      const etiqueta = tcomp === 'factura' ? 'Facturas' : 'Boletas';
+      const ws2 = wb.addWorksheet('Por ' + etiqueta.toLowerCase());
+      // Juntar los pagos por cada comprobante de ese tipo
+      const porComp = {};
+      lista.forEach(p => {
+        (p._comp_detalle || []).forEach(cd => {
+          if (cd.tipo !== tcomp) return;
+          const g2 = porComp[cd.codigo] = porComp[cd.codigo] || {
+            codigo: cd.codigo, fecha_emision: cd.fecha, importe_comp: cd.importe,
+            cliente: p.cliente, cliente_doc: p.cliente_doc, pagos: []
+          };
+          g2.pagos.push({ fecha: p.paid_at, monto: p.monto, metodo: p.metodo, banco: p.cuenta });
+        });
+      });
+      const grupos = Object.values(porComp).sort((a, b) =>
+        new Date(a.fecha_emision || 0) - new Date(b.fecha_emision || 0));
+
+      ws2.mergeCells('A1:H1');
+      ws2.getCell('A1').value = `${etiqueta} emitidas y sus pagos — ${req.query.desde || ''} a ${req.query.hasta || ''}`;
+      ws2.getCell('A1').font = { bold: true, size: 13 };
+      ws2.addRow([]);
+      const hr = ws2.addRow(['Nº Comprobante', 'Fecha emisión', 'Cliente / Método', 'RUC/DNI / Banco',
+        'Importe comprobante', 'Total pagado', 'Diferencia', 'Estado']);
+      hr.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      hr.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000726' } };
+      const headerRow2 = hr.number;
+
+      grupos.forEach(gr => {
+        const totalPagado = gr.pagos.reduce((s, x) => s + Number(x.monto), 0);
+        const dif = Math.round((Number(gr.importe_comp) - totalPagado) * 100) / 100;
+        const estado = Math.abs(dif) < 0.01 ? 'Cuadra' : (dif > 0 ? 'Falta cobrar' : 'Pagado de más');
+        const fila = ws2.addRow([
+          gr.codigo, gr.fecha_emision ? fechaLima(gr.fecha_emision).split(',')[0] : '',
+          gr.cliente, gr.cliente_doc,
+          Number(gr.importe_comp), totalPagado, dif, estado
+        ]);
+        fila.font = { bold: true };
+        if (Math.abs(dif) >= 0.01) fila.getCell(8).font = { color: { argb: 'FFCC0000' }, bold: true };
+        // Sub-filas: cada pago (depósito) que cubrió el comprobante
+        gr.pagos.forEach(pg => {
+          const sub = ws2.addRow(['', '   ↳ ' + fechaLima(pg.fecha).split(',')[0],
+            pg.metodo, pg.banco || '—', '', Number(pg.monto), '', '']);
+          sub.font = { color: { argb: 'FF666666' }, size: 10 };
+        });
+      });
+      [5, 6, 7].forEach(c => ws2.getColumn(c).numFmt = '#,##0.00');
+      [20, 22, 30, 24, 18, 15, 13, 14].forEach((w, i) => ws2.getColumn(i + 1).width = w);
+      ws2.views = [{ state: 'frozen', ySplit: headerRow2 }];
+    }
 
     const nombre = nombreTrazable('pagos');
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');

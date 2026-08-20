@@ -1250,106 +1250,126 @@ app.get('/admin/reporte-pagos-excel', authAdmin, requiereModulo('reportes'), asy
 
     // ── Hojas agrupadas por comprobante ──
     // Función que arma una hoja para un tipo ('factura' o 'boleta')
-    const armarHojaComprobante = (tipoComp) => {
+    // Hoja agrupada por comprobante. Filtra por fecha de EMISIÓN del comprobante
+    // (para cuadrar con la lista del contador), y muestra TODOS los pagos de cada venta,
+    // sin importar el mes en que se pagaron.
+    const armarHojaComprobante = async (tipoComp) => {
       const etiqueta = tipoComp === 'factura' ? 'Facturas' : 'Boletas';
       const ws2 = wb.addWorksheet('Por ' + etiqueta.toLowerCase());
-      // Agrupar por VENTA: cada venta junta todos sus comprobantes de este tipo y todos sus pagos.
-      // Así, si una venta tiene varias boletas, se muestran juntas y los importes cuadran
-      // (evita contar el mismo pago en cada comprobante de la misma venta).
-      const porVenta = {};
-      lista.forEach(p => {
-        const comps = (p._comp_detalle || []).filter(cd => cd.tipo === tipoComp);
-        if (!comps.length) return; // este pago no pertenece a una venta con comprobante de este tipo
-        const key = p.venta || ('sid_' + (comps[0].sale_id || Math.random()));
-        const g2 = porVenta[key] = porVenta[key] || {
-          venta: p.venta || '—', cliente: p.cliente, cliente_doc: p.cliente_doc,
-          comprobantes: new Map(), // codigo → { importe, fecha } (únicos por venta)
-          pagos: [], _pagos_ids: new Set(),
-          pagado_total: p.venta_pagado || 0,   // todo lo pagado de la venta (histórico)
-          monto_fuera: p._monto_fuera || 0     // lo pagado fuera del rango filtrado
-        };
-        // Registrar los comprobantes de esta venta (sin duplicar por código)
-        comps.forEach(cd => {
-          if (!g2.comprobantes.has(cd.codigo)) {
-            g2.comprobantes.set(cd.codigo, { importe: Number(cd.importe || 0), fecha: cd.fecha });
-          }
+
+      // 1) Comprobantes de este tipo emitidos dentro del rango de fechas
+      const desde = req.query.desde, hasta = req.query.hasta;
+      const cond = [`sv.type = ?`]; const params = [tipoComp];
+      if (desde) { cond.push('sv.emission_date >= ?'); params.push(desde); }
+      if (hasta) { cond.push('sv.emission_date <= ?'); params.push(hasta); }
+      // Filtro opcional por empresa que gestiona (mismo criterio que el reporte)
+      if (req.query.empresa) { cond.push('s.company_id = ?'); params.push(req.query.empresa); }
+      const [comps] = await prodPool.query(`
+        SELECT sv.sale_id, sv.type, sv.serie, sv.number, sv.emission_date, sv.amount,
+          s.code AS venta, s.total AS total_venta,
+          CASE WHEN cli.is_company=1 THEN cli.business_name
+               ELSE TRIM(CONCAT(COALESCE(cli.first_name,''),' ',COALESCE(cli.last_name,''))) END AS cliente,
+          cli.document_number AS cliente_doc
+        FROM sale_vouchers sv
+        JOIN sales s ON s.id = sv.sale_id
+        LEFT JOIN parties cli ON cli.id = s.customer_id
+        WHERE ${cond.join(' AND ')} AND s.deleted_at IS NULL
+        ORDER BY sv.emission_date, sv.number`, params);
+
+      // 2) Todos los pagos válidos de esas ventas (de cualquier fecha)
+      const saleIdsComp = [...new Set(comps.map(c => c.sale_id))];
+      const pagosPorVenta = {};
+      if (saleIdsComp.length) {
+        const [pgs] = await prodPool.query(`
+          SELECT sp.sale_id, sp.amount, sp.paid_at, ci.name AS metodo,
+            banco.name AS banco_nombre, ba.account_number
+          FROM sale_payments sp
+          LEFT JOIN catalog_items ci ON ci.id = sp.payment_method_id
+          LEFT JOIN bank_accounts ba ON ba.id = sp.bank_account_id
+          LEFT JOIN catalog_items banco ON banco.id = ba.bank_id
+          WHERE sp.sale_id IN (?) AND sp.voided_at IS NULL
+          ORDER BY sp.paid_at`, [saleIdsComp]);
+        pgs.forEach(p => {
+          const banco = p.account_number
+            ? `${p.banco_nombre || ''} ${p.account_number}`.trim() : '—';
+          (pagosPorVenta[p.sale_id] = pagosPorVenta[p.sale_id] || []).push({
+            fecha: p.paid_at, monto: Number(p.amount), metodo: p.metodo || '—', banco
+          });
         });
-        // Registrar el pago una sola vez (cada fila de 'lista' es un pago único de esta venta)
-        const pid = p.paid_at + '|' + p.monto + '|' + p.metodo;
-        if (!g2._pagos_ids.has(pid)) {
-          g2.pagos.push({ fecha: p.paid_at, monto: p.monto, metodo: p.metodo, banco: p.cuenta });
-          g2._pagos_ids.add(pid);
+      }
+
+      // 3) Agrupar por venta: juntar sus comprobantes de este tipo y sus pagos
+      const porVenta = {};
+      comps.forEach(c => {
+        const g = porVenta[c.sale_id] = porVenta[c.sale_id] || {
+          venta: c.venta, cliente: (c.cliente || '').trim() || '—', cliente_doc: c.cliente_doc || '—',
+          comprobantes: new Map(), total_venta: Number(c.total_venta || 0)
+        };
+        if (!g.comprobantes.has(`${c.serie}-${c.number}`)) {
+          g.comprobantes.set(`${c.serie}-${c.number}`, { importe: Number(c.amount || 0), fecha: c.emission_date });
         }
       });
 
-      // Convertir a filas: por cada venta, sumar importes de sus comprobantes y sus pagos
-      const grupos = Object.values(porVenta).map(g => {
+      const grupos = Object.entries(porVenta).map(([sid, g]) => {
         const codigos = [...g.comprobantes.keys()];
-        const importeTotal = [...g.comprobantes.values()].reduce((s, c) => s + c.importe, 0);
-        const fechaMin = [...g.comprobantes.values()]
-          .map(c => c.fecha).filter(Boolean).sort()[0] || null;
-        return {
-          venta: g.venta, codigos, importe_comp: importeTotal, fecha_emision: fechaMin,
-          cliente: g.cliente, cliente_doc: g.cliente_doc, pagos: g.pagos,
-          pagado_total: g.pagado_total, monto_fuera: g.monto_fuera
-        };
+        const importe = [...g.comprobantes.values()].reduce((s, c) => s + c.importe, 0);
+        const fechaMin = [...g.comprobantes.values()].map(c => c.fecha).filter(Boolean).sort()[0] || null;
+        const pagos = pagosPorVenta[sid] || [];
+        return { ...g, codigos, importe_comp: importe, fecha_emision: fechaMin, pagos };
       }).sort((a, b) => new Date(a.fecha_emision || 0) - new Date(b.fecha_emision || 0));
 
-      ws2.mergeCells('A1:I1');
-      ws2.getCell('A1').value = `${etiqueta} emitidas y sus pagos — ${req.query.desde || ''} a ${req.query.hasta || ''}`;
+      // 4) Escribir la hoja
+      ws2.mergeCells('A1:H1');
+      ws2.getCell('A1').value = `${etiqueta} emitidas del ${desde || ''} al ${hasta || ''} (filtrado por fecha de emisión) y todos sus pagos`;
       ws2.getCell('A1').font = { bold: true, size: 13 };
       ws2.addRow([]);
       const hr = ws2.addRow(['Comprobante(s)', 'Venta', 'Fecha emisión', 'Cliente / Método', 'RUC/DNI / Banco',
-        'Importe comprobante', 'Pagado en el rango', 'Pagos otros meses', 'Estado']);
+        'Importe comprobante', 'Total pagado', 'Estado']);
       hr.font = { bold: true, color: { argb: 'FFFFFFFF' } };
       hr.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000726' } };
       const headerRow2 = hr.number;
 
       if (!grupos.length) {
-        ws2.addRow(['(No hay ' + etiqueta.toLowerCase() + ' con pagos en este rango)']);
+        ws2.addRow([`(No se emitieron ${etiqueta.toLowerCase()} en este rango de fechas)`]);
       }
       grupos.forEach(gr => {
-        const pagadoRango = gr.pagos.reduce((s, x) => s + Number(x.monto), 0);
-        const importe = Number(gr.importe_comp);
-        const pagadoTotal = Number(gr.pagado_total) || pagadoRango;
-        const fuera = Number(gr.monto_fuera) || 0;
-        // El estado se decide con el pagado TOTAL (histórico), no solo el del rango
-        const difTotal = Math.round((importe - pagadoTotal) * 100) / 100;
-        let estado;
-        if (Math.abs(difTotal) < 0.01) estado = 'Cuadra';
-        else if (difTotal > 0) estado = 'Falta cobrar S/ ' + difTotal.toFixed(2);
-        else estado = 'Pagado de más S/ ' + Math.abs(difTotal).toFixed(2);
-        const textoFuera = fuera > 0 ? 'S/ ' + fuera.toFixed(2) + ' en otros meses' : '';
+        const totalPagado = gr.pagos.reduce((s, x) => s + Number(x.monto), 0);
+        const dif = Math.round((Number(gr.importe_comp) - totalPagado) * 100) / 100;
+        const estado = Math.abs(dif) < 0.01 ? 'Cuadra'
+          : (dif > 0 ? 'Falta cobrar S/ ' + dif.toFixed(2) : 'Pagado de más S/ ' + Math.abs(dif).toFixed(2));
         const fila = ws2.addRow([
           gr.codigos.join(' + '), gr.venta,
           gr.fecha_emision ? fechaLima(gr.fecha_emision).split(',')[0] : '',
           gr.cliente, gr.cliente_doc,
-          importe, pagadoRango, textoFuera, estado
+          Number(gr.importe_comp), totalPagado, estado
         ]);
         fila.font = { bold: true };
-        if (Math.abs(difTotal) >= 0.01) fila.getCell(9).font = { color: { argb: 'FFCC0000' }, bold: true };
-        // Sub-filas: cada pago (depósito) de la venta que cayó en el rango
+        if (Math.abs(dif) >= 0.01) fila.getCell(8).font = { color: { argb: 'FFCC0000' }, bold: true };
+        // Sub-filas: TODOS los pagos de la venta (de cualquier mes)
+        if (!gr.pagos.length) {
+          const sub = ws2.addRow(['', '', '   (sin pagos registrados)', '', '', '', '', '']);
+          sub.font = { color: { argb: 'FF999999' }, size: 10, italic: true };
+        }
         gr.pagos.forEach(pg => {
           const sub = ws2.addRow(['', '', '   ↳ ' + fechaLima(pg.fecha).split(',')[0],
-            pg.metodo, pg.banco || '—', '', Number(pg.monto), '', '']);
+            pg.metodo, pg.banco || '—', '', Number(pg.monto), '']);
           sub.font = { color: { argb: 'FF666666' }, size: 10 };
         });
       });
       [6, 7].forEach(c => ws2.getColumn(c).numFmt = '#,##0.00');
-      [24, 16, 22, 30, 24, 18, 17, 20, 20].forEach((w, i) => ws2.getColumn(i + 1).width = w);
+      [24, 16, 22, 30, 26, 18, 15, 22].forEach((w, i) => ws2.getColumn(i + 1).width = w);
       ws2.views = [{ state: 'frozen', ySplit: headerRow2 }];
     };
 
-    // Según el filtro: solo facturas → 1 hoja; solo boletas → 1 hoja; ambos → las 2
     const tcomp = req.query.tipo_comprobante;
     if (tcomp === 'factura') {
-      armarHojaComprobante('factura');
+      await armarHojaComprobante('factura');
     } else if (tcomp === 'boleta') {
-      armarHojaComprobante('boleta');
+      await armarHojaComprobante('boleta');
     } else {
       // "Facturas y boletas": incluir las dos hojas agrupadas
-      armarHojaComprobante('factura');
-      armarHojaComprobante('boleta');
+      await armarHojaComprobante('factura');
+      await armarHojaComprobante('boleta');
     }
 
     const nombre = nombreTrazable('pagos');

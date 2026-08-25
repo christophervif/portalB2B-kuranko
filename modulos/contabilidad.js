@@ -4,7 +4,7 @@
 //  Recibe del index.js las piezas compartidas y las funciones de comunes.js.
 // ═══════════════════════════════════════════════════════════════════════════
 
-const { EMPRESAS_BI, fechaHoraLima, fechaLima: fechaSolo, nombreTrazable, rango, cabeceraExcel } = require('./comunes');
+const { EMPRESAS_BI, fechaHoraLima, fechaLima: fechaSolo, fechaPura, nombreTrazable, rango, cabeceraExcel } = require('./comunes');
 
 module.exports = function registrarContabilidad({ app, authAdmin, requiereModulo, prodPool, VV }) {
 
@@ -614,7 +614,7 @@ module.exports = function registrarContabilidad({ app, authAdmin, requiereModulo
             : (dif > 0 ? 'Falta cobrar S/ ' + dif.toFixed(2) : 'Pagado de más S/ ' + Math.abs(dif).toFixed(2));
           const fila = ws2.addRow([
             gr.codigos.join(' + '), gr.venta,
-            gr.fecha_emision ? fechaLima(gr.fecha_emision).split(',')[0] : '',
+            gr.fecha_emision ? fechaPura(gr.fecha_emision) : '',
             gr.cliente, gr.cliente_doc,
             Number(gr.importe_comp), totalPagado, estado
           ]);

@@ -181,6 +181,203 @@ module.exports = function registrarSincronizacion({ app, authAdmin, requiereModu
     await prepararTablas();
   }
 
+  // Calcula la auditoría del catálogo (pendientes + alertas). Consulta pesada.
+  async function calcularAuditoria() {
+      // ── PESTAÑA 2: Pendientes (sin woocommerce_id) ─────────────────────────
+      // Solo se muestran los que tienen stock > 0, O los que tienen un ingreso
+      // pendiente por llegar (una venta en backorder con pending_stock_entry_id).
+      const [pendientes] = await prodPool.query(
+        `SELECT pv.sku, pv.product_type, pv.name AS nombre, pv.regular_price,
+                COALESCE(SUM(ls.quantity),0) AS stock,
+                EXISTS(
+                  SELECT 1 FROM sale_items si
+                  WHERE si.product_variation_id = pv.id
+                    AND si.pending_stock_entry_id IS NOT NULL
+                ) AS ingreso_pendiente
+         FROM product_variations pv
+         JOIN products p ON p.id = pv.product_id
+         LEFT JOIN location_stocks ls ON ls.product_variation_id = pv.id
+         WHERE pv.woocommerce_id IS NULL
+           AND pv.product_type IN ('variation','simple')
+           AND pv.deleted_at IS NULL
+         GROUP BY pv.id, pv.sku, pv.product_type, pv.name, pv.regular_price
+         HAVING stock > 0 OR ingreso_pendiente = 1
+         ORDER BY pv.name, pv.sku`);
+
+      // ── PESTAÑA 3: Alertas del sistema (todo del ERP) ──────────────────────
+      // Traemos datos base de productos con stock, y datos para cada regla.
+      const NOM_ESTADO = { draft: 'borrador', discontinued: 'descontinuado', active: 'activo' };
+
+      // Consulta principal: variaciones con su stock, precios, estado, descripción del padre e imagen.
+      const [base] = await prodPool.query(
+        `SELECT pv.id AS variation_id, pv.woocommerce_id, pv.sku, pv.name AS nombre,
+                pv.product_type, pv.status, pv.regular_price, pv.sale_price,
+                p.description AS descripcion,
+                COALESCE(SUM(ls.quantity),0) AS stock,
+                (SELECT COUNT(*) FROM product_images pi
+                 WHERE (pi.product_id = p.id OR pi.product_variation_id = pv.id)
+                   AND pi.deleted_at IS NULL) AS num_imagenes
+         FROM product_variations pv
+         JOIN products p ON p.id = pv.product_id
+         LEFT JOIN location_stocks ls ON ls.product_variation_id = pv.id
+         WHERE pv.product_type IN ('variation','simple')
+           AND pv.deleted_at IS NULL
+         GROUP BY pv.id, pv.woocommerce_id, pv.sku, pv.name, pv.product_type,
+                  pv.status, pv.regular_price, pv.sale_price, p.description, p.id`);
+
+      // Costo FIFO (lote más antiguo con stock) por variación
+      const [lotes] = await prodPool.query(
+        `SELECT sb.product_variation_id, sb.cost_price, sb.entry_date
+         FROM stock_batches sb
+         WHERE sb.quantity > 0
+         ORDER BY sb.product_variation_id, sb.entry_date ASC, sb.id ASC`);
+      const costoFifo = {};
+      for (const l of lotes) {
+        if (!(l.product_variation_id in costoFifo)) {
+          costoFifo[l.product_variation_id] = Number(l.cost_price);
+        }
+      }
+
+      // SKU duplicados: contamos apariciones del mismo SKU
+      const contadorSku = {};
+      base.forEach(b => { const k = (b.sku || '').trim(); if (k) contadorSku[k] = (contadorSku[k] || 0) + 1; });
+
+      // Padres 'variable' sin variaciones activas
+      const [padresSinHijas] = await prodPool.query(
+        `SELECT pv.id AS variation_id, pv.sku, pv.name AS nombre
+         FROM product_variations pv
+         WHERE pv.product_type = 'variable'
+           AND pv.deleted_at IS NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM product_variations h
+             JOIN products p ON p.id = h.product_id
+             WHERE p.id = pv.product_id
+               AND h.product_type = 'variation'
+               AND h.status = 'active'
+               AND h.deleted_at IS NULL
+           )`);
+
+      // Productos 'variable' (padres) que tienen stock — no deberían (el stock va en las variaciones)
+      const [variableConStock] = await prodPool.query(
+        `SELECT pv.sku, pv.name AS nombre, pv.woocommerce_id,
+                COALESCE(SUM(ls.quantity),0) AS stock
+         FROM product_variations pv
+         LEFT JOIN location_stocks ls ON ls.product_variation_id = pv.id
+         WHERE pv.product_type = 'variable'
+           AND pv.deleted_at IS NULL
+         GROUP BY pv.id, pv.sku, pv.name, pv.woocommerce_id
+         HAVING COALESCE(SUM(ls.quantity),0) > 0`);
+
+      // Productos 'variable' (padres) con ventas asociadas — no deberían (se venden las variaciones)
+      const [variableConVenta] = await prodPool.query(
+        `SELECT pv.sku, pv.name AS nombre, pv.woocommerce_id,
+                COUNT(si.id) AS num_ventas, COALESCE(SUM(si.quantity),0) AS unidades
+         FROM product_variations pv
+         JOIN sale_items si ON si.product_variation_id = pv.id
+         WHERE pv.product_type = 'variable'
+           AND pv.deleted_at IS NULL
+         GROUP BY pv.id, pv.sku, pv.name, pv.woocommerce_id`);
+
+      // Construir la lista de alertas del sistema
+      const alertasSistema = [];
+      const NIVEL_MARGEN = (precio, costo) => {
+        if (costo <= 0) return null;
+        if (precio <= costo) return 'Nivel 1 - Crítico (venta a pérdida)';
+        if (precio < costo * 1.10) return 'Nivel 2 - Riesgo (margen < 10%)';
+        if (precio < costo * 1.20) return 'Nivel 3 - Bajo (margen < 20%)';
+        return null;
+      };
+
+      for (const b of base) {
+        const stock = Number(b.stock) || 0;
+        const activo = b.status === 'active';
+        const sku = (b.sku || '').trim();
+        const reg = b.regular_price === null ? null : Number(b.regular_price);
+        const sale = b.sale_price === null ? null : Number(b.sale_price);
+
+        // Reglas que requieren stock > 0
+        if (stock > 0) {
+          // Sin descripción
+          if (!b.descripcion || String(b.descripcion).trim() === '') {
+            alertasSistema.push({ tipo: 'Falta descripción', sku, wc: b.woocommerce_id || '', nombre: b.nombre || '',
+              obs: `Tiene ${stock} en stock pero no tiene descripción` });
+          }
+          // Sin imagen
+          if (!b.num_imagenes || b.num_imagenes === 0) {
+            alertasSistema.push({ tipo: 'Falta imagen', sku, wc: b.woocommerce_id || '', nombre: b.nombre || '',
+              obs: `Tiene ${stock} en stock pero no tiene imagen registrada` });
+          }
+          // Sin precio regular
+          if (reg === null || reg === 0) {
+            alertasSistema.push({ tipo: 'Falta precio', sku, wc: b.woocommerce_id || '', nombre: b.nombre || '',
+              obs: `Tiene ${stock} en stock pero no tiene precio regular` });
+          }
+          // Descontinuado con stock
+          if (b.status === 'discontinued') {
+            alertasSistema.push({ tipo: 'Descontinuado con stock', sku, wc: b.woocommerce_id || '', nombre: b.nombre || '',
+              obs: `Tiene ${stock} en stock pero está en 'descontinuado'` });
+          }
+          // Margen contra costo FIFO (analiza oferta y regular; alerta si cualquiera cae)
+          const costo = costoFifo[b.variation_id];
+          if (costo === undefined || costo === null) {
+            // costo no registrado — omitir SKU con MKP o PCK
+            if (!/MKP|PCK/i.test(sku)) {
+              alertasSistema.push({ tipo: 'Costo no registrado', sku, wc: b.woocommerce_id || '', nombre: b.nombre || '',
+                obs: `Tiene ${stock} en stock pero no tiene costo FIFO registrado` });
+            }
+          } else if (costo === 0) {
+            if (!/MKP|PCK/i.test(sku)) {
+              alertasSistema.push({ tipo: 'Costo no registrado', sku, wc: b.woocommerce_id || '', nombre: b.nombre || '',
+                obs: `Tiene ${stock} en stock pero su costo FIFO es 0.00 (no registrado)` });
+            }
+          } else {
+            // Analizar precio de oferta si existe, e indicar; también el regular
+            if (sale !== null && sale > 0) {
+              const niv = NIVEL_MARGEN(sale, costo);
+              if (niv) alertasSistema.push({ tipo: 'Margen bajo', sku, wc: b.woocommerce_id || '', nombre: b.nombre || '',
+                obs: `${niv} — Precio oferta S/${sale.toFixed(2)} vs costo FIFO S/${costo.toFixed(2)}` });
+            }
+            if (reg !== null && reg > 0) {
+              const niv = NIVEL_MARGEN(reg, costo);
+              if (niv) alertasSistema.push({ tipo: 'Margen bajo', sku, wc: b.woocommerce_id || '', nombre: b.nombre || '',
+                obs: `${niv} — Precio regular S/${reg.toFixed(2)} vs costo FIFO S/${costo.toFixed(2)}` });
+            }
+          }
+        }
+
+        // Reglas que NO dependen de stock
+        // Oferta >= regular
+        if (sale !== null && sale > 0 && reg !== null && reg > 0 && sale >= reg) {
+          alertasSistema.push({ tipo: 'Oferta mal puesta', sku, wc: b.woocommerce_id || '', nombre: b.nombre || '',
+            obs: `Precio de oferta S/${sale.toFixed(2)} es mayor o igual al regular S/${reg.toFixed(2)}` });
+        }
+        // SKU duplicado
+        if (sku && contadorSku[sku] > 1) {
+          alertasSistema.push({ tipo: 'SKU duplicado', sku, wc: b.woocommerce_id || '', nombre: b.nombre || '',
+            obs: `El SKU "${sku}" aparece ${contadorSku[sku]} veces en el catálogo` });
+        }
+      }
+      // Padres sin variaciones activas
+      padresSinHijas.forEach(p => {
+        alertasSistema.push({ tipo: 'Padre sin variaciones', sku: p.sku || '', wc: '', nombre: p.nombre || '',
+          obs: `Producto variable sin ninguna variación activa (aparece vacío en la tienda)` });
+      });
+      // Variable con stock (el stock debería estar en las variaciones, no en el padre)
+      variableConStock.forEach(p => {
+        alertasSistema.push({ tipo: 'Variable con stock', sku: p.sku || '', wc: p.woocommerce_id || '', nombre: p.nombre || '',
+          obs: `Producto tipo variable con ${p.stock} en stock (el stock debería estar en las variaciones, no en el padre)` });
+      });
+      // Variable con ventas (deberían venderse las variaciones, no el padre)
+      variableConVenta.forEach(p => {
+        alertasSistema.push({ tipo: 'Variable con venta', sku: p.sku || '', wc: p.woocommerce_id || '', nombre: p.nombre || '',
+          obs: `Producto tipo variable con ${p.num_ventas} venta(s) asociada(s) (${p.unidades} unidades) — las ventas deberían ir en las variaciones` });
+      });
+
+
+      return { pendientes, alertas: alertasSistema };
+  }
+
+
   // ─── Auditoría de catálogo en pantalla (JSON) ────────────────────────────────
   // force=1 → recalcula y guarda; sin force → devuelve el último guardado (si existe)
   app.get('/admin/auditoria', authAdmin, requiereModulo('auditoria'), async (req, res) => {

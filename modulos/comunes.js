@@ -15,6 +15,18 @@ const fechaHoraLima = (d) => d ? new Date(d).toLocaleString('es-PE', { timeZone:
 // vacio: qué devolver cuando no hay fecha (por defecto '', algunos reportes usan '—')
 const fechaLima = (d, vacio = '') => d ? new Date(d).toLocaleDateString('es-PE', { timeZone: 'America/Lima' }) : vacio;
 
+// Formatea una fecha PURA (sin hora) tal cual, SIN conversión de zona horaria.
+// Se usa para fechas de emisión de comprobantes, que la base guarda como '2026-07-01'
+// (solo fecha). Convertirlas con zona horaria las retrasaría un día. Devuelve d/m/aaaa.
+const fechaPura = (d, vacio = '') => {
+  if (!d) return vacio;
+  // Tomar solo la parte de fecha (antes de cualquier hora) y armar d/m/aaaa
+  const s = String(d).slice(0, 10); // '2026-07-01'
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return vacio;
+  return `${Number(m[3])}/${Number(m[2])}/${m[1]}`; // 1/7/2026
+};
+
 // Genera un nombre de archivo con marca de tiempo (ej: "pagos-20260812-1835")
 function nombreTrazable(base) {
   const d = new Date();
@@ -44,4 +56,4 @@ function cabeceraExcel(ws, titulo, filtrosPairs, numCols) {
   return 4;
 }
 
-module.exports = { EMPRESAS_BI, fechaHoraLima, fechaLima, nombreTrazable, rango, cabeceraExcel };
+module.exports = { EMPRESAS_BI, fechaHoraLima, fechaLima, fechaPura, nombreTrazable, rango, cabeceraExcel };

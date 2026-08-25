@@ -28,7 +28,7 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD; // contraseña admin (variabl
 const VENTAS_VALIDAS = "('paid','confirmed','pending_payment')";
 
 // ════════════════════════════════════════════════════════════════════════════
-// HELPERS
+// HELPER
 // ════════════════════════════════════════════════════════════════════════════
 
 // Devuelve el correo de empresa registrado en el ERP, o null si no tiene.

@@ -56,4 +56,14 @@ function cabeceraExcel(ws, titulo, filtrosPairs, numCols) {
   return 4;
 }
 
-module.exports = { EMPRESAS_BI, fechaHoraLima, fechaLima, fechaPura, nombreTrazable, rango, cabeceraExcel };
+// Fragmentos SQL para calcular ganancia/margen con costo FIFO.
+// Los comparten Ventas-BI (rentabilidad) e Inventario (análisis de margen).
+const GANANCIA_NORMAL = `
+  CASE WHEN si.stock_batch_id IS NOT NULL
+       THEN (si.total - si.quantity * sb.cost_price)
+       ELSE 0 END`;
+const ES_NORMAL = `si.stock_batch_id IS NOT NULL`;
+const ES_PEDIDO = `(si.stock_batch_id IS NULL AND si.is_backorder = 1)`;
+const ES_FALLA  = `(si.stock_batch_id IS NULL AND si.is_backorder = 0)`;
+
+module.exports = { EMPRESAS_BI, fechaHoraLima, fechaLima, fechaPura, nombreTrazable, rango, cabeceraExcel, GANANCIA_NORMAL, ES_NORMAL, ES_PEDIDO, ES_FALLA };

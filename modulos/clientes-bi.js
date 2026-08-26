@@ -5,7 +5,7 @@
 //  Recibe del index.js las piezas compartidas y usa comunes.js para helpers.
 // ═══════════════════════════════════════════════════════════════════════════
 
-const { EMPRESAS_BI, nombreTrazable, cabeceraExcel } = require('./comunes');
+const { EMPRESAS_BI, rango, nombreTrazable, cabeceraExcel } = require('./comunes');
 
 module.exports = function registrarClientesBI({
   app, authAdmin, mClientes, mResumen, prodPool, portalPool, VV

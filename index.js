@@ -741,6 +741,9 @@ let modSync = null;
   // ── Módulo Clientes-BI (créditos, deudas, conciliación) ──
   require('./modulos/clientes-bi')({ app, authAdmin, mClientes, mResumen, prodPool, portalPool, VV });
 
+  // ── Módulo Conciliación de pagos online ──
+  require('./modulos/conciliacion')({ app, authAdmin, mResumen, prodPool, VV });
+
   // ── Módulo Accesos (gestión de usuarios) ──
   require('./modulos/accesos')({
     app, authAdmin, requiereModulo, soloMaestro,
@@ -1247,43 +1250,6 @@ let modSync = null;
 
   // Envío de correos de cobranza a deudores seleccionados (con CC a info@kuranko.pe)
 
-  // ── CONCILIACIÓN DE CAJA: pagos online desde Google Sheet ──
-  // Lee un CSV publicado del Sheet, filtra por Fecha voucher y suma por empresa + canal.
-  const SHEET_CSV_URL = process.env.SHEET_CONCILIACION_URL ||
-    'https://docs.google.com/spreadsheets/d/e/2PACX-1vTKw8_uRi40xblPfuwYamFtsb_NsYx8BS9RdOfTENIu5BOSGPDAXu0RPOAjbAIN7_CXuOWQnNjW3aqn/pub?gid=0&single=true&output=csv';
-
-  // Parser CSV simple que respeta comillas
-  function parseCSV(texto) {
-    const filas = [];
-    let campo = '', fila = [], enComillas = false;
-    for (let i = 0; i < texto.length; i++) {
-      const c = texto[i];
-      if (enComillas) {
-        if (c === '"' && texto[i + 1] === '"') { campo += '"'; i++; }
-        else if (c === '"') enComillas = false;
-        else campo += c;
-      } else {
-        if (c === '"') enComillas = true;
-        else if (c === ',') { fila.push(campo); campo = ''; }
-        else if (c === '\n') { fila.push(campo); filas.push(fila); fila = []; campo = ''; }
-        else if (c === '\r') { /* ignorar */ }
-        else campo += c;
-      }
-    }
-    if (campo !== '' || fila.length) { fila.push(campo); filas.push(fila); }
-    return filas;
-  }
-
-  // Normaliza una fecha del sheet (dd/mm/yy o dd/mm/yyyy) a YYYY-MM-DD
-  function fechaSheetISO(str) {
-    if (!str) return null;
-    const s = str.trim();
-    const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
-    if (!m) return null;
-    let [, d, mes, a] = m;
-    if (a.length === 2) a = '20' + a;
-    return `${a}-${String(mes).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-  }
 
 
   // Pagos del sistema agrupados por empresa + código de método (para conciliar con el Sheet)

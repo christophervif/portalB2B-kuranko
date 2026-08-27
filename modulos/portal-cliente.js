@@ -13,6 +13,9 @@ module.exports = function registrarPortalCliente({
   app, authAdmin, requiereModulo, prodPool, portalPool, JWT_SECRET
 }) {
 
+  // Estados de venta válidos (pagada, confirmada, pendiente de pago)
+  const VENTAS_VALIDAS = "('paid','confirmed','pending_payment')";
+
   // Login del cliente B2B (token propio, distinto del admin)
   function authCliente(req, res, next) {
     const h = req.headers['authorization'];

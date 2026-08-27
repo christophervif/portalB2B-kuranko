@@ -557,4 +557,19 @@ module.exports = function registrarClientesBI({
   });
 
 
+  app.get('/api/top-clientes', authAdmin, mClientes, async (req, res) => {
+    const { desde, hasta } = req.query; const f = rango(desde, hasta);
+    try {
+      const [rows] = await prodPool.query(`
+        SELECT p.id, p.is_company,
+          CASE WHEN p.is_company=1 THEN p.business_name
+               ELSE CONCAT(COALESCE(p.first_name,''),' ',COALESCE(p.last_name,'')) END AS cliente,
+          p.document_number, COUNT(s.id) AS pedidos, COALESCE(SUM(s.total),0) AS total_comprado
+        FROM sales s JOIN parties p ON p.id = s.customer_id
+        WHERE s.deleted_at IS NULL AND s.status IN ${VV} ${f}
+        GROUP BY p.id, cliente, p.document_number, p.is_company ORDER BY total_comprado DESC LIMIT 15`);
+      res.json(rows);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
 };

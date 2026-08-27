@@ -16,6 +16,15 @@ module.exports = function registrarPortalCliente({
   // Estados de venta válidos (pagada, confirmada, pendiente de pago)
   const VENTAS_VALIDAS = "('paid','confirmed','pending_payment')";
 
+  // Correo de la empresa/cliente (para copiarlo en los avisos de venta)
+  async function correoEmpresa(customerId) {
+    try {
+      const [[p]] = await prodPool.query(
+        'SELECT email FROM parties WHERE id=? LIMIT 1', [customerId]);
+      return (p && p.email && p.email.trim()) ? p.email.trim() : null;
+    } catch (e) { return null; }
+  }
+
   // Login del cliente B2B (token propio, distinto del admin)
   function authCliente(req, res, next) {
     const h = req.headers['authorization'];

@@ -13,7 +13,8 @@ const { EMPRESAS_BI, fechaHoraLima, fechaLima, nombreTrazable, rango, cabeceraEx
 
 const app = express();
 app.use(cors({ origin: '*' }));
-app.use(express.json());
+// Límite amplio: el módulo de Importaciones reenvía PDFs (base64) a la IA.
+app.use(express.json({ limit: '25mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ─── Conexiones (usan URLs públicas completas de Railway) ────────────────────
@@ -96,7 +97,7 @@ function soloMaestro(req, res, next) {
 // LOGIN ADMIN
 // ════════════════════════════════════════════════════════════════════════════
 // Lista de módulos (pestañas) del admin. Debe coincidir con las pestañas del HTML.
-const MODULOS_ADMIN = ['clientes_gestion', 'sync', 'auditoria', 'resumen', 'rentabilidad', 'inventario', 'restock', 'clientes_bi', 'caja_bi', 'crm', 'reportes', 'pagos'];
+const MODULOS_ADMIN = ['clientes_gestion', 'sync', 'auditoria', 'resumen', 'rentabilidad', 'inventario', 'restock', 'clientes_bi', 'caja_bi', 'crm', 'reportes', 'pagos', 'importaciones'];
 
 // Usuarios admin secundarios definidos en variables de entorno (Railway).
 // Formato por usuario (numeradas del 2 en adelante):
@@ -170,6 +171,7 @@ const VV = "('paid','confirmed','pending_payment')";
 // Referencia a módulos que exponen funciones de arranque (se asigna dentro de la IIFE)
 let modSync = null;
 let modPortal = null;
+let modImportacion = null;
 
 // Registro de endpoints del dashboard (inyectado directamente)
 (function(){
@@ -235,6 +237,11 @@ let modPortal = null;
   // ── Módulo Contabilidad (kardex + reporte de pagos) ──
   require('./modulos/contabilidad')({ app, authAdmin, requiereModulo, prodPool, VV });
 
+  // ── Módulo Importaciones (costeo / landed cost) ──
+  // Catálogo desde producción (Renzo, solo lectura); tasas/importaciones/memoria
+  // en la base del portal; IA (Gemini) con la clave protegida en el servidor.
+  modImportacion = require('./modulos/importacion')({ app, authAdmin, requiereModulo, prodPool, portalPool });
+
   // ── Módulo Sincronización + Auditoría ──
   modSync = require('./modulos/sincronizacion')({ app, authAdmin, requiereModulo, prodPool, portalPool });
   const rango = (desde, hasta, campo='s.created_at') =>
@@ -297,6 +304,7 @@ app.listen(PORT, async () => {
   try {
     if (modPortal && modPortal.prepararTablas) await modPortal.prepararTablas();
     if (modSync && modSync.prepararTablas) await modSync.prepararTablas();
+    if (modImportacion && modImportacion.prepararTablas) await modImportacion.prepararTablas();
     console.log('Tablas del portal listas.');
   } catch (e) { console.error('No se pudieron preparar las tablas al arrancar:', e.message); }
 });

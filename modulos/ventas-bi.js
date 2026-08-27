@@ -6,7 +6,7 @@
 
 const { EMPRESAS_BI, rango, GANANCIA_NORMAL, ES_NORMAL, ES_PEDIDO, ES_FALLA } = require('./comunes');
 
-module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, prodPool, VV }) {
+module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, mCaja, prodPool, VV }) {
 
   app.get('/api/kpis', authAdmin, mResumen, async (req, res) => {
     const { desde, hasta } = req.query; const f = rango(desde, hasta);
@@ -158,5 +158,18 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, p
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
+
+  app.get('/api/metodos-pago-bi', authAdmin, mCaja, async (req, res) => {
+    const { desde, hasta } = req.query;
+    const f = desde && hasta ? `AND sp.paid_at BETWEEN '${desde}' AND '${hasta} 23:59:59'`
+      : `AND sp.paid_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)`;
+    try {
+      const [rows] = await prodPool.query(`
+        SELECT ci.name AS metodo, COUNT(*) AS cantidad, COALESCE(SUM(sp.amount),0) AS total
+        FROM sale_payments sp LEFT JOIN catalog_items ci ON ci.id = sp.payment_method_id
+        WHERE sp.voided_at IS NULL ${f} GROUP BY sp.payment_method_id, ci.name ORDER BY total DESC`);
+      res.json(rows);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
 
 };

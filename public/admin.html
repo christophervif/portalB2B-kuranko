@@ -777,9 +777,18 @@ function aplicarPermisos(){
     st.style.display=ok?'':'none';
   });
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
-  // Construir el launcher con las apps visibles y mostrarlo al entrar
+  // Construir el launcher con las apps visibles
   construirLauncher();
-  irInicio();
+  // Si había una pestaña abierta antes de recargar y el usuario aún puede verla, volver a ella.
+  // Si no, mostrar el launcher (pantalla de inicio).
+  let recordada=null;
+  try{recordada=localStorage.getItem('admtab');}catch(e){}
+  const btnRec=recordada?Array.from(document.querySelectorAll('.tab')).find(b=>{
+    const mm=(b.getAttribute('onclick')||'').match(/tab\('([^']+)'/);
+    return mm&&mm[1]===recordada&&b.style.display!=='none';
+  }):null;
+  if(btnRec)abrirApp(recordada);
+  else irInicio();
 }
 
 // Íconos (emoji) para cada pestaña/app
@@ -842,8 +851,10 @@ const tabsCargadas={};
 function cargarDatosTab(id){
   if(id==='clientes_gestion'){
     // Pestaña unificada: carga usuarios + listas de clientes/consignaciones
-    if(!tabsCargadas.usuarios){cargarUsuarios();tabsCargadas.usuarios=1;}
-    if(!tabsCargadas.clientes){cargarClientes();cargarConsignaciones();tabsCargadas.clientes=1;}
+    // Importante: cargar consignaciones ANTES de pintar usuarios, para que la
+    // columna "Consignación" muestre el nombre y no "sin asignar" la primera vez.
+    if(!tabsCargadas.clientes){cargarClientes();tabsCargadas.clientes=1;}
+    if(!tabsCargadas.usuarios){cargarConsignaciones().then(()=>cargarUsuarios());tabsCargadas.usuarios=1;}
   }
   else if(id==='sistemas'){
     // Grupo: Sincronización web + Métodos de pago + Control de accesos

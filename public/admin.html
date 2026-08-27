@@ -220,6 +220,7 @@ tr:hover td{background:var(--hover)}
       <button class="tab" data-modulos="resumen,caja_bi,rentabilidad" onclick="tab('ventas_ingresos',this)">Ventas e ingresos</button>
       <button class="tab" onclick="tab('clientes_bi',this)">Clientes BI</button>
       <button class="tab" onclick="tab('inventario',this)">Inventario</button>
+      <button class="tab" data-modulos="inventario" onclick="tab('promociones',this)">Promociones</button>
       <button class="tab" onclick="tab('restock',this)">Restock</button>
       <button class="tab" onclick="tab('reportes',this)">Contabilidad</button>
       <button class="tab" onclick="tab('auditoria',this)">Auditoría de catálogo</button>
@@ -499,6 +500,10 @@ tr:hover td{background:var(--hover)}
           <div id="inv-estancados"><div class="muted">Cargando...</div></div>
           <div id="inv-marcas" style="display:none"><div class="muted">Cargando...</div></div>
         </div>
+      </div>
+    </div>
+
+    <div id="tab-promociones" class="panel">
         <div class="dbcard">
           <h4>Promociones recomendadas</h4>
           <p class="card-note" id="promo-desc">Productos con stock que no venden hace 4+ meses: dinero congelado, candidatos clásicos a descuento.</p>
@@ -522,7 +527,6 @@ tr:hover td{background:var(--hover)}
           <div id="promo-resumen" style="margin:8px 0;font-size:13px;color:var(--muted)"></div>
           <div id="promo-tabla" style="overflow-x:auto;max-height:60vh;overflow-y:auto"></div>
         </div>
-      </div>
     </div>
 
     <div id="tab-restock" class="panel">
@@ -782,7 +786,7 @@ function aplicarPermisos(){
 const APP_ICONOS={
   clientes_gestion:'👤', ventas_ingresos:'📊', clientes_bi:'👥',
   inventario:'📦', restock:'🔁', reportes:'💰', auditoria:'🔍',
-  crm:'📣', sistemas:'⚙️'
+  crm:'📣', sistemas:'⚙️', promociones:'🏷️'
 };
 
 // Genera las tarjetas del launcher a partir de las pestañas visibles (respeta permisos)

@@ -175,6 +175,16 @@ tr:hover td{background:var(--hover)}
   .dbcard{padding:12px}
   .card{padding:1.15rem}
 }
+/* ── Launcher de apps (pantalla inicial tipo escritorio) ── */
+#launcher{padding:8px 0 24px}
+.launcher-saludo{font-size:15px;color:var(--text-soft,#8ea0d0);margin-bottom:20px}
+.launcher-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:16px;max-width:760px}
+.app-card{border:1px solid var(--border);border-radius:18px;padding:24px 14px;text-align:center;background:var(--surface);cursor:pointer;transition:transform .12s,box-shadow .15s,background .15s;box-shadow:var(--shadow-sm)}
+.app-card:hover{transform:translateY(-3px);box-shadow:0 8px 24px rgba(0,0,0,.18);background:var(--surface3)}
+.app-card:active{transform:translateY(-1px)}
+.app-card .ico{font-size:34px;line-height:1;margin-bottom:10px;display:block}
+.app-card .nom{font-size:13px;font-weight:600;color:var(--text)}
+.btn-inicio{background:var(--surface3);color:var(--text);border:1px solid var(--border)}
 </style>
 </head>
 <body>
@@ -195,12 +205,17 @@ tr:hover td{background:var(--hover)}
   <div class="header">
     <div><h1>Panel de Administración</h1><div class="sub">Portal B2B Kuranko</div></div>
     <div>
+      <button class="btn btn-inicio btn-sm" id="btn-inicio" onclick="irInicio()" style="display:none">🏠 Inicio</button>
       <button class="btn btn-sec btn-sm" id="theme-btn" onclick="toggleTema()">🌙</button>
       <button class="btn btn-sec btn-sm" onclick="logout()">Salir</button>
     </div>
   </div>
   <div class="wrap">
-    <div class="tabs">
+    <div id="launcher">
+      <div class="launcher-saludo">Elige una herramienta para empezar</div>
+      <div class="launcher-grid" id="launcher-grid"></div>
+    </div>
+    <div class="tabs" id="tabs-bar" style="display:none">
       <button class="tab active" onclick="tab('clientes_gestion',this)">Gestión de clientes</button>
       <button class="tab" data-modulos="resumen,caja_bi,rentabilidad" onclick="tab('ventas_ingresos',this)">Ventas e ingresos</button>
       <button class="tab" onclick="tab('clientes_bi',this)">Clientes BI</button>
@@ -719,7 +734,12 @@ async function loginAdmin(){
   }catch(err){e.textContent=err.message;e.style.display='block';}
 }
 function logout(){TOKEN='';ES_MAESTRO=false;MIS_MODULOS=[];localStorage.removeItem('admtoken');localStorage.removeItem('admmaestro');localStorage.removeItem('admmodulos');localStorage.removeItem('admtab');document.getElementById('app-screen').style.display='none';document.getElementById('login-screen').style.display='block';}
-function tab(id,btn){document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));document.getElementById('tab-'+id).classList.add('active');btn.classList.add('active');try{localStorage.setItem('admtab',id);}catch(e){}cargarDatosTab(id);}
+function tab(id,btn){
+  // Si venimos del launcher, asegurar que la barra de pestañas esté visible
+  const lz=document.getElementById('launcher'); if(lz)lz.style.display='none';
+  const tb=document.getElementById('tabs-bar'); if(tb)tb.style.display='';
+  const bi=document.getElementById('btn-inicio'); if(bi)bi.style.display='';
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));document.getElementById('tab-'+id).classList.add('active');btn.classList.add('active');try{localStorage.setItem('admtab',id);}catch(e){}cargarDatosTab(id);}
 
 // Muestra u oculta las pestañas según los permisos del usuario que entró
 function aplicarPermisos(){
@@ -753,24 +773,57 @@ function aplicarPermisos(){
     st.style.display=ok?'':'none';
   });
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
-  // Abrir la última pestaña recordada (si el usuario aún puede verla); si no, la primera visible
-  let objetivo=primeraVisible;
-  try{
-    const recordada=localStorage.getItem('admtab');
-    if(recordada){
-      const btnRec=Array.from(botones).find(b=>{
-        const mm=(b.getAttribute('onclick')||'').match(/tab\('([^']+)'/);
-        return mm && mm[1]===recordada && b.style.display!=='none';
-      });
-      if(btnRec)objetivo=btnRec;
-    }
-  }catch(e){}
-  if(objetivo){
-    const m=objetivo.getAttribute('onclick').match(/tab\('([^']+)'/)[1];
-    document.getElementById('tab-'+m).classList.add('active');
-    objetivo.classList.add('active');
-    cargarDatosTab(m);
-  }
+  // Construir el launcher con las apps visibles y mostrarlo al entrar
+  construirLauncher();
+  irInicio();
+}
+
+// Íconos (emoji) para cada pestaña/app
+const APP_ICONOS={
+  clientes_gestion:'👤', ventas_ingresos:'📊', clientes_bi:'👥',
+  inventario:'📦', restock:'🔁', reportes:'💰', auditoria:'🔍',
+  crm:'📣', sistemas:'⚙️'
+};
+
+// Genera las tarjetas del launcher a partir de las pestañas visibles (respeta permisos)
+function construirLauncher(){
+  const grid=document.getElementById('launcher-grid');
+  if(!grid)return;
+  grid.innerHTML='';
+  document.querySelectorAll('.tab').forEach(b=>{
+    if(b.style.display==='none')return; // oculta por permisos
+    const m=(b.getAttribute('onclick')||'').match(/tab\('([^']+)'/);
+    if(!m)return;
+    const id=m[1];
+    const nombre=b.textContent.trim();
+    const ico=APP_ICONOS[id]||'▫️';
+    const card=document.createElement('div');
+    card.className='app-card';
+    card.onclick=()=>abrirApp(id);
+    card.innerHTML='<span class="ico">'+ico+'</span><span class="nom">'+nombre+'</span>';
+    grid.appendChild(card);
+  });
+}
+
+// Abre una app desde el launcher (muestra las pestañas y activa la elegida)
+function abrirApp(id){
+  document.getElementById('launcher').style.display='none';
+  document.getElementById('tabs-bar').style.display='';
+  document.getElementById('btn-inicio').style.display='';
+  const btn=Array.from(document.querySelectorAll('.tab')).find(b=>{
+    const mm=(b.getAttribute('onclick')||'').match(/tab\('([^']+)'/);
+    return mm&&mm[1]===id;
+  });
+  if(btn)tab(id,btn);
+}
+
+// Vuelve a la pantalla de inicio (launcher)
+function irInicio(){
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  document.getElementById('tabs-bar').style.display='none';
+  document.getElementById('btn-inicio').style.display='none';
+  document.getElementById('launcher').style.display='';
+  try{localStorage.removeItem('admtab');}catch(e){}
 }
 
 async function mostrarApp(){

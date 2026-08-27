@@ -66,4 +66,18 @@ const ES_NORMAL = `si.stock_batch_id IS NOT NULL`;
 const ES_PEDIDO = `(si.stock_batch_id IS NULL AND si.is_backorder = 1)`;
 const ES_FALLA  = `(si.stock_batch_id IS NULL AND si.is_backorder = 0)`;
 
-module.exports = { EMPRESAS_BI, fechaHoraLima, fechaLima, fechaPura, nombreTrazable, rango, cabeceraExcel, GANANCIA_NORMAL, ES_NORMAL, ES_PEDIDO, ES_FALLA };
+// Arma "Producto — extra" evitando repetir el nombre cuando la variación ya lo contiene.
+// La comparten Inventario y Promociones.
+function nombreProdVar(producto, variacion) {
+  const p = (producto || '').trim();
+  const v = (variacion || '').trim();
+  if (!v || v === p) return p || '—';
+  if (v.toLowerCase().startsWith(p.toLowerCase())) {
+    const extra = v.slice(p.length).replace(/^[\s,—-]+/, '').trim();
+    return extra ? p + ' — ' + extra : p;
+  }
+  if (p.toLowerCase().includes(v.toLowerCase())) return p;
+  return p + ' — ' + v;
+}
+
+module.exports = { EMPRESAS_BI, fechaHoraLima, fechaLima, fechaPura, nombreTrazable, rango, cabeceraExcel, GANANCIA_NORMAL, ES_NORMAL, ES_PEDIDO, ES_FALLA, nombreProdVar };

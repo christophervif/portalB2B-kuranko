@@ -225,6 +225,7 @@ tr:hover td{background:var(--hover)}
       <button class="tab" onclick="tab('reportes',this)">Contabilidad</button>
       <button class="tab" onclick="tab('auditoria',this)">Auditoría de catálogo</button>
       <button class="tab" onclick="tab('crm',this)">CRM Kommo</button>
+      <button class="tab" onclick="tab('importaciones',this)">Importaciones</button>
       <button class="tab" data-modulos="sync,pagos,accesos" onclick="tab('sistemas',this)">Sistemas</button>
     </div>
 
@@ -697,9 +698,13 @@ tr:hover td{background:var(--hover)}
       </div>
     </div>
 
-    
+    <div id="tab-importaciones" class="panel">
+      <div class="card" style="padding:0;overflow:hidden">
+        <iframe id="imp-frame" title="Importaciones — costeo"
+          style="width:100%;height:calc(100vh - 150px);min-height:560px;border:0;display:block"></iframe>
+      </div>
+    </div>
 
-    
   </div>
 </div>
 
@@ -795,7 +800,7 @@ function aplicarPermisos(){
 const APP_ICONOS={
   clientes_gestion:'👤', ventas_ingresos:'📊', clientes_bi:'👥',
   inventario:'📦', restock:'🔁', reportes:'💰', auditoria:'🔍',
-  crm:'📣', sistemas:'⚙️', promociones:'🏷️'
+  crm:'📣', sistemas:'⚙️', promociones:'🏷️', importaciones:'🚢'
 };
 
 // Genera las tarjetas del launcher a partir de las pestañas visibles (respeta permisos)
@@ -879,6 +884,12 @@ function cargarDatosTab(id){
   else if(id==='reportes'){if(!rpFiltrosCargados)cargarFiltrosRP();cargarProductosKX();if(!repRestaurado){restaurarPagos();restaurarKardex();repRestaurado=true;}}
   else if(id==='pagos'){cargarMetodosPago();}
   else if(id==='accesos'){cargarAccesos();}
+  else if(id==='importaciones'){
+    // Carga la app de importaciones en el iframe solo la 1a vez que se abre la pestaña.
+    // Comparte el mismo origen, así que la app lee el token admin de localStorage.
+    const fr=document.getElementById('imp-frame');
+    if(fr&&!fr.src){fr.src='/importacion.html';}
+  }
 }
 
 async function cargarUsuarios(){

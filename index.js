@@ -34,13 +34,6 @@ const VENTAS_VALIDAS = "('paid','confirmed','pending_payment')";
 // Devuelve el correo de empresa registrado en el ERP, o null si no tiene.
 // Lee de producción en SOLO LECTURA. Si la columna en tu ERP no es
 // `parties.email`, cámbiala únicamente aquí (ej: email_address).
-async function correoEmpresa(customerId) {
-  try {
-    const [[p]] = await prodPool.query(
-      'SELECT email FROM parties WHERE id=? LIMIT 1', [customerId]);
-    return (p && p.email && p.email.trim()) ? p.email.trim() : null;
-  } catch (e) { return null; }
-}
 
 // ════════════════════════════════════════════════════════════════════════════
 // AUTENTICACIÓN

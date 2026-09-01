@@ -592,6 +592,248 @@ module.exports = function registrarSincronizacion({ app, authAdmin, requiereModu
     } catch (e) { res.status(500).json({ error: 'Error al generar la auditoría: ' + e.message }); }
   });
 
+  // ── CSV para la web (formato importador de WooCommerce "v3") ────────────────
+  // Exporta los pendientes (sin woocommerce_id, con stock o ingreso por llegar)
+  // con las 82 columnas del importador de WooCommerce, para crearlos rápido en la
+  // web. Rellena lo que el ERP sí tiene: SKU, tipo, nombre, precios, stock,
+  // categorías (jerárquicas) y el vínculo padre→variación (columna "Superior").
+  // Deja en blanco imágenes y atributos (se completan en la web o a mano).
+  // Seguridad: solo agrega la fila del padre 'variable' cuando ese padre AÚN NO
+  // está en la web, para no pisar/borrar los atributos de un padre ya existente.
+  const V3_HEADERS = ["ID","Tipo","SKU","GTIN, UPC, EAN o ISBN","Nombre","Publicado","¿Está destacado?","Visibilidad en el catálogo","Descripción corta","Descripción","Día en que empieza el precio rebajado","Día en que termina el precio rebajado","Estado del impuesto","Clase de impuesto","¿Existencias?","Inventario","Cantidad de bajo inventario","¿Permitir reservas de productos agotados?","¿Vendido individualmente?","Peso (kg)","Longitud (cm)","Anchura (cm)","Altura (cm)","¿Permitir valoraciones de clientes?","Nota de compra","Precio rebajado","Precio normal","Categorías","Etiquetas","Clase de envío","Imágenes","Límite de descargas","Días de caducidad de la descarga","Superior","Productos agrupados","Ventas dirigidas","Ventas cruzadas","URL externa","Texto del botón","Posición","Swatches Attributes","Marcas","Nombre del atributo 1","Valor(es) del atributo 1","Atributo visible 1","Atributo global 1","Nombre del atributo 2","Valor(es) del atributo 2","Atributo visible 2","Atributo global 2","Nombre del atributo 3","Valor(es) del atributo 3","Atributo visible 3","Atributo global 3","Nombre del atributo 4","Valor(es) del atributo 4","Atributo visible 4","Atributo global 4","Nombre del atributo 5","Valor(es) del atributo 5","Atributo visible 5","Atributo global 5","Nombre del atributo 6","Valor(es) del atributo 6","Atributo visible 6","Atributo global 6","Nombre del atributo 7","Valor(es) del atributo 7","Atributo visible 7","Atributo global 7","Nombre del atributo 8","Valor(es) del atributo 8","Atributo visible 8","Atributo global 8","Nombre del atributo 9","Valor(es) del atributo 9","Atributo visible 9","Atributo global 9","Nombre del atributo 10","Valor(es) del atributo 10","Atributo visible 10","Atributo global 10"];
+
+  app.get('/admin/pendientes-web-csv', authAdmin, requiereModulo('auditoria'), async (req, res) => {
+    try {
+      // 1) Pendientes (variation/simple) sin woocommerce_id, con stock o ingreso por llegar
+      const [pend] = await prodPool.query(
+        `SELECT pv.id, TRIM(pv.sku) AS sku, pv.product_type, pv.name AS nombre, pv.product_id,
+                pv.regular_price, pv.sale_price, p.description AS descripcion,
+                COALESCE(SUM(ls.quantity),0) AS stock,
+                EXISTS(
+                  SELECT 1 FROM sale_items si
+                  WHERE si.product_variation_id = pv.id AND si.pending_stock_entry_id IS NOT NULL
+                ) AS ingreso_pendiente
+           FROM product_variations pv
+           JOIN products p ON p.id = pv.product_id
+           LEFT JOIN location_stocks ls ON ls.product_variation_id = pv.id
+          WHERE pv.woocommerce_id IS NULL
+            AND pv.product_type IN ('variation','simple')
+            AND pv.deleted_at IS NULL
+          GROUP BY pv.id, pv.sku, pv.product_type, pv.name, pv.product_id, pv.regular_price, pv.sale_price, p.description
+         HAVING stock > 0 OR ingreso_pendiente = 1
+          ORDER BY pv.name, pv.sku`);
+
+      const prodIds = [...new Set(pend.map(r => r.product_id))];
+
+      // 2) Padres 'variable' de esos productos (solo para saber sku y si YA están en la web)
+      const padres = {};
+      if (prodIds.length) {
+        const [rowsP] = await prodPool.query(
+          `SELECT pv.product_id, TRIM(pv.sku) AS sku, pv.name AS nombre, p.description, pv.woocommerce_id
+             FROM product_variations pv
+             JOIN products p ON p.id = pv.product_id
+            WHERE pv.product_type = 'variable' AND pv.deleted_at IS NULL
+              AND pv.product_id IN (${prodIds.map(() => '?').join(',')})`, prodIds);
+        rowsP.forEach(r => { padres[r.product_id] = r; });
+      }
+
+      // 3) Categorías por product_id → ruta jerárquica completa "Abuelo > Padre > Hijo"
+      //    (varias categorías del mismo producto separadas por ", ", como pide WooCommerce)
+      const cats = {};
+      if (prodIds.length) {
+        const [allCats] = await prodPool.query(`SELECT id, name, parent_id FROM product_categories`);
+        const catById = {};
+        allCats.forEach(c => { catById[c.id] = { name: c.name, parent: c.parent_id }; });
+        const rutaCat = (id) => {
+          const partes = []; let cur = id, guard = 0;
+          while (cur != null && catById[cur] && guard++ < 12) { partes.unshift(catById[cur].name); cur = catById[cur].parent; }
+          return partes.join(' > ');
+        };
+        const [asig] = await prodPool.query(
+          `SELECT product_id, product_category_id
+             FROM product_product_category
+            WHERE product_id IN (${prodIds.map(() => '?').join(',')})`, prodIds);
+        const setById = {};
+        asig.forEach(a => {
+          const r = rutaCat(a.product_category_id);
+          if (!r) return;
+          const s = (setById[a.product_id] = setById[a.product_id] || new Set());
+          s.add(r);
+        });
+        Object.keys(setById).forEach(k => { cats[k] = [...setById[k]].join(', '); });
+      }
+
+      // 3b) IMÁGENES (product_images.path = URL completa; disk 'external').
+      //     Nivel producto (product_variation_id NULL) para el padre; nivel
+      //     variación para cada variación/simple. Orden: primaria, luego sort_order.
+      const varIds = pend.map(r => r.id);
+      const imgByProduct = {}, imgByVariation = {};
+      if (prodIds.length || varIds.length) {
+        const ph = (arr) => arr.map(() => '?').join(',');
+        const cond = [], args = [];
+        if (prodIds.length) { cond.push(`product_id IN (${ph(prodIds)})`); args.push(...prodIds); }
+        if (varIds.length) { cond.push(`product_variation_id IN (${ph(varIds)})`); args.push(...varIds); }
+        const [imgs] = await prodPool.query(
+          `SELECT product_id, product_variation_id, path
+             FROM product_images
+            WHERE deleted_at IS NULL AND (${cond.join(' OR ')})
+            ORDER BY is_primary DESC, sort_order ASC, id ASC`, args);
+        imgs.forEach(im => {
+          if (!im.path) return;
+          if (im.product_variation_id != null) {
+            (imgByVariation[im.product_variation_id] = imgByVariation[im.product_variation_id] || []).push(im.path);
+          } else if (im.product_id != null) {
+            (imgByProduct[im.product_id] = imgByProduct[im.product_id] || []).push(im.path);
+          }
+        });
+      }
+      const imgVar = (vid) => (imgByVariation[vid] || []).join(', ');
+      const imgProd = (pid) => (imgByProduct[pid] || []).join(', ');
+
+      // 3c) ATRIBUTOS.
+      //   - attrDef[product_id] = lista ordenada de atributos del producto {id,nombre,visible}
+      //   - valPadre[product_id][attr_id] = todos los valores del atributo en el padre (dedup)
+      //   - valVar[variation_id][attr_id]  = valor(es) puntual(es) de esa variación
+      const attrDef = {}, valPadre = {}, valVar = {};
+      if (prodIds.length) {
+        const phP = prodIds.map(() => '?').join(',');
+        const [defs] = await prodPool.query(
+          `SELECT ppa.product_id, ppa.product_attribute_id AS aid, ppa.is_visible, pa.name
+             FROM product_product_attribute ppa
+             JOIN product_attributes pa ON pa.id = ppa.product_attribute_id
+            WHERE ppa.product_id IN (${phP})
+            ORDER BY ppa.product_id, ppa.id`, prodIds);
+        defs.forEach(d => {
+          (attrDef[d.product_id] = attrDef[d.product_id] || []).push({ aid: d.aid, name: d.name, visible: d.is_visible ? 1 : 0 });
+        });
+        const [pvals] = await prodPool.query(
+          `SELECT ppav.product_id, pav.product_attribute_id AS aid, pav.value
+             FROM product_product_attribute_value ppav
+             JOIN product_attribute_values pav ON pav.id = ppav.product_attribute_value_id
+            WHERE ppav.product_id IN (${phP})
+            ORDER BY ppav.product_id, pav.product_attribute_id, pav.id`, prodIds);
+        pvals.forEach(v => {
+          const m = (valPadre[v.product_id] = valPadre[v.product_id] || {});
+          const s = (m[v.aid] = m[v.aid] || new Set());
+          s.add(v.value);
+        });
+      }
+      if (varIds.length) {
+        const phV = varIds.map(() => '?').join(',');
+        const [vvals] = await prodPool.query(
+          `SELECT pvav.product_variation_id AS vid, pav.product_attribute_id AS aid, pav.value
+             FROM product_variation_attribute_values pvav
+             JOIN product_attribute_values pav ON pav.id = pvav.product_attribute_value_id
+            WHERE pvav.product_variation_id IN (${phV})`, varIds);
+        vvals.forEach(v => {
+          const m = (valVar[v.vid] = valVar[v.vid] || {});
+          (m[v.aid] = m[v.aid] || []).push(v.value);
+        });
+      }
+      // Escribe las columnas de atributo (nombre/valor/visible/global) en una fila.
+      // getVal(aid) → string de valores; soloConValor=true (variaciones) omite los vacíos.
+      const ponerAtributos = (row, pid, getVal, soloConValor) => {
+        const lista = attrDef[pid] || [];
+        let n = 0;
+        for (const a of lista) {
+          const vals = getVal(a.aid) || '';
+          if (soloConValor && !vals) continue;   // WooCommerce empareja por nombre, no por posición
+          n++; if (n > 10) break;
+          set(row, `Nombre del atributo ${n}`, a.name);
+          set(row, `Valor(es) del atributo ${n}`, vals);
+          set(row, `Atributo visible ${n}`, a.visible);
+          set(row, `Atributo global ${n}`, 1);
+        }
+      };
+      const valsPadreDe = (pid) => (aid) => { const s = valPadre[pid] && valPadre[pid][aid]; return s ? [...s].join(', ') : ''; };
+      const valsVarDe = (vid) => (aid) => { const a = valVar[vid] && valVar[vid][aid]; return a ? a.join(', ') : ''; };
+
+      // 4) Armar filas en el orden EXACTO de columnas de v3
+      const idx = {}; V3_HEADERS.forEach((h, i) => { idx[h] = i; });
+      const nueva = () => new Array(V3_HEADERS.length).fill('');
+      const set = (row, name, val) => { row[idx[name]] = (val == null ? '' : val); };
+
+      const filas = [];
+      const padreEmitido = new Set();
+      const emitirPadreSiNuevo = (pid) => {
+        if (padreEmitido.has(pid)) return;
+        padreEmitido.add(pid);
+        const pa = padres[pid];
+        if (!pa || pa.woocommerce_id != null) return; // no existe, o ya está en la web → no lo tocamos
+        const row = nueva();
+        set(row, 'Tipo', 'variable');
+        set(row, 'SKU', pa.sku);
+        set(row, 'Nombre', pa.nombre || '');
+        set(row, 'Publicado', 1);
+        set(row, '¿Está destacado?', 0);
+        set(row, 'Visibilidad en el catálogo', 'visible');
+        set(row, 'Descripción', pa.description || '');
+        set(row, 'Estado del impuesto', 'taxable');
+        set(row, '¿Vendido individualmente?', 0);
+        set(row, 'Categorías', cats[pid] || '');
+        set(row, 'Imágenes', imgProd(pid));
+        ponerAtributos(row, pid, valsPadreDe(pid), false); // padre: nombre + todos los valores
+        filas.push(row);
+      };
+
+      for (const it of pend) {
+        const row = nueva();
+        if (it.product_type === 'simple') {
+          set(row, 'Tipo', 'simple');
+          set(row, 'SKU', it.sku);
+          set(row, 'Nombre', it.nombre || '');
+          set(row, 'Publicado', 1);
+          set(row, '¿Está destacado?', 0);
+          set(row, 'Visibilidad en el catálogo', 'visible');
+          set(row, 'Descripción', it.descripcion || '');
+          set(row, 'Estado del impuesto', 'taxable');
+          set(row, '¿Vendido individualmente?', 0);
+          set(row, '¿Existencias?', 1);
+          set(row, 'Inventario', Number(it.stock) || 0);
+          set(row, 'Precio normal', it.regular_price == null ? '' : Number(it.regular_price));
+          if (it.sale_price != null && it.sale_price !== '') set(row, 'Precio rebajado', Number(it.sale_price));
+          set(row, 'Categorías', cats[it.product_id] || '');
+          set(row, 'Imágenes', imgVar(it.id) || imgProd(it.product_id)); // propia, o la del producto
+          ponerAtributos(row, it.product_id, valsPadreDe(it.product_id), false); // simple: atributos del producto
+          filas.push(row);
+        } else { // variation
+          emitirPadreSiNuevo(it.product_id);
+          const pa = padres[it.product_id];
+          set(row, 'Tipo', 'variation');
+          set(row, 'SKU', it.sku);
+          set(row, 'Nombre', it.nombre || '');
+          set(row, 'Publicado', 1);
+          set(row, 'Visibilidad en el catálogo', 'visible');
+          set(row, 'Estado del impuesto', 'taxable');
+          set(row, '¿Existencias?', 1);
+          set(row, 'Inventario', Number(it.stock) || 0);
+          set(row, 'Precio normal', it.regular_price == null ? '' : Number(it.regular_price));
+          if (it.sale_price != null && it.sale_price !== '') set(row, 'Precio rebajado', Number(it.sale_price));
+          if (pa) set(row, 'Superior', pa.sku);
+          set(row, 'Imágenes', imgVar(it.id)); // imagen propia de la variación
+          ponerAtributos(row, it.product_id, valsVarDe(it.id), true); // variación: su valor puntual
+          filas.push(row);
+        }
+      }
+
+      // 5) CSV UTF-8 con BOM (para que Excel/WooCommerce lean bien los acentos)
+      const esc = (v) => {
+        const s = String(v == null ? '' : v);
+        return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+      };
+      const lineas = [V3_HEADERS.map(esc).join(',')];
+      filas.forEach(r => lineas.push(r.map(esc).join(',')));
+      const csv = '\uFEFF' + lineas.join('\r\n');
+
+      const fecha = new Date().toISOString().slice(0, 10);
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="pendientes_web_${fecha}.csv"`);
+      res.send(csv);
+    } catch (e) {
+      res.status(500).json({ error: 'Error al generar el CSV: ' + e.message });
+    }
+  });
+
   // Solicitar una actualización completa (se aplicará en la corrida de las 2 AM)
   app.post('/admin/solicitar-actualizacion', authAdmin, requiereModulo('sync'), async (req, res) => {
     try {

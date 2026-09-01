@@ -292,6 +292,8 @@ tr:hover td{background:var(--hover)}
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn" id="btn-auditar" onclick="analizarCatalogo()">Analizar catálogo</button>
           <button class="btn" id="btn-auditar-excel" onclick="descargarAuditoria()" style="display:none">Descargar en Excel</button>
+          <button class="btn" id="btn-pend-csv" onclick="descargarPendientesWebCSV()" style="display:none" title="Productos pendientes (sin ID de WooCommerce) en formato del importador, con imágenes y atributos">CSV para la web</button>
+          <span id="pend-csv-status" class="muted"></span>
         </div>
         <div id="auditoria-result" class="muted" style="margin-top:10px"></div>
       </div>
@@ -312,12 +314,9 @@ tr:hover td{background:var(--hover)}
 
           <div id="sub-pendientes" class="subpanel">
             <div class="desc">Productos del ERP sin ID de WooCommerce (debes crearlos en la web). Se omiten los que no tienen stock, salvo que tengan un ingreso pendiente por llegar.</div>
-            <div class="filtros-fila" style="align-items:center">
+            <div class="filtros-fila">
               <input id="aud-buscar-pend" type="text" placeholder="Buscar por SKU o nombre..." oninput="renderPendientesAud()">
-              <button class="btn" onclick="descargarPendientesWebCSV()">CSV para la web</button>
-              <span id="pend-csv-status" class="muted"></span>
             </div>
-            <div class="desc" style="font-size:12px">El CSV usa el formato del importador de WooCommerce. Trae SKU, tipo, nombre, precios, stock, categorías, <b>imágenes y atributos</b> (igual que el export del ERP) y el vínculo padre→variación. Los productos padre solo se incluyen si aún no están en la web.</div>
             <div id="aud-pendientes" style="overflow-x:auto;max-height:60vh;overflow-y:auto"></div>
           </div>
         </div>
@@ -1066,6 +1065,7 @@ async function cargarAuditoriaGuardada(){
       res.textContent='Aún no se ha analizado el catálogo. Pulsa "Analizar catálogo" para generarlo.';
       document.getElementById('auditoria-datos').style.display='none';
       document.getElementById('btn-auditar-excel').style.display='none';
+      document.getElementById('btn-pend-csv').style.display='none';
       return;
     }
     auditoriaCache=d;
@@ -1091,6 +1091,7 @@ function mostrarAuditoria(desdeCache){
     (desdeCache?' <span class="muted">(pulsa "Analizar catálogo" para datos frescos)</span>':'');
   document.getElementById('auditoria-datos').style.display='block';
   document.getElementById('btn-auditar-excel').style.display='';
+  document.getElementById('btn-pend-csv').style.display='';
   document.getElementById('btn-auditar').textContent=desdeCache?'Analizar de nuevo':'Analizar catálogo';
   renderPendientesAud();
   prepararFiltroAud();

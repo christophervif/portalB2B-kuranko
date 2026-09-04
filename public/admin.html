@@ -407,7 +407,11 @@ tr:hover td{background:var(--hover)}
         <b>Variaciones:</b> todo lo que cambió en la última corrida (stock, precio y también nombre, publicado, visibilidad, categorías, etiquetas, etc. en la columna "Campos actualizados").<br>
         <b>Actualizados en WooCommerce:</b> lo mismo pero solo lo que efectivamente se aplicó en la web.<br>
         <b>Alertas de vinculación:</b> todo lo que cambió pero <b>no se sincronizó</b>, con el motivo (SKU no coincide, ID no existe en la web, error al escribir, etc.).</div>
-        <button class="btn" onclick="descargarReporteSync()">Descargar reporte (Excel)</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn" onclick="descargarReporteSync()">Descargar reporte (Excel)</button>
+          <button class="btn" onclick="exportarProductosSinId()" title="Productos del ERP sin ID, con el ID y las imágenes que el puente encontró en la web">Exportar productos sin ID</button>
+        </div>
+        <div class="desc" style="font-size:12px;margin-top:6px">"Exportar productos sin ID": CSV de los productos que aún no están vinculados (sin woocommerce_id), con toda su info del sistema <b>más el ID y las imágenes que el puente encontró en la web</b> (por SKU). El puente recolecta eso en su corrida (cada pocas horas).</div>
         <div id="sync-result" class="muted" style="margin-top:10px"></div>
       </div>
       <div class="card">
@@ -991,6 +995,21 @@ async function descargarReporteSync(){
     document.body.appendChild(a);a.click();a.remove();
     URL.revokeObjectURL(url);
     res.textContent='✓ Reporte descargado.';
+  }catch(e){res.textContent='';showToast(e.message,true);}
+}
+async function exportarProductosSinId(){
+  const res=document.getElementById('sync-result');
+  res.textContent='Generando CSV de productos sin ID...';
+  try{
+    const r=await fetch(API+'/admin/pendientes-web-csv?web=1',{headers:{'Authorization':'Bearer '+TOKEN}});
+    if(!r.ok){let m='No se pudo generar el CSV';try{m=(await r.json()).error||m;}catch(e){}throw new Error(m);}
+    const blob=await r.blob();
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;a.download=nombreArchivo('productos-sin-id','csv');
+    document.body.appendChild(a);a.click();a.remove();
+    URL.revokeObjectURL(url);
+    res.textContent='✓ CSV descargado.';
   }catch(e){res.textContent='';showToast(e.message,true);}
 }
 // ── Cola de SKUs específicos ──

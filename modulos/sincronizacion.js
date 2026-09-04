@@ -168,6 +168,35 @@ module.exports = function registrarSincronizacion({ app, authAdmin, requiereModu
       estiloHeader(ws5.getRow(3));
       ws5.views = [{ state: 'frozen', ySplit: 3 }];
 
+      // PESTAÑA 6: Campos web actualizados (nombre, publicado, visibilidad, categorías, etc.)
+      // Los escribe el puente en sync_detalle_campos: una fila por (producto/variación, campo) que cambió.
+      let filasCampos = [];
+      try {
+        const [rows] = await portalPool.query(
+          `SELECT sku, woocommerce_id, nivel, campo, antes, despues, se_aplico
+             FROM sync_detalle_campos ORDER BY se_aplico DESC, sku, campo`);
+        filasCampos = rows;
+      } catch (e) { /* la tabla puede no existir aún (si el puente nuevo no ha corrido) */ }
+      const ws6 = wb.addWorksheet('Campos web actualizados');
+      ws6.columns = [
+        { header: 'SKU', key: 'sku', width: 22 },
+        { header: 'WooCommerce ID', key: 'wc', width: 15 },
+        { header: 'Nivel', key: 'nivel', width: 16 },
+        { header: 'Campo', key: 'campo', width: 20 },
+        { header: 'Antes', key: 'antes', width: 45 },
+        { header: 'Después', key: 'despues', width: 45 },
+        { header: 'Aplicado', key: 'ap', width: 10 }
+      ];
+      filasCampos.forEach(f => ws6.addRow({
+        sku: f.sku, wc: f.woocommerce_id, nivel: f.nivel, campo: f.campo,
+        antes: f.antes, despues: f.despues, ap: f.se_aplico ? 'Sí' : 'No'
+      }));
+      ponerEncabezado(ws6, 7);
+      estiloHeader(ws6.getRow(3));
+      ws6.views = [{ state: 'frozen', ySplit: 3 }];
+      const uf6 = ws6.rowCount;
+      ws6.autoFilter = { from: { row: 3, column: 1 }, to: { row: uf6 < 3 ? 3 : uf6, column: 7 } };
+
       const fecha = new Date().toISOString().slice(0, 10);
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename="reporte_sync_${fecha}.xlsx"`);

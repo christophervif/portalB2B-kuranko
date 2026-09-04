@@ -660,7 +660,13 @@ module.exports = function registrarSincronizacion({ app, authAdmin, requiereModu
   // está en la web, para no pisar/borrar los atributos de un padre ya existente.
   const V3_HEADERS = ["ID","Tipo","SKU","GTIN, UPC, EAN o ISBN","Nombre","Publicado","¿Está destacado?","Visibilidad en el catálogo","Descripción corta","Descripción","Día en que empieza el precio rebajado","Día en que termina el precio rebajado","Estado del impuesto","Clase de impuesto","¿Existencias?","Inventario","Cantidad de bajo inventario","¿Permitir reservas de productos agotados?","¿Vendido individualmente?","Peso (kg)","Longitud (cm)","Anchura (cm)","Altura (cm)","¿Permitir valoraciones de clientes?","Nota de compra","Precio rebajado","Precio normal","Categorías","Etiquetas","Clase de envío","Imágenes","Límite de descargas","Días de caducidad de la descarga","Superior","Productos agrupados","Ventas dirigidas","Ventas cruzadas","URL externa","Texto del botón","Posición","Swatches Attributes","Marcas","Nombre del atributo 1","Valor(es) del atributo 1","Atributo visible 1","Atributo global 1","Nombre del atributo 2","Valor(es) del atributo 2","Atributo visible 2","Atributo global 2","Nombre del atributo 3","Valor(es) del atributo 3","Atributo visible 3","Atributo global 3","Nombre del atributo 4","Valor(es) del atributo 4","Atributo visible 4","Atributo global 4","Nombre del atributo 5","Valor(es) del atributo 5","Atributo visible 5","Atributo global 5","Nombre del atributo 6","Valor(es) del atributo 6","Atributo visible 6","Atributo global 6","Nombre del atributo 7","Valor(es) del atributo 7","Atributo visible 7","Atributo global 7","Nombre del atributo 8","Valor(es) del atributo 8","Atributo visible 8","Atributo global 8","Nombre del atributo 9","Valor(es) del atributo 9","Atributo visible 9","Atributo global 9","Nombre del atributo 10","Valor(es) del atributo 10","Atributo visible 10","Atributo global 10"];
 
-  app.get('/admin/pendientes-web-csv', authAdmin, requiereModulo('auditoria'), async (req, res) => {
+  // Permite el módulo de auditoría O el de sync (el botón vive en Sincronización web)
+  const permiteAudOSync = (req, res, next) => {
+    const a = req.admin || {};
+    if (a.maestro || (Array.isArray(a.modulos) && (a.modulos.includes('auditoria') || a.modulos.includes('sync')))) return next();
+    return res.status(403).json({ error: 'No tienes acceso a este módulo' });
+  };
+  app.get('/admin/pendientes-web-csv', authAdmin, permiteAudOSync, async (req, res) => {
     try {
       // 1) Pendientes (variation/simple) sin woocommerce_id, con stock o ingreso por llegar
       const [pend] = await prodPool.query(
@@ -874,6 +880,28 @@ module.exports = function registrarSincronizacion({ app, authAdmin, requiereModu
         }
       }
 
+      // 4b) MODO "con ID de la web" (?web=1): rellena ID e Im\u00E1genes con lo que el
+      //     puente encontr\u00F3 en WooCommerce (tabla sync_pendientes_web, por SKU).
+      let recolectadoEn = null;
+      if (req.query.web) {
+        const webMap = {};
+        try {
+          const [wrows] = await portalPool.query(
+            `SELECT sku, woocommerce_id, imagenes FROM sync_pendientes_web`);
+          wrows.forEach(w => { webMap[String(w.sku).trim().toLowerCase()] = w; });
+          const [[ts]] = await portalPool.query(`SELECT corrio_en FROM sync_pendientes_web_ts WHERE id = 1`);
+          recolectadoEn = ts ? ts.corrio_en : null;
+        } catch (e) { /* el puente nuevo a\u00FAn no ha recolectado */ }
+        const iID = idx['ID'], iIMG = idx['Im\u00E1genes'], iSKU = idx['SKU'];
+        filas.forEach(r => {
+          const w = webMap[String(r[iSKU] || '').trim().toLowerCase()];
+          if (w && w.woocommerce_id) {
+            r[iID] = w.woocommerce_id;
+            r[iIMG] = w.imagenes || '';   // im\u00E1genes reales de la web (padre/variaci\u00F3n/simple)
+          }
+        });
+      }
+
       // 5) CSV UTF-8 con BOM (para que Excel/WooCommerce lean bien los acentos)
       const esc = (v) => {
         const s = String(v == null ? '' : v);
@@ -884,8 +912,9 @@ module.exports = function registrarSincronizacion({ app, authAdmin, requiereModu
       const csv = '\uFEFF' + lineas.join('\r\n');
 
       const fecha = new Date().toISOString().slice(0, 10);
+      const nombre = req.query.web ? `productos_sin_id_${fecha}` : `pendientes_web_${fecha}`;
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-      res.setHeader('Content-Disposition', `attachment; filename="pendientes_web_${fecha}.csv"`);
+      res.setHeader('Content-Disposition', `attachment; filename="${nombre}.csv"`);
       res.send(csv);
     } catch (e) {
       res.status(500).json({ error: 'Error al generar el CSV: ' + e.message });

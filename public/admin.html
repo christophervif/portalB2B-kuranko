@@ -403,9 +403,10 @@ tr:hover td{background:var(--hover)}
       <div id="sis-sync" class="subpanel active">
       <div class="card">
         <h3>Reporte de sincronización con la web</h3>
-        <div class="desc">Descarga el estado de la última sincronización ERP → kuranko.pe en Excel. Se genera al momento y no se almacena. Tiene tres pestañas:<br>
+        <div class="desc">Descarga el estado de la última sincronización ERP → kuranko.pe en Excel. Se genera al momento y no se almacena. Tiene estas pestañas:<br>
         <b>Variaciones:</b> productos que cambiaron de stock o precio en la última corrida.<br>
         <b>Actualizados en WooCommerce:</b> los que efectivamente se aplicaron en la web.<br>
+        <b>Campos web actualizados:</b> nombre, publicado, visibilidad, categorías, etiquetas, etc. que cambiaron (antes → después).<br>
         <b>Alertas de vinculación:</b> productos cuyo SKU no coincide con la web.</div>
         <button class="btn" onclick="descargarReporteSync()">Descargar reporte (Excel)</button>
         <div id="sync-result" class="muted" style="margin-top:10px"></div>

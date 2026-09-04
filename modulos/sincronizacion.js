@@ -42,39 +42,93 @@ module.exports = function registrarSincronizacion({ app, authAdmin, requiereModu
         aplicados = rows.filter(r => r.se_aplico === 1);
       } catch (e) { /* sin detalle aún */ }
 
-      // Enriquecer variaciones/aplicados con SKU y nombre del ERP
-      const idsDet = [...new Set(variaciones.map(v => v.woocommerce_id).filter(Boolean))];
+      // ── Campos ricos que cambiaron (nombre, publicado, visibilidad, categorías, etiquetas, etc.) ─
+      //    Los escribe el puente en sync_detalle_campos. Se muestran DENTRO de "Variaciones" y
+      //    "Actualizados" (columna "Campos actualizados"), no en una pestaña aparte.
+      let camposDet = [];
+      try {
+        const [rows] = await portalPool.query(
+          `SELECT sku, woocommerce_id, nivel, campo, antes, despues, se_aplico
+             FROM sync_detalle_campos WHERE woocommerce_id IS NOT NULL ORDER BY woocommerce_id`);
+        camposDet = rows;
+      } catch (e) { /* la tabla puede no existir aún (si el puente nuevo no ha corrido) */ }
+      const camposByWc = {};
+      camposDet.forEach(r => {
+        (camposByWc[r.woocommerce_id] || (camposByWc[r.woocommerce_id] = { sku: r.sku, nivel: r.nivel, items: [] })).items.push(r);
+      });
+      const resumenCampos = (wc, soloAplic) => {
+        const m = camposByWc[wc]; if (!m) return '';
+        return m.items.filter(i => soloAplic ? i.se_aplico === 1 : true)
+          .map(i => `${i.campo}: ${i.antes || '∅'} → ${i.despues || '∅'}`).join('  ·  ');
+      };
+
+      // Enriquecer con SKU y nombre del ERP (variaciones + padres que solo cambiaron campos)
+      const idsDet = [...new Set([
+        ...variaciones.map(v => v.woocommerce_id),
+        ...Object.keys(camposByWc).map(Number)
+      ].filter(Boolean))];
       const infoDet = {};
       if (idsDet.length) {
         const [info] = await prodPool.query(
           `SELECT pv.woocommerce_id, pv.sku, pv.name AS nombre, pv.product_type
-           FROM product_variations pv WHERE pv.woocommerce_id IN (?)`, [idsDet]);
-        info.forEach(i => { infoDet[i.woocommerce_id] = i; });
+             FROM product_variations pv WHERE pv.woocommerce_id IN (?)`, [idsDet]);
+        info.forEach(i => { infoDet[i.woocommerce_id] = { sku: i.sku, nombre: i.nombre, tipo: i.product_type }; });
+        const faltan = idsDet.filter(id => !infoDet[id]); // padres (products) que no están como variación
+        if (faltan.length) {
+          const [pinfo] = await prodPool.query(
+            `SELECT woocommerce_id, sku_base AS sku, name AS nombre FROM products WHERE woocommerce_id IN (?)`, [faltan]);
+          pinfo.forEach(p => { infoDet[p.woocommerce_id] = { sku: p.sku, nombre: p.nombre, tipo: 'variable' }; });
+        }
       }
-      const armaFila = (v) => {
+      const armaFila = (v, soloAplic) => {
         const inf = infoDet[v.woocommerce_id] || {};
         return {
-          sku: inf.sku || '', wc: v.woocommerce_id, tipo: inf.product_type || v.tipo,
-          nombre: inf.nombre || '',
+          sku: inf.sku || '', wc: v.woocommerce_id, tipo: inf.tipo || v.tipo, nombre: inf.nombre || '',
           stock_despues: v.stock_despues, precio_despues: v.precio_despues,
           stock_antes: v.stock_antes, precio_antes: v.precio_antes,
-          oferta_antes: v.oferta_antes, oferta_despues: v.oferta_despues
+          oferta_antes: v.oferta_antes, oferta_despues: v.oferta_despues,
+          campos: resumenCampos(v.woocommerce_id, soloAplic)
         };
       };
-      const filasVariaciones = variaciones.map(armaFila);
-      const filasAplicados = aplicados.map(armaFila);
+      // Filas de productos (padre/simple) que SOLO cambiaron campos ricos (no stock/precio)
+      const wcConStock = new Set(variaciones.map(v => v.woocommerce_id));
+      const filaSoloCampos = (wc, soloAplic) => {
+        const inf = infoDet[wc] || {}, m = camposByWc[wc] || {};
+        return { sku: inf.sku || m.sku || '', wc, tipo: inf.tipo || m.nivel || '', nombre: inf.nombre || '',
+          stock_despues: null, precio_despues: null, stock_antes: null, precio_antes: null,
+          oferta_antes: null, oferta_despues: null, campos: resumenCampos(wc, soloAplic) };
+      };
+      const extraCampos = Object.keys(camposByWc).map(Number).filter(wc => !wcConStock.has(wc));
+      const filasVariaciones = variaciones.map(v => armaFila(v, false))
+        .concat(extraCampos.map(wc => filaSoloCampos(wc, false)));
+      const filasAplicados = aplicados.map(v => armaFila(v, true))
+        .concat(extraCampos.filter(wc => camposByWc[wc].items.some(i => i.se_aplico === 1))
+          .map(wc => filaSoloCampos(wc, true)));
 
       // (Pendientes y Alertas del sistema se movieron a la Auditoría de catálogo)
 
       // ── PESTAÑA 4: Alertas de vinculación con WooCommerce ──────────────────
+      //    Todo lo que cambió pero NO se sincronizó, con el MOTIVO:
+      //    'SKU no coincide' | 'ID no existe en la web' | 'Error al escribir: …' | 'No existe en el ERP'
       let alertasSku = [];
       try {
-        const [rows] = await portalPool.query(
-          `SELECT woocommerce_id, sku_erp, sku_woo FROM sync_sku_alertas ORDER BY sku_erp`);
-        alertasSku = rows.map(r => ({
-          tipo: 'SKU no coincide', sku: r.sku_erp, wc: r.woocommerce_id, nombre: '',
-          obs: `El SKU en la web es "${r.sku_woo}" pero en el ERP es "${r.sku_erp}" (no se actualizó)`
-        }));
+        let rows;
+        try {
+          [rows] = await portalPool.query(
+            `SELECT woocommerce_id, sku_erp, sku_woo, motivo FROM sync_sku_alertas ORDER BY motivo, sku_erp`);
+        } catch (e) { // el puente viejo aún no tiene la columna 'motivo'
+          [rows] = await portalPool.query(
+            `SELECT woocommerce_id, sku_erp, sku_woo FROM sync_sku_alertas ORDER BY sku_erp`);
+        }
+        alertasSku = rows.map(r => {
+          const motivo = r.motivo || 'SKU no coincide';
+          let obs;
+          if (motivo === 'SKU no coincide') obs = `El SKU en la web es "${r.sku_woo}" pero en el ERP es "${r.sku_erp}" (el ID apunta a otro producto; no se actualizó)`;
+          else if (motivo === 'ID no existe en la web') obs = `El WooCommerce ID ${r.woocommerce_id} (puesto a mano en el sistema) no existe en la web (no se actualizó)`;
+          else if (motivo === 'No existe en el ERP') obs = `El SKU "${r.sku_erp}" no existe en el ERP (revisa la cola de SKUs)`;
+          else obs = `${motivo} — SKU "${r.sku_erp}", WooCommerce ID ${r.woocommerce_id} (no se actualizó)`;
+          return { tipo: motivo, sku: r.sku_erp, wc: r.woocommerce_id, nombre: '', obs };
+        });
       } catch (e) { /* sin datos aún */ }
 
       // ── Generar Excel ──────────────────────────────────────────────────────
@@ -117,15 +171,17 @@ module.exports = function registrarSincronizacion({ app, authAdmin, requiereModu
         { header: 'Precio anterior', key: 'pa', width: 14 },
         { header: 'Precio aplicado', key: 'pd', width: 14 },
         { header: 'Oferta anterior', key: 'oa', width: 14 },
-        { header: 'Oferta aplicada', key: 'od', width: 14 }
+        { header: 'Oferta aplicada', key: 'od', width: 14 },
+        { header: 'Campos actualizados (antes → después)', key: 'campos', width: 70 }
       ];
       filasVariaciones.forEach(f => ws1.addRow({
         sku: f.sku, wc: f.wc, tipo: f.tipo, nombre: f.nombre,
         sa: num(f.stock_antes), sd: num(f.stock_despues),
         pa: num(f.precio_antes), pd: num(f.precio_despues),
-        oa: num(f.oferta_antes), od: num(f.oferta_despues)
+        oa: num(f.oferta_antes), od: num(f.oferta_despues),
+        campos: f.campos || ''
       }));
-      ponerEncabezado(ws1, 10);
+      ponerEncabezado(ws1, 11);
       estiloHeader(ws1.getRow(3));
       ws1.views = [{ state: 'frozen', ySplit: 3 }];
 
@@ -156,46 +212,19 @@ module.exports = function registrarSincronizacion({ app, authAdmin, requiereModu
         { header: 'Precio anterior', key: 'pa', width: 14 },
         { header: 'Precio aplicado', key: 'pd', width: 14 },
         { header: 'Oferta anterior', key: 'oa', width: 14 },
-        { header: 'Oferta aplicada', key: 'od', width: 14 }
+        { header: 'Oferta aplicada', key: 'od', width: 14 },
+        { header: 'Campos actualizados (antes → después)', key: 'campos', width: 70 }
       ];
       filasAplicados.forEach(f => ws5.addRow({
         sku: f.sku, wc: f.wc, tipo: f.tipo, nombre: f.nombre,
         sa: num(f.stock_antes), sd: num(f.stock_despues),
         pa: num(f.precio_antes), pd: num(f.precio_despues),
-        oa: num(f.oferta_antes), od: num(f.oferta_despues)
+        oa: num(f.oferta_antes), od: num(f.oferta_despues),
+        campos: f.campos || ''
       }));
-      ponerEncabezado(ws5, 10);
+      ponerEncabezado(ws5, 11);
       estiloHeader(ws5.getRow(3));
       ws5.views = [{ state: 'frozen', ySplit: 3 }];
-
-      // PESTAÑA 6: Campos web actualizados (nombre, publicado, visibilidad, categorías, etc.)
-      // Los escribe el puente en sync_detalle_campos: una fila por (producto/variación, campo) que cambió.
-      let filasCampos = [];
-      try {
-        const [rows] = await portalPool.query(
-          `SELECT sku, woocommerce_id, nivel, campo, antes, despues, se_aplico
-             FROM sync_detalle_campos ORDER BY se_aplico DESC, sku, campo`);
-        filasCampos = rows;
-      } catch (e) { /* la tabla puede no existir aún (si el puente nuevo no ha corrido) */ }
-      const ws6 = wb.addWorksheet('Campos web actualizados');
-      ws6.columns = [
-        { header: 'SKU', key: 'sku', width: 22 },
-        { header: 'WooCommerce ID', key: 'wc', width: 15 },
-        { header: 'Nivel', key: 'nivel', width: 16 },
-        { header: 'Campo', key: 'campo', width: 20 },
-        { header: 'Antes', key: 'antes', width: 45 },
-        { header: 'Después', key: 'despues', width: 45 },
-        { header: 'Aplicado', key: 'ap', width: 10 }
-      ];
-      filasCampos.forEach(f => ws6.addRow({
-        sku: f.sku, wc: f.woocommerce_id, nivel: f.nivel, campo: f.campo,
-        antes: f.antes, despues: f.despues, ap: f.se_aplico ? 'Sí' : 'No'
-      }));
-      ponerEncabezado(ws6, 7);
-      estiloHeader(ws6.getRow(3));
-      ws6.views = [{ state: 'frozen', ySplit: 3 }];
-      const uf6 = ws6.rowCount;
-      ws6.autoFilter = { from: { row: 3, column: 1 }, to: { row: uf6 < 3 ? 3 : uf6, column: 7 } };
 
       const fecha = new Date().toISOString().slice(0, 10);
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');

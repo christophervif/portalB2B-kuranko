@@ -880,11 +880,12 @@ module.exports = function registrarSincronizacion({ app, authAdmin, requiereModu
         }
       }
 
-      // 4b) MODO "con ID de la web" (?web=1): rellena ID e Im\u00E1genes con lo que el
-      //     puente encontr\u00F3 en WooCommerce (tabla sync_pendientes_web, por SKU).
-      let recolectadoEn = null;
+      // 4b) MODO "con ID de la web" (?web=1): devuelve un EXCEL con dos hojas.
+      //   \u00B7 "Con ID (en la web)": los que S\u00CD est\u00E1n en WooCommerce \u2192 ID + im\u00E1genes de la web.
+      //   \u00B7 "Sin ID (por crear)": los que NO est\u00E1n en la web \u2192 info del ERP (para crearlos).
       if (req.query.web) {
         const webMap = {};
+        let recolectadoEn = null;
         try {
           const [wrows] = await portalPool.query(
             `SELECT sku, woocommerce_id, imagenes FROM sync_pendientes_web`);
@@ -892,14 +893,39 @@ module.exports = function registrarSincronizacion({ app, authAdmin, requiereModu
           const [[ts]] = await portalPool.query(`SELECT corrio_en FROM sync_pendientes_web_ts WHERE id = 1`);
           recolectadoEn = ts ? ts.corrio_en : null;
         } catch (e) { /* el puente nuevo a\u00FAn no ha recolectado */ }
+        if (!recolectadoEn) {
+          return res.status(400).json({ error: 'El puente a\u00FAn no ha recolectado los IDs e im\u00E1genes desde WooCommerce. Corre el puente (o espera su pr\u00F3xima corrida) y vuelve a exportar.' });
+        }
         const iID = idx['ID'], iIMG = idx['Im\u00E1genes'], iSKU = idx['SKU'];
+        const conId = [], sinId = [];
         filas.forEach(r => {
           const w = webMap[String(r[iSKU] || '').trim().toLowerCase()];
           if (w && w.woocommerce_id) {
             r[iID] = w.woocommerce_id;
-            r[iIMG] = w.imagenes || '';   // im\u00E1genes reales de la web (padre/variaci\u00F3n/simple)
+            r[iIMG] = w.imagenes || '';   // im\u00E1genes de WooCommerce
+            conId.push(r);
+          } else {
+            r[iID] = '';                  // no est\u00E1 en la web \u2192 por crear (conserva su info/imagen del ERP)
+            sinId.push(r);
           }
         });
+        const ExcelJS = require('exceljs');
+        const wb = new ExcelJS.Workbook();
+        const hoja = (nombre, rows) => {
+          const ws = wb.addWorksheet(nombre);
+          ws.addRow(V3_HEADERS);
+          rows.forEach(r => ws.addRow(r.map(v => (v == null ? '' : v))));
+          ws.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+          ws.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000726' } };
+          ws.views = [{ state: 'frozen', ySplit: 1 }];
+        };
+        hoja('Con ID (en la web)', conId);
+        hoja('Sin ID (por crear)', sinId);
+        const fechaX = new Date().toISOString().slice(0, 10);
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="productos_web_${fechaX}.xlsx"`);
+        await wb.xlsx.write(res);
+        return res.end();
       }
 
       // 5) CSV UTF-8 con BOM (para que Excel/WooCommerce lean bien los acentos)

@@ -411,7 +411,7 @@ tr:hover td{background:var(--hover)}
           <button class="btn" onclick="descargarReporteSync()">Descargar reporte (Excel)</button>
           <button class="btn" onclick="exportarProductosSinId()" title="Productos del ERP sin ID, con el ID y las imágenes que el puente encontró en la web">Exportar productos sin ID</button>
         </div>
-        <div class="desc" style="font-size:12px;margin-top:6px">"Exportar productos sin ID": CSV de los productos que aún no están vinculados (sin woocommerce_id), con toda su info del sistema <b>más el ID y las imágenes que el puente encontró en la web</b> (por SKU). El puente recolecta eso en su corrida (cada pocas horas).</div>
+        <div class="desc" style="font-size:12px;margin-top:6px">"Exportar productos sin ID": Excel con dos pestañas. <b>"Con ID (en la web)"</b> = los que el puente encontró en WooCommerce por SKU, ya con su ID e imágenes de la web (listos para vincular). <b>"Sin ID (por crear)"</b> = los que no están en la web todavía, con su info del sistema. El puente recolecta el ID y las imágenes en su corrida (cada pocas horas).</div>
         <div id="sync-result" class="muted" style="margin-top:10px"></div>
       </div>
       <div class="card">
@@ -999,17 +999,17 @@ async function descargarReporteSync(){
 }
 async function exportarProductosSinId(){
   const res=document.getElementById('sync-result');
-  res.textContent='Generando CSV de productos sin ID...';
+  res.textContent='Generando Excel de productos sin ID...';
   try{
     const r=await fetch(API+'/admin/pendientes-web-csv?web=1',{headers:{'Authorization':'Bearer '+TOKEN}});
-    if(!r.ok){let m='No se pudo generar el CSV';try{m=(await r.json()).error||m;}catch(e){}throw new Error(m);}
+    if(!r.ok){let m='No se pudo generar el Excel';try{m=(await r.json()).error||m;}catch(e){}throw new Error(m);}
     const blob=await r.blob();
     const url=URL.createObjectURL(blob);
     const a=document.createElement('a');
-    a.href=url;a.download=nombreArchivo('productos-sin-id','csv');
+    a.href=url;a.download=nombreArchivo('productos-sin-id','xlsx');
     document.body.appendChild(a);a.click();a.remove();
     URL.revokeObjectURL(url);
-    res.textContent='✓ CSV descargado.';
+    res.textContent='✓ Excel descargado.';
   }catch(e){res.textContent='';showToast(e.message,true);}
 }
 // ── Cola de SKUs específicos ──

@@ -1164,6 +1164,7 @@ function renderRecItems(){
     return `<div class="rec-item ${cls}" data-i="${i}">
       <div class="ri-desc">🧾 En factura: ${recEsc(it.desc)||'(sin descripción)'}</div>
       <div class="ri-cod">Cód. factura: ${recEsc(it.codigo)||'—'} · Cant. factura: <b>${it.cantidad==null?'—':it.cantidad}</b></div>
+      <div style="margin:6px 0">Sugerido por el sistema: ${recConfianza(it.confianza)}</div>
       ${skuBloque}
       <div class="rec-field">
         <label>¿Cuadra la cantidad que llegó?</label>
@@ -1222,6 +1223,16 @@ function recSetRecibida(i,val){
 let REC_CATMAP=null;
 // Normaliza para buscar: minúsculas, sin acentos, sin signos, palabras separadas por espacio.
 function recNorm(s){ return String(s==null?'':s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').trim(); }
+// Badge del nivel de confianza del SKU sugerido (viene del match de la factura en Importación).
+function recConfianza(t){
+  const m={ exact:['✓ Coincide seguro (código)','#dcfce7','#166534'],
+    alta:['Probable (por nombre)','#dbeafe','#1e40af'],
+    manual:['Elegido a mano','#dbeafe','#1e40af'],
+    rev:['⚠ Revísalo bien','#fef9c3','#854d0e'],
+    no:['✗ Sin sugerencia — elígelo tú','#fee2e2','#991b1b'] };
+  const x=m[t]||m['no'];
+  return '<span style="display:inline-block;font-size:11px;font-weight:800;padding:2px 9px;border-radius:20px;background:'+x[1]+';color:'+x[2]+'">'+x[0]+'</span>';
+}
 function recNombreSku(sku){
   if(!sku)return '';
   if(!REC_CATMAP){ REC_CATMAP={}; (REC_CATALOGO||[]).forEach(([s,n])=>{REC_CATMAP[String(s).toLowerCase()]=n||'';}); }

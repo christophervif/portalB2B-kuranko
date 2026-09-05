@@ -647,7 +647,7 @@ async function enviarARecepcion(){
   if(!id){alert('Primero completa los datos de la importación (proveedor, N° importación, etc.).');return;}
   const m=_meta();
   const lineas=facMatches.filter(x=>x.item||x.desc||x.sku).map(x=>({
-    codigo:x.item||'', desc:x.desc_es||x.desc||'', cantidad:+x.qty||0, sku_sugerido:x.sku||'' }));
+    codigo:x.item||'', desc:x.desc_es||x.desc||'', cantidad:+x.qty||0, sku_sugerido:x.sku||'', confianza:x.tipo||'' }));
   if(!lineas.length){alert('No hay ítems para enviar.');return;}
   // ¿Ya existe una recepción con esta MISMA factura? (mismo N° → mismo id). Avisar antes de pisar.
   let existe=null;
@@ -736,7 +736,7 @@ function renderRecepEstado(){
     return `<tr${it.es_extra?' style="background:#faf5ff"':''}>
       <td>${esc(it.codigo||'')}</td>
       <td>${it.es_extra?'<i>llegó, no estaba en la factura</i>':esc(it.desc||'')}</td>
-      <td class="sku" title="sugerido por el sistema">${esc(it.sku_sugerido||'')}</td>
+      <td class="sku" title="sugerido por el sistema">${esc(it.sku_sugerido||'')}${it.es_extra?'':(' '+recepConfBadge(it.confianza))}</td>
       <td>${skuCell}</td>
       <td class="n">${it.cantidad==null?'—':it.cantidad}</td>
       <td class="n" style="${dif?'color:#b91c1c;font-weight:700':''}">${recib}</td>
@@ -769,6 +769,10 @@ function renderRecepEstado(){
 function recepSetSku(i,v){ if(recepImp&&recepImp.items[i])recepImp.items[i].sku_confirmado=v.trim(); }
 // Buscador de SKU por NOMBRE o código (hijos/variaciones y simples; los padres no están en CAT)
 function recepNorm(s){ return String(s==null?'':s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').trim(); }
+function recepConfBadge(t){
+  const m={exact:['b-exact','exacto'],alta:['b-alta','alta'],manual:['b-alta','manual'],rev:['b-rev','revisar'],no:['b-no','sin match']};
+  const x=m[t]||m['no']; return '<span class="badge '+x[0]+'" style="font-size:10px">'+x[1]+'</span>';
+}
 function recepSkuBuscar(i,q){
   const box=$('recepSug-'+i); if(!box)return;
   const inp=box.previousElementSibling; // el <input> del SKU

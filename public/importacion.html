@@ -103,13 +103,13 @@
   <div class="card">
     <h2>📥 Recepción en almacén</h2>
     <div class="hint">Paso solo para <b>compras</b>. El almacenero confirma desde su celular lo que llegó, valida el SKU de cada ítem e indica el almacén. Aquí revisas esa validación y, si algo del SKU está mal, lo corriges antes de pasar a la DUA.</div>
-    <div id="recepEstado" style="margin-top:10px"></div>
-    <div class="actions" style="margin-top:10px">
-      <button class="btn-sm" onclick="cargarRecepEstado()">↻ Actualizar</button>
-      <button class="btn btn-green" id="btnContinuarDua" onclick="continuarADua()" style="display:none">Continuar a la DUA →</button>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap">
+      <b>Facturas en recepción</b>
+      <button class="btn-sm" onclick="cargarRecepLista()">↻ Actualizar</button>
     </div>
+    <div id="recepLista" class="hint" style="margin-top:8px">Cargando…</div>
   </div>
-  <div id="recepItems"></div>
+  <div id="recepDetalle"></div>
 </div>
 
 <!-- ===================== TAB CALCULADORA ===================== -->
@@ -451,7 +451,7 @@ function previsualizarFactura(){const f=$('ai_pdf').files[0];if(!invoiceURL&&f)s
 
 function tab(t){document.querySelectorAll('.tabbtn').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
   ['factura','recep','dua','calc','part','guard'].forEach(x=>{const p=$('tab-'+x);if(p)p.classList.toggle('hide',x!==t);});
-  if(t==='recep')cargarRecepEstado();}
+  if(t==='recep')cargarRecepLista();}
 
 const esc=s=>(s||'').replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
 const n2=v=>(Number(v)||0).toFixed(2);
@@ -630,6 +630,7 @@ function enviarACalc(){
 
 // ══════════════ RECEPCIÓN EN ALMACÉN (paso intermedio de compra) ══════════════
 let recepImp=null; // recepción cargada del portal
+let recepListaCache=[]; // lista de recepciones (para la pestaña Recepción)
 function esMaestroImp(){try{return localStorage.getItem('admmaestro')==='1';}catch(e){return false;}}
 // OJO: en esta app API='/api/importacion'. Las rutas de recepción cuelgan de la
 // RAÍZ (/api/recepcion...), así que NO deben pasar por API. Este helper pega
@@ -656,29 +657,43 @@ async function enviarARecepcion(){
     tab('recep');
   }catch(e){alert('No se pudo enviar: '+e.message);}
 }
-async function cargarRecepEstado(){
-  const cont=$('recepEstado'), itemsBox=$('recepItems'); if(!cont)return;
-  updateCodigo(); const id=codigoImportacion();
-  cont.innerHTML='Cargando…'; if(itemsBox)itemsBox.innerHTML='';
-  $('btnContinuarDua').style.display='none';
+// Lista de TODAS las facturas en recepción (pendientes + validadas), una tras otra.
+async function cargarRecepLista(){
+  const box=$('recepLista'), det=$('recepDetalle'); if(!box)return;
+  updateCodigo(); const cur=codigoImportacion();
+  box.innerHTML='Cargando…';
+  let lista=[];
   try{
-    recepImp=await recApi('/api/recepcion/'+encodeURIComponent(id));
-  }catch(e){
-    recepImp=null;
-    cont.innerHTML='<div class="hint">Esta importación aún no se ha enviado al almacén. Vuelve a la pestaña <b>Factura → SKU</b> y pulsa <b>📥 Enviar a almacén</b>.</div>';
-    return;
-  }
-  renderRecepEstado();
+    const [pend,val]=await Promise.all([recApi('/api/recepciones?pendientes=1'), recApi('/api/recepciones?estado=validada')]);
+    lista=[...(pend||[]), ...(val||[])];
+  }catch(e){ box.innerHTML='<span class="hint">No se pudo leer la lista: '+esc(e.message)+'</span>'; return; }
+  recepListaCache=lista;
+  if(!lista.length){ box.innerHTML='<span class="hint">No hay facturas en recepción todavía. Envía una desde <b>Factura → SKU</b> con «📥 Enviar a almacén».</span>'; if(det)det.innerHTML=''; return; }
+  box.innerHTML=lista.map(r=>{
+    const est=r.estado==='validada'?'<span class="badge b-exact">validada</span>':(r.estado==='borrador'?'<span class="badge b-rev">en progreso</span>':'<span class="badge b-rev">pendiente</span>');
+    const dif=r.con_diferencias>0?(' · <span style="color:#b91c1c;font-weight:700">'+r.con_diferencias+' dif.</span>'):'';
+    const marca=(r.id===cur)?' style="border-color:#f59e0b;background:#fff7ed"':'';
+    const idJs=String(r.id).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    return `<div class="btn-sm" style="display:block;width:100%;text-align:left;margin:5px 0;padding:9px 11px"${marca} onclick="abrirRecepEnImp('${idJs}')">
+      <b>${esc(r.proveedor||'(sin proveedor)')}</b> · Fact. ${esc(r.n_factura||'—')} ${est}${dif}
+      <span class="hint">(${r.n_items} ítem(s)${r.almacen_nombre?(' · '+esc(r.almacen_nombre)):''})</span>${r.id===cur?' — <b>esta importación</b>':''}
+    </div>`;
+  }).join('');
+  // Abrir automáticamente la de ESTA importación; si no está en la lista, la primera.
+  const target=lista.find(r=>r.id===cur)||lista[0];
+  abrirRecepEnImp(target.id);
+}
+async function abrirRecepEnImp(id){
+  const det=$('recepDetalle'); if(det)det.innerHTML='<div class="hint">Cargando…</div>';
+  try{ recepImp=await recApi('/api/recepcion/'+encodeURIComponent(id)); renderRecepEstado(); }
+  catch(e){ if(det)det.innerHTML='<div class="card"><span class="hint">No se pudo abrir: '+esc(e.message)+'</span></div>'; }
 }
 function renderRecepEstado(){
-  const cont=$('recepEstado'), itemsBox=$('recepItems'); const r=recepImp; if(!r)return;
+  const det=$('recepDetalle'); const r=recepImp; if(!det||!r)return;
   const est=r.estado, val=est==='validada';
+  const esActual = r.id===codigoImportacion(); // ¿es la factura cargada ahora en la app?
   const badge = val?'<span class="badge b-exact">validada</span>':(est==='borrador'?'<span class="badge b-rev">en progreso</span>':'<span class="badge b-rev">pendiente</span>');
   const conDif=(r.items||[]).filter(i=>i.cuadra===false||['falta','sobra','no_llego','extra'].includes(i.estado_item)).length;
-  cont.innerHTML=`<div>Estado: ${badge} ${r.almacen_nombre?('· Almacén: <b>'+esc(r.almacen_nombre)+'</b>'):''} ${r.validado_por?('· por <b>'+esc(r.validado_por)+'</b>'):''}
-    ${conDif?(' · <span style="color:#b91c1c;font-weight:700">'+conDif+' ítem(s) con diferencia</span>'):''}</div>
-    ${val?'':'<div class="hint" style="margin-top:6px">Aún no confirmado por el almacén. Puedes actualizar con ↻.</div>'}`;
-  // Tabla de ítems con validación
   const rows=(r.items||[]).map((it,i)=>{
     const dif=it.cuadra===false||['falta','sobra','no_llego','extra'].includes(it.estado_item);
     const cantOk = it.cuadra===true;
@@ -697,16 +712,28 @@ function renderRecepEstado(){
       <td>${cantOk?'<span class="badge b-exact">cuadra</span>':(dif?('<span class="badge b-rev">'+esc(estTxt||'revisar')+'</span>'):'—')}</td>
     </tr>`;
   }).join('');
-  itemsBox.innerHTML=`<div class="card"><div class="tw"><table>
-    <thead><tr><th>Cód. factura</th><th>Descripción</th><th>SKU sugerido</th><th>SKU confirmado</th><th class="n">Cant. factura</th><th class="n">Cant. recibida</th><th>Estado</th></tr></thead>
-    <tbody>${rows}</tbody></table></div>
-    ${esMaestroImp()?'<div class="actions"><button class="btn-sm" onclick="recepGuardarCorreccion()">💾 Guardar correcciones de SKU</button></div>':''}
-    </div>`;
-  // Botón continuar: habilitado si está validada; si no, el maestro puede forzar
-  const btn=$('btnContinuarDua');
-  if(val){ btn.style.display=''; btn.textContent='Continuar a la DUA →'; }
-  else if(esMaestroImp()){ btn.style.display=''; btn.textContent='Continuar sin esperar (forzar) →'; }
-  else { btn.style.display='none'; }
+  // Botón continuar: solo para la factura cargada AHORA (tiene los precios) y validada; el maestro puede forzar.
+  let accion='';
+  if(esActual){
+    if(val) accion=`<button class="btn btn-green" onclick="continuarADua()">Continuar a la DUA →</button>`;
+    else if(esMaestroImp()) accion=`<button class="btn btn-green" onclick="continuarADua()">Continuar sin esperar (forzar) →</button>`;
+    else accion=`<span class="hint">Aún no confirmado por el almacén.</span>`;
+  } else {
+    accion=`<span class="hint">Esta no es la factura cargada ahora. Para costearla, ábrela en <b>Factura → SKU</b> (o desde 💾 Guardadas) y vuelve aquí.</span>`;
+  }
+  det.innerHTML=`<div class="card">
+    <div><b>${esc(r.proveedor||'(sin proveedor)')}</b> · Factura ${esc(r.n_factura||'—')} · Estado: ${badge}
+      ${r.almacen_nombre?('· Almacén: <b>'+esc(r.almacen_nombre)+'</b>'):''} ${r.validado_por?('· por <b>'+esc(r.validado_por)+'</b>'):''}
+      ${conDif?(' · <span style="color:#b91c1c;font-weight:700">'+conDif+' ítem(s) con diferencia</span>'):''}</div>
+    ${val?'':'<div class="hint" style="margin-top:6px">Aún no confirmado por el almacén. Actualiza con ↻ Actualizar.</div>'}
+    <div class="tw" style="margin-top:8px"><table>
+      <thead><tr><th>Cód. factura</th><th>Descripción</th><th>SKU sugerido</th><th>SKU confirmado</th><th class="n">Cant. factura</th><th class="n">Cant. recibida</th><th>Estado</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+    <div class="actions" style="margin-top:10px">
+      ${esMaestroImp()?'<button class="btn-sm" onclick="recepGuardarCorreccion()">💾 Guardar correcciones de SKU</button>':''}
+      ${accion}
+    </div>
+  </div>`;
 }
 function recepSetSku(i,v){ if(recepImp&&recepImp.items[i])recepImp.items[i].sku_confirmado=v.trim(); }
 async function recepGuardarCorreccion(){
@@ -717,6 +744,10 @@ async function recepGuardarCorreccion(){
   catch(e){ alert('No se pudo guardar: '+e.message); }
 }
 function continuarADua(){
+  // Solo se puede costear la factura cargada AHORA (la que tiene los precios en la app).
+  if(recepImp&&recepImp.id!==codigoImportacion()){
+    alert('Esta recepción es de otra factura. Ábrela en Factura → SKU (o desde 💾 Guardadas) para costearla.');return;
+  }
   // Volcar los SKU confirmados y las cantidades REALES recibidas a las líneas de la factura
   if(recepImp&&recepImp.items){
     recepImp.items.forEach(it=>{

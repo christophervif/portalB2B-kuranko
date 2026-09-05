@@ -631,12 +631,13 @@ function enviarACalc(){
 // ══════════════ RECEPCIÓN EN ALMACÉN (paso intermedio de compra) ══════════════
 let recepImp=null; // recepción cargada del portal
 function esMaestroImp(){try{return localStorage.getItem('admmaestro')==='1';}catch(e){return false;}}
-async function apiPost(ep,body){
-  const r=await fetch(API+ep,{method:'POST',headers:_authHeaders(true),body:JSON.stringify(body)});
-  const d=await r.json().catch(()=>({})); if(!r.ok)throw new Error(d.error||('API '+r.status)); return d;
-}
-async function apiPut(ep,body){
-  const r=await fetch(API+ep,{method:'PUT',headers:_authHeaders(true),body:JSON.stringify(body)});
+// OJO: en esta app API='/api/importacion'. Las rutas de recepción cuelgan de la
+// RAÍZ (/api/recepcion...), así que NO deben pasar por API. Este helper pega
+// directo a la ruta absoluta.
+async function recApi(ep,method,body){
+  const opt={method:method||'GET',headers:_authHeaders(!!body)};
+  if(body)opt.body=JSON.stringify(body);
+  const r=await fetch(ep,opt); // ep es ruta absoluta desde la raíz
   const d=await r.json().catch(()=>({})); if(!r.ok)throw new Error(d.error||('API '+r.status)); return d;
 }
 async function enviarARecepcion(){
@@ -649,7 +650,7 @@ async function enviarARecepcion(){
   if(!lineas.length){alert('No hay ítems para enviar.');return;}
   if(!confirm('¿Enviar esta carga al almacén para que la confirmen? (No incluye precios.)'))return;
   try{
-    await apiPost('/api/recepcion',{ id, importacion_id:id, proveedor:(m.proveedorNombre||m.proveedor||'').split('(')[0],
+    await recApi('/api/recepcion','POST',{ id, importacion_id:id, proveedor:(m.proveedorNombre||m.proveedor||'').split('(')[0],
       empresa:m.empresa||'', n_factura:m.invoice||'', tipo:'compra', items:lineas });
     alert('✓ Enviado al almacén. El almacenero lo verá en su celular. Cuando confirme, revisa aquí en la pestaña Recepción.');
     tab('recep');
@@ -661,7 +662,7 @@ async function cargarRecepEstado(){
   cont.innerHTML='Cargando…'; if(itemsBox)itemsBox.innerHTML='';
   $('btnContinuarDua').style.display='none';
   try{
-    recepImp=await apiGet('/api/recepcion/'+encodeURIComponent(id));
+    recepImp=await recApi('/api/recepcion/'+encodeURIComponent(id));
   }catch(e){
     recepImp=null;
     cont.innerHTML='<div class="hint">Esta importación aún no se ha enviado al almacén. Vuelve a la pestaña <b>Factura → SKU</b> y pulsa <b>📥 Enviar a almacén</b>.</div>';
@@ -712,7 +713,7 @@ async function recepGuardarCorreccion(){
   if(!recepImp)return;
   const items=recepImp.items.map(it=>({codigo:it.codigo,sku_sugerido:it.sku_sugerido,sku_confirmado:it.sku_confirmado||'',
     cuadra:it.cuadra,cant_recibida:it.cant_recibida,estado_item:it.estado_item||'',nota:it.nota||''}));
-  try{ await apiPut('/api/recepcion/'+encodeURIComponent(recepImp.id)+'/correccion',{items}); alert('✓ Correcciones guardadas.'); }
+  try{ await recApi('/api/recepcion/'+encodeURIComponent(recepImp.id)+'/correccion','PUT',{items}); alert('✓ Correcciones guardadas.'); }
   catch(e){ alert('No se pudo guardar: '+e.message); }
 }
 function continuarADua(){

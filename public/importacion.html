@@ -53,6 +53,7 @@
 </div>
 <div class="tabs">
   <div class="tabbtn on" data-t="factura" onclick="tab('factura')">1 · Factura → SKU</div>
+  <div class="tabbtn hide" data-t="recep" onclick="tab('recep')">📥 Recepción</div>
   <div class="tabbtn" data-t="dua" onclick="tab('dua')">2 · DUA</div>
   <div class="tabbtn" data-t="calc" onclick="tab('calc')">3 · Calculadora</div>
   <div class="tabbtn" data-t="part" onclick="tab('part')">⚙ Partidas</div>
@@ -95,6 +96,20 @@
     <div class="hint"><b>Cotización</b> = valores teóricos (aún no compras): se ocultan la DUA y la liquidación real. <b>Compra</b> = ya la importaste: se habilitan la DUA, la liquidación y los impuestos reales. · En <b>Definitiva</b> puedes usar cualquier partida (menos las Courier); en <b>Courier</b> solo las <b>9809.*</b>.</div>
   </div>
   <div id="facResult"></div>
+</div>
+
+<!-- ===================== TAB RECEPCIÓN (solo compra) ===================== -->
+<div id="tab-recep" class="hide">
+  <div class="card">
+    <h2>📥 Recepción en almacén</h2>
+    <div class="hint">Paso solo para <b>compras</b>. El almacenero confirma desde su celular lo que llegó, valida el SKU de cada ítem e indica el almacén. Aquí revisas esa validación y, si algo del SKU está mal, lo corriges antes de pasar a la DUA.</div>
+    <div id="recepEstado" style="margin-top:10px"></div>
+    <div class="actions" style="margin-top:10px">
+      <button class="btn-sm" onclick="cargarRecepEstado()">↻ Actualizar</button>
+      <button class="btn btn-green" id="btnContinuarDua" onclick="continuarADua()" style="display:none">Continuar a la DUA →</button>
+    </div>
+  </div>
+  <div id="recepItems"></div>
 </div>
 
 <!-- ===================== TAB CALCULADORA ===================== -->
@@ -435,7 +450,8 @@ function setInvoiceFile(f){try{if(invoiceURL)URL.revokeObjectURL(invoiceURL);}ca
 function previsualizarFactura(){const f=$('ai_pdf').files[0];if(!invoiceURL&&f)setInvoiceFile(f);if(!invoiceURL){alert('Adjunta primero el PDF de la factura (en el bloque de IA).');return;}const box=$('invoicePrev'),fr=$('invoiceFrame');if(box.classList.contains('hide')){fr.src=invoiceURL;box.classList.remove('hide');$('btnPrev').textContent='🙈 Ocultar factura';}else{box.classList.add('hide');$('btnPrev').textContent='👁 Previsualizar factura';}}
 
 function tab(t){document.querySelectorAll('.tabbtn').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
-  ['factura','dua','calc','part','guard'].forEach(x=>$('tab-'+x).classList.toggle('hide',x!==t));}
+  ['factura','recep','dua','calc','part','guard'].forEach(x=>{const p=$('tab-'+x);if(p)p.classList.toggle('hide',x!==t);});
+  if(t==='recep')cargarRecepEstado();}
 
 const esc=s=>(s||'').replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
 const n2=v=>(Number(v)||0).toFixed(2);
@@ -604,12 +620,115 @@ function renderFactura(){
     </div>
     <div class="hint">Puedes <b>editar</b> código, descripción, cantidad y precio; <b>agregar</b> o <b>quitar</b> líneas; <b>reordenar arrastrando</b> desde el <b>⠿</b> del número; y <b>dividir</b> una línea en 2 (queda marcada <b>✂ dividido</b>) — ambas conservan el valor total: <b>÷precio</b> = misma cantidad y precio unitario a la mitad (un «set» que son 2 SKU: 10 sets = 10 A + 10 B a mitad de precio); <b>÷cant</b> = mismo precio y se reparte la cantidad (10 unidades = 5 A + 5 B). Si ninguna sugerencia sirve, pulsa <b>🔎</b> para buscar en <b>todo el catálogo</b>; con <b>↻</b> vuelves a cruzar por el código. <b>Total c/desc.</b>: si la factura trae descuento, la IA pone aquí el total final de la línea (con el descuento ya aplicado) y ese valor es el que se usa para costear; vacío = precio × cantidad.</div>
     <div class="tw" style="margin-top:6px"><table><thead><tr><th>#</th><th>Item factura</th><th>Descripción</th><th class="n">Cant</th><th class="n">Precio EXW</th><th class="n" title="Total de la línea con descuento aplicado; vacío = precio × cantidad">Total c/desc.</th><th>SKU en sistema de ventas</th><th>Confianza</th><th>Acciones</th></tr></thead><tbody>${rows}</tbody></table></div>
-    <div class="actions"><button class="btn-sm" onclick="facAdd()">+ agregar ítem</button><button class="btn btn-green" onclick="enviarACalc()">✓ Confirmar y enviar a Calculadora →</button></div>
+    <div class="actions"><button class="btn-sm" onclick="facAdd()">+ agregar ítem</button>${realOn()?'<button class="btn" onclick="enviarARecepcion()" title="Manda esta carga (sin precios) al almacenero para que confirme lo que llegó">📥 Enviar a almacén</button>':''}<button class="btn btn-green" onclick="enviarACalc()">✓ Confirmar y enviar a Calculadora →</button></div>
   </div>`;
 }
 function enviarACalc(){
   items=facMatches.filter(m=>m.sku).map(m=>({parte:m.item,codigo:m.sku,desc:m.desc,precioEXW:m.exw,cantidad:m.qty,peso:0,partida:'',avLib:'',exwAduanas:'',descTotal:(m.total!=null?m.total:''),split:m.split||''}));
   updateCodigo();aplicarCourier();renderItems();tab(duaAplica()?'dua':'calc');
+}
+
+// ══════════════ RECEPCIÓN EN ALMACÉN (paso intermedio de compra) ══════════════
+let recepImp=null; // recepción cargada del portal
+function esMaestroImp(){try{return localStorage.getItem('admmaestro')==='1';}catch(e){return false;}}
+async function apiPost(ep,body){
+  const r=await fetch(API+ep,{method:'POST',headers:_authHeaders(true),body:JSON.stringify(body)});
+  const d=await r.json().catch(()=>({})); if(!r.ok)throw new Error(d.error||('API '+r.status)); return d;
+}
+async function apiPut(ep,body){
+  const r=await fetch(API+ep,{method:'PUT',headers:_authHeaders(true),body:JSON.stringify(body)});
+  const d=await r.json().catch(()=>({})); if(!r.ok)throw new Error(d.error||('API '+r.status)); return d;
+}
+async function enviarARecepcion(){
+  updateCodigo();
+  const id=codigoImportacion();
+  if(!id){alert('Primero completa los datos de la importación (proveedor, N° importación, etc.).');return;}
+  const m=_meta();
+  const lineas=facMatches.filter(x=>x.item||x.desc||x.sku).map(x=>({
+    codigo:x.item||'', desc:x.desc_es||x.desc||'', cantidad:+x.qty||0, sku_sugerido:x.sku||'' }));
+  if(!lineas.length){alert('No hay ítems para enviar.');return;}
+  if(!confirm('¿Enviar esta carga al almacén para que la confirmen? (No incluye precios.)'))return;
+  try{
+    await apiPost('/api/recepcion',{ id, importacion_id:id, proveedor:(m.proveedorNombre||m.proveedor||'').split('(')[0],
+      empresa:m.empresa||'', n_factura:m.invoice||'', tipo:'compra', items:lineas });
+    alert('✓ Enviado al almacén. El almacenero lo verá en su celular. Cuando confirme, revisa aquí en la pestaña Recepción.');
+    tab('recep');
+  }catch(e){alert('No se pudo enviar: '+e.message);}
+}
+async function cargarRecepEstado(){
+  const cont=$('recepEstado'), itemsBox=$('recepItems'); if(!cont)return;
+  updateCodigo(); const id=codigoImportacion();
+  cont.innerHTML='Cargando…'; if(itemsBox)itemsBox.innerHTML='';
+  $('btnContinuarDua').style.display='none';
+  try{
+    recepImp=await apiGet('/api/recepcion/'+encodeURIComponent(id));
+  }catch(e){
+    recepImp=null;
+    cont.innerHTML='<div class="hint">Esta importación aún no se ha enviado al almacén. Vuelve a la pestaña <b>Factura → SKU</b> y pulsa <b>📥 Enviar a almacén</b>.</div>';
+    return;
+  }
+  renderRecepEstado();
+}
+function renderRecepEstado(){
+  const cont=$('recepEstado'), itemsBox=$('recepItems'); const r=recepImp; if(!r)return;
+  const est=r.estado, val=est==='validada';
+  const badge = val?'<span class="badge b-exact">validada</span>':(est==='borrador'?'<span class="badge b-rev">en progreso</span>':'<span class="badge b-rev">pendiente</span>');
+  const conDif=(r.items||[]).filter(i=>i.cuadra===false||['falta','sobra','no_llego','extra'].includes(i.estado_item)).length;
+  cont.innerHTML=`<div>Estado: ${badge} ${r.almacen_nombre?('· Almacén: <b>'+esc(r.almacen_nombre)+'</b>'):''} ${r.validado_por?('· por <b>'+esc(r.validado_por)+'</b>'):''}
+    ${conDif?(' · <span style="color:#b91c1c;font-weight:700">'+conDif+' ítem(s) con diferencia</span>'):''}</div>
+    ${val?'':'<div class="hint" style="margin-top:6px">Aún no confirmado por el almacén. Puedes actualizar con ↻.</div>'}`;
+  // Tabla de ítems con validación
+  const rows=(r.items||[]).map((it,i)=>{
+    const dif=it.cuadra===false||['falta','sobra','no_llego','extra'].includes(it.estado_item);
+    const cantOk = it.cuadra===true;
+    const recib = it.cant_recibida==null?'—':it.cant_recibida;
+    const estTxt={ok:'OK',falta:'faltó',sobra:'sobró',no_llego:'no llegó',extra:'extra'}[it.estado_item]||'';
+    const skuCell = esMaestroImp()
+      ? `<input value="${esc(it.sku_confirmado||it.sku_sugerido||'')}" oninput="recepSetSku(${i},this.value)" style="min-width:120px" class="sku">`
+      : `<span class="sku">${esc(it.sku_confirmado||it.sku_sugerido||'')}</span>`;
+    return `<tr>
+      <td>${esc(it.codigo||'')}</td>
+      <td>${esc(it.desc||'')}</td>
+      <td class="sku" title="sugerido por el sistema">${esc(it.sku_sugerido||'')}</td>
+      <td>${skuCell}</td>
+      <td class="n">${it.cantidad==null?'—':it.cantidad}</td>
+      <td class="n" style="${dif?'color:#b91c1c;font-weight:700':''}">${recib}</td>
+      <td>${cantOk?'<span class="badge b-exact">cuadra</span>':(dif?('<span class="badge b-rev">'+esc(estTxt||'revisar')+'</span>'):'—')}</td>
+    </tr>`;
+  }).join('');
+  itemsBox.innerHTML=`<div class="card"><div class="tw"><table>
+    <thead><tr><th>Cód. factura</th><th>Descripción</th><th>SKU sugerido</th><th>SKU confirmado</th><th class="n">Cant. factura</th><th class="n">Cant. recibida</th><th>Estado</th></tr></thead>
+    <tbody>${rows}</tbody></table></div>
+    ${esMaestroImp()?'<div class="actions"><button class="btn-sm" onclick="recepGuardarCorreccion()">💾 Guardar correcciones de SKU</button></div>':''}
+    </div>`;
+  // Botón continuar: habilitado si está validada; si no, el maestro puede forzar
+  const btn=$('btnContinuarDua');
+  if(val){ btn.style.display=''; btn.textContent='Continuar a la DUA →'; }
+  else if(esMaestroImp()){ btn.style.display=''; btn.textContent='Continuar sin esperar (forzar) →'; }
+  else { btn.style.display='none'; }
+}
+function recepSetSku(i,v){ if(recepImp&&recepImp.items[i])recepImp.items[i].sku_confirmado=v.trim(); }
+async function recepGuardarCorreccion(){
+  if(!recepImp)return;
+  const items=recepImp.items.map(it=>({codigo:it.codigo,sku_sugerido:it.sku_sugerido,sku_confirmado:it.sku_confirmado||'',
+    cuadra:it.cuadra,cant_recibida:it.cant_recibida,estado_item:it.estado_item||'',nota:it.nota||''}));
+  try{ await apiPut('/api/recepcion/'+encodeURIComponent(recepImp.id)+'/correccion',{items}); alert('✓ Correcciones guardadas.'); }
+  catch(e){ alert('No se pudo guardar: '+e.message); }
+}
+function continuarADua(){
+  // Volcar los SKU confirmados y las cantidades REALES recibidas a las líneas de la factura
+  if(recepImp&&recepImp.items){
+    recepImp.items.forEach(it=>{
+      const j=facMatches.findIndex(x=>String(x.item||'').trim()===String(it.codigo||'').trim());
+      if(j>=0){
+        if(it.sku_confirmado)facMatches[j].sku=it.sku_confirmado;
+        if(it.estado_item==='no_llego')facMatches[j].qty=0;
+        else if(it.cant_recibida!=null&&it.cant_recibida!=='')facMatches[j].qty=+it.cant_recibida;
+      }
+    });
+    renderFactura();
+  }
+  enviarACalc();
 }
 
 /* ---------- CALCULADORA UI ---------- */
@@ -1177,7 +1296,10 @@ function aplicarTipo(){
   const v=$('save_tipo_view');if(v)v.value=tipoImportacion();
   const duaBtn=document.querySelector('.tabbtn[data-t="dua"]');if(duaBtn)duaBtn.classList.toggle('hide',!on);
   ['cardReal','cardLiqTop'].forEach(id=>{const c=$(id);if(c)c.classList.toggle('hide',!on);});
-  if(!on){const ao=document.querySelector('.tabbtn.on');if(ao&&ao.dataset.t==='dua')tab('calc');}
+  // La recepción en almacén solo aplica a COMPRAS (mismo criterio real que la DUA)
+  const esCompra=realOn();
+  const recBtn=document.querySelector('.tabbtn[data-t="recep"]');if(recBtn)recBtn.classList.toggle('hide',!esCompra);
+  if(!on){const ao=document.querySelector('.tabbtn.on');if(ao&&(ao.dataset.t==='dua'||ao.dataset.t==='recep'))tab('calc');}
 }
 // T.C. SUNAT dólar = Impuesto pagado real (soles) ÷ (IGV + IPM + A/V liquidación)  [solo esos tres]
 // Por defecto los T.C. de gastos (CIF, origen, locales) copian el T.C. de facturación, hasta que los edites a mano

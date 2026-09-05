@@ -10,6 +10,36 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <style>
+/* ── Recepción de mercadería ── */
+.rec-badge{display:inline-block;min-width:18px;padding:0 5px;margin-left:4px;border-radius:9px;background:#e11d48;color:#fff;font-size:11px;font-weight:800;line-height:18px;text-align:center;vertical-align:middle}
+.rec-card{background:var(--surface,#111a44);border:1px solid var(--border,#212b54);border-radius:12px;padding:14px;margin:10px 0;cursor:pointer}
+.rec-card:hover{background:var(--hover,#1a2450)}
+.rec-card .r-top{display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap}
+.rec-chip{font-size:11px;font-weight:800;padding:3px 9px;border-radius:20px;white-space:nowrap}
+.rec-chip.pend{background:var(--bg-warn,#3d3315);color:var(--fg-warn,#ffcb52)}
+.rec-chip.bor{background:#1e335e;color:#8fb8ff}
+.rec-chip.val{background:var(--bg-ok,#163a29);color:var(--fg-ok,#6ee59a)}
+.rec-chip.dif{background:var(--bg-r,#3f1c20);color:var(--fg-r,#f79a9a)}
+.rec-item{background:var(--surface,#111a44);border:1px solid var(--border,#212b54);border-radius:12px;padding:12px;margin:10px 0}
+.rec-item.ok{border-left:4px solid #22c55e}
+.rec-item.diff{border-left:4px solid #ef4444}
+.rec-item .ri-desc{font-weight:700;font-size:14px;margin-bottom:2px}
+.rec-item .ri-cod{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--muted,#8a93b4)}
+.rec-field{margin-top:8px}
+.rec-field label{display:block;font-size:12px;font-weight:700;color:var(--text2,#c6cee2);margin-bottom:3px}
+.rec-input{width:100%;padding:9px;border:1px solid var(--border,#cbd5e1);border-radius:8px;background:var(--surface2,#0e1640);color:var(--text,#eef1f8);font-size:14px;box-sizing:border-box}
+.rec-cuadra{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.rec-cuadra button{flex:1;min-width:90px;padding:9px;border-radius:8px;border:1px solid var(--border,#cbd5e1);background:var(--surface2,#0e1640);color:var(--text2,#c6cee2);font-weight:700;font-size:13px;cursor:pointer}
+.rec-cuadra button.on-si{background:#14532d;border-color:#22c55e;color:#bbf7d0}
+.rec-cuadra button.on-no{background:#4c1d24;border-color:#ef4444;color:#fecaca}
+.rec-sug{margin-top:6px;position:relative}
+.rec-sug-list{position:absolute;left:0;right:0;z-index:20;background:var(--surface,#111a44);border:1px solid var(--border,#212b54);border-radius:8px;max-height:220px;overflow:auto;display:none}
+.rec-sug-list div{padding:8px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border,#212b54)}
+.rec-sug-list div:hover{background:var(--hover,#1a2450)}
+.rec-sug-list .rs-sku{font-family:ui-monospace,Menlo,monospace;font-weight:700}
+@media(max-width:640px){#tab-recepciones .card{padding:12px}}
+</style>
+<style>
 :root{
   --bg:#0a1030;--surface:#111a44;--surface2:#0e1640;--surface3:#18224e;
   --border:#212b54;--text:#eef1f8;--text2:#c6cee2;--muted:#8a93b4;--muted2:#a2abca;
@@ -226,6 +256,7 @@ tr:hover td{background:var(--hover)}
       <button class="tab" onclick="tab('auditoria',this)">Auditoría de catálogo</button>
       <button class="tab" onclick="tab('crm',this)">CRM Kommo</button>
       <button class="tab" onclick="tab('importaciones',this)">Importaciones</button>
+      <button class="tab" onclick="tab('recepciones',this)">Recepciones <span id="rec-badge" class="rec-badge" style="display:none">0</span></button>
       <button class="tab" data-modulos="sync,pagos,accesos" onclick="tab('sistemas',this)">Sistemas</button>
     </div>
 
@@ -709,6 +740,48 @@ tr:hover td{background:var(--hover)}
       </div>
     </div>
 
+    <div id="tab-recepciones" class="panel">
+      <!-- LISTA de recepciones -->
+      <div id="rec-lista-vista">
+        <div class="card">
+          <h3>Recepción de mercadería</h3>
+          <div class="desc">Cargas de compra enviadas desde Importación. Confirma lo que llegó, valida el SKU de cada ítem e indica el almacén de ingreso.</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px">
+            <select id="rec-filtro" onchange="cargarRecepciones()" style="padding:8px;border:1px solid var(--border,#cbd5e1);border-radius:8px">
+              <option value="pendientes">Pendientes por confirmar</option>
+              <option value="validada">Ya validadas</option>
+              <option value="">Todas</option>
+            </select>
+            <button class="btn btn-sm" onclick="cargarRecepciones()">↻ Actualizar</button>
+            <span id="rec-lista-status" class="muted"></span>
+          </div>
+        </div>
+        <div id="rec-cards"></div>
+      </div>
+
+      <!-- DETALLE / validación de una recepción -->
+      <div id="rec-detalle-vista" style="display:none">
+        <div class="card">
+          <button class="btn btn-sec btn-sm" onclick="recVolver()">← Volver</button>
+          <div id="rec-cab" style="margin-top:10px"></div>
+          <div style="margin-top:10px">
+            <label style="font-weight:700;font-size:13px">Almacén de ingreso</label>
+            <select id="rec-almacen" style="width:100%;max-width:420px;padding:9px;border:1px solid var(--border,#cbd5e1);border-radius:8px;margin-top:4px">
+              <option value="">— Elige el almacén —</option>
+            </select>
+          </div>
+        </div>
+        <div id="rec-items"></div>
+        <div class="card" id="rec-acciones" style="position:sticky;bottom:0;z-index:5">
+          <div id="rec-detalle-status" class="muted" style="margin-bottom:8px"></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-sec" onclick="recGuardar(false)">💾 Guardar borrador</button>
+            <button class="btn" onclick="recGuardar(true)">✓ Confirmar recepción</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -788,6 +861,8 @@ function aplicarPermisos(){
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
   // Construir el launcher con las apps visibles
   construirLauncher();
+  // Badge de recepciones pendientes (para maestro o supervisor con el módulo)
+  if((ES_MAESTRO||MIS_MODULOS.includes('recepciones'))&&typeof actualizarBadgeRecepciones==='function')actualizarBadgeRecepciones();
   // Si había una pestaña abierta antes de recargar y el usuario aún puede verla, volver a ella.
   // Si no, mostrar el launcher (pantalla de inicio).
   let recordada=null;
@@ -804,7 +879,7 @@ function aplicarPermisos(){
 const APP_ICONOS={
   clientes_gestion:'👤', ventas_ingresos:'📊', clientes_bi:'👥',
   inventario:'📦', restock:'🔁', reportes:'💰', auditoria:'🔍',
-  crm:'📣', sistemas:'⚙️', promociones:'🏷️', importaciones:'🚢'
+  crm:'📣', sistemas:'⚙️', promociones:'🏷️', importaciones:'🚢', recepciones:'📥'
 };
 
 // Genera las tarjetas del launcher a partir de las pestañas visibles (respeta permisos)
@@ -887,6 +962,7 @@ function cargarDatosTab(id){
   }
   else if(id==='reportes'){if(!rpFiltrosCargados)cargarFiltrosRP();cargarProductosKX();if(!repRestaurado){restaurarPagos();restaurarKardex();repRestaurado=true;}}
   else if(id==='pagos'){cargarMetodosPago();}
+  else if(id==='recepciones'){cargarRecepciones();}
   else if(id==='accesos'){cargarAccesos();}
   else if(id==='importaciones'){
     // Carga la app de importaciones en el iframe solo la 1a vez que se abre la pestaña.
@@ -979,6 +1055,161 @@ async function crearTodos(){
     document.getElementById('crear-todos-result').textContent=`✓ ${r.creados} creados, ${r.saltados} ya existían (de ${r.total} clientes).`;cargarUsuarios();}
   catch(e){showToast(e.message,true);}
 }
+
+// ══════════════ RECEPCIÓN DE MERCADERÍA ══════════════
+let REC_ALMACENES=[], REC_CATALOGO=null, REC_ACTUAL=null;
+const recEsc=(s)=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+async function recCargarAlmacenes(){
+  if(REC_ALMACENES.length)return REC_ALMACENES;
+  try{ REC_ALMACENES=await apiCall('/api/recepcion/almacenes','GET'); }catch(e){ REC_ALMACENES=[]; }
+  return REC_ALMACENES;
+}
+async function recCargarCatalogo(){
+  if(REC_CATALOGO)return REC_CATALOGO;
+  try{ REC_CATALOGO=await apiCall('/api/recepcion/catalogo','GET'); }catch(e){ REC_CATALOGO=[]; }
+  return REC_CATALOGO;
+}
+async function actualizarBadgeRecepciones(){
+  try{ const d=await apiCall('/api/recepciones/pendientes-count','GET'); const b=document.getElementById('rec-badge');
+    if(b){ if(d&&d.n>0){b.textContent=d.n;b.style.display='';}else{b.style.display='none';} } }catch(e){}
+}
+async function cargarRecepciones(){
+  const st=document.getElementById('rec-lista-status'), cont=document.getElementById('rec-cards');
+  document.getElementById('rec-detalle-vista').style.display='none';
+  document.getElementById('rec-lista-vista').style.display='';
+  if(st)st.textContent='Cargando...';
+  const filtro=document.getElementById('rec-filtro').value;
+  const qs = filtro==='pendientes' ? '?pendientes=1' : (filtro ? '?estado='+filtro : '');
+  try{
+    const lista=await apiCall('/api/recepciones'+qs,'GET');
+    actualizarBadgeRecepciones();
+    if(st)st.textContent = lista.length ? '' : 'No hay recepciones en este filtro.';
+    cont.innerHTML = lista.map(r=>{
+      const est = r.estado==='validada'?'val':(r.estado==='borrador'?'bor':'pend');
+      const etq = r.estado==='validada'?'Validada':(r.estado==='borrador'?'Borrador':'Pendiente');
+      const dif = r.con_diferencias>0 ? `<span class="rec-chip dif">${r.con_diferencias} c/dif.</span>` : '';
+      const alm = r.almacen_nombre ? ' · 📦 '+recEsc(r.almacen_nombre) : '';
+      return `<div class="rec-card" onclick="abrirRecepcion('${recEsc(r.id)}')">
+        <div class="r-top">
+          <div><b>${recEsc(r.proveedor)||'(sin proveedor)'}</b> <span class="muted">· Factura ${recEsc(r.n_factura)||'—'}</span></div>
+          <div style="display:flex;gap:6px"><span class="rec-chip ${est}">${etq}</span>${dif}</div>
+        </div>
+        <div class="muted" style="margin-top:6px;font-size:13px">${r.n_items} ítem(s)${alm}${r.validado_por?(' · por '+recEsc(r.validado_por)):''}</div>
+      </div>`;
+    }).join('');
+  }catch(e){ if(st)st.textContent=''; showToast(e.message,true); }
+}
+async function abrirRecepcion(id){
+  try{
+    const [rec]=await Promise.all([apiCall('/api/recepcion/'+encodeURIComponent(id),'GET'), recCargarAlmacenes(), recCargarCatalogo()]);
+    REC_ACTUAL=rec;
+    document.getElementById('rec-lista-vista').style.display='none';
+    document.getElementById('rec-detalle-vista').style.display='';
+    document.getElementById('rec-detalle-status').textContent='';
+    // Cabecera
+    document.getElementById('rec-cab').innerHTML=
+      `<div style="font-weight:800;font-size:16px">${recEsc(rec.proveedor)||'(sin proveedor)'}</div>
+       <div class="muted" style="font-size:13px">Factura ${recEsc(rec.n_factura)||'—'} · ${recEsc(rec.empresa)||''} · ${rec.items.length} ítem(s)</div>`;
+    // Almacén
+    const selA=document.getElementById('rec-almacen');
+    selA.innerHTML='<option value="">— Elige el almacén —</option>'+REC_ALMACENES.map(a=>
+      `<option value="${a.id}" ${String(rec.almacen_id)===String(a.id)?'selected':''}>${recEsc(a.nombre)}</option>`).join('');
+    // Ítems
+    renderRecItems();
+    // Si ya está validada y NO soy maestro, dejar solo lectura
+    const soloLectura = rec.estado==='validada' && !ES_MAESTRO;
+    document.getElementById('rec-acciones').style.display = soloLectura ? 'none' : '';
+    window.scrollTo(0,0);
+  }catch(e){ showToast(e.message,true); }
+}
+function renderRecItems(){
+  const rec=REC_ACTUAL, cont=document.getElementById('rec-items');
+  cont.innerHTML=rec.items.map((it,i)=>{
+    const cuadra = it.cuadra;
+    const cls = (cuadra===false||['falta','sobra','no_llego','extra'].includes(it.estado_item))?'diff':(cuadra===true?'ok':'');
+    const sku = it.sku_confirmado || it.sku_sugerido || '';
+    return `<div class="rec-item ${cls}" data-i="${i}">
+      <div class="ri-desc">${recEsc(it.desc)||'(sin descripción)'}</div>
+      <div class="ri-cod">Cód. factura: ${recEsc(it.codigo)||'—'} · Cant. factura: <b>${it.cantidad==null?'—':it.cantidad}</b></div>
+      <div class="rec-field">
+        <label>SKU en el sistema ${it.sku_sugerido?('· sugerido: '+recEsc(it.sku_sugerido)):''}</label>
+        <div class="rec-sug">
+          <input class="rec-input rec-sku-inp" data-i="${i}" value="${recEsc(sku)}" placeholder="Escribe para buscar SKU o nombre..."
+                 oninput="recBuscarSku(${i},this.value)" onblur="setTimeout(()=>recCerrarSug(${i}),180)" autocomplete="off">
+          <div class="rec-sug-list" id="rec-sug-${i}"></div>
+        </div>
+      </div>
+      <div class="rec-field">
+        <label>¿Cuadra la cantidad que llegó?</label>
+        <div class="rec-cuadra">
+          <button type="button" class="${cuadra===true?'on-si':''}" onclick="recSetCuadra(${i},true)">✓ Sí, llegó completo</button>
+          <button type="button" class="${cuadra===false?'on-no':''}" onclick="recSetCuadra(${i},false)">✗ No cuadra</button>
+        </div>
+      </div>
+      <div class="rec-field rec-recibida" data-i="${i}" style="${cuadra===false?'':'display:none'}">
+        <label>¿Cuánto llegó realmente?</label>
+        <input class="rec-input" type="number" step="any" min="0" value="${it.cant_recibida==null?'':it.cant_recibida}"
+               oninput="recSetCampo(${i},'cant_recibida',this.value)" placeholder="Cantidad recibida">
+        <div class="rec-cuadra" style="margin-top:6px">
+          <button type="button" class="${it.estado_item==='falta'?'on-no':''}" onclick="recSetEstado(${i},'falta')">Faltó</button>
+          <button type="button" class="${it.estado_item==='sobra'?'on-no':''}" onclick="recSetEstado(${i},'sobra')">Sobró</button>
+          <button type="button" class="${it.estado_item==='no_llego'?'on-no':''}" onclick="recSetEstado(${i},'no_llego')">No llegó</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+function recSetCuadra(i,val){
+  REC_ACTUAL.items[i].cuadra=val;
+  if(val===true){ REC_ACTUAL.items[i].estado_item='ok'; REC_ACTUAL.items[i].cant_recibida=REC_ACTUAL.items[i].cantidad; }
+  else if(!['falta','sobra','no_llego'].includes(REC_ACTUAL.items[i].estado_item)){ REC_ACTUAL.items[i].estado_item=''; }
+  renderRecItems();
+}
+function recSetEstado(i,est){ REC_ACTUAL.items[i].estado_item = REC_ACTUAL.items[i].estado_item===est?'':est; renderRecItems(); }
+function recSetCampo(i,campo,val){ REC_ACTUAL.items[i][campo]= (val===''?null:(campo==='cant_recibida'?Number(val):val)); }
+function recBuscarSku(i,q){
+  const box=document.getElementById('rec-sug-'+i); if(!box)return;
+  REC_ACTUAL.items[i].sku_confirmado=q.trim();
+  q=q.trim().toLowerCase();
+  if(q.length<2){ box.style.display='none'; return; }
+  const cat=REC_CATALOGO||[];
+  const res=[];
+  for(let k=0;k<cat.length && res.length<25;k++){
+    const sku=cat[k][0], name=cat[k][1]||'';
+    if(sku.toLowerCase().includes(q)||name.toLowerCase().includes(q)) res.push(cat[k]);
+  }
+  box.innerHTML=res.map(([sku,name])=>`<div onmousedown="recElegirSku(${i},'${recEsc(sku).replace(/'/g,"\\'")}')"><span class="rs-sku">${recEsc(sku)}</span> — ${recEsc(name)}</div>`).join('')||'<div class="muted" style="padding:8px 10px">Sin coincidencias</div>';
+  box.style.display='block';
+}
+function recElegirSku(i,sku){ REC_ACTUAL.items[i].sku_confirmado=sku; recCerrarSug(i); renderRecItems(); }
+function recCerrarSug(i){ const box=document.getElementById('rec-sug-'+i); if(box)box.style.display='none'; }
+function recVolver(){ cargarRecepciones(); }
+async function recGuardar(confirmar){
+  const rec=REC_ACTUAL; if(!rec)return;
+  const st=document.getElementById('rec-detalle-status');
+  const selA=document.getElementById('rec-almacen');
+  const almId=selA.value, almNom=selA.selectedOptions[0]?selA.selectedOptions[0].textContent:'';
+  const items=rec.items.map(it=>({codigo:it.codigo,sku_sugerido:it.sku_sugerido,sku_confirmado:it.sku_confirmado||'',
+    cuadra:it.cuadra,cant_recibida:it.cant_recibida,estado_item:it.estado_item||'',nota:it.nota||''}));
+  st.textContent = confirmar?'Confirmando...':'Guardando...';
+  try{
+    // Si soy maestro y la recepción ya está validada, uso el endpoint de corrección
+    const yaValidada = rec.estado==='validada';
+    let d;
+    if(yaValidada && ES_MAESTRO && !confirmar){
+      d=await apiCall('/api/recepcion/'+encodeURIComponent(rec.id)+'/correccion','PUT',{items});
+      st.textContent='✓ Corrección guardada.';
+    } else {
+      d=await apiCall('/api/recepcion/'+encodeURIComponent(rec.id)+'/validacion','PUT',
+        {almacen_id:almId?Number(almId):null,almacen_nombre:almNom,items,confirmar});
+      st.textContent = confirmar?'✓ Recepción confirmada.':'✓ Borrador guardado.';
+    }
+    actualizarBadgeRecepciones();
+    if(confirmar) setTimeout(cargarRecepciones,700);
+  }catch(e){ st.textContent=''; showToast(e.message,true); }
+}
+
 async function descargarReporteSync(){
   const res=document.getElementById('sync-result');
   res.textContent='Generando reporte...';
@@ -2688,7 +2919,7 @@ async function cargarEstadoActualizacion(){
   }catch(e){ if(box)box.style.display='none'; }
 }
 // Nombres legibles de los módulos
-const NOMBRE_MODULO={clientes_gestion:'Gestión de clientes',sync:'Sincronización web (en Sistemas)',auditoria:'Auditoría de catálogo',resumen:'Resumen de ventas (en Ventas e ingresos)',rentabilidad:'Rentabilidad (en Ventas e ingresos)',inventario:'Inventario',restock:'Restock',clientes_bi:'Clientes BI',caja_bi:'Ingresos y caja (en Ventas e ingresos)',crm:'CRM Kommo',reportes:'Contabilidad',pagos:'Métodos de pago (en Sistemas)'};
+const NOMBRE_MODULO={clientes_gestion:'Gestión de clientes',sync:'Sincronización web (en Sistemas)',auditoria:'Auditoría de catálogo',resumen:'Resumen de ventas (en Ventas e ingresos)',rentabilidad:'Rentabilidad (en Ventas e ingresos)',inventario:'Inventario',restock:'Restock',clientes_bi:'Clientes BI',caja_bi:'Ingresos y caja (en Ventas e ingresos)',crm:'CRM Kommo',reportes:'Contabilidad',pagos:'Métodos de pago (en Sistemas)',importaciones:'Importaciones',recepciones:'Recepciones'};
 let accesosCache={modulos_disponibles:[],usuarios:[]};
 async function cargarAccesos(){
   try{

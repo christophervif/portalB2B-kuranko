@@ -643,13 +643,24 @@ async function recApi(ep,method,body){
 }
 async function enviarARecepcion(){
   updateCodigo();
-  const id=codigoImportacion();
+  const id=recepId();
   if(!id){alert('Primero completa los datos de la importación (proveedor, N° importación, etc.).');return;}
   const m=_meta();
   const lineas=facMatches.filter(x=>x.item||x.desc||x.sku).map(x=>({
     codigo:x.item||'', desc:x.desc_es||x.desc||'', cantidad:+x.qty||0, sku_sugerido:x.sku||'' }));
   if(!lineas.length){alert('No hay ítems para enviar.');return;}
-  if(!confirm('¿Enviar esta carga al almacén para que la confirmen? (No incluye precios.)'))return;
+  // ¿Ya existe una recepción con esta MISMA factura? (mismo N° → mismo id). Avisar antes de pisar.
+  let existe=null;
+  try{ existe=await recApi('/api/recepcion/'+encodeURIComponent(id)); }catch(e){ existe=null; }
+  if(existe){
+    if(existe.estado==='validada'){
+      alert('⚠ Ya existe una recepción para la factura "'+(existe.n_factura||'')+'" y el almacén YA la validó. No se puede reemplazar. Si de verdad quieres rehacerla, elimínala primero desde la pestaña Recepciones.');
+      return;
+    }
+    if(!confirm('⚠ Ya hay una recepción para la factura "'+(existe.n_factura||'')+'" (estado: '+existe.estado+'). Esto NO crea otra: reemplaza su contenido con esta carga. ¿Continuar?')) return;
+  } else {
+    if(!confirm('¿Enviar esta carga al almacén para que la confirmen? (No incluye precios.)')) return;
+  }
   try{
     await recApi('/api/recepcion','POST',{ id, importacion_id:id, proveedor:(m.proveedorNombre||m.proveedor||'').split('(')[0],
       empresa:m.empresa||'', n_factura:m.invoice||'', tipo:'compra', items:lineas });
@@ -660,7 +671,7 @@ async function enviarARecepcion(){
 // Lista de TODAS las facturas en recepción (pendientes + validadas), una tras otra.
 async function cargarRecepLista(){
   const box=$('recepLista'), det=$('recepDetalle'); if(!box)return;
-  updateCodigo(); const cur=codigoImportacion();
+  updateCodigo(); const cur=recepId();
   box.innerHTML='Cargando…';
   let lista=[];
   try{
@@ -691,7 +702,7 @@ async function abrirRecepEnImp(id){
 function renderRecepEstado(){
   const det=$('recepDetalle'); const r=recepImp; if(!det||!r)return;
   const est=r.estado, val=est==='validada';
-  const esActual = r.id===codigoImportacion(); // ¿es la factura cargada ahora en la app?
+  const esActual = r.id===recepId(); // ¿es la factura cargada ahora en la app?
   const badge = val?'<span class="badge b-exact">validada</span>':(est==='borrador'?'<span class="badge b-rev">en progreso</span>':'<span class="badge b-rev">pendiente</span>');
   const conDif=(r.items||[]).filter(i=>i.cuadra===false||['falta','sobra','no_llego','extra'].includes(i.estado_item)).length;
   const rows=(r.items||[]).map((it,i)=>{
@@ -745,6 +756,7 @@ function recepSetSku(i,v){ if(recepImp&&recepImp.items[i])recepImp.items[i].sku_
 // Buscador de SKU por NOMBRE o código (hijos/variaciones y simples; los padres no están en CAT)
 function recepSkuBuscar(i,q){
   const box=$('recepSug-'+i); if(!box)return;
+  const inp=box.previousElementSibling; // el <input> del SKU
   if(recepImp&&recepImp.items[i])recepImp.items[i].sku_confirmado=q.trim();
   const ql=q.trim().toLowerCase();
   if(ql.length<2){ box.style.display='none'; return; }
@@ -752,6 +764,10 @@ function recepSkuBuscar(i,q){
   for(let k=0;k<CAT.length && res.length<25;k++){ const c=CAT[k];
     if(c.sku.toLowerCase().includes(ql)||(c.name||'').toLowerCase().includes(ql)) res.push(c); }
   box.innerHTML=res.map(c=>`<div class="btn-sm" style="display:block;width:100%;text-align:left;margin:0;padding:7px 9px;white-space:normal;border-bottom:1px solid #eef2f7" onmousedown="recepSkuElegir(${i},'${String(c.sku).replace(/\\/g,'\\\\').replace(/'/g,"\\'")}')"><b class="sku">${esc(c.sku)}</b> — ${esc(c.name)}</div>`).join('')||'<div class="hint" style="padding:7px 9px">Sin coincidencias</div>';
+  // Posición FIJA calculada desde el input, para que no lo recorte el scroll de la tabla.
+  if(inp&&inp.getBoundingClientRect){ const r=inp.getBoundingClientRect();
+    box.style.position='fixed'; box.style.left=r.left+'px'; box.style.top=(r.bottom+2)+'px';
+    box.style.minWidth=Math.max(260,r.width)+'px'; box.style.right='auto'; }
   box.style.display='block';
 }
 function recepSkuElegir(i,sku){ if(recepImp&&recepImp.items[i])recepImp.items[i].sku_confirmado=sku; recepSkuCerrar(i); renderRecepEstado(); }
@@ -765,7 +781,7 @@ async function recepGuardarCorreccion(){
 }
 function continuarADua(){
   // Solo se puede costear la factura cargada AHORA (la que tiene los precios en la app).
-  if(recepImp&&recepImp.id!==codigoImportacion()){
+  if(recepImp&&recepImp.id!==recepId()){
     alert('Esta recepción es de otra factura. Ábrela en Factura → SKU (o desde 💾 Guardadas) para costearla.');return;
   }
   // Volcar los SKU confirmados y las cantidades REALES recibidas a las líneas de la factura
@@ -1311,6 +1327,13 @@ function codigoImportacion(){
   return cot+imp+num+'-'+emp+prov.substr(6,4).toUpperCase();
 }
 function updateCodigo(){const el=$('imp_codigo');if(el)el.value=codigoImportacion();}
+// Id de la RECEPCIÓN = código de importación + N° de factura, para que cada
+// factura sea una recepción distinta (una importación puede tener varias facturas).
+function recepId(){
+  const base=codigoImportacion();
+  const inv=(($('f_inv')&&$('f_inv').value)||'').trim().replace(/[^A-Za-z0-9_.\-]/g,'').toUpperCase();
+  return (inv?(base+'-'+inv):base).slice(0,78);
+}
 function syncModoView(){const v=$('modoView');if(v&&$('modo'))v.value=$('modo').value;}
 function matchProveedor(nombre){if(!nombre)return '';const nn=s=>normalize(s).replace(/\s+/g,'');const a=nn(nombre);if(!a)return '';for(const pr of PROVEEDORES){const b=nn(pr[1]);if(b&&b.length>=3&&(a.includes(b)||b.includes(a)))return pr[0];}return '';}
 function onPercepSel(){const otro=$('percepOtro');if(otro)otro.classList.toggle('hide',$('percepSel').value!=='otro');}

@@ -1191,6 +1191,11 @@ function recBuscarSku(i,q){
     if(sku.toLowerCase().includes(q)||name.toLowerCase().includes(q)) res.push(cat[k]);
   }
   box.innerHTML=res.map(([sku,name])=>`<div onmousedown="recElegirSku(${i},'${recEsc(sku).replace(/'/g,"\\'")}')"><span class="rs-sku">${recEsc(sku)}</span> — ${recEsc(name)}</div>`).join('')||'<div class="muted" style="padding:8px 10px">Sin coincidencias</div>';
+  // Posición fija desde el input para que no lo recorte ningún contenedor con scroll.
+  const inp=box.previousElementSibling;
+  if(inp&&inp.getBoundingClientRect){ const r=inp.getBoundingClientRect();
+    box.style.position='fixed'; box.style.left=r.left+'px'; box.style.top=(r.bottom+2)+'px';
+    box.style.width=Math.max(240,r.width)+'px'; }
   box.style.display='block';
 }
 function recElegirSku(i,sku){ REC_ACTUAL.items[i].sku_confirmado=sku; recCerrarSug(i); renderRecItems(); }

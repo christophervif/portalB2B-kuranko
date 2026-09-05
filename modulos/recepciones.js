@@ -60,7 +60,8 @@ module.exports = function registrarRecepciones({
       codigo: s(it && it.codigo).slice(0, 120),
       desc: s(it && (it.desc || it.descripcion)).slice(0, 500),
       cantidad: numOrNull(it && it.cantidad),
-      sku_sugerido: s(it && (it.sku_sugerido || it.sku)).slice(0, 120)
+      sku_sugerido: s(it && (it.sku_sugerido || it.sku)).slice(0, 120),
+      confianza: s(it && it.confianza).slice(0, 20)  // exact|alta|rev|no|manual (nivel del match sugerido)
     };
   }
   // Campos que el supervisor añade/edita al validar (sin tocar cantidad de factura).
@@ -71,6 +72,7 @@ module.exports = function registrarRecepciones({
       desc: base.desc,
       cantidad: base.cantidad,                       // cantidad de la factura (no editable por almacén)
       sku_sugerido: base.sku_sugerido,
+      confianza: s((base && base.confianza) || '').slice(0, 20),  // del match de la factura (no lo cambia el almacén)
       sku_confirmado: s(v.sku_confirmado || base.sku_confirmado || '').slice(0, 120),
       cuadra: (v.cuadra === true || v.cuadra === false) ? v.cuadra : (base.cuadra ?? null),
       cant_recibida: (v.cant_recibida !== undefined) ? numOrNull(v.cant_recibida) : (base.cant_recibida ?? null),

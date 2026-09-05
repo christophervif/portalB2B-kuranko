@@ -75,7 +75,24 @@ module.exports = function registrarRecepciones({
       cuadra: (v.cuadra === true || v.cuadra === false) ? v.cuadra : (base.cuadra ?? null),
       cant_recibida: (v.cant_recibida !== undefined) ? numOrNull(v.cant_recibida) : (base.cant_recibida ?? null),
       estado_item: s(v.estado_item || base.estado_item || '').slice(0, 30), // ok|falta|sobra|no_llego|extra
-      nota: s(v.nota || base.nota || '').slice(0, 300)
+      nota: s(v.nota || base.nota || '').slice(0, 300),
+      es_extra: !!(v && v.es_extra) || !!(base && base.es_extra)
+    };
+  }
+  // Ítem EXTRA: llegó y NO estaba en la factura. Lo agrega el almacenero.
+  function itemExtra(v) {
+    v = v || {};
+    return {
+      codigo: s(v.codigo).slice(0, 120),
+      desc: s(v.desc || '(no estaba en la factura)').slice(0, 500),
+      cantidad: null,                                  // no hay cantidad de factura
+      sku_sugerido: '',
+      sku_confirmado: s(v.sku_confirmado || '').slice(0, 120),
+      cuadra: false,                                   // por definición es una diferencia
+      cant_recibida: numOrNull(v.cant_recibida),
+      estado_item: 'extra',
+      nota: s(v.nota || '').slice(0, 300),
+      es_extra: true
     };
   }
 
@@ -120,20 +137,11 @@ module.exports = function registrarRecepciones({
     try {
       if (_catCache && (Date.now() - _catAt) < CAT_TTL && !req.query.fresh) return res.json(_catCache);
       // Solo hijos (variation) y simples — los padres (variable) se excluyen.
-      // El nombre trae el del PRODUCTO (padre) + el de la variación cuando difiere,
-      // para poder buscar por nombre y no solo por SKU.
+      // El nombre es el del propio hijo/simple (no el del padre).
       const [rows] = await prodPool.query(`
-        SELECT TRIM(pv.sku) AS sku,
-               TRIM(CONCAT(
-                 COALESCE(p.name, ''),
-                 CASE WHEN pv.name IS NOT NULL AND TRIM(pv.name) <> '' AND pv.name <> p.name
-                      THEN CONCAT(' · ', pv.name) ELSE '' END
-               )) AS name
-          FROM product_variations pv
-          JOIN products p ON p.id = pv.product_id
-         WHERE pv.product_type <> 'variable' AND pv.deleted_at IS NULL
-           AND pv.sku IS NOT NULL AND TRIM(pv.sku) <> ''
-         ORDER BY pv.sku`);
+        SELECT TRIM(sku) AS sku, name FROM product_variations
+         WHERE product_type <> 'variable' AND deleted_at IS NULL
+           AND sku IS NOT NULL AND TRIM(sku) <> '' ORDER BY sku`);
       _catCache = rows.map(r => [r.sku, r.name || '']);
       _catAt = Date.now();
       res.json(_catCache);
@@ -234,7 +242,10 @@ module.exports = function registrarRecepciones({
       const clave = (i) => `${s(i.codigo)}${s(i.sku_sugerido)}`;
       const valById = {};
       (Array.isArray(b.items) ? b.items : []).forEach(v => { valById[clave(v)] = v; });
-      const items = base.map(i => fusionarValidacion(i, valById[clave(i)] || {}));
+      // Ítems de la factura (no-extra), fusionados con la validación del almacén.
+      const items = base.filter(i => !i.es_extra).map(i => fusionarValidacion(i, valById[clave(i)] || {}));
+      // Ítems EXTRA: el cliente manda la lista COMPLETA actual en b.extras.
+      (Array.isArray(b.extras) ? b.extras : []).forEach(v => items.push(itemExtra(v)));
 
       const confirmar = !!b.confirmar;
       if (confirmar) {
@@ -269,7 +280,10 @@ module.exports = function registrarRecepciones({
       const clave = (i) => `${s(i.codigo)}${s(i.sku_sugerido)}`;
       const valById = {};
       (Array.isArray(b.items) ? b.items : []).forEach(v => { valById[clave(v)] = v; });
-      const items = base.map(i => fusionarValidacion(i, valById[clave(i)] || {}));
+      const items = base.filter(i => !i.es_extra).map(i => fusionarValidacion(i, valById[clave(i)] || {}));
+      // Extras: si el cliente los manda, se reemplaza la lista; si no, se conservan los guardados.
+      if (Array.isArray(b.extras)) b.extras.forEach(v => items.push(itemExtra(v)));
+      else base.filter(i => i.es_extra).forEach(i => items.push(i));
       await portalPool.query(`UPDATE imp_recepciones SET items=? WHERE id=?`, [JSON.stringify(items), req.params.id]);
       res.json({ ok: true });
     } catch (e) {
@@ -282,6 +296,13 @@ module.exports = function registrarRecepciones({
   app.delete('/api/recepcion/:id', authAdmin, mRec, async (req, res) => {
     try {
       if (!req.admin || !req.admin.maestro) return res.status(403).json({ error: 'Solo el maestro puede eliminar.' });
+      // No eliminar una recepción ya validada por el almacén (salvo ?force=1 explícito).
+      if (!req.query.force) {
+        const [rows] = await portalPool.query(`SELECT estado FROM imp_recepciones WHERE id = ?`, [req.params.id]);
+        if (rows.length && rows[0].estado === 'validada') {
+          return res.status(409).json({ error: 'No se puede eliminar: el almacén ya la validó.' });
+        }
+      }
       await portalPool.query(`DELETE FROM imp_recepciones WHERE id = ?`, [req.params.id]);
       res.json({ ok: true });
     } catch (e) {

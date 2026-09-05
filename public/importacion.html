@@ -764,10 +764,8 @@ function recepSkuBuscar(i,q){
   for(let k=0;k<CAT.length && res.length<25;k++){ const c=CAT[k];
     if(c.sku.toLowerCase().includes(ql)||(c.name||'').toLowerCase().includes(ql)) res.push(c); }
   box.innerHTML=res.map(c=>`<div class="btn-sm" style="display:block;width:100%;text-align:left;margin:0;padding:7px 9px;white-space:normal;border-bottom:1px solid #eef2f7" onmousedown="recepSkuElegir(${i},'${String(c.sku).replace(/\\/g,'\\\\').replace(/'/g,"\\'")}')"><b class="sku">${esc(c.sku)}</b> — ${esc(c.name)}</div>`).join('')||'<div class="hint" style="padding:7px 9px">Sin coincidencias</div>';
-  // Posición FIJA calculada desde el input, para que no lo recorte el scroll de la tabla.
-  if(inp&&inp.getBoundingClientRect){ const r=inp.getBoundingClientRect();
-    box.style.position='fixed'; box.style.left=r.left+'px'; box.style.top=(r.bottom+2)+'px';
-    box.style.minWidth=Math.max(260,r.width)+'px'; box.style.right='auto'; }
+  // EN LÍNEA (posición normal debajo del campo): inmune a transform/overflow/z-index.
+  box.style.position='static'; box.style.left=''; box.style.top=''; box.style.right=''; box.style.minWidth='0'; box.style.width='100%';
   box.style.display='block';
 }
 function recepSkuElegir(i,sku){ if(recepImp&&recepImp.items[i])recepImp.items[i].sku_confirmado=sku; recepSkuCerrar(i); renderRecepEstado(); }

@@ -968,7 +968,7 @@ function cargarDatosTab(id){
     // Carga la app de importaciones en el iframe solo la 1a vez que se abre la pestaña.
     // Comparte el mismo origen, así que la app lee el token admin de localStorage.
     const fr=document.getElementById('imp-frame');
-    if(fr&&!fr.src){fr.src='/importacion.html';}
+    if(fr&&!fr.src){fr.src='/importacion.html?v='+Date.now();} // ?v evita que el iframe quede cacheado con una versión vieja
   }
 }
 
@@ -1151,26 +1151,45 @@ function renderRecItems(){
         </div>
       </div>
       <div class="rec-field rec-recibida" data-i="${i}" style="${cuadra===false?'':'display:none'}">
-        <label>¿Cuánto llegó realmente?</label>
+        <label>¿Cuánto llegó realmente? <span style="color:#94a3b8;font-weight:400">(pon 0 si no llegó nada)</span></label>
         <input class="rec-input" type="number" step="any" min="0" value="${it.cant_recibida==null?'':it.cant_recibida}"
-               oninput="recSetCampo(${i},'cant_recibida',this.value)" placeholder="Cantidad recibida">
-        <div class="rec-cuadra" style="margin-top:6px">
-          <button type="button" class="${it.estado_item==='falta'?'on-no':''}" onclick="recSetEstado(${i},'falta')">Faltó</button>
-          <button type="button" class="${it.estado_item==='sobra'?'on-no':''}" onclick="recSetEstado(${i},'sobra')">Sobró</button>
-          <button type="button" class="${it.estado_item==='no_llego'?'on-no':''}" onclick="recSetEstado(${i},'no_llego')">No llegó</button>
-        </div>
+               oninput="recSetRecibida(${i},this.value)" placeholder="Cantidad recibida">
+        <div id="rec-difcalc-${i}" style="font-size:12px;margin-top:5px;font-weight:700">${recDifTexto(it)}</div>
       </div>
     </div>`;
   }).join('');
 }
 function recSetCuadra(i,val){
-  REC_ACTUAL.items[i].cuadra=val;
-  if(val===true){ REC_ACTUAL.items[i].estado_item='ok'; REC_ACTUAL.items[i].cant_recibida=REC_ACTUAL.items[i].cantidad; }
-  else if(!['falta','sobra','no_llego'].includes(REC_ACTUAL.items[i].estado_item)){ REC_ACTUAL.items[i].estado_item=''; }
+  const it=REC_ACTUAL.items[i];
+  it.cuadra=val;
+  if(val===true){ it.estado_item='ok'; it.cant_recibida=it.cantidad; }
+  else { it.cant_recibida=null; it.estado_item=''; } // esperamos que ponga la cantidad real
   renderRecItems();
 }
-function recSetEstado(i,est){ REC_ACTUAL.items[i].estado_item = REC_ACTUAL.items[i].estado_item===est?'':est; renderRecItems(); }
-function recSetCampo(i,campo,val){ REC_ACTUAL.items[i][campo]= (val===''?null:(campo==='cant_recibida'?Number(val):val)); }
+// Deriva el estado (faltó/sobró/no llegó/cuadra) comparando lo recibido con lo facturado.
+function recEstadoDeCantidad(it){
+  const f=Number(it.cantidad)||0, r=it.cant_recibida;
+  if(r==null||r==='')return '';
+  if(Number(r)===0)return 'no_llego';
+  if(Number(r)<f)return 'falta';
+  if(Number(r)>f)return 'sobra';
+  return 'ok';
+}
+function recDifTexto(it){
+  const f=Number(it.cantidad)||0;
+  if(it.cant_recibida==null||it.cant_recibida==='')return '<span style="color:#94a3b8">Escribe cuánto llegó</span>';
+  const r=Number(it.cant_recibida);
+  if(r===0)return '<span style="color:#dc2626">✗ No llegó nada</span>';
+  if(r<f)return '<span style="color:#d97706">Faltaron '+(f-r)+' (llegaron '+r+' de '+f+')</span>';
+  if(r>f)return '<span style="color:#d97706">Sobraron '+(r-f)+' (llegaron '+r+' de '+f+')</span>';
+  return '<span style="color:#16a34a">✓ Cuadra ('+r+')</span>';
+}
+function recSetRecibida(i,val){
+  const it=REC_ACTUAL.items[i];
+  it.cant_recibida = (val===''?null:Number(val));
+  it.estado_item = recEstadoDeCantidad(it);
+  const el=document.getElementById('rec-difcalc-'+i); if(el)el.innerHTML=recDifTexto(it);
+}
 let REC_CATMAP=null;
 function recNombreSku(sku){
   if(!sku)return '';
@@ -1191,11 +1210,8 @@ function recBuscarSku(i,q){
     if(sku.toLowerCase().includes(q)||name.toLowerCase().includes(q)) res.push(cat[k]);
   }
   box.innerHTML=res.map(([sku,name])=>`<div onmousedown="recElegirSku(${i},'${recEsc(sku).replace(/'/g,"\\'")}')"><span class="rs-sku">${recEsc(sku)}</span> — ${recEsc(name)}</div>`).join('')||'<div class="muted" style="padding:8px 10px">Sin coincidencias</div>';
-  // Posición fija desde el input para que no lo recorte ningún contenedor con scroll.
-  const inp=box.previousElementSibling;
-  if(inp&&inp.getBoundingClientRect){ const r=inp.getBoundingClientRect();
-    box.style.position='fixed'; box.style.left=r.left+'px'; box.style.top=(r.bottom+2)+'px';
-    box.style.width=Math.max(240,r.width)+'px'; }
+  // EN LÍNEA (posición normal, debajo del campo): inmune a transform/overflow/z-index del panel.
+  box.style.position='static'; box.style.left=''; box.style.top=''; box.style.right=''; box.style.width='auto';
   box.style.display='block';
 }
 function recElegirSku(i,sku){ REC_ACTUAL.items[i].sku_confirmado=sku; recCerrarSug(i); renderRecItems(); }

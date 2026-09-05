@@ -117,10 +117,21 @@ module.exports = function registrarRecepciones({
   app.get('/api/recepcion/catalogo', authAdmin, mRec, async (req, res) => {
     try {
       if (_catCache && (Date.now() - _catAt) < CAT_TTL && !req.query.fresh) return res.json(_catCache);
+      // Solo hijos (variation) y simples — los padres (variable) se excluyen.
+      // El nombre trae el del PRODUCTO (padre) + el de la variación cuando difiere,
+      // para poder buscar por nombre y no solo por SKU.
       const [rows] = await prodPool.query(`
-        SELECT TRIM(sku) AS sku, name FROM product_variations
-         WHERE product_type <> 'variable' AND deleted_at IS NULL
-           AND sku IS NOT NULL AND TRIM(sku) <> '' ORDER BY sku`);
+        SELECT TRIM(pv.sku) AS sku,
+               TRIM(CONCAT(
+                 COALESCE(p.name, ''),
+                 CASE WHEN pv.name IS NOT NULL AND TRIM(pv.name) <> '' AND pv.name <> p.name
+                      THEN CONCAT(' · ', pv.name) ELSE '' END
+               )) AS name
+          FROM product_variations pv
+          JOIN products p ON p.id = pv.product_id
+         WHERE pv.product_type <> 'variable' AND pv.deleted_at IS NULL
+           AND pv.sku IS NOT NULL AND TRIM(pv.sku) <> ''
+         ORDER BY pv.sku`);
       _catCache = rows.map(r => [r.sku, r.name || '']);
       _catAt = Date.now();
       res.json(_catCache);

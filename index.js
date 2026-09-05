@@ -97,7 +97,7 @@ function soloMaestro(req, res, next) {
 // LOGIN ADMIN
 // ════════════════════════════════════════════════════════════════════════════
 // Lista de módulos (pestañas) del admin. Debe coincidir con las pestañas del HTML.
-const MODULOS_ADMIN = ['clientes_gestion', 'sync', 'auditoria', 'resumen', 'rentabilidad', 'inventario', 'restock', 'clientes_bi', 'caja_bi', 'crm', 'reportes', 'pagos', 'importaciones'];
+const MODULOS_ADMIN = ['clientes_gestion', 'sync', 'auditoria', 'resumen', 'rentabilidad', 'inventario', 'restock', 'clientes_bi', 'caja_bi', 'crm', 'reportes', 'pagos', 'importaciones', 'recepciones'];
 
 // Usuarios admin secundarios definidos en variables de entorno (Railway).
 // Formato por usuario (numeradas del 2 en adelante):
@@ -172,6 +172,7 @@ const VV = "('paid','confirmed','pending_payment')";
 let modSync = null;
 let modPortal = null;
 let modImportacion = null;
+let modRecepciones = null;
 
 // Registro de endpoints del dashboard (inyectado directamente)
 (function(){
@@ -242,6 +243,9 @@ let modImportacion = null;
   // en la base del portal; IA (Gemini) con la clave protegida en el servidor.
   modImportacion = require('./modulos/importacion')({ app, authAdmin, requiereModulo, prodPool, portalPool });
 
+  // ── Módulo Recepción de mercadería (paso intermedio compra: almacén valida) ──
+  modRecepciones = require('./modulos/recepciones')({ app, authAdmin, requiereModulo, prodPool, portalPool });
+
   // ── Módulo Sincronización + Auditoría ──
   modSync = require('./modulos/sincronizacion')({ app, authAdmin, requiereModulo, prodPool, portalPool });
   const rango = (desde, hasta, campo='s.created_at') =>
@@ -305,6 +309,7 @@ app.listen(PORT, async () => {
     if (modPortal && modPortal.prepararTablas) await modPortal.prepararTablas();
     if (modSync && modSync.prepararTablas) await modSync.prepararTablas();
     if (modImportacion && modImportacion.prepararTablas) await modImportacion.prepararTablas();
+    if (modRecepciones && modRecepciones.prepararTablas) await modRecepciones.prepararTablas();
     console.log('Tablas del portal listas.');
   } catch (e) { console.error('No se pudieron preparar las tablas al arrancar:', e.message); }
 });

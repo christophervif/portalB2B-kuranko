@@ -766,17 +766,19 @@ tr:hover td{background:var(--hover)}
           <div id="rec-cab" style="margin-top:10px"></div>
           <div style="margin-top:10px">
             <label style="font-weight:700;font-size:13px">Almacén de ingreso</label>
-            <select id="rec-almacen" style="width:100%;max-width:420px;padding:9px;border:1px solid var(--border,#cbd5e1);border-radius:8px;margin-top:4px">
+            <select id="rec-almacen" onchange="recAutoGuardar()" style="width:100%;max-width:420px;padding:9px;border:1px solid var(--border,#cbd5e1);border-radius:8px;margin-top:4px">
               <option value="">— Elige el almacén —</option>
             </select>
           </div>
         </div>
         <div id="rec-items"></div>
+        <div style="margin:10px 0"><button class="btn btn-sec" onclick="recAgregarExtra()">➕ Agregar producto que llegó y NO estaba en la factura</button></div>
         <div class="card" id="rec-acciones" style="position:sticky;bottom:0;z-index:5">
           <div id="rec-detalle-status" class="muted" style="margin-bottom:8px"></div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
             <button class="btn btn-sec" onclick="recGuardar(false)">💾 Guardar borrador</button>
             <button class="btn" onclick="recGuardar(true)">✓ Confirmar recepción</button>
+            <span id="rec-autosave" class="muted" style="font-size:12px">· se guarda solo</span>
           </div>
         </div>
       </div>
@@ -892,14 +894,18 @@ function construirLauncher(){
     const m=(b.getAttribute('onclick')||'').match(/tab\('([^']+)'/);
     if(!m)return;
     const id=m[1];
-    const nombre=b.textContent.trim();
+    // Nombre limpio (sin el badge de conteo que algunos tabs incluyen)
+    const clon=b.cloneNode(true); const bd=clon.querySelector('.rec-badge'); if(bd)bd.remove();
+    const nombre=clon.textContent.trim();
     const ico=APP_ICONOS[id]||'▫️';
     const card=document.createElement('div');
     card.className='app-card';
     card.onclick=()=>abrirApp(id);
-    card.innerHTML='<span class="ico">'+ico+'</span><span class="nom">'+nombre+'</span>';
+    const badgeLauncher = id==='recepciones' ? '<span class="rec-badge" id="launch-rec-badge" style="display:none">0</span>' : '';
+    card.innerHTML='<span class="ico">'+ico+'</span><span class="nom">'+nombre+' '+badgeLauncher+'</span>';
     grid.appendChild(card);
   });
+  if(typeof actualizarBadgeRecepciones==='function' && (ES_MAESTRO||MIS_MODULOS.includes('recepciones'))) actualizarBadgeRecepciones();
 }
 
 // Abre una app desde el launcher (muestra las pestañas y activa la elegida)
@@ -1072,8 +1078,10 @@ async function recCargarCatalogo(){
   return REC_CATALOGO;
 }
 async function actualizarBadgeRecepciones(){
-  try{ const d=await apiCall('/api/recepciones/pendientes-count','GET'); const b=document.getElementById('rec-badge');
-    if(b){ if(d&&d.n>0){b.textContent=d.n;b.style.display='';}else{b.style.display='none';} } }catch(e){}
+  try{ const d=await apiCall('/api/recepciones/pendientes-count','GET'); const n=(d&&d.n)||0;
+    [document.getElementById('rec-badge'),document.getElementById('launch-rec-badge')].forEach(el=>{
+      if(!el)return; if(n>0){el.textContent=n;el.style.display='';}else{el.style.display='none';}
+    }); }catch(e){}
 }
 async function cargarRecepciones(){
   const st=document.getElementById('rec-lista-status'), cont=document.getElementById('rec-cards');
@@ -1127,14 +1135,9 @@ async function abrirRecepcion(id){
 function renderRecItems(){
   const rec=REC_ACTUAL, cont=document.getElementById('rec-items');
   cont.innerHTML=rec.items.map((it,i)=>{
-    const cuadra = it.cuadra;
-    const cls = (cuadra===false||['falta','sobra','no_llego','extra'].includes(it.estado_item))?'diff':(cuadra===true?'ok':'');
     const sku = it.sku_confirmado || it.sku_sugerido || '';
     const nomAsig = recNombreSku(sku);
-    return `<div class="rec-item ${cls}" data-i="${i}">
-      <div class="ri-desc">🧾 En factura: ${recEsc(it.desc)||'(sin descripción)'}</div>
-      <div class="ri-cod">Cód. factura: ${recEsc(it.codigo)||'—'} · Cant. factura: <b>${it.cantidad==null?'—':it.cantidad}</b></div>
-      <div class="rec-field">
+    const skuBloque = `<div class="rec-field">
         <label>Producto del sistema (busca por nombre o SKU) ${it.sku_sugerido?('· sugerido: '+recEsc(it.sku_sugerido)):''}</label>
         <div class="rec-sug">
           <input class="rec-input rec-sku-inp" data-i="${i}" value="${recEsc(sku)}" placeholder="Escribe el nombre o SKU del producto..."
@@ -1142,7 +1145,26 @@ function renderRecItems(){
           <div class="rec-sug-list" id="rec-sug-${i}"></div>
         </div>
         <div class="rec-sku-name" id="rec-nom-${i}" style="font-size:12px;margin-top:4px;color:${nomAsig?'#15803d':'#b91c1c'};font-weight:600">${nomAsig?('✓ '+recEsc(nomAsig)):(sku?'⚠ SKU no está en el catálogo':'Sin producto asignado')}</div>
-      </div>
+      </div>`;
+    // ── Ítem EXTRA (llegó y no estaba en la factura) ──
+    if(it.es_extra){
+      return `<div class="rec-item diff" data-i="${i}" style="border-left:4px solid #7c3aed">
+        <div class="ri-desc" style="color:#6d28d9">➕ Extra — no estaba en la factura <button type="button" onclick="recQuitarExtra(${i})" title="Quitar" style="float:right;color:#b91c1c;background:none;border:none;font-size:16px;cursor:pointer">✕</button></div>
+        ${skuBloque}
+        <div class="rec-field">
+          <label>¿Cuánto llegó?</label>
+          <input class="rec-input" type="number" step="any" min="0" value="${it.cant_recibida==null?'':it.cant_recibida}"
+                 oninput="recSetCampoExtra(${i},this.value)" placeholder="Cantidad que llegó">
+        </div>
+      </div>`;
+    }
+    // ── Ítem de la factura ──
+    const cuadra = it.cuadra;
+    const cls = (cuadra===false||['falta','sobra','no_llego'].includes(it.estado_item))?'diff':(cuadra===true?'ok':'');
+    return `<div class="rec-item ${cls}" data-i="${i}">
+      <div class="ri-desc">🧾 En factura: ${recEsc(it.desc)||'(sin descripción)'}</div>
+      <div class="ri-cod">Cód. factura: ${recEsc(it.codigo)||'—'} · Cant. factura: <b>${it.cantidad==null?'—':it.cantidad}</b></div>
+      ${skuBloque}
       <div class="rec-field">
         <label>¿Cuadra la cantidad que llegó?</label>
         <div class="rec-cuadra">
@@ -1159,12 +1181,18 @@ function renderRecItems(){
     </div>`;
   }).join('');
 }
+function recAgregarExtra(){
+  REC_ACTUAL.items.push({codigo:'',desc:'(no estaba en la factura)',cantidad:null,sku_sugerido:'',sku_confirmado:'',cuadra:false,cant_recibida:null,estado_item:'extra',nota:'',es_extra:true});
+  renderRecItems();
+}
+function recQuitarExtra(i){ REC_ACTUAL.items.splice(i,1); renderRecItems(); recAutoGuardar(); }
+function recSetCampoExtra(i,val){ REC_ACTUAL.items[i].cant_recibida = (val===''?null:Number(val)); recAutoGuardar(); }
 function recSetCuadra(i,val){
   const it=REC_ACTUAL.items[i];
   it.cuadra=val;
   if(val===true){ it.estado_item='ok'; it.cant_recibida=it.cantidad; }
   else { it.cant_recibida=null; it.estado_item=''; } // esperamos que ponga la cantidad real
-  renderRecItems();
+  renderRecItems(); recAutoGuardar();
 }
 // Deriva el estado (faltó/sobró/no llegó/cuadra) comparando lo recibido con lo facturado.
 function recEstadoDeCantidad(it){
@@ -1189,8 +1217,11 @@ function recSetRecibida(i,val){
   it.cant_recibida = (val===''?null:Number(val));
   it.estado_item = recEstadoDeCantidad(it);
   const el=document.getElementById('rec-difcalc-'+i); if(el)el.innerHTML=recDifTexto(it);
+  recAutoGuardar();
 }
 let REC_CATMAP=null;
+// Normaliza para buscar: minúsculas, sin acentos, sin signos, palabras separadas por espacio.
+function recNorm(s){ return String(s==null?'':s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').trim(); }
 function recNombreSku(sku){
   if(!sku)return '';
   if(!REC_CATMAP){ REC_CATMAP={}; (REC_CATALOGO||[]).forEach(([s,n])=>{REC_CATMAP[String(s).toLowerCase()]=n||'';}); }
@@ -1201,45 +1232,70 @@ function recBuscarSku(i,q){
   REC_ACTUAL.items[i].sku_confirmado=q.trim();
   const nomEl=document.getElementById('rec-nom-'+i);
   if(nomEl){ const nm=recNombreSku(q.trim()); nomEl.textContent=nm?('✓ '+nm):(q.trim()?'⚠ SKU no está en el catálogo':'Sin producto asignado'); nomEl.style.color=nm?'#15803d':'#b91c1c'; }
-  q=q.trim().toLowerCase();
-  if(q.length<2){ box.style.display='none'; return; }
+  const qtok=recNorm(q).split(' ').filter(Boolean);
+  if(!qtok.length){ box.style.display='none'; return; }
   const cat=REC_CATALOGO||[];
   const res=[];
   for(let k=0;k<cat.length && res.length<25;k++){
-    const sku=cat[k][0], name=cat[k][1]||'';
-    if(sku.toLowerCase().includes(q)||name.toLowerCase().includes(q)) res.push(cat[k]);
+    const hay=recNorm((cat[k][0]||'')+' '+(cat[k][1]||''));
+    if(qtok.every(t=>hay.includes(t))) res.push(cat[k]); // ignora signos y orden de palabras
   }
-  box.innerHTML=res.map(([sku,name])=>`<div onmousedown="recElegirSku(${i},'${recEsc(sku).replace(/'/g,"\\'")}')"><span class="rs-sku">${recEsc(sku)}</span> — ${recEsc(name)}</div>`).join('')||'<div class="muted" style="padding:8px 10px">Sin coincidencias</div>';
-  // EN LÍNEA (posición normal, debajo del campo): inmune a transform/overflow/z-index del panel.
+  // Línea diagnóstico (nos dice si el catálogo llegó y cuántas coincidencias hay)
+  const diag=`<div style="padding:6px 10px;font-size:11px;color:#475569;background:#f1f5f9;border-bottom:1px solid #e2e8f0">catálogo: ${cat.length} · coincidencias: ${res.length}</div>`;
+  const items=res.map(([sku,name])=>`<div onmousedown="recElegirSku(${i},'${recEsc(sku).replace(/'/g,"\\'")}')" style="padding:9px 10px;cursor:pointer;color:#0f172a;border-bottom:1px solid #eef2f7"><b style="font-family:ui-monospace,Menlo,monospace">${recEsc(sku)}</b> — ${recEsc(name)}</div>`).join('')
+    || `<div style="padding:9px 10px;color:#64748b">${cat.length?'Sin coincidencias':'⚠ el catálogo no cargó (0 SKUs)'}</div>`;
+  box.innerHTML=diag+items;
+  // EN LÍNEA + colores forzados de alto contraste (por si el tema oscuro lo ocultaba)
   box.style.position='static'; box.style.left=''; box.style.top=''; box.style.right=''; box.style.width='auto';
+  box.style.background='#ffffff'; box.style.border='1px solid #cbd5e1'; box.style.borderRadius='8px';
+  box.style.marginTop='4px'; box.style.color='#0f172a'; box.style.maxHeight='240px'; box.style.overflow='auto';
   box.style.display='block';
 }
-function recElegirSku(i,sku){ REC_ACTUAL.items[i].sku_confirmado=sku; recCerrarSug(i); renderRecItems(); }
+function recElegirSku(i,sku){ REC_ACTUAL.items[i].sku_confirmado=sku; recCerrarSug(i); renderRecItems(); recAutoGuardar(); }
 function recCerrarSug(i){ const box=document.getElementById('rec-sug-'+i); if(box)box.style.display='none'; }
 function recVolver(){ cargarRecepciones(); }
-async function recGuardar(confirmar){
+// Guardado automático de borrador conforme el almacenero avanza (silencioso, con rebote).
+let recAutoTimer=null, recAutoEnCurso=false;
+function recAutoGuardar(){
+  if(!REC_ACTUAL || REC_ACTUAL.estado==='validada') return; // no auto-guardar una ya validada
+  const ind=document.getElementById('rec-autosave'); if(ind)ind.textContent='· editando…';
+  clearTimeout(recAutoTimer);
+  recAutoTimer=setTimeout(()=>{ recGuardar(false,true); }, 900);
+}
+async function recGuardar(confirmar, silent){
   const rec=REC_ACTUAL; if(!rec)return;
   const st=document.getElementById('rec-detalle-status');
+  const ind=document.getElementById('rec-autosave');
   const selA=document.getElementById('rec-almacen');
   const almId=selA.value, almNom=selA.selectedOptions[0]?selA.selectedOptions[0].textContent:'';
-  const items=rec.items.map(it=>({codigo:it.codigo,sku_sugerido:it.sku_sugerido,sku_confirmado:it.sku_confirmado||'',
+  // Ítems de la factura y ítems EXTRA (no facturados) por separado
+  const items=rec.items.filter(it=>!it.es_extra).map(it=>({codigo:it.codigo,sku_sugerido:it.sku_sugerido,sku_confirmado:it.sku_confirmado||'',
     cuadra:it.cuadra,cant_recibida:it.cant_recibida,estado_item:it.estado_item||'',nota:it.nota||''}));
-  st.textContent = confirmar?'Confirmando...':'Guardando...';
+  const extras=rec.items.filter(it=>it.es_extra).map(it=>({sku_confirmado:it.sku_confirmado||'',cant_recibida:it.cant_recibida,nota:it.nota||''}));
+  // Validar extras: deben tener SKU (solo al confirmar)
+  const extrasSinSku=extras.filter(e=>!e.sku_confirmado).length;
+  if(confirmar && extrasSinSku){ showToast('Falta elegir el producto (SKU) de '+extrasSinSku+' ítem(s) extra.',true); return; }
+  if(!silent) st.textContent = confirmar?'Confirmando...':'Guardando...';
+  else if(ind){ if(recAutoEnCurso)return; recAutoEnCurso=true; ind.textContent='· guardando…'; }
   try{
     // Si soy maestro y la recepción ya está validada, uso el endpoint de corrección
     const yaValidada = rec.estado==='validada';
-    let d;
     if(yaValidada && ES_MAESTRO && !confirmar){
-      d=await apiCall('/api/recepcion/'+encodeURIComponent(rec.id)+'/correccion','PUT',{items});
-      st.textContent='✓ Corrección guardada.';
+      await apiCall('/api/recepcion/'+encodeURIComponent(rec.id)+'/correccion','PUT',{items,extras});
+      if(!silent) st.textContent='✓ Corrección guardada.';
     } else {
-      d=await apiCall('/api/recepcion/'+encodeURIComponent(rec.id)+'/validacion','PUT',
-        {almacen_id:almId?Number(almId):null,almacen_nombre:almNom,items,confirmar});
-      st.textContent = confirmar?'✓ Recepción confirmada.':'✓ Borrador guardado.';
+      const d=await apiCall('/api/recepcion/'+encodeURIComponent(rec.id)+'/validacion','PUT',
+        {almacen_id:almId?Number(almId):null,almacen_nombre:almNom,items,extras,confirmar});
+      if(!silent) st.textContent = confirmar?'✓ Recepción confirmada.':'✓ Borrador guardado.';
+      if(d&&d.estado) rec.estado=d.estado; // p.ej. queda 'borrador' tras el auto-guardado
     }
+    if(ind && silent){ const hh=new Date(); ind.textContent='· guardado '+String(hh.getHours()).padStart(2,'0')+':'+String(hh.getMinutes()).padStart(2,'0'); }
     actualizarBadgeRecepciones();
     if(confirmar) setTimeout(cargarRecepciones,700);
-  }catch(e){ st.textContent=''; showToast(e.message,true); }
+  }catch(e){
+    if(!silent){ st.textContent=''; showToast(e.message,true); }
+    else if(ind) ind.textContent='· no se pudo guardar (reintenta al seguir)';
+  } finally { if(silent) recAutoEnCurso=false; }
 }
 
 async function descargarReporteSync(){

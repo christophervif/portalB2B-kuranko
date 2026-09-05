@@ -668,6 +668,14 @@ async function enviarARecepcion(){
     tab('recep');
   }catch(e){alert('No se pudo enviar: '+e.message);}
 }
+// Eliminar una recepción — solo si aún NO fue validada por el almacén.
+async function eliminarRecepcionImp(id, nfact){
+  const r=(recepListaCache||[]).find(x=>x.id===id);
+  if(r && r.estado==='validada'){ alert('No se puede eliminar: el almacén ya la validó.'); return; }
+  if(!confirm('¿Eliminar la recepción de la factura "'+(nfact||'')+'"? Esto la quita de la lista del almacén. (Solo se puede si aún no fue validada.)')) return;
+  try{ await recApi('/api/recepcion/'+encodeURIComponent(id),'DELETE'); await cargarRecepLista(); }
+  catch(e){ alert('No se pudo eliminar: '+e.message); }
+}
 // Lista de TODAS las facturas en recepción (pendientes + validadas), una tras otra.
 async function cargarRecepLista(){
   const box=$('recepLista'), det=$('recepDetalle'); if(!box)return;
@@ -685,8 +693,11 @@ async function cargarRecepLista(){
     const dif=r.con_diferencias>0?(' · <span style="color:#b91c1c;font-weight:700">'+r.con_diferencias+' dif.</span>'):'';
     const marca=(r.id===cur)?' style="border-color:#f59e0b;background:#fff7ed"':'';
     const idJs=String(r.id).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    // Botón eliminar: SOLO si aún no fue validada por el almacén (pendiente/borrador) y eres maestro.
+    const puedeBorrar = esMaestroImp() && r.estado!=='validada';
+    const btnDel = puedeBorrar ? `<button class="btn-sm" title="Eliminar esta recepción (aún no validada)" style="float:right;color:#b91c1c;border-color:#f3b0b0" onclick="event.stopPropagation();eliminarRecepcionImp('${idJs}','${esc(r.n_factura||'').replace(/'/g,"\\'")}')">🗑</button>` : '';
     return `<div class="btn-sm" style="display:block;width:100%;text-align:left;margin:5px 0;padding:9px 11px"${marca} onclick="abrirRecepEnImp('${idJs}')">
-      <b>${esc(r.proveedor||'(sin proveedor)')}</b> · Fact. ${esc(r.n_factura||'—')} ${est}${dif}
+      ${btnDel}<b>${esc(r.proveedor||'(sin proveedor)')}</b> · Fact. ${esc(r.n_factura||'—')} ${est}${dif}
       <span class="hint">(${r.n_items} ítem(s)${r.almacen_nombre?(' · '+esc(r.almacen_nombre)):''})</span>${r.id===cur?' — <b>esta importación</b>':''}
     </div>`;
   }).join('');
@@ -719,14 +730,17 @@ function renderRecepEstado(){
            <div style="font-size:11px;margin-top:2px;color:${nomSis?'#15803d':(skuVal?'#b91c1c':'#94a3b8')}">${nomSis?('✓ '+esc(nomSis)):(skuVal?'⚠ no está en el catálogo':'sin asignar')}</div>
          </div>`
       : `<span class="sku">${esc(skuVal)}</span>${nomSis?('<div style="font-size:11px;color:#64748b">'+esc(nomSis)+'</div>'):''}`;
-    return `<tr>
+    const estadoCell = it.es_extra
+      ? '<span class="badge b-rev" style="background:#ede9fe;color:#6d28d9">➕ EXTRA (no facturado)</span>'
+      : (cantOk?'<span class="badge b-exact">cuadra</span>':(dif?('<span class="badge b-rev">'+esc(estTxt||'revisar')+'</span>'):'—'));
+    return `<tr${it.es_extra?' style="background:#faf5ff"':''}>
       <td>${esc(it.codigo||'')}</td>
-      <td>${esc(it.desc||'')}</td>
+      <td>${it.es_extra?'<i>llegó, no estaba en la factura</i>':esc(it.desc||'')}</td>
       <td class="sku" title="sugerido por el sistema">${esc(it.sku_sugerido||'')}</td>
       <td>${skuCell}</td>
       <td class="n">${it.cantidad==null?'—':it.cantidad}</td>
       <td class="n" style="${dif?'color:#b91c1c;font-weight:700':''}">${recib}</td>
-      <td>${cantOk?'<span class="badge b-exact">cuadra</span>':(dif?('<span class="badge b-rev">'+esc(estTxt||'revisar')+'</span>'):'—')}</td>
+      <td>${estadoCell}</td>
     </tr>`;
   }).join('');
   // Botón continuar: solo para la factura cargada AHORA (tiene los precios) y validada; el maestro puede forzar.
@@ -754,15 +768,17 @@ function renderRecepEstado(){
 }
 function recepSetSku(i,v){ if(recepImp&&recepImp.items[i])recepImp.items[i].sku_confirmado=v.trim(); }
 // Buscador de SKU por NOMBRE o código (hijos/variaciones y simples; los padres no están en CAT)
+function recepNorm(s){ return String(s==null?'':s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').trim(); }
 function recepSkuBuscar(i,q){
   const box=$('recepSug-'+i); if(!box)return;
   const inp=box.previousElementSibling; // el <input> del SKU
   if(recepImp&&recepImp.items[i])recepImp.items[i].sku_confirmado=q.trim();
-  const ql=q.trim().toLowerCase();
-  if(ql.length<2){ box.style.display='none'; return; }
+  const qtok=recepNorm(q).split(' ').filter(Boolean);
+  if(!qtok.length){ box.style.display='none'; return; }
   const res=[];
   for(let k=0;k<CAT.length && res.length<25;k++){ const c=CAT[k];
-    if(c.sku.toLowerCase().includes(ql)||(c.name||'').toLowerCase().includes(ql)) res.push(c); }
+    const hay=recepNorm((c.sku||'')+' '+(c.name||''));
+    if(qtok.every(t=>hay.includes(t))) res.push(c); } // ignora signos y orden de palabras
   box.innerHTML=res.map(c=>`<div class="btn-sm" style="display:block;width:100%;text-align:left;margin:0;padding:7px 9px;white-space:normal;border-bottom:1px solid #eef2f7" onmousedown="recepSkuElegir(${i},'${String(c.sku).replace(/\\/g,'\\\\').replace(/'/g,"\\'")}')"><b class="sku">${esc(c.sku)}</b> — ${esc(c.name)}</div>`).join('')||'<div class="hint" style="padding:7px 9px">Sin coincidencias</div>';
   // EN LÍNEA (posición normal debajo del campo): inmune a transform/overflow/z-index.
   box.style.position='static'; box.style.left=''; box.style.top=''; box.style.right=''; box.style.minWidth='0'; box.style.width='100%';

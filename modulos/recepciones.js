@@ -41,6 +41,8 @@ module.exports = function registrarRecepciones({
         actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX (estado), INDEX (n_factura)
       )`);
+    // Por si la tabla ya existía con id corto: ampliar para que quepa código + N° factura.
+    try { await portalPool.query(`ALTER TABLE imp_recepciones MODIFY id VARCHAR(80)`); } catch (e) {}
   }
 
   const asJson = (v, fb) => {

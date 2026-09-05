@@ -699,9 +699,15 @@ function renderRecepEstado(){
     const cantOk = it.cuadra===true;
     const recib = it.cant_recibida==null?'—':it.cant_recibida;
     const estTxt={ok:'OK',falta:'faltó',sobra:'sobró',no_llego:'no llegó',extra:'extra'}[it.estado_item]||'';
+    const skuVal = it.sku_confirmado||it.sku_sugerido||'';
+    const nomSis = descSistema(skuVal);
     const skuCell = esMaestroImp()
-      ? `<input value="${esc(it.sku_confirmado||it.sku_sugerido||'')}" oninput="recepSetSku(${i},this.value)" style="min-width:120px" class="sku">`
-      : `<span class="sku">${esc(it.sku_confirmado||it.sku_sugerido||'')}</span>`;
+      ? `<div style="position:relative;min-width:170px">
+           <input value="${esc(skuVal)}" oninput="recepSkuBuscar(${i},this.value)" onblur="setTimeout(()=>recepSkuCerrar(${i}),180)" style="min-width:150px" class="sku" autocomplete="off" placeholder="nombre o SKU">
+           <div id="recepSug-${i}" style="position:absolute;z-index:40;left:0;background:#fff;border:1px solid #cbd5e1;border-radius:6px;max-height:210px;overflow:auto;display:none;min-width:260px;box-shadow:0 6px 18px rgba(0,0,0,.15)"></div>
+           <div style="font-size:11px;margin-top:2px;color:${nomSis?'#15803d':(skuVal?'#b91c1c':'#94a3b8')}">${nomSis?('✓ '+esc(nomSis)):(skuVal?'⚠ no está en el catálogo':'sin asignar')}</div>
+         </div>`
+      : `<span class="sku">${esc(skuVal)}</span>${nomSis?('<div style="font-size:11px;color:#64748b">'+esc(nomSis)+'</div>'):''}`;
     return `<tr>
       <td>${esc(it.codigo||'')}</td>
       <td>${esc(it.desc||'')}</td>
@@ -736,6 +742,20 @@ function renderRecepEstado(){
   </div>`;
 }
 function recepSetSku(i,v){ if(recepImp&&recepImp.items[i])recepImp.items[i].sku_confirmado=v.trim(); }
+// Buscador de SKU por NOMBRE o código (hijos/variaciones y simples; los padres no están en CAT)
+function recepSkuBuscar(i,q){
+  const box=$('recepSug-'+i); if(!box)return;
+  if(recepImp&&recepImp.items[i])recepImp.items[i].sku_confirmado=q.trim();
+  const ql=q.trim().toLowerCase();
+  if(ql.length<2){ box.style.display='none'; return; }
+  const res=[];
+  for(let k=0;k<CAT.length && res.length<25;k++){ const c=CAT[k];
+    if(c.sku.toLowerCase().includes(ql)||(c.name||'').toLowerCase().includes(ql)) res.push(c); }
+  box.innerHTML=res.map(c=>`<div class="btn-sm" style="display:block;width:100%;text-align:left;margin:0;padding:7px 9px;white-space:normal;border-bottom:1px solid #eef2f7" onmousedown="recepSkuElegir(${i},'${String(c.sku).replace(/\\/g,'\\\\').replace(/'/g,"\\'")}')"><b class="sku">${esc(c.sku)}</b> — ${esc(c.name)}</div>`).join('')||'<div class="hint" style="padding:7px 9px">Sin coincidencias</div>';
+  box.style.display='block';
+}
+function recepSkuElegir(i,sku){ if(recepImp&&recepImp.items[i])recepImp.items[i].sku_confirmado=sku; recepSkuCerrar(i); renderRecepEstado(); }
+function recepSkuCerrar(i){ const b=$('recepSug-'+i); if(b)b.style.display='none'; }
 async function recepGuardarCorreccion(){
   if(!recepImp)return;
   const items=recepImp.items.map(it=>({codigo:it.codigo,sku_sugerido:it.sku_sugerido,sku_confirmado:it.sku_confirmado||'',

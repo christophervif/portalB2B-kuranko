@@ -1068,6 +1068,7 @@ async function recCargarAlmacenes(){
 async function recCargarCatalogo(){
   if(REC_CATALOGO)return REC_CATALOGO;
   try{ REC_CATALOGO=await apiCall('/api/recepcion/catalogo','GET'); }catch(e){ REC_CATALOGO=[]; }
+  REC_CATMAP=null; // reconstruir el mapa nombre↔SKU con el catálogo ya cargado
   return REC_CATALOGO;
 }
 async function actualizarBadgeRecepciones(){
@@ -1129,16 +1130,18 @@ function renderRecItems(){
     const cuadra = it.cuadra;
     const cls = (cuadra===false||['falta','sobra','no_llego','extra'].includes(it.estado_item))?'diff':(cuadra===true?'ok':'');
     const sku = it.sku_confirmado || it.sku_sugerido || '';
+    const nomAsig = recNombreSku(sku);
     return `<div class="rec-item ${cls}" data-i="${i}">
-      <div class="ri-desc">${recEsc(it.desc)||'(sin descripción)'}</div>
+      <div class="ri-desc">🧾 En factura: ${recEsc(it.desc)||'(sin descripción)'}</div>
       <div class="ri-cod">Cód. factura: ${recEsc(it.codigo)||'—'} · Cant. factura: <b>${it.cantidad==null?'—':it.cantidad}</b></div>
       <div class="rec-field">
-        <label>SKU en el sistema ${it.sku_sugerido?('· sugerido: '+recEsc(it.sku_sugerido)):''}</label>
+        <label>Producto del sistema (busca por nombre o SKU) ${it.sku_sugerido?('· sugerido: '+recEsc(it.sku_sugerido)):''}</label>
         <div class="rec-sug">
-          <input class="rec-input rec-sku-inp" data-i="${i}" value="${recEsc(sku)}" placeholder="Escribe para buscar SKU o nombre..."
+          <input class="rec-input rec-sku-inp" data-i="${i}" value="${recEsc(sku)}" placeholder="Escribe el nombre o SKU del producto..."
                  oninput="recBuscarSku(${i},this.value)" onblur="setTimeout(()=>recCerrarSug(${i}),180)" autocomplete="off">
           <div class="rec-sug-list" id="rec-sug-${i}"></div>
         </div>
+        <div class="rec-sku-name" id="rec-nom-${i}" style="font-size:12px;margin-top:4px;color:${nomAsig?'#15803d':'#b91c1c'};font-weight:600">${nomAsig?('✓ '+recEsc(nomAsig)):(sku?'⚠ SKU no está en el catálogo':'Sin producto asignado')}</div>
       </div>
       <div class="rec-field">
         <label>¿Cuadra la cantidad que llegó?</label>
@@ -1168,9 +1171,17 @@ function recSetCuadra(i,val){
 }
 function recSetEstado(i,est){ REC_ACTUAL.items[i].estado_item = REC_ACTUAL.items[i].estado_item===est?'':est; renderRecItems(); }
 function recSetCampo(i,campo,val){ REC_ACTUAL.items[i][campo]= (val===''?null:(campo==='cant_recibida'?Number(val):val)); }
+let REC_CATMAP=null;
+function recNombreSku(sku){
+  if(!sku)return '';
+  if(!REC_CATMAP){ REC_CATMAP={}; (REC_CATALOGO||[]).forEach(([s,n])=>{REC_CATMAP[String(s).toLowerCase()]=n||'';}); }
+  return REC_CATMAP[String(sku).trim().toLowerCase()]||'';
+}
 function recBuscarSku(i,q){
   const box=document.getElementById('rec-sug-'+i); if(!box)return;
   REC_ACTUAL.items[i].sku_confirmado=q.trim();
+  const nomEl=document.getElementById('rec-nom-'+i);
+  if(nomEl){ const nm=recNombreSku(q.trim()); nomEl.textContent=nm?('✓ '+nm):(q.trim()?'⚠ SKU no está en el catálogo':'Sin producto asignado'); nomEl.style.color=nm?'#15803d':'#b91c1c'; }
   q=q.trim().toLowerCase();
   if(q.length<2){ box.style.display='none'; return; }
   const cat=REC_CATALOGO||[];

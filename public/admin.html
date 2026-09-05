@@ -292,8 +292,6 @@ tr:hover td{background:var(--hover)}
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn" id="btn-auditar" onclick="analizarCatalogo()">Analizar catálogo</button>
           <button class="btn" id="btn-auditar-excel" onclick="descargarAuditoria()" style="display:none">Descargar en Excel</button>
-          <button class="btn" id="btn-pend-csv" onclick="descargarPendientesWebCSV()" style="display:none" title="Productos pendientes (sin ID de WooCommerce) en formato del importador, con imágenes y atributos">CSV para la web</button>
-          <span id="pend-csv-status" class="muted"></span>
         </div>
         <div id="auditoria-result" class="muted" style="margin-top:10px"></div>
       </div>
@@ -1084,7 +1082,6 @@ async function cargarAuditoriaGuardada(){
       res.textContent='Aún no se ha analizado el catálogo. Pulsa "Analizar catálogo" para generarlo.';
       document.getElementById('auditoria-datos').style.display='none';
       document.getElementById('btn-auditar-excel').style.display='none';
-      document.getElementById('btn-pend-csv').style.display='none';
       return;
     }
     auditoriaCache=d;
@@ -1110,7 +1107,6 @@ function mostrarAuditoria(desdeCache){
     (desdeCache?' <span class="muted">(pulsa "Analizar catálogo" para datos frescos)</span>':'');
   document.getElementById('auditoria-datos').style.display='block';
   document.getElementById('btn-auditar-excel').style.display='';
-  document.getElementById('btn-pend-csv').style.display='';
   document.getElementById('btn-auditar').textContent=desdeCache?'Analizar de nuevo':'Analizar catálogo';
   renderPendientesAud();
   prepararFiltroAud();
@@ -1477,19 +1473,6 @@ async function descargarAuditoria(){
     URL.revokeObjectURL(url);
     res.textContent='✓ Excel descargado.';
   }catch(e){res.textContent='';showToast(e.message,true);}
-}
-async function descargarPendientesWebCSV(){
-  const st=document.getElementById('pend-csv-status');
-  if(st)st.textContent='Generando CSV...';
-  try{
-    const r=await fetch(API+'/admin/pendientes-web-csv',{headers:{'Authorization':'Bearer '+TOKEN}});
-    if(!r.ok){let m='No se pudo generar el CSV';try{m=(await r.json()).error||m;}catch(e){}throw new Error(m);}
-    const blob=await r.blob();
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement('a');a.href=url;a.download=nombreArchivo('pendientes_web','csv');a.click();
-    URL.revokeObjectURL(url);
-    if(st)st.textContent='✓ CSV descargado.';
-  }catch(e){if(st)st.textContent='';showToast(e.message,true);}
 }
 
 // ══════════ REPORTE 3.2 — LISTA DE PAGOS ══════════

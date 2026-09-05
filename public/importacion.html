@@ -620,7 +620,7 @@ function renderFactura(){
     </div>
     <div class="hint">Puedes <b>editar</b> código, descripción, cantidad y precio; <b>agregar</b> o <b>quitar</b> líneas; <b>reordenar arrastrando</b> desde el <b>⠿</b> del número; y <b>dividir</b> una línea en 2 (queda marcada <b>✂ dividido</b>) — ambas conservan el valor total: <b>÷precio</b> = misma cantidad y precio unitario a la mitad (un «set» que son 2 SKU: 10 sets = 10 A + 10 B a mitad de precio); <b>÷cant</b> = mismo precio y se reparte la cantidad (10 unidades = 5 A + 5 B). Si ninguna sugerencia sirve, pulsa <b>🔎</b> para buscar en <b>todo el catálogo</b>; con <b>↻</b> vuelves a cruzar por el código. <b>Total c/desc.</b>: si la factura trae descuento, la IA pone aquí el total final de la línea (con el descuento ya aplicado) y ese valor es el que se usa para costear; vacío = precio × cantidad.</div>
     <div class="tw" style="margin-top:6px"><table><thead><tr><th>#</th><th>Item factura</th><th>Descripción</th><th class="n">Cant</th><th class="n">Precio EXW</th><th class="n" title="Total de la línea con descuento aplicado; vacío = precio × cantidad">Total c/desc.</th><th>SKU en sistema de ventas</th><th>Confianza</th><th>Acciones</th></tr></thead><tbody>${rows}</tbody></table></div>
-    <div class="actions"><button class="btn-sm" onclick="facAdd()">+ agregar ítem</button>${realOn()?'<button class="btn" onclick="enviarARecepcion()" title="Manda esta carga (sin precios) al almacenero para que confirme lo que llegó">📥 Enviar a almacén</button>':''}<button class="btn btn-green" onclick="enviarACalc()">✓ Confirmar y enviar a Calculadora →</button></div>
+    <div class="actions"><button class="btn-sm" onclick="facAdd()">+ agregar ítem</button>${realOn()?'<button class="btn" onclick="enviarARecepcion()" title="Manda esta carga (sin precios) al almacenero para que confirme lo que llegó" style="background:#f59e0b;border-color:#f59e0b;color:#111726;font-weight:800;font-size:15px;padding:12px 20px;box-shadow:0 3px 10px rgba(245,158,11,.45)">📥 Enviar a almacén</button>':''}<button class="btn btn-green" onclick="enviarACalc()">✓ Confirmar y enviar a Calculadora →</button></div>
   </div>`;
 }
 function enviarACalc(){
@@ -1300,6 +1300,10 @@ function aplicarTipo(){
   const esCompra=realOn();
   const recBtn=document.querySelector('.tabbtn[data-t="recep"]');if(recBtn)recBtn.classList.toggle('hide',!esCompra);
   if(!on){const ao=document.querySelector('.tabbtn.on');if(ao&&(ao.dataset.t==='dua'||ao.dataset.t==='recep'))tab('calc');}
+  // Si ya hay una factura detectada, re-dibujar para mostrar/ocultar "Enviar a almacén"
+  // (solo cuando estamos en la pestaña de factura, para no interrumpir otro paso).
+  try{ if(typeof facMatches!=='undefined' && facMatches && facMatches.length && typeof renderFactura==='function'
+        && $('tab-factura') && !$('tab-factura').classList.contains('hide')) renderFactura(); }catch(e){}
 }
 // T.C. SUNAT dólar = Impuesto pagado real (soles) ÷ (IGV + IPM + A/V liquidación)  [solo esos tres]
 // Por defecto los T.C. de gastos (CIF, origen, locales) copian el T.C. de facturación, hasta que los edites a mano

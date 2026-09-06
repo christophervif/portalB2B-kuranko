@@ -763,12 +763,20 @@ async function renderRecepCargado(cur, lista){
     else if(enLista.estado==='borrador'){ msg='⏳ Está en recepción, <b>en progreso</b> (el almacén aún no confirma).'; color='#b45309';bg='#fffbeb';bd='#fde68a'; }
     else { msg='⏳ Está en recepción, <b>pendiente</b> de validar por el almacén.'; color='#b45309';bg='#fffbeb';bd='#fde68a'; }
   } else {
+    // No está en la lista activa. Buscar por N° de factura + proveedor (normalizados)
+    // en TODAS las recepciones, incluidas las archivadas, porque el id pudo variar.
+    const normF=x=>String(x==null?'':x).replace(/[^A-Za-z0-9]/g,'').toUpperCase();
+    let r=null;
     try{
-      const r=await recApi('/api/recepcion/'+encodeURIComponent(cur));
-      if(r&&r.archivada){ msg='🗄 Esta importación <b>ya fue recepcionada, costeada y guardada</b>.'; color='#6d28d9';bg='#faf5ff';bd='#e9d5ff'; }
-      else if(r&&r.estado==='validada'){ msg='✓ Tiene una recepción <b>validada</b> (usa ↻ Actualizar para verla).'; color='#15803d';bg='#f0fdf4';bd='#bbf7d0'; }
-      else { msg='⏳ Tiene una recepción en curso (usa ↻ Actualizar).'; color='#b45309';bg='#fffbeb';bd='#fde68a'; }
-    }catch(e){ msg='— No corresponde a <b>ninguna recepción</b> (no se envió a almacén, o es una importación antigua).'; color='#475569';bg='#f8fafc';bd='#e2e8f0'; }
+      const todas=await recApi('/api/recepciones?incluir_archivadas=1');
+      const invN=normF(inv);
+      r=(todas||[]).find(x=> invN && normF(x.n_factura)===invN && normF(x.proveedor)===normF(prov)) || null;
+    }catch(_){}
+    if(!r){ try{ r=await recApi('/api/recepcion/'+encodeURIComponent(cur)); }catch(_){ r=null; } }
+    if(r&&r.archivada){ msg='🗄 Esta importación <b>ya fue recepcionada, costeada y guardada</b>.'; color='#6d28d9';bg='#faf5ff';bd='#e9d5ff'; }
+    else if(r&&r.estado==='validada'){ msg='✓ Tiene una recepción <b>validada</b> (usa ↻ Actualizar para verla).'; color='#15803d';bg='#f0fdf4';bd='#bbf7d0'; }
+    else if(r){ msg='⏳ Tiene una recepción en curso (usa ↻ Actualizar).'; color='#b45309';bg='#fffbeb';bd='#fde68a'; }
+    else { msg='— No corresponde a <b>ninguna recepción</b> (no se envió a almacén, o es una importación antigua).'; color='#475569';bg='#f8fafc';bd='#e2e8f0'; }
   }
   el.innerHTML=`<div style="border:1px solid ${bd};background:${bg};border-radius:8px;padding:8px 10px">
     <div style="font-size:12px;color:#64748b">Cargado ahora en el costeo:</div>
@@ -1062,6 +1070,12 @@ function cargarImportacion(id){
   $('g_flete').value=s.gastos.cif.flete;$('g_seguro').value=s.gastos.cif.seguro;$('g_otrosCif').value=s.gastos.cif.otros;
   $('g_imo').value=s.gastos.origen.imo;$('g_eur1').value=s.gastos.origen.eur1;$('g_pickup').value=s.gastos.origen.pickup;$('g_otrosOr').value=s.gastos.origen.otros;
   locales=JSON.parse(JSON.stringify(s.gastos.locales||[]));items=JSON.parse(JSON.stringify(s.items||[]));
+  // Congelar en cada ítem las tasas que se usaron: si el ítem ya las trae, se
+  // conservan; si no (guardadas antes de esta versión), se recuperan del snapshot
+  // de partidas de ESA importación (y en último caso de la tabla actual). Así, al
+  // recalcular/exportar en vivo, un cambio o borrado posterior de la tabla NO altera
+  // lo ya calculado.
+  items.forEach(it=>{ if(!it.tasas){ it.tasas=_tasasDeLista(it.partida, s.partidas)||_tasasPartida(it.partida)||null; } });
   if(s.dua&&s.dua.series){lastSeries=s.dua.series;lastTot=s.dua.tot||null;lastDuaHeader=s.dua.header||null;if($('duaDeclNum'))$('duaDeclNum').value=(s.dua.decl&&s.dua.decl.num)||'';if($('duaDeclFecha'))$('duaDeclFecha').value=(s.dua.decl&&s.dua.decl.fecha)||'';if(lastSeries.length)renderDuaAssign();}else{lastSeries=[];lastTot=null;lastDuaHeader=null;}
   if(m){$('numImp').value=m.numImp||'';if(m.empresa)$('empresa').value=m.empresa;$('f_inv').value=m.invoice||'';if(m.proveedor)$('f_prov').value=m.proveedor;}
   RECEP_INGRESO=s.recep||null; // restaurar la info de recepción para el ingreso
@@ -1255,11 +1269,12 @@ function addItem(){items.push({parte:'',codigo:'',desc:'',precioEXW:0,cantidad:1
 // Tasas de la partida TAL COMO ESTÁN AHORA en la tabla (para congelarlas en el
 // ítem al guardar/calcular, y que un cambio futuro de la tabla no altere lo ya
 // guardado). Devuelve null si la partida no está en la tabla.
-function _tasasPartida(part){
-  const d=String(part||'').replace(/\D/g,''); if(!d)return null;
-  const p=partidas.find(x=>String(x.partida).replace(/\D/g,'')===d);
+function _tasasDeLista(part,lista){
+  const d=String(part||'').replace(/\D/g,''); if(!d||!Array.isArray(lista))return null;
+  const p=lista.find(x=>String(x.partida).replace(/\D/g,'')===d);
   return p?{seguro:+p.seguro||0,av:+p.av||0,isc:+p.isc||0,igv:+p.igv||0,ipm:+p.ipm||0,imo:(p.imo==='si'?'si':'no')}:null;
 }
+function _tasasPartida(part){ return _tasasDeLista(part,partidas); }
 function buildState(){return{modo:$('modo').value,prorateo:$('prorateo').value,impuesto:$('impuesto').value,localesIGV:($('localesIncIGV')&&$('localesIncIGV').checked?'Si':'No'),
   percepPct:percepValue(),seguroDeclarado:$('seguroDecl').value,
   tc:{fact:$('tcFact').value,cif:$('tcCif').value,orig:$('tcOrig').value,local:$('tcLocal').value,sunat:$('tcSunat').value,sunatDolar:$('tcSunatD').value},

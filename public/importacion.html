@@ -107,6 +107,7 @@
   <div class="card">
     <h2>📥 Recepción en almacén</h2>
     <div class="hint">Paso solo para <b>compras</b>. El almacenero confirma desde su celular lo que llegó, valida el SKU de cada ítem e indica el almacén. Aquí revisas esa validación y, si algo del SKU está mal, lo corriges antes de pasar a la DUA.</div>
+    <div id="recepCargado" style="margin-top:10px"></div>
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap">
       <b>Facturas en recepción</b>
       <button class="btn-sm" onclick="cargarRecepLista()">↻ Actualizar</button>
@@ -699,6 +700,8 @@ async function cargarRecepLista(){
     lista=[...(pend||[]), ...(val||[])];
   }catch(e){ box.innerHTML='<span class="hint">No se pudo leer la lista: '+esc(e.message)+'</span>'; return; }
   recepListaCache=lista;
+  // Indicador: qué importación está cargada AHORA en el costeo y si coincide con una recepción.
+  renderRecepCargado(cur, lista);
   if(!lista.length){ box.innerHTML='<span class="hint">No hay facturas en recepción todavía. Envía una desde <b>Factura → SKU</b> con «📥 Enviar a almacén».</span>'; if(det)det.innerHTML=''; return; }
   box.innerHTML=lista.map(r=>{
     const est=r.estado==='validada'?'<span class="badge b-exact">validada</span>':(r.estado==='borrador'?'<span class="badge b-rev">en progreso</span>':'<span class="badge b-rev">pendiente</span>');
@@ -713,9 +716,39 @@ async function cargarRecepLista(){
       <span class="hint">(${r.n_items} ítem(s)${r.almacen_nombre?(' · '+esc(r.almacen_nombre)):''})</span>${r.id===cur?' — <b>esta importación</b>':''}
     </div>`;
   }).join('');
-  // Abrir automáticamente la de ESTA importación; si no está en la lista, la primera.
-  const target=lista.find(r=>r.id===cur)||lista[0];
-  abrirRecepEnImp(target.id);
+  // Abrir la de ESTA importación si está en la lista; si no, NO abrir una ajena
+  // (el indicador de arriba explica por qué no coincide).
+  const target=lista.find(r=>r.id===cur);
+  if(target){ abrirRecepEnImp(target.id); }
+  else if(det){ det.innerHTML='<div class="card"><span class="hint">La importación cargada ahora no tiene una recepción activa en esta lista (mira el indicador de arriba). Puedes seleccionar cualquier factura de la lista para revisarla.</span></div>'; }
+}
+// Indicador de coincidencia: dice qué está cargado en el costeo y cómo se relaciona
+// con la recepción (validada en la lista, ya costeada/archivada, o ninguna).
+async function renderRecepCargado(cur, lista){
+  const el=$('recepCargado'); if(!el)return;
+  const provSel=$('f_prov')&&$('f_prov').selectedOptions&&$('f_prov').selectedOptions[0];
+  const prov=(provSel?(provSel.textContent||''):($('f_prov')?$('f_prov').value:'')).split('(')[0].trim()||'(sin proveedor)';
+  const inv=($('f_inv')&&$('f_inv').value)||'';
+  const cod=codigoImportacion();
+  let msg='', color='#475569', bg='#f8fafc', bd='#e2e8f0';
+  const enLista=(lista||[]).find(r=>r.id===cur);
+  if(enLista){
+    if(enLista.estado==='validada'){ msg='✓ Coincide con una recepción <b>validada</b> (resaltada abajo).'; color='#15803d';bg='#f0fdf4';bd='#bbf7d0'; }
+    else if(enLista.estado==='borrador'){ msg='⏳ Está en recepción, <b>en progreso</b> (el almacén aún no confirma).'; color='#b45309';bg='#fffbeb';bd='#fde68a'; }
+    else { msg='⏳ Está en recepción, <b>pendiente</b> de validar por el almacén.'; color='#b45309';bg='#fffbeb';bd='#fde68a'; }
+  } else {
+    try{
+      const r=await recApi('/api/recepcion/'+encodeURIComponent(cur));
+      if(r&&r.archivada){ msg='🗄 Esta importación <b>ya fue recepcionada, costeada y guardada</b>.'; color='#6d28d9';bg='#faf5ff';bd='#e9d5ff'; }
+      else if(r&&r.estado==='validada'){ msg='✓ Tiene una recepción <b>validada</b> (usa ↻ Actualizar para verla).'; color='#15803d';bg='#f0fdf4';bd='#bbf7d0'; }
+      else { msg='⏳ Tiene una recepción en curso (usa ↻ Actualizar).'; color='#b45309';bg='#fffbeb';bd='#fde68a'; }
+    }catch(e){ msg='— No corresponde a <b>ninguna recepción</b> (no se envió a almacén, o es una importación antigua).'; color='#475569';bg='#f8fafc';bd='#e2e8f0'; }
+  }
+  el.innerHTML=`<div style="border:1px solid ${bd};background:${bg};border-radius:8px;padding:8px 10px">
+    <div style="font-size:12px;color:#64748b">Cargado ahora en el costeo:</div>
+    <div style="font-weight:700">${esc(prov)}${inv?(' · Factura '+esc(inv)):''} <span style="font-family:ui-monospace,Menlo,monospace;font-weight:400;color:#475569">${esc(cod)}</span></div>
+    <div style="font-size:13px;color:${color};margin-top:3px">${msg}</div>
+  </div>`;
 }
 async function abrirRecepEnImp(id){
   const det=$('recepDetalle'); if(det)det.innerHTML='<div class="hint">Cargando…</div>';

@@ -45,6 +45,7 @@ module.exports = function registrarRecepciones({
     // Por si la tabla ya existía con id corto: ampliar para que quepa código + N° factura.
     try { await portalPool.query(`ALTER TABLE imp_recepciones MODIFY id VARCHAR(80)`); } catch (e) {}
     try { await portalPool.query(`ALTER TABLE imp_recepciones ADD COLUMN almacen_codigo VARCHAR(80) NOT NULL DEFAULT ''`); } catch (e) {}
+    try { await portalPool.query(`ALTER TABLE imp_recepciones ADD COLUMN archivada TINYINT(1) NOT NULL DEFAULT 0`); } catch (e) {}
   }
 
   const asJson = (v, fb) => {
@@ -118,6 +119,7 @@ module.exports = function registrarRecepciones({
       proveedor: row.proveedor, empresa: row.empresa, n_factura: row.n_factura,
       tipo: row.tipo, estado: row.estado,
       almacen_id: row.almacen_id, almacen_nombre: row.almacen_nombre, almacen_codigo: row.almacen_codigo || '',
+      archivada: row.archivada ? 1 : 0,
       n_items: items.length, con_diferencias: conDif,
       validado_por: row.validado_por, validado_en: row.validado_en,
       creado_en: row.creado_en, actualizado_en: row.actualizado_en
@@ -207,7 +209,7 @@ module.exports = function registrarRecepciones({
          VALUES (?,?,?,?,?,?, 'pendiente', ?)
          ON DUPLICATE KEY UPDATE importacion_id=VALUES(importacion_id), proveedor=VALUES(proveedor),
            empresa=VALUES(empresa), n_factura=VALUES(n_factura), tipo=VALUES(tipo), items=VALUES(items),
-           estado = IF(estado='validada','validada','pendiente')`,
+           estado = IF(estado='validada','validada','pendiente'), archivada = 0`,
         [String(b.id), s(b.importacion_id), s(b.proveedor), s(b.empresa), s(b.n_factura),
          s(b.tipo || 'compra'), JSON.stringify(items)]);
       res.json({ ok: true, id: String(b.id) });
@@ -224,6 +226,7 @@ module.exports = function registrarRecepciones({
       let sql = `SELECT * FROM imp_recepciones`, args = [], w = [];
       if (req.query.estado) { w.push('estado = ?'); args.push(String(req.query.estado)); }
       if (req.query.pendientes) w.push(`estado IN ('pendiente','borrador')`);
+      if (!req.query.incluir_archivadas) w.push('archivada = 0'); // ocultar las ya costeadas/archivadas
       if (w.length) sql += ' WHERE ' + w.join(' AND ');
       sql += ' ORDER BY (estado="validada") ASC, actualizado_en DESC';
       const [rows] = await portalPool.query(sql, args);
@@ -264,12 +267,12 @@ module.exports = function registrarRecepciones({
       if (!rows.length) return res.status(404).json({ error: 'Recepción no encontrada' });
       const b = req.body || {};
       const base = asJson(rows[0].items, []) || [];
-      // Emparejar por código+sku_sugerido (misma clave que al crear)
-      const clave = (i) => `${s(i.codigo)}${s(i.sku_sugerido)}`;
-      const valById = {};
-      (Array.isArray(b.items) ? b.items : []).forEach(v => { valById[clave(v)] = v; });
-      // Ítems de la factura (no-extra), fusionados con la validación del almacén.
-      const items = base.filter(i => !i.es_extra).map(i => fusionarValidacion(i, valById[clave(i)] || {}));
+      // Emparejar por POSICIÓN (índice): el frontend manda los ítems no-extra en
+      // el mismo orden que base. Antes se emparejaba por codigo+sku_sugerido, que
+      // no es único (líneas repetidas o sin código) y colapsaba dos ítems en uno.
+      const sent = Array.isArray(b.items) ? b.items : [];
+      const noExtra = base.filter(i => !i.es_extra);
+      const items = noExtra.map((it, k) => fusionarValidacion(it, sent[k] || {}));
       // Ítems EXTRA: el cliente manda la lista COMPLETA actual en b.extras.
       (Array.isArray(b.extras) ? b.extras : []).forEach(v => items.push(itemExtra(v)));
 
@@ -307,18 +310,38 @@ module.exports = function registrarRecepciones({
       if (!rows.length) return res.status(404).json({ error: 'Recepción no encontrada' });
       const b = req.body || {};
       const base = asJson(rows[0].items, []) || [];
-      const clave = (i) => `${s(i.codigo)}${s(i.sku_sugerido)}`;
-      const valById = {};
-      (Array.isArray(b.items) ? b.items : []).forEach(v => { valById[clave(v)] = v; });
-      const items = base.filter(i => !i.es_extra).map(i => fusionarValidacion(i, valById[clave(i)] || {}));
-      // Extras: si el cliente los manda, se reemplaza la lista; si no, se conservan los guardados.
-      if (Array.isArray(b.extras)) b.extras.forEach(v => items.push(itemExtra(v)));
-      else base.filter(i => i.es_extra).forEach(i => items.push(i));
+      const sent = Array.isArray(b.items) ? b.items : [];
+      // Emparejar por POSICIÓN, no por código: codigo+sku_sugerido no es único
+      // (líneas repetidas o sin código) y por clave la corrección de un ítem
+      // pisaba/perdía la de otro. Ambos frontends mandan la lista en el mismo
+      // orden que base, así que el índice sí es estable.
+      let items;
+      if (Array.isArray(b.extras)) {
+        // admin.html: items = solo no-extra, en orden; extras aparte.
+        const noExtra = base.filter(i => !i.es_extra);
+        items = noExtra.map((it, k) => fusionarValidacion(it, sent[k] || {}));
+        b.extras.forEach(v => items.push(itemExtra(v)));
+      } else {
+        // importacion.html: items = lista COMPLETA (incluye extras), en orden.
+        items = base.map((it, k) => fusionarValidacion(it, sent[k] || {}));
+      }
       await portalPool.query(`UPDATE imp_recepciones SET items=? WHERE id=?`, [JSON.stringify(items), req.params.id]);
       res.json({ ok: true });
     } catch (e) {
       console.error('[recepciones] corregir', e.message);
       res.status(500).json({ error: 'No se pudo guardar la corrección' });
+    }
+  });
+
+  // ── Archivar / desarchivar (se oculta de la lista cuando ya se costeó) ─────
+  app.put('/api/recepcion/:id/archivar', authAdmin, mRec, async (req, res) => {
+    try {
+      const val = req.query.deshacer ? 0 : 1;
+      await portalPool.query(`UPDATE imp_recepciones SET archivada=? WHERE id=?`, [val, req.params.id]);
+      res.json({ ok: true, archivada: val });
+    } catch (e) {
+      console.error('[recepciones] archivar', e.message);
+      res.status(500).json({ error: 'No se pudo archivar' });
     }
   });
 

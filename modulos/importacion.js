@@ -206,5 +206,85 @@ module.exports = function registrarImportacion({
     }
   });
 
+  // ── BACKORDERS (ventas "a pedido" esperando stock) por SKU ─────────────────
+  //    Para el export de Ingreso: qué ventas pendientes se pueden despachar con
+  //    lo que está ingresando. SOLO LECTURA del ERP.
+  app.post('/api/importacion/backorders', authAdmin, mImp, async (req, res) => {
+    try {
+      const skus = Array.isArray(req.body && req.body.skus)
+        ? [...new Set(req.body.skus.map(s => String(s || '').trim()).filter(Boolean))] : [];
+      if (!skus.length) return res.json([]);
+      const [rows] = await prodPool.query(`
+        SELECT TRIM(pv.sku) AS sku, p.name AS producto, s.code AS venta,
+               s.created_at AS fecha, si.quantity AS cantidad,
+               COALESCE(NULLIF(TRIM(cli.business_name),''),
+                        NULLIF(TRIM(CONCAT_WS(' ', cli.first_name, cli.last_name)),''), '—') AS cliente
+          FROM sale_items si
+          JOIN sales s ON s.id = si.sale_id
+          JOIN product_variations pv ON pv.id = si.product_variation_id
+          JOIN products p ON p.id = pv.product_id
+          LEFT JOIN parties cli ON cli.id = s.customer_id
+         WHERE si.stock_batch_id IS NULL AND si.is_backorder = 1
+           AND s.deleted_at IS NULL AND s.status <> 'cancelled'
+           AND TRIM(pv.sku) IN (?)
+         ORDER BY pv.sku, s.created_at`, [skus]);
+      res.json(rows.map(r => ({
+        sku: r.sku, producto: r.producto || '', cliente: r.cliente || '—',
+        venta: r.venta || '', cantidad: Number(r.cantidad) || 0,
+        fecha: r.fecha ? String(r.fecha).slice(0, 10) : ''
+      })));
+    } catch (e) {
+      console.error('[importacion] backorders', e.message);
+      res.status(500).json({ error: 'No se pudieron leer los productos a pedido' });
+    }
+  });
+
+  // ── ¿Ya se subió al ERP? Busca el código de importación en el campo de
+  //    referencia del ingreso de Renzo (stock_entries). Detecta sola la columna
+  //    (nombre con ref/import/doc/guía/comprobante/nota/code). SOLO LECTURA.
+  let _refCols = null;
+  async function columnasRefEntries() {
+    if (_refCols !== null) return _refCols;
+    try {
+      const [cols] = await prodPool.query(`SHOW COLUMNS FROM stock_entries`);
+      const texto = cols.filter(c => /char|text|varchar/i.test(String(c.Type || c.type || '')))
+        .map(c => String(c.Field || c.field));
+      const re = /(import|refer|ref|doc|gu[ií]a|guide|comprob|nota|note|code|c[oó]digo)/i;
+      const cand = texto.filter(n => re.test(n));
+      _refCols = (cand.length ? cand : texto).slice(0, 12); // límite de seguridad
+    } catch (e) { _refCols = []; }
+    return _refCols;
+  }
+  app.post('/api/importacion/erp-subidas', authAdmin, mImp, async (req, res) => {
+    try {
+      const refs = Array.isArray(req.body && req.body.refs)
+        ? [...new Set(req.body.refs.map(s => String(s || '').trim()).filter(Boolean))] : [];
+      if (!refs.length) return res.json({});
+      const cols = await columnasRefEntries();
+      if (!cols.length) return res.json({});
+      const where = cols.map(c => '`' + c + '` IN (?)').join(' OR ');
+      const args = cols.map(() => refs);
+      const sel = cols.map(c => '`' + c + '`').join(', ');
+      const [rows] = await prodPool.query(
+        `SELECT id, ${sel} FROM stock_entries WHERE ${where} ORDER BY id DESC LIMIT 2000`, args);
+      const refSet = new Set(refs.map(r => r.toUpperCase()));
+      const out = {}; // ref -> { subida:true, entry_id }
+      rows.forEach(row => {
+        for (const c of cols) {
+          const v = row[c]; if (v == null) continue;
+          const val = String(v).trim().toUpperCase();
+          if (refSet.has(val) && !out[val]) out[val] = { subida: true, entry_id: row.id, campo: c };
+        }
+      });
+      // Devolver con la clave EXACTA que mandó el cliente
+      const resp = {};
+      refs.forEach(r => { const hit = out[r.toUpperCase()]; if (hit) resp[r] = hit; });
+      res.json(resp);
+    } catch (e) {
+      console.error('[importacion] erp-subidas', e.message);
+      res.status(500).json({ error: 'No se pudo verificar el ERP' });
+    }
+  });
+
   return { prepararTablas };
 };

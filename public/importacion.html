@@ -113,6 +113,7 @@
       <button class="btn-sm" onclick="cargarRecepLista()">↻ Actualizar</button>
     </div>
     <div id="recepLista" class="hint" style="margin-top:8px">Cargando…</div>
+    <div id="recepArchivadas" style="margin-top:8px"></div>
   </div>
   <div id="recepDetalle"></div>
 </div>
@@ -728,6 +729,7 @@ async function cargarRecepLista(){
   recepListaCache=lista;
   // Indicador: qué importación está cargada AHORA en el costeo y si coincide con una recepción.
   renderRecepCargado(cur, lista);
+  renderRecepArchivadas(cur); // archivadas (ya costeadas): ocultas pero desplegables
   if(!lista.length){ box.innerHTML='<span class="hint">No hay facturas en recepción todavía. Envía una desde <b>Factura → SKU</b> con «📥 Enviar a almacén».</span>'; if(det)det.innerHTML=''; return; }
   box.innerHTML=lista.map(r=>{
     const est=r.estado==='validada'?'<span class="badge b-exact">validada</span>':(r.estado==='borrador'?'<span class="badge b-rev">en progreso</span>':'<span class="badge b-rev">pendiente</span>');
@@ -783,6 +785,27 @@ async function renderRecepCargado(cur, lista){
     <div style="font-weight:700">${esc(prov)}${inv?(' · Factura '+esc(inv)):''} <span style="font-family:ui-monospace,Menlo,monospace;font-weight:400;color:#475569">${esc(cod)}</span></div>
     <div style="font-size:13px;color:${color};margin-top:3px">${msg}</div>
   </div>`;
+}
+// Recepciones ARCHIVADAS (ya costeadas): no se listan arriba, pero se muestran en
+// una sección desplegable para poder verlas.
+async function renderRecepArchivadas(cur){
+  const box=$('recepArchivadas'); if(!box)return; box.innerHTML='';
+  let arch=[];
+  try{ const todas=await recApi('/api/recepciones?incluir_archivadas=1'); arch=(todas||[]).filter(r=>r.archivada); }
+  catch(e){ return; }
+  if(!arch.length) return;
+  const filas=arch.map(r=>{
+    const idJs=String(r.id).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    const marca=(r.id===cur)?' style="border-color:#f59e0b;background:#fff7ed"':'';
+    return `<div class="btn-sm" style="display:block;width:100%;text-align:left;margin:5px 0;padding:9px 11px"${marca} onclick="abrirRecepEnImp('${idJs}')">
+      <b>${esc(r.proveedor||'(sin proveedor)')}</b> · Fact. ${esc(r.n_factura||'—')} <span class="badge b-rev" style="background:#ede9fe;color:#6d28d9">archivada · costeada</span>
+      <span class="hint">(${r.n_items} ítem(s)${r.almacen_nombre?(' · '+esc(r.almacen_nombre)):''})</span>${r.id===cur?' — <b>esta importación</b>':''}
+    </div>`;
+  }).join('');
+  box.innerHTML=`<details style="border:1px dashed #c4b5fd;border-radius:8px;padding:6px 9px;background:rgba(124,58,237,.04)">
+    <summary style="cursor:pointer;font-weight:700;color:#6d28d9">🗄 Archivadas — ya costeadas (${arch.length}) <span class="hint" style="font-weight:400">· clic para ver</span></summary>
+    <div style="margin-top:6px">${filas}</div>
+  </details>`;
 }
 async function abrirRecepEnImp(id){
   const det=$('recepDetalle'); if(det)det.innerHTML='<div class="hint">Cargando…</div>';

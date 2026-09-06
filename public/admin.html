@@ -757,6 +757,7 @@ tr:hover td{background:var(--hover)}
           </div>
         </div>
         <div id="rec-cards"></div>
+        <div id="rec-archivadas" style="margin-top:10px"></div>
       </div>
 
       <!-- DETALLE / validación de una recepción -->
@@ -1119,20 +1120,37 @@ async function cargarRecepciones(){
     const lista=await apiCall('/api/recepciones'+qs,'GET');
     actualizarBadgeRecepciones();
     if(st)st.textContent = lista.length ? '' : 'No hay recepciones en este filtro.';
-    cont.innerHTML = lista.map(r=>{
-      const est = r.estado==='validada'?'val':(r.estado==='borrador'?'bor':'pend');
-      const etq = r.estado==='validada'?'Validada':(r.estado==='borrador'?'Borrador':'Pendiente');
-      const dif = r.con_diferencias>0 ? `<span class="rec-chip dif">${r.con_diferencias} c/dif.</span>` : '';
-      const alm = r.almacen_nombre ? ' · 📦 '+recEsc(r.almacen_nombre) : '';
-      return `<div class="rec-card" onclick="abrirRecepcion('${recEsc(r.id)}')">
-        <div class="r-top">
-          <div><b>${recEsc(r.proveedor)||'(sin proveedor)'}</b> <span class="muted">· Factura ${recEsc(r.n_factura)||'—'}</span></div>
-          <div style="display:flex;gap:6px"><span class="rec-chip ${est}">${etq}</span>${dif}</div>
-        </div>
-        <div class="muted" style="margin-top:6px;font-size:13px">${r.n_items} ítem(s)${alm}${r.validado_por?(' · por '+recEsc(r.validado_por)):''}</div>
-      </div>`;
-    }).join('');
+    cont.innerHTML = lista.map(r=>recCardHtml(r,false)).join('');
+    // Archivadas (recepciones ya costeadas): ocultas pero desplegables para verlas.
+    renderRecArchivadas();
   }catch(e){ if(st)st.textContent=''; showToast(e.message,true); }
+}
+function recCardHtml(r,archivada){
+  const est = archivada?'arch':(r.estado==='validada'?'val':(r.estado==='borrador'?'bor':'pend'));
+  const etq = archivada?'Archivada · costeada':(r.estado==='validada'?'Validada':(r.estado==='borrador'?'Borrador':'Pendiente'));
+  const dif = r.con_diferencias>0 ? `<span class="rec-chip dif">${r.con_diferencias} c/dif.</span>` : '';
+  const alm = r.almacen_nombre ? ' · 📦 '+recEsc(r.almacen_nombre) : '';
+  const bg = archivada?' style="opacity:.85"':'';
+  const chipStyle = archivada?' style="background:#ede9fe;color:#6d28d9"':'';
+  return `<div class="rec-card"${bg} onclick="abrirRecepcion('${recEsc(r.id)}')">
+    <div class="r-top">
+      <div><b>${recEsc(r.proveedor)||'(sin proveedor)'}</b> <span class="muted">· Factura ${recEsc(r.n_factura)||'—'}</span></div>
+      <div style="display:flex;gap:6px"><span class="rec-chip ${est}"${chipStyle}>${etq}</span>${dif}</div>
+    </div>
+    <div class="muted" style="margin-top:6px;font-size:13px">${r.n_items} ítem(s)${alm}${r.validado_por?(' · por '+recEsc(r.validado_por)):''}</div>
+  </div>`;
+}
+async function renderRecArchivadas(){
+  const box=document.getElementById('rec-archivadas'); if(!box)return;
+  box.innerHTML='';
+  let arch=[];
+  try{ const todas=await apiCall('/api/recepciones?incluir_archivadas=1','GET'); arch=(todas||[]).filter(r=>r.archivada); }
+  catch(e){ return; }
+  if(!arch.length) return;
+  box.innerHTML=`<details style="border:1px dashed var(--border,#cbd5e1);border-radius:10px;padding:8px 10px;background:rgba(124,58,237,.04)">
+    <summary style="cursor:pointer;font-weight:700;color:#6d28d9">🗄 Archivadas — ya costeadas (${arch.length}) <span class="muted" style="font-weight:400">· clic para ver</span></summary>
+    <div style="margin-top:8px">${arch.map(r=>recCardHtml(r,true)).join('')}</div>
+  </details>`;
 }
 async function abrirRecepcion(id){
   try{

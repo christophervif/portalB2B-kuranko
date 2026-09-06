@@ -1022,6 +1022,10 @@ function guardarImportacion(){
   const meta=_meta();meta.codigo=codigo;
   const rec={id:'imp_'+nMax,n:nMax,tipo:tipoImportacion(),nombre:$('save_nombre').value||codigo,
     savedAt:new Date().toISOString().slice(0,16).replace('T',' '),meta,state:buildState()};
+  // Congelar también en los ítems EN VIVO las tasas que se guardaron, para que si
+  // editas/borras la partida en la tabla, esta importación (ya guardada y abierta)
+  // no cambie en pantalla ni al recalcular.
+  (rec.state.items||[]).forEach((si,i)=>{ if(items[i]&&!items[i].tasas) items[i].tasas=si.tasas?{...si.tasas}:null; });
   saved.push(rec);persistOne(rec);renderSavedList();
   // Si esta importación vino de una recepción validada, archívala para que
   // desaparezca de la pestaña Recepción (ya quedó costeada y en Guardadas).
@@ -1283,9 +1287,10 @@ function buildState(){return{modo:$('modo').value,prorateo:$('prorateo').value,i
   gastos:{cif:{flete:$('g_flete').value,seguro:$('g_seguro').value,otros:$('g_otrosCif').value},origen:{imo:$('g_imo').value,eur1:$('g_eur1').value,pickup:$('g_pickup').value,otros:$('g_otrosOr').value},locales},
   dua:((lastSeries&&lastSeries.length)?{series:lastSeries,tot:lastTot,header:lastDuaHeader,decl:{num:($('duaDeclNum')?$('duaDeclNum').value:''),fecha:($('duaDeclFecha')?$('duaDeclFecha').value:'')}}:null),
   // Se congela por ítem la tasa usada (tasas) y se guarda la tabla COMPLETA como
-  // respaldo, para que recalcular/exportar después no dependa de la tabla actual.
-  partidas:partidas.slice(),
-  items:items.map(it=>({...it,tasas:(it.tasas||_tasasPartida(it.partida))})),recep:RECEP_INGRESO};}
+  // respaldo. COPIA PROFUNDA: si se comparte la referencia con la tabla viva,
+  // editar una partida mutaría también lo ya guardado (y el Excel daría 0).
+  partidas:JSON.parse(JSON.stringify(partidas)),
+  items:items.map(it=>({...it,tasas:(it.tasas?{...it.tasas}:_tasasPartida(it.partida))})),recep:RECEP_INGRESO};}
 function calcular(){
   const s=buildState();let r;try{r=computeImport(s);}catch(e){$('calcResult').innerHTML=`<div class="card" style="color:#991b1b">Error: ${e.message}</div>`;return;}
   const rows=r.items.map((it,i)=>`<tr><td class="l"><b class="sku">${esc(it.codigo||('ítem '+(i+1)))}</b><div class="nm">${esc(descSistema(it.codigo)||it.desc||'')}</div></td><td class="n">${n2(it.subEXW)}</td><td class="n">${n2(it.fobItem)}</td><td class="n">${n2(it.cifItem)}</td><td class="n">${n2(it.av)}</td><td class="n">${n2(it.igv)}</td><td class="n unit">${n2(it.unitSin)}</td><td class="n unit">${n2(it.unitCon)}</td></tr>`).join('');

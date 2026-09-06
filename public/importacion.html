@@ -1078,11 +1078,27 @@ function renderSavedList(){
   // Los guardados internos de recepción (imprec_*) no se listan aquí; se usan desde la pestaña Recepción.
   const visibles=saved.filter(r=>!String(r.id).startsWith('imprec_'));
   if(!visibles.length){box.innerHTML='<div class="hint">Aún no hay importaciones guardadas.</div>';return;}
-  box.innerHTML='<div class="tw"><table><thead><tr><th>#</th><th>Tipo</th><th>Nombre</th><th>Proveedor</th><th>N° imp.</th><th class="n">FOB total (S/)</th><th class="n" title="Flete en soles">Flete (S/)</th><th class="n" title="Costo logístico total puerta a puerta (CIF + origen + locales) en soles">Costo import. logíst. p/p (S/)</th><th class="n">Costo inv. (S/)</th><th>Guardada</th><th>Acciones</th></tr></thead><tbody>'+
+  box.innerHTML='<div class="tw"><table><thead><tr><th>#</th><th>Tipo</th><th>Nombre</th><th>Proveedor</th><th>N° imp.</th><th class="n">FOB total (S/)</th><th class="n" title="Flete en soles">Flete (S/)</th><th class="n" title="Costo logístico total puerta a puerta (CIF + origen + locales) en soles">Costo import. logíst. p/p (S/)</th><th class="n">Costo inv. (S/)</th><th>Guardada</th><th title="¿El ingreso ya se subió al sistema de Renzo? (busca la Ref. importación)">ERP</th><th>Acciones</th></tr></thead><tbody>'+
     visibles.map(r=>{let R={items:[],totals:{}};try{R=computeImport(r.state);}catch(e){}const tt=R.totals||{};const invT=sum((R.items||[]).map(it=>it.unitSin*(+it.cantidad||0)));
       return `<tr><td>${r.n}</td><td>${esc(r.tipo)}${r.tipo==='Compra'?' <span class="badge b-exact">real</span>':' <span class="badge b-rev">teórico</span>'}</td><td>${esc(r.nombre)}</td><td>${esc((r.meta.proveedorNombre||r.meta.proveedor||'').split('(')[0])}</td><td>${esc(r.meta.numImp||'')}</td><td class="n">${n2(tt.sumFOBsoles)}</td><td class="n">${n2(tt.costoFleteSoles)}</td><td class="n">${n2(tt.costoLogisticoTotal)}</td><td class="n">${n2(invT)}</td><td class="nm">${esc(r.savedAt)}</td>
+      <td class="nm"><span class="erp-chk" data-ref="${esc(r.meta.codigo||'')}"><span class="hint">·</span></span></td>
       <td style="white-space:nowrap"><button class="btn-sm" onclick="cargarImportacion('${r.id}')">Cargar</button> <button class="btn-sm" onclick="exportImportExcel('${r.id}')">Excel</button> <button class="btn-sm" onclick="exportIngresoSaved('${r.id}')">Ingreso</button> ${(r.state&&r.state.dua&&((r.state.dua.series&&r.state.dua.series.length)||r.state.dua.header))?`<button class="btn-sm" onclick="exportDuaSaved('${r.id}')">DUA</button> `:''}<button class="btn-sm" onclick="exportImportPDF('${r.id}')">PDF</button> <span class="btn-del" onclick="eliminarImportacion('${r.id}')">✕</span></td></tr>`;}).join('')+'</tbody></table></div>'
       +'<div class="actions" style="margin-top:8px"><button class="btn-sm" onclick="exportResumenGeneral()">⬇ Exportar tabla general (resumen + detalle)</button></div>';
+  marcarSubidasERP();
+}
+// Marca en Guardadas cuáles importaciones ya tienen su ingreso subido al ERP de
+// Renzo (busca la Ref. importación = código en el ingreso). Best-effort.
+async function marcarSubidasERP(){
+  const box=$('savedList'); if(!box||!box.querySelectorAll)return;
+  const spans=[...box.querySelectorAll('.erp-chk')];
+  const refs=[...new Set(spans.map(s=>s.dataset.ref).filter(Boolean))];
+  if(!refs.length)return;
+  let mapa={};
+  try{ mapa=await apiPost('/erp-subidas',{refs}); }catch(e){ return; }
+  spans.forEach(s=>{ const hit=mapa[s.dataset.ref];
+    if(hit&&hit.subida){ s.innerHTML='<span class="badge b-exact" title="Encontrada en el ERP (ingreso #'+esc(hit.entry_id)+', campo '+esc(hit.campo||'')+')">✓ subida</span>'; }
+    else { s.innerHTML='<span class="hint" title="Aún no aparece en el ERP de Renzo">—</span>'; }
+  });
 }
 function eliminarImportacion(id){if(!confirm('¿Eliminar esta importación guardada?'))return;saved=saved.filter(r=>r.id!==id);apiSend('/importaciones/'+encodeURIComponent(id),'DELETE');renderSavedList();}
 function cargarImportacion(id){
@@ -1338,12 +1354,30 @@ function _ingresoRows(r,ctx){const H=_ingresoHead();
     const cant=it.cantidad;
     const m={fecha:ctx.fecha,'Código':it.codigo,'Cantidad':cant,destino:dest,'almacen_nombre':anom,'Precio EXW':(+it.cantidad?rnd(it.subEXW/it.cantidad,4):it.precioEXW),moneda:r.totals.J1,tipo_cambio:ctx.tc,'Costo real sin impuesto deducible soles UNITARIO':n2(it.unitSin),'Costo real soles UNITARIO':n2(it.unitCon),'Importación':ctx.impCode,tipo_documento:'00',numero_documento:ctx.numDoc,tipo_doc_proveedor:'00',proveedor:ctx.prov,empresa:ctx.empresa,N:ctx.N,costo_logistico:n2(r.totals.costoLogistico),costo_envio_origen:n2(r.totals.costoEnvioOrigen),impuesto_deducible:n2(r.totals.impDeducible),impuesto_no_deducible1:n2(r.totals.impNoDeducible)};return H.map(h=>m[h]!==undefined?m[h]:'');});}
 let lastIngreso=null;
-function descargarIngresoLive(){if(!lastIngreso){alert('Primero pulsa Calcular.');return;}xlsxDownload(_fname('IngresoStock-'+lastIngreso.nombre)+'.xlsx','Ingreso de Stock',lastIngreso.aoa.map((row,ri)=>ri===0?row:row.map(_num)));}
+async function apiPost(ep,body){const r=await fetch(API+ep,{method:'POST',headers:_authHeaders(true),body:JSON.stringify(body||{})});if(r.status===401||r.status===403){throw new Error('Sesión del portal expirada — vuelve a entrar al panel.');}if(!r.ok)throw new Error('API '+r.status);return r.json();}
+// Hoja "Productos a pedido": ventas en backorder que coinciden en SKU con lo que
+// se ingresa. Se consulta al ERP en cada exportación (SOLO LECTURA).
+async function _hojaPedidos(skus){
+  const head=['SKU','Producto','Cliente','Venta','Cantidad pendiente','Fecha'];
+  let bo;
+  try{ bo=await apiPost('/backorders',{skus}); }
+  catch(e){ return {name:'Productos a pedido',aoa:[['No se pudo consultar el ERP: '+e.message]]}; }
+  if(!bo||!bo.length) return {name:'Productos a pedido',aoa:[['No hay coincidencias con productos a pedido.']]};
+  const rows=bo.map(b=>[b.sku,b.producto,b.cliente,b.venta,_num(b.cantidad),b.fecha]);
+  return {name:'Productos a pedido',aoa:[head].concat(rows)};
+}
+async function _descargarIngreso(aoa,filename){
+  const head=aoa[0]||[]; const ci=head.indexOf('Código');
+  const skus=ci>=0?[...new Set(aoa.slice(1).map(r=>String(r[ci]==null?'':r[ci]).trim()).filter(Boolean))]:[];
+  const pedidos=await _hojaPedidos(skus);
+  xlsxDownloadMulti(filename,[{name:'Ingreso de Stock',aoa},pedidos]);
+}
+function descargarIngresoLive(){if(!lastIngreso){alert('Primero pulsa Calcular.');return;}_descargarIngreso(lastIngreso.aoa.map((row,ri)=>ri===0?row:row.map(_num)),_fname('IngresoStock-'+lastIngreso.nombre)+'.xlsx');}
 function exportIngresoSaved(id){const rec=saved.find(x=>x.id===id);if(!rec)return;let r;try{r=computeImport(rec.state);}catch(e){alert('No se pudo calcular.');return;}const m=rec.meta;const rp=(rec.state&&rec.state.recep)||{};
   const ctx={fecha:new Date().toISOString().slice(0,10),tc:rec.state.tc.fact,impCode:m.codigo||'',numDoc:m.invoice||'',prov:m.proveedor||'',empresa:m.empresa||'',N:m.numImp||'',
     destino:rp.destino||'',almacenNombre:rp.almacenNombre||'',recibidas:rp.recibidas||null};
   const aoa=[_ingresoHead()].concat(_ingresoRows(r,ctx).map(row=>row.map(_num)));
-  xlsxDownload(_fname('IngresoStock-'+(m.codigo||rec.n))+'.xlsx','Ingreso de Stock',aoa);}
+  _descargarIngreso(aoa,_fname('IngresoStock-'+(m.codigo||rec.n))+'.xlsx');}
 
 /* ---------- DUA ---------- */
 function procesarDua(){

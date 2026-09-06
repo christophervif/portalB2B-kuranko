@@ -1123,7 +1123,7 @@ async function abrirRecepcion(id){
     // Almacén
     const selA=document.getElementById('rec-almacen');
     selA.innerHTML='<option value="">— Elige el almacén —</option>'+REC_ALMACENES.map(a=>
-      `<option value="${a.id}" ${String(rec.almacen_id)===String(a.id)?'selected':''}>${recEsc(a.nombre)}</option>`).join('');
+      `<option value="${a.id}" data-codigo="${recEsc(a.codigo||'')}" ${String(rec.almacen_id)===String(a.id)?'selected':''}>${recEsc(a.nombre)}${a.codigo?(' ('+recEsc(a.codigo)+')'):''}</option>`).join('');
     // Ítems
     renderRecItems();
     // Si ya está validada y NO soy maestro, dejar solo lectura
@@ -1158,6 +1158,36 @@ function renderRecItems(){
         </div>
       </div>`;
     }
+    // ── Ítem de la factura SUBDIVIDIDO en 2+ SKU (parte de la factura) ──
+    if(it.sub && it.sub.length){
+      const modo=it.split_modo||'precio';
+      const subRows=it.sub.map((sx,j)=>{
+        const nm=recNombreSku(sx.sku_confirmado||'');
+        return `<div style="border:1px solid var(--border,#e2e8f0);border-radius:8px;padding:8px;margin-top:6px">
+          <div style="display:flex;justify-content:space-between;align-items:center"><b>SKU ${j+1}</b>${it.sub.length>2?`<button type="button" onclick="recDelSubRow(${i},${j})" style="color:#b91c1c;background:none;border:none;cursor:pointer;font-size:15px">✕</button>`:''}</div>
+          <div class="rec-sug">
+            <input class="rec-input" value="${recEsc(sx.sku_confirmado||'')}" placeholder="Nombre o SKU del producto..." oninput="recBuscarSkuSub(${i},${j},this.value)" onblur="setTimeout(()=>recCerrarSubSug(${i},${j}),180)" autocomplete="off">
+            <div class="rec-sug-list" id="rec-subsug-${i}-${j}"></div>
+          </div>
+          <div style="font-size:12px;margin-top:3px;font-weight:600;color:${nm?'#15803d':'#b91c1c'}">${nm?('✓ '+recEsc(nm)):(sx.sku_confirmado?'⚠ no está en el catálogo':'sin producto')}</div>
+          ${modo==='cant'?`<div class="rec-field"><label>Cantidad de este SKU</label><input class="rec-input" type="number" min="0" step="any" value="${sx.cant_recibida==null?'':sx.cant_recibida}" oninput="recSetSubCant(${i},${j},this.value)" placeholder="cantidad"></div>`:''}
+        </div>`;
+      }).join('');
+      return `<div class="rec-item diff" data-i="${i}" style="border-left:4px solid #0891b2">
+        <div class="ri-desc" style="color:#0e7490">✂ Subdividido: ${recEsc(it.desc)||'(sin descripción)'} <button type="button" onclick="recQuitarSub(${i})" title="Deshacer subdivisión" style="float:right;background:none;border:none;color:#b91c1c;cursor:pointer;font-weight:700">deshacer ✕</button></div>
+        <div class="ri-cod">Cód. factura: ${recEsc(it.codigo)||'—'} · Cant. factura: <b>${it.cantidad==null?'—':it.cantidad}</b> · <i>cuenta como parte de la factura</i></div>
+        ${ES_MAESTRO?`<div class="rec-field"><label>Tipo de subdivisión <span style="color:#94a3b8;font-weight:400">(solo tú lo cambias)</span></label>
+          <div class="rec-cuadra">
+            <button type="button" class="${modo==='precio'?'on-si':''}" onclick="recSetSubModo(${i},'precio')">Kit (mismo N°, divide el precio)</button>
+            <button type="button" class="${modo==='cant'?'on-si':''}" onclick="recSetSubModo(${i},'cant')">Repartir cantidad</button>
+          </div></div>`:''}
+        ${modo==='precio'?`<div class="rec-field"><label>¿Cuántos llegaron? <span style="color:#94a3b8;font-weight:400">(aplica a cada SKU del kit)</span></label>
+          <input class="rec-input" type="number" min="0" step="any" value="${it.cant_recibida==null?'':it.cant_recibida}" oninput="recSetRecibida(${i},this.value)" placeholder="cantidad recibida">
+          <div id="rec-difcalc-${i}" style="font-size:12px;margin-top:5px;font-weight:700">${recDifTexto(it)}</div></div>`:''}
+        ${subRows}
+        <div style="margin-top:8px"><button class="btn btn-sec btn-sm" onclick="recAddSubRow(${i})">+ agregar otro SKU</button></div>
+      </div>`;
+    }
     // ── Ítem de la factura ──
     const cuadra = it.cuadra;
     const cls = (cuadra===false||['falta','sobra','no_llego'].includes(it.estado_item))?'diff':(cuadra===true?'ok':'');
@@ -1166,6 +1196,7 @@ function renderRecItems(){
       <div class="ri-cod">Cód. factura: ${recEsc(it.codigo)||'—'} · Cant. factura: <b>${it.cantidad==null?'—':it.cantidad}</b></div>
       <div style="margin:6px 0">Sugerido por el sistema: ${recConfianza(it.confianza)}</div>
       ${skuBloque}
+      <div style="margin:4px 0 2px"><button class="btn btn-sec btn-sm" type="button" onclick="recSubdividir(${i})" title="Esta línea de la factura son 2+ SKU (kit sin SKU único, o reparto de cantidad)">✂ Subdividir en 2+ SKU</button></div>
       <div class="rec-field">
         <label>¿Cuadra la cantidad que llegó?</label>
         <div class="rec-cuadra">
@@ -1188,6 +1219,42 @@ function recAgregarExtra(){
 }
 function recQuitarExtra(i){ REC_ACTUAL.items.splice(i,1); renderRecItems(); recAutoGuardar(); }
 function recSetCampoExtra(i,val){ REC_ACTUAL.items[i].cant_recibida = (val===''?null:Number(val)); recAutoGuardar(); }
+// ── Subdivisión de una línea de factura en 2+ SKU (por defecto KIT / divide precio) ──
+function recSubdividir(i){
+  const it=REC_ACTUAL.items[i];
+  it.split_modo='precio';
+  it.sub=[{sku_confirmado:(it.sku_confirmado||it.sku_sugerido||''),cant_recibida:(it.cant_recibida==null?it.cantidad:it.cant_recibida)},
+          {sku_confirmado:'',cant_recibida:null}];
+  if(it.cant_recibida==null)it.cant_recibida=it.cantidad; // cantidad del kit por defecto = la de factura
+  renderRecItems(); recAutoGuardar();
+}
+function recQuitarSub(i){ const it=REC_ACTUAL.items[i]; it.sub=[]; it.split_modo=''; renderRecItems(); recAutoGuardar(); }
+function recSetSubModo(i,m){ REC_ACTUAL.items[i].split_modo=m; renderRecItems(); recAutoGuardar(); }
+function recAddSubRow(i){ REC_ACTUAL.items[i].sub.push({sku_confirmado:'',cant_recibida:null}); renderRecItems(); recAutoGuardar(); }
+function recDelSubRow(i,j){
+  const it=REC_ACTUAL.items[i]; it.sub.splice(j,1);
+  if(it.sub.length<2){ // si queda 1, deja de ser subdivisión: conserva ese SKU como normal
+    const q=it.sub[0]||{}; it.sku_confirmado=q.sku_confirmado||''; it.sub=[]; it.split_modo='';
+  }
+  renderRecItems(); recAutoGuardar();
+}
+function recSetSubCant(i,j,v){ REC_ACTUAL.items[i].sub[j].cant_recibida=(v===''?null:Number(v)); recAutoGuardar(); }
+function recElegirSkuSub(i,j,sku){ REC_ACTUAL.items[i].sub[j].sku_confirmado=sku; recCerrarSubSug(i,j); renderRecItems(); recAutoGuardar(); }
+function recCerrarSubSug(i,j){ const b=document.getElementById('rec-subsug-'+i+'-'+j); if(b)b.style.display='none'; }
+function recBuscarSkuSub(i,j,q){
+  const box=document.getElementById('rec-subsug-'+i+'-'+j); if(!box)return;
+  REC_ACTUAL.items[i].sub[j].sku_confirmado=q.trim();
+  const qtok=recNorm(q).split(' ').filter(Boolean);
+  if(!qtok.length){ box.style.display='none'; return; }
+  const cat=REC_CATALOGO||[]; const res=[];
+  for(let k=0;k<cat.length && res.length<25;k++){ const hay=recNorm((cat[k][0]||'')+' '+(cat[k][1]||'')); if(qtok.every(t=>hay.includes(t))) res.push(cat[k]); }
+  const diag=`<div style="padding:6px 10px;font-size:11px;color:#475569;background:#f1f5f9;border-bottom:1px solid #e2e8f0">catálogo: ${cat.length} · coincidencias: ${res.length}</div>`;
+  const its=res.map(([s,n])=>`<div onmousedown="recElegirSkuSub(${i},${j},'${recEsc(s).replace(/'/g,"\\'")}')" style="padding:9px 10px;cursor:pointer;color:#0f172a;border-bottom:1px solid #eef2f7"><b style="font-family:ui-monospace,Menlo,monospace">${recEsc(s)}</b> — ${recEsc(n)}</div>`).join('')||`<div style="padding:9px 10px;color:#64748b">${cat.length?'Sin coincidencias':'⚠ el catálogo no cargó'}</div>`;
+  box.innerHTML=diag+its;
+  box.style.position='static';box.style.left='';box.style.top='';box.style.right='';box.style.width='auto';
+  box.style.background='#ffffff';box.style.border='1px solid #cbd5e1';box.style.borderRadius='8px';box.style.marginTop='4px';box.style.color='#0f172a';box.style.maxHeight='240px';box.style.overflow='auto';
+  box.style.display='block';
+}
 function recSetCuadra(i,val){
   const it=REC_ACTUAL.items[i];
   it.cuadra=val;
@@ -1278,10 +1345,12 @@ async function recGuardar(confirmar, silent){
   const st=document.getElementById('rec-detalle-status');
   const ind=document.getElementById('rec-autosave');
   const selA=document.getElementById('rec-almacen');
-  const almId=selA.value, almNom=selA.selectedOptions[0]?selA.selectedOptions[0].textContent:'';
+  const opA=selA.selectedOptions[0];
+  const almId=selA.value, almNom=opA?(opA.textContent||'').replace(/\s*\([^)]*\)\s*$/,'').trim():'', almCod=opA?(opA.dataset.codigo||''):'';
   // Ítems de la factura y ítems EXTRA (no facturados) por separado
   const items=rec.items.filter(it=>!it.es_extra).map(it=>({codigo:it.codigo,sku_sugerido:it.sku_sugerido,sku_confirmado:it.sku_confirmado||'',
-    cuadra:it.cuadra,cant_recibida:it.cant_recibida,estado_item:it.estado_item||'',nota:it.nota||''}));
+    cuadra:it.cuadra,cant_recibida:it.cant_recibida,estado_item:it.estado_item||'',nota:it.nota||'',
+    split_modo:it.split_modo||'',sub:(it.sub||[]).map(x=>({sku_confirmado:x.sku_confirmado||'',cant_recibida:x.cant_recibida}))}));
   const extras=rec.items.filter(it=>it.es_extra).map(it=>({sku_confirmado:it.sku_confirmado||'',cant_recibida:it.cant_recibida,nota:it.nota||''}));
   // Validar extras: deben tener SKU (solo al confirmar)
   const extrasSinSku=extras.filter(e=>!e.sku_confirmado).length;
@@ -1296,7 +1365,7 @@ async function recGuardar(confirmar, silent){
       if(!silent) st.textContent='✓ Corrección guardada.';
     } else {
       const d=await apiCall('/api/recepcion/'+encodeURIComponent(rec.id)+'/validacion','PUT',
-        {almacen_id:almId?Number(almId):null,almacen_nombre:almNom,items,extras,confirmar});
+        {almacen_id:almId?Number(almId):null,almacen_nombre:almNom,almacen_codigo:almCod,items,extras,confirmar});
       if(!silent) st.textContent = confirmar?'✓ Recepción confirmada.':'✓ Borrador guardado.';
       if(d&&d.estado) rec.estado=d.estado; // p.ej. queda 'borrador' tras el auto-guardado
     }

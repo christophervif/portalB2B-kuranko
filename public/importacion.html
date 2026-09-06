@@ -65,6 +65,11 @@
 <div id="tab-factura">
   <div class="card">
     <h2>1 · Sube la factura</h2>
+    <div style="background:#fff7ed;border:2px solid #fdba74;border-radius:9px;padding:11px 13px;margin-bottom:11px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <label style="font-weight:800;color:#9a3412;margin:0;font-size:14px">Tipo de importación:</label>
+      <select id="tipoImp" onchange="aplicarTipo();updateCodigo()" style="padding:9px 12px;font-weight:800;border:1px solid #fdba74;border-radius:8px;font-size:14px"><option>Cotización</option><option>Compra</option></select>
+      <span class="hint" style="flex:1;min-width:220px"><b>Compra</b> habilita la DUA, la liquidación real y el paso de <b>📥 Recepción</b>. <b>Cotización</b> los oculta.</span>
+    </div>
     <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:9px;padding:11px 13px">
       <div style="font-weight:800;color:#1e40af;font-size:13px;margin-bottom:6px">🤖 Leer factura con IA (Gemini) — adjunta el PDF y listo</div>
       <div class="grid">
@@ -87,7 +92,6 @@
   <div class="card">
     <h2>2 · Datos identificados <span class="hint">(la IA los llena; edítalos si hace falta)</span></h2>
     <div class="grid">
-      <div><label>Tipo <span class="hint">(define todo)</span></label><select id="tipoImp" onchange="aplicarTipo();updateCodigo()"><option>Cotización</option><option>Compra</option></select></div>
       <div><label>Proveedor</label><select id="f_prov" onchange="updateCodigo()"></select></div>
       <div><label>Empresa (RUC)</label><select id="empresa" onchange="updateCodigo()"><option value="20514359661">DISEÑOS CORPORATIVOS (20514359661)</option><option value="10736768432">Christopher Villasante (10736768432)</option></select></div>
       <div><label>N° factura / invoice</label><input id="f_inv" placeholder="IN231741"></div>
@@ -624,6 +628,7 @@ function renderFactura(){
   </div>`;
 }
 function enviarACalc(){
+  RECEP_INGRESO=null; // ruta DIRECTA (sin recepción): cantidades de la factura y sin almacén heredado
   items=facMatches.filter(m=>m.sku).map(m=>({parte:m.item,codigo:m.sku,desc:m.desc,precioEXW:m.exw,cantidad:m.qty,peso:0,partida:'',avLib:'',exwAduanas:'',descTotal:(m.total!=null?m.total:''),split:m.split||''}));
   updateCodigo();aplicarCourier();renderItems();tab(duaAplica()?'dua':'calc');
 }
@@ -631,6 +636,9 @@ function enviarACalc(){
 // ══════════════ RECEPCIÓN EN ALMACÉN (paso intermedio de compra) ══════════════
 let recepImp=null; // recepción cargada del portal
 let recepListaCache=[]; // lista de recepciones (para la pestaña Recepción)
+// Info de la recepción aplicada al costeo actual (para el archivo de ingreso):
+// { destino:codigoAlmacen, almacenNombre, recibidas:{SKU: cantidadRecibida} }
+let RECEP_INGRESO=null;
 function esMaestroImp(){try{return localStorage.getItem('admmaestro')==='1';}catch(e){return false;}}
 // OJO: en esta app API='/api/importacion'. Las rutas de recepción cuelgan de la
 // RAÍZ (/api/recepcion...), así que NO deben pasar por API. Este helper pega
@@ -664,7 +672,11 @@ async function enviarARecepcion(){
   try{
     await recApi('/api/recepcion','POST',{ id, importacion_id:id, proveedor:(m.proveedorNombre||m.proveedor||'').split('(')[0],
       empresa:m.empresa||'', n_factura:m.invoice||'', tipo:'compra', items:lineas });
-    alert('✓ Enviado al almacén. El almacenero lo verá en su celular. Cuando confirme, revisa aquí en la pestaña Recepción.');
+    // Asegurar que las líneas de costeo estén armadas desde la factura antes de guardar el estado.
+    items=facMatches.filter(x=>x.sku).map(mm=>({parte:mm.item,codigo:mm.sku,desc:mm.desc,precioEXW:mm.exw,cantidad:mm.qty,peso:0,partida:'',avLib:'',exwAduanas:'',descTotal:(mm.total!=null?mm.total:''),split:mm.split||''}));
+    // Guardar el costeo completo ligado a esta recepción, para poder retomarlo cuando el almacén valide.
+    try{ guardarImportacionParaRecepcion(id); }catch(e){}
+    alert('✓ Enviado al almacén. El almacenero lo verá en su celular. Cuando confirme, entras a Recepción y eliges «Continuar a la DUA».');
     tab('recep');
   }catch(e){alert('No se pudo enviar: '+e.message);}
 }
@@ -717,6 +729,19 @@ function renderRecepEstado(){
   const badge = val?'<span class="badge b-exact">validada</span>':(est==='borrador'?'<span class="badge b-rev">en progreso</span>':'<span class="badge b-rev">pendiente</span>');
   const conDif=(r.items||[]).filter(i=>i.cuadra===false||['falta','sobra','no_llego','extra'].includes(i.estado_item)).length;
   const rows=(r.items||[]).map((it,i)=>{
+    // Ítem SUBDIVIDIDO (parte de la factura): mostrar sus SKU
+    if(it.sub && it.sub.length){
+      const modoTxt=it.split_modo==='cant'?'reparto de cantidad':'kit (divide el precio)';
+      const subList=it.sub.map(sx=>{const nm=descSistema(sx.sku_confirmado||'');return '<div><b class="sku">'+esc(sx.sku_confirmado||'')+'</b>'+(nm?(' — '+esc(nm)):'')+(it.split_modo==='cant'?(' · cant '+(sx.cant_recibida==null?'?':sx.cant_recibida)):'')+'</div>';}).join('');
+      return `<tr style="background:#ecfeff">
+        <td>${esc(it.codigo||'')}</td>
+        <td>${esc(it.desc||'')} <span class="badge" style="background:#cffafe;color:#0e7490">✂ subdividido</span></td>
+        <td class="sku">${esc(it.sku_sugerido||'')}</td>
+        <td>${subList}<div style="font-size:11px;color:#64748b">${modoTxt}</div></td>
+        <td class="n">${it.cantidad==null?'—':it.cantidad}</td>
+        <td class="n">${it.cant_recibida==null?'—':it.cant_recibida}</td>
+        <td><span class="badge b-exact">parte de factura</span></td></tr>`;
+    }
     const dif=it.cuadra===false||['falta','sobra','no_llego','extra'].includes(it.estado_item);
     const cantOk = it.cuadra===true;
     const recib = it.cant_recibida==null?'—':it.cant_recibida;
@@ -743,15 +768,14 @@ function renderRecepEstado(){
       <td>${estadoCell}</td>
     </tr>`;
   }).join('');
-  // Botón continuar: solo para la factura cargada AHORA (tiene los precios) y validada; el maestro puede forzar.
+  // Botón continuar: cualquier recepción VALIDADA se puede llevar al costeo (se recupera su
+  // estado guardado). El maestro puede forzar la que está cargada ahora aunque no esté validada.
+  const tieneGuardado = !!saved.find(x=>x.id===('imprec_'+r.id)) || esActual;
   let accion='';
-  if(esActual){
-    if(val) accion=`<button class="btn btn-green" onclick="continuarADua()">Continuar a la DUA →</button>`;
-    else if(esMaestroImp()) accion=`<button class="btn btn-green" onclick="continuarADua()">Continuar sin esperar (forzar) →</button>`;
-    else accion=`<span class="hint">Aún no confirmado por el almacén.</span>`;
-  } else {
-    accion=`<span class="hint">Esta no es la factura cargada ahora. Para costearla, ábrela en <b>Factura → SKU</b> (o desde 💾 Guardadas) y vuelve aquí.</span>`;
-  }
+  if(val && tieneGuardado){ accion=`<button class="btn btn-green" onclick="continuarADua()">Continuar a la DUA →</button>`; }
+  else if(val && !tieneGuardado){ accion=`<span class="hint">Validada, pero no encuentro su costeo guardado. Ábrela en <b>Factura → SKU</b> o desde 💾 Guardadas.</span>`; }
+  else if(esActual && esMaestroImp()){ accion=`<button class="btn btn-green" onclick="continuarADua()">Continuar sin esperar (forzar) →</button>`; }
+  else { accion=`<span class="hint">Aún no validada por el almacén.</span>`; }
   det.innerHTML=`<div class="card">
     <div><b>${esc(r.proveedor||'(sin proveedor)')}</b> · Factura ${esc(r.n_factura||'—')} · Estado: ${badge}
       ${r.almacen_nombre?('· Almacén: <b>'+esc(r.almacen_nombre)+'</b>'):''} ${r.validado_por?('· por <b>'+esc(r.validado_por)+'</b>'):''}
@@ -762,6 +786,7 @@ function renderRecepEstado(){
       <tbody>${rows}</tbody></table></div>
     <div class="actions" style="margin-top:10px">
       ${esMaestroImp()?'<button class="btn-sm" onclick="recepGuardarCorreccion()">💾 Guardar correcciones de SKU</button>':''}
+      ${(r.items||[]).some(i=>i.es_extra)?'<button class="btn-sm" onclick="exportExtrasDeRecep(recepImp)" title="Productos que llegaron y no estaban en la factura — se manejan aparte">⬇ Exportar fuera de factura</button>':''}
       ${accion}
     </div>
   </div>`;
@@ -797,24 +822,79 @@ async function recepGuardarCorreccion(){
   try{ await recApi('/api/recepcion/'+encodeURIComponent(recepImp.id)+'/correccion','PUT',{items}); alert('✓ Correcciones guardadas.'); }
   catch(e){ alert('No se pudo guardar: '+e.message); }
 }
+// Guarda el estado COMPLETO del costeo ligado a la recepción, para poder retomarlo luego.
+function guardarImportacionParaRecepcion(recId){
+  const idImp='imprec_'+recId;
+  const meta=_meta(); meta.codigo=codigoImportacion(); meta.recepId=recId;
+  const rec={id:idImp,n:0,tipo:tipoImportacion(),nombre:(_meta().invoice||recId),
+    savedAt:new Date().toISOString().slice(0,16).replace('T',' '),meta,state:buildState()};
+  const i=saved.findIndex(x=>x.id===idImp); if(i>=0)saved[i]=rec; else saved.push(rec);
+  persistOne(rec);
+}
+// Aplica la validación de la recepción al costeo.
+// CRITERIO: el costo se prorratea sobre lo que REALMENTE llegó (los faltantes se devuelven,
+// es como no haberlos comprado). Ajustamos la CANTIDAD y el SKU de cada línea a lo recibido,
+// y quitamos las que no llegaron. Así FOB, CIF, gastos e impuestos se reparten entre lo recibido.
+function aplicarRecepcionAlCosteo(rec){
+  const porCod={}; const extras=[];
+  (rec.items||[]).forEach(it=>{
+    if(it.es_extra){ // fuera de factura → NO entra al costeo; se guarda aparte
+      extras.push({sku:it.sku_confirmado||'',cantidad:(it.cant_recibida==null?'':it.cant_recibida),nota:it.nota||''});
+      return;
+    }
+    const cant=(it.estado_item==='no_llego')?0:(it.cant_recibida==null?(it.cantidad||0):Number(it.cant_recibida));
+    porCod[String(it.codigo||'').trim()]={item:it,cant:cant}; // it.codigo = código de factura
+  });
+  const nuevas=[];
+  (items||[]).forEach(ci=>{ // costeo: ci.parte = código de factura, ci.codigo = SKU
+    const info=porCod[String(ci.parte||'').trim()];
+    if(!info){ nuevas.push(ci); return; }
+    const it=info.item;
+    if(it.sub && it.sub.length){ // SUBDIVIDIDO: una línea de factura = N SKU (parte de la factura)
+      const n=it.sub.length;
+      it.sub.forEach(sx=>{
+        const linea={...ci, codigo:sx.sku_confirmado||ci.codigo};
+        if(it.split_modo==='cant'){ // reparto de cantidad, mismo precio unitario
+          linea.cantidad=(sx.cant_recibida==null?0:Number(sx.cant_recibida));
+        } else { // 'precio' (kit): misma cantidad, precio dividido entre N
+          linea.cantidad=info.cant;
+          linea.precioEXW=rnd((+ci.precioEXW||0)/n,4);
+          if(ci.descTotal!==''&&ci.descTotal!=null) linea.descTotal=rnd((+ci.descTotal||0)/n,4);
+        }
+        if(Number(linea.cantidad)>0) nuevas.push(linea);
+      });
+    } else {
+      if(it.sku_confirmado) ci.codigo=it.sku_confirmado;
+      ci.cantidad=info.cant;
+      if(Number(info.cant)>0) nuevas.push(ci); // descartar lo que no llegó
+    }
+  });
+  items=nuevas;
+  RECEP_INGRESO={destino:rec.almacen_codigo||'',almacenNombre:rec.almacen_nombre||'',extras};
+  renderItems();
+}
+// Exporta los productos EXTRA (fuera de factura) de una recepción, en su propia hoja.
+function exportExtrasDeRecep(rec){
+  const ex=(rec.items||[]).filter(i=>i.es_extra);
+  if(!ex.length){alert('Esta recepción no tiene productos fuera de factura.');return;}
+  const head=['SKU','Cantidad recibida','Nota','proveedor','factura','almacen'];
+  const anom=rec.almacen_nombre||'';
+  const rows=ex.map(e=>[e.sku_confirmado||'',(e.cant_recibida==null?'':e.cant_recibida),e.nota||'',(rec.proveedor||''),rec.n_factura||'',anom]);
+  xlsxDownload(_fname('FueraDeFactura-'+(rec.n_factura||''))+'.xlsx','Fuera de factura',[head].concat(rows));
+}
 function continuarADua(){
-  // Solo se puede costear la factura cargada AHORA (la que tiene los precios en la app).
-  if(recepImp&&recepImp.id!==recepId()){
-    alert('Esta recepción es de otra factura. Ábrela en Factura → SKU (o desde 💾 Guardadas) para costearla.');return;
+  const rec=recepImp; if(!rec)return;
+  if(rec.id===recepId()){
+    // La factura cargada AHORA en la app: usar su estado en vivo (tiene los precios).
+    items=facMatches.filter(m=>m.sku).map(m=>({parte:m.item,codigo:m.sku,desc:m.desc,precioEXW:m.exw,cantidad:m.qty,peso:0,partida:'',avLib:'',exwAduanas:'',descTotal:(m.total!=null?m.total:''),split:m.split||''}));
+    updateCodigo();aplicarCourier();
+  } else {
+    const idImp='imprec_'+rec.id; const savedRec=saved.find(x=>x.id===idImp);
+    if(!savedRec){ alert('No encuentro el costeo guardado de esta factura (quizá se envió antes de esta versión). Ábrela en Factura → SKU o desde 💾 Guardadas.'); return; }
+    cargarImportacion(idImp); // restaura TODO el costeo de esa factura
   }
-  // Volcar los SKU confirmados y las cantidades REALES recibidas a las líneas de la factura
-  if(recepImp&&recepImp.items){
-    recepImp.items.forEach(it=>{
-      const j=facMatches.findIndex(x=>String(x.item||'').trim()===String(it.codigo||'').trim());
-      if(j>=0){
-        if(it.sku_confirmado)facMatches[j].sku=it.sku_confirmado;
-        if(it.estado_item==='no_llego')facMatches[j].qty=0;
-        else if(it.cant_recibida!=null&&it.cant_recibida!=='')facMatches[j].qty=+it.cant_recibida;
-      }
-    });
-    renderFactura();
-  }
-  enviarACalc();
+  aplicarRecepcionAlCosteo(rec);   // costo sobre lo FACTURADO; el ingreso usará lo RECIBIDO
+  tab(duaAplica()?'dua':'calc');
 }
 
 /* ---------- CALCULADORA UI ---------- */
@@ -882,9 +962,11 @@ function guardarImportacion(){
 }
 function renderSavedList(){
   const box=$('savedList');if(!box)return;
-  if(!saved.length){box.innerHTML='<div class="hint">Aún no hay importaciones guardadas.</div>';return;}
+  // Los guardados internos de recepción (imprec_*) no se listan aquí; se usan desde la pestaña Recepción.
+  const visibles=saved.filter(r=>!String(r.id).startsWith('imprec_'));
+  if(!visibles.length){box.innerHTML='<div class="hint">Aún no hay importaciones guardadas.</div>';return;}
   box.innerHTML='<div class="tw"><table><thead><tr><th>#</th><th>Tipo</th><th>Nombre</th><th>Proveedor</th><th>N° imp.</th><th class="n">FOB total (S/)</th><th class="n" title="Flete en soles">Flete (S/)</th><th class="n" title="Costo logístico total puerta a puerta (CIF + origen + locales) en soles">Costo import. logíst. p/p (S/)</th><th class="n">Costo inv. (S/)</th><th>Guardada</th><th>Acciones</th></tr></thead><tbody>'+
-    saved.map(r=>{let R={items:[],totals:{}};try{R=computeImport(r.state);}catch(e){}const tt=R.totals||{};const invT=sum((R.items||[]).map(it=>it.unitSin*(+it.cantidad||0)));
+    visibles.map(r=>{let R={items:[],totals:{}};try{R=computeImport(r.state);}catch(e){}const tt=R.totals||{};const invT=sum((R.items||[]).map(it=>it.unitSin*(+it.cantidad||0)));
       return `<tr><td>${r.n}</td><td>${esc(r.tipo)}${r.tipo==='Compra'?' <span class="badge b-exact">real</span>':' <span class="badge b-rev">teórico</span>'}</td><td>${esc(r.nombre)}</td><td>${esc((r.meta.proveedorNombre||r.meta.proveedor||'').split('(')[0])}</td><td>${esc(r.meta.numImp||'')}</td><td class="n">${n2(tt.sumFOBsoles)}</td><td class="n">${n2(tt.costoFleteSoles)}</td><td class="n">${n2(tt.costoLogisticoTotal)}</td><td class="n">${n2(invT)}</td><td class="nm">${esc(r.savedAt)}</td>
       <td style="white-space:nowrap"><button class="btn-sm" onclick="cargarImportacion('${r.id}')">Cargar</button> <button class="btn-sm" onclick="exportImportExcel('${r.id}')">Excel</button> <button class="btn-sm" onclick="exportIngresoSaved('${r.id}')">Ingreso</button> ${(r.state&&r.state.dua&&((r.state.dua.series&&r.state.dua.series.length)||r.state.dua.header))?`<button class="btn-sm" onclick="exportDuaSaved('${r.id}')">DUA</button> `:''}<button class="btn-sm" onclick="exportImportPDF('${r.id}')">PDF</button> <span class="btn-del" onclick="eliminarImportacion('${r.id}')">✕</span></td></tr>`;}).join('')+'</tbody></table></div>'
       +'<div class="actions" style="margin-top:8px"><button class="btn-sm" onclick="exportResumenGeneral()">⬇ Exportar tabla general (resumen + detalle)</button></div>';
@@ -904,6 +986,7 @@ function cargarImportacion(id){
   locales=JSON.parse(JSON.stringify(s.gastos.locales||[]));items=JSON.parse(JSON.stringify(s.items||[]));
   if(s.dua&&s.dua.series){lastSeries=s.dua.series;lastTot=s.dua.tot||null;lastDuaHeader=s.dua.header||null;if($('duaDeclNum'))$('duaDeclNum').value=(s.dua.decl&&s.dua.decl.num)||'';if($('duaDeclFecha'))$('duaDeclFecha').value=(s.dua.decl&&s.dua.decl.fecha)||'';if(lastSeries.length)renderDuaAssign();}else{lastSeries=[];lastTot=null;lastDuaHeader=null;}
   if(m){$('numImp').value=m.numImp||'';if(m.empresa)$('empresa').value=m.empresa;$('f_inv').value=m.invoice||'';if(m.proveedor)$('f_prov').value=m.proveedor;}
+  RECEP_INGRESO=s.recep||null; // restaurar la info de recepción para el ingreso
   updateCodigo();aplicarModo();aplicarTipo();renderLocales();renderItems();tab('calc');calcular();
 }
 function _csvCell(v){v=(v==null?'':String(v));if(/[";\n]/.test(v))v='"'+v.replace(/"/g,'""')+'"';return v;}
@@ -1098,12 +1181,13 @@ function buildState(){return{modo:$('modo').value,prorateo:$('prorateo').value,i
   real:{enabled:realOn(),M8:$('r_M8').value,N8:$('r_N8').value,N14:$('r_N14').value,N15:$('r_N15').value,N20:$('r_N20').value,N21:$('r_N21').value,Nperc:($('r_Nperc')?$('r_Nperc').value:0)},
   gastos:{cif:{flete:$('g_flete').value,seguro:$('g_seguro').value,otros:$('g_otrosCif').value},origen:{imo:$('g_imo').value,eur1:$('g_eur1').value,pickup:$('g_pickup').value,otros:$('g_otrosOr').value},locales},
   dua:((lastSeries&&lastSeries.length)?{series:lastSeries,tot:lastTot,header:lastDuaHeader,decl:{num:($('duaDeclNum')?$('duaDeclNum').value:''),fecha:($('duaDeclFecha')?$('duaDeclFecha').value:'')}}:null),
-  partidas:partidas.filter(p=>p.modo===$('modo').value),items};}
+  partidas:partidas.filter(p=>p.modo===$('modo').value),items,recep:RECEP_INGRESO};}
 function calcular(){
   const s=buildState();let r;try{r=computeImport(s);}catch(e){$('calcResult').innerHTML=`<div class="card" style="color:#991b1b">Error: ${e.message}</div>`;return;}
   const rows=r.items.map((it,i)=>`<tr><td class="l"><b class="sku">${esc(it.codigo||('ítem '+(i+1)))}</b><div class="nm">${esc(descSistema(it.codigo)||it.desc||'')}</div></td><td class="n">${n2(it.subEXW)}</td><td class="n">${n2(it.fobItem)}</td><td class="n">${n2(it.cifItem)}</td><td class="n">${n2(it.av)}</td><td class="n">${n2(it.igv)}</td><td class="n unit">${n2(it.unitSin)}</td><td class="n unit">${n2(it.unitCon)}</td></tr>`).join('');
   const outHead=_ingresoHead();
-  const ctx={fecha:new Date().toISOString().slice(0,10),tc:$('tcFact').value,impCode:($('imp_codigo')&&$('imp_codigo').value)||codigoImportacion(),numDoc:$('f_inv').value,prov:$('f_prov').value,empresa:$('empresa').value,N:$('numImp').value};
+  const ctx={fecha:new Date().toISOString().slice(0,10),tc:$('tcFact').value,impCode:($('imp_codigo')&&$('imp_codigo').value)||codigoImportacion(),numDoc:$('f_inv').value,prov:$('f_prov').value,empresa:$('empresa').value,N:$('numImp').value,
+    destino:(RECEP_INGRESO&&RECEP_INGRESO.destino)||'',almacenNombre:(RECEP_INGRESO&&RECEP_INGRESO.almacenNombre)||'',recibidas:(RECEP_INGRESO&&RECEP_INGRESO.recibidas)||null};
   const ingRows=_ingresoRows(r,ctx);
   lastIngreso={head:outHead,aoa:[outHead].concat(ingRows),nombre:(ctx.impCode||'ingreso')};
   const tsv=ingRows.map(row=>row.join('\t')).join('\n');
@@ -1114,13 +1198,18 @@ function calcular(){
     <div class="hint" style="margin-top:6px"><b>UNIT sin ded.</b> = tu costo de inventario (soles). <b>UNIT con ded.</b> = desembolso total (soles). Los impuestos teóricos se muestran en USD; en una Compra los reales se calculan en soles.</div>
     <div class="hint" style="margin-top:6px">Guarda la importación para descargar el <b>Excel de «Ingreso de Stock»</b> y el detalle desde la pestaña <b>💾 Guardadas</b>.</div></div>`;
 }
-function _ingresoHead(){return ["fecha","Código","Cantidad","destino","Precio EXW","moneda","tipo_cambio","Costo real sin impuesto deducible soles UNITARIO","Costo real soles UNITARIO","Importación","tipo_documento","numero_documento","tipo_doc_proveedor","proveedor","empresa","N","costo_logistico","costo_envio_origen","impuesto_deducible","impuesto_no_deducible1"];}
+function _ingresoHead(){return ["fecha","Código","Cantidad","destino","almacen_nombre","Precio EXW","moneda","tipo_cambio","Costo real sin impuesto deducible soles UNITARIO","Costo real soles UNITARIO","Importación","tipo_documento","numero_documento","tipo_doc_proveedor","proveedor","empresa","N","costo_logistico","costo_envio_origen","impuesto_deducible","impuesto_no_deducible1"];}
 function _ingresoRows(r,ctx){const H=_ingresoHead();
-  return r.items.map(it=>{const m={fecha:ctx.fecha,'Código':it.codigo,'Cantidad':it.cantidad,destino:'PV001','Precio EXW':(+it.cantidad?rnd(it.subEXW/it.cantidad,4):it.precioEXW),moneda:r.totals.J1,tipo_cambio:ctx.tc,'Costo real sin impuesto deducible soles UNITARIO':n2(it.unitSin),'Costo real soles UNITARIO':n2(it.unitCon),'Importación':ctx.impCode,tipo_documento:'00',numero_documento:ctx.numDoc,tipo_doc_proveedor:'00',proveedor:ctx.prov,empresa:ctx.empresa,N:ctx.N,costo_logistico:n2(r.totals.costoLogistico),costo_envio_origen:n2(r.totals.costoEnvioOrigen),impuesto_deducible:n2(r.totals.impDeducible),impuesto_no_deducible1:n2(r.totals.impNoDeducible)};return H.map(h=>m[h]!==undefined?m[h]:'');});}
+  const dest=ctx.destino||'PV001', anom=ctx.almacenNombre||'';
+  return r.items.map(it=>{
+    // La cantidad ya es la que se cost(e)ó: al continuar una recepción se ajustó a lo recibido.
+    const cant=it.cantidad;
+    const m={fecha:ctx.fecha,'Código':it.codigo,'Cantidad':cant,destino:dest,'almacen_nombre':anom,'Precio EXW':(+it.cantidad?rnd(it.subEXW/it.cantidad,4):it.precioEXW),moneda:r.totals.J1,tipo_cambio:ctx.tc,'Costo real sin impuesto deducible soles UNITARIO':n2(it.unitSin),'Costo real soles UNITARIO':n2(it.unitCon),'Importación':ctx.impCode,tipo_documento:'00',numero_documento:ctx.numDoc,tipo_doc_proveedor:'00',proveedor:ctx.prov,empresa:ctx.empresa,N:ctx.N,costo_logistico:n2(r.totals.costoLogistico),costo_envio_origen:n2(r.totals.costoEnvioOrigen),impuesto_deducible:n2(r.totals.impDeducible),impuesto_no_deducible1:n2(r.totals.impNoDeducible)};return H.map(h=>m[h]!==undefined?m[h]:'');});}
 let lastIngreso=null;
 function descargarIngresoLive(){if(!lastIngreso){alert('Primero pulsa Calcular.');return;}xlsxDownload(_fname('IngresoStock-'+lastIngreso.nombre)+'.xlsx','Ingreso de Stock',lastIngreso.aoa.map((row,ri)=>ri===0?row:row.map(_num)));}
-function exportIngresoSaved(id){const rec=saved.find(x=>x.id===id);if(!rec)return;let r;try{r=computeImport(rec.state);}catch(e){alert('No se pudo calcular.');return;}const m=rec.meta;
-  const ctx={fecha:new Date().toISOString().slice(0,10),tc:rec.state.tc.fact,impCode:m.codigo||'',numDoc:m.invoice||'',prov:m.proveedor||'',empresa:m.empresa||'',N:m.numImp||''};
+function exportIngresoSaved(id){const rec=saved.find(x=>x.id===id);if(!rec)return;let r;try{r=computeImport(rec.state);}catch(e){alert('No se pudo calcular.');return;}const m=rec.meta;const rp=(rec.state&&rec.state.recep)||{};
+  const ctx={fecha:new Date().toISOString().slice(0,10),tc:rec.state.tc.fact,impCode:m.codigo||'',numDoc:m.invoice||'',prov:m.proveedor||'',empresa:m.empresa||'',N:m.numImp||'',
+    destino:rp.destino||'',almacenNombre:rp.almacenNombre||'',recibidas:rp.recibidas||null};
   const aoa=[_ingresoHead()].concat(_ingresoRows(r,ctx).map(row=>row.map(_num)));
   xlsxDownload(_fname('IngresoStock-'+(m.codigo||rec.n))+'.xlsx','Ingreso de Stock',aoa);}
 

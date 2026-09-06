@@ -34,6 +34,7 @@ module.exports = function registrarRecepciones({
         estado         VARCHAR(20)  NOT NULL DEFAULT 'pendiente',
         almacen_id     INT NULL,
         almacen_nombre VARCHAR(255) NOT NULL DEFAULT '',
+        almacen_codigo VARCHAR(80)  NOT NULL DEFAULT '',
         items          JSON NOT NULL,
         validado_por   VARCHAR(120) NOT NULL DEFAULT '',
         validado_en    DATETIME NULL,
@@ -43,6 +44,7 @@ module.exports = function registrarRecepciones({
       )`);
     // Por si la tabla ya existía con id corto: ampliar para que quepa código + N° factura.
     try { await portalPool.query(`ALTER TABLE imp_recepciones MODIFY id VARCHAR(80)`); } catch (e) {}
+    try { await portalPool.query(`ALTER TABLE imp_recepciones ADD COLUMN almacen_codigo VARCHAR(80) NOT NULL DEFAULT ''`); } catch (e) {}
   }
 
   const asJson = (v, fb) => {
@@ -78,8 +80,17 @@ module.exports = function registrarRecepciones({
       cant_recibida: (v.cant_recibida !== undefined) ? numOrNull(v.cant_recibida) : (base.cant_recibida ?? null),
       estado_item: s(v.estado_item || base.estado_item || '').slice(0, 30), // ok|falta|sobra|no_llego|extra
       nota: s(v.nota || base.nota || '').slice(0, 300),
-      es_extra: !!(v && v.es_extra) || !!(base && base.es_extra)
+      es_extra: !!(v && v.es_extra) || !!(base && base.es_extra),
+      // Subdivisión de una línea de factura en 2+ SKU (kit sin SKU único, o reparto de cantidad).
+      // Cuenta como parte de la factura. modo: '' | 'precio' (kit) | 'cant' (reparto).
+      split_modo: s((v && v.split_modo) || (base && base.split_modo) || '').slice(0, 10),
+      sub: subLimpio((v && v.sub != null) ? v.sub : (base && base.sub))
     };
+  }
+  function subLimpio(arr) {
+    if (!Array.isArray(arr)) return [];
+    return arr.map(x => ({ sku_confirmado: s(x && x.sku_confirmado).slice(0, 120), cant_recibida: numOrNull(x && x.cant_recibida) }))
+      .filter(x => x.sku_confirmado || x.cant_recibida != null);
   }
   // Ítem EXTRA: llegó y NO estaba en la factura. Lo agrega el almacenero.
   function itemExtra(v) {
@@ -106,7 +117,7 @@ module.exports = function registrarRecepciones({
       id: row.id, importacion_id: row.importacion_id || '',
       proveedor: row.proveedor, empresa: row.empresa, n_factura: row.n_factura,
       tipo: row.tipo, estado: row.estado,
-      almacen_id: row.almacen_id, almacen_nombre: row.almacen_nombre,
+      almacen_id: row.almacen_id, almacen_nombre: row.almacen_nombre, almacen_codigo: row.almacen_codigo || '',
       n_items: items.length, con_diferencias: conDif,
       validado_por: row.validado_por, validado_en: row.validado_en,
       creado_en: row.creado_en, actualizado_en: row.actualizado_en
@@ -114,14 +125,27 @@ module.exports = function registrarRecepciones({
   }
 
   // ── Almacenes (del ERP, solo lectura) ──────────────────────────────────────
+  // Detecta sola la columna de CÓDIGO de la tabla locations (code/codigo/…),
+  // para poder mandar ese código como "destino" en el archivo de ingreso.
+  let _almCol = null;
+  async function colCodigoLocations() {
+    if (_almCol !== null) return _almCol;
+    try {
+      const [cols] = await prodPool.query(`SHOW COLUMNS FROM locations`);
+      const names = cols.map(c => String(c.Field || c.field || '').toLowerCase());
+      _almCol = ['code', 'codigo', 'abbreviation', 'short_code', 'codigo_almacen', 'warehouse_code', 'sku'].find(c => names.includes(c)) || '';
+    } catch (e) { _almCol = ''; }
+    return _almCol;
+  }
   let _almCache = null, _almAt = 0;
   const ALM_TTL = 10 * 60 * 1000;
   app.get('/api/recepcion/almacenes', authAdmin, mRec, async (req, res) => {
     try {
       if (_almCache && (Date.now() - _almAt) < ALM_TTL && !req.query.fresh) return res.json(_almCache);
+      const col = await colCodigoLocations();
       const [rows] = await prodPool.query(
-        `SELECT id, name, type FROM locations WHERE is_active = 1 ORDER BY name`);
-      _almCache = rows.map(r => ({ id: r.id, nombre: r.name || '', tipo: r.type || '' }));
+        `SELECT id, name, ${col ? '`' + col + '`' : 'NULL'} AS codigo, type FROM locations WHERE is_active = 1 ORDER BY name`);
+      _almCache = rows.map(r => ({ id: r.id, nombre: r.name || '', codigo: r.codigo || '', tipo: r.type || '' }));
       _almAt = Date.now();
       res.json(_almCache);
     } catch (e) {
@@ -253,15 +277,19 @@ module.exports = function registrarRecepciones({
       if (confirmar) {
         // Al confirmar exigimos almacén y un SKU confirmado por ítem (salvo los marcados 'no_llego'/'extra')
         if (!b.almacen_id) return res.status(400).json({ error: 'Elige el almacén de ingreso antes de confirmar.' });
-        const faltan = items.filter(i => !i.sku_confirmado && i.estado_item !== 'no_llego');
+        const faltan = items.filter(i => {
+          if (i.estado_item === 'no_llego') return false;
+          if (i.sub && i.sub.length) return i.sub.some(x => !x.sku_confirmado); // subdividido: cada sub-SKU
+          return !i.sku_confirmado;
+        });
         if (faltan.length) return res.status(400).json({ error: `Falta confirmar el SKU de ${faltan.length} ítem(s).` });
       }
       const estado = confirmar ? 'validada' : 'borrador';
       await portalPool.query(
-        `UPDATE imp_recepciones SET almacen_id=?, almacen_nombre=?, items=?, estado=?,
+        `UPDATE imp_recepciones SET almacen_id=?, almacen_nombre=?, almacen_codigo=?, items=?, estado=?,
            validado_por = IF(?, ?, validado_por), validado_en = IF(?, NOW(), validado_en)
          WHERE id = ?`,
-        [numOrNull(b.almacen_id), s(b.almacen_nombre), JSON.stringify(items), estado,
+        [numOrNull(b.almacen_id), s(b.almacen_nombre), s(b.almacen_codigo), JSON.stringify(items), estado,
          confirmar ? 1 : 0, quienEs(req), confirmar ? 1 : 0, req.params.id]);
       res.json({ ok: true, estado });
     } catch (e) {

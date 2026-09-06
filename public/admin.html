@@ -772,7 +772,16 @@ tr:hover td{background:var(--hover)}
           </div>
         </div>
         <div id="rec-items"></div>
-        <div style="margin:10px 0"><button class="btn btn-sec" onclick="recAgregarExtra()">➕ Agregar producto que llegó y NO estaba en la factura</button></div>
+        <!-- FUERA DE FACTURA: se maneja APARTE (no entra al costeo ni a la DUA). No se mezcla con los ítems de la factura. -->
+        <div class="card" style="border:1px dashed #c4b5fd;background:rgba(124,58,237,.06)">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+            <div>
+              <div style="font-weight:700;color:#6d28d9">📦 Productos fuera de factura</div>
+              <div class="muted" style="font-size:12px">Llegaron pero NO estaban en la factura. Se guardan aparte: no se prorratean ni pasan al costeo/DUA.</div>
+            </div>
+            <button class="btn btn-sec" type="button" onclick="recAbrirExtras()">Ver / agregar <span id="rec-extras-count" style="background:#7c3aed;color:#fff;border-radius:10px;padding:1px 8px;font-size:12px;display:none">0</span></button>
+          </div>
+        </div>
         <div class="card" id="rec-acciones" style="position:sticky;bottom:0;z-index:5">
           <div id="rec-detalle-status" class="muted" style="margin-bottom:8px"></div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
@@ -784,6 +793,22 @@ tr:hover td{background:var(--hover)}
       </div>
     </div>
 
+  </div>
+</div>
+
+<!-- POPUP: productos fuera de factura (separado de los ítems de la factura) -->
+<div id="rec-extras-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(15,23,42,.55);padding:16px;overflow:auto">
+  <div class="card" style="max-width:560px;margin:22px auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+      <div style="font-weight:800;font-size:16px;color:#6d28d9">📦 Productos fuera de factura</div>
+      <button class="btn btn-sec btn-sm" type="button" onclick="recCerrarExtras()">✕ Cerrar</button>
+    </div>
+    <div class="muted" style="font-size:12px;margin:6px 0 10px">Lo que llegó y NO estaba en la factura. Se guarda aparte: no se prorratea, no pasa al costeo ni a la DUA; queda en su propia exportación.</div>
+    <div id="rec-extras-list"></div>
+    <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-sec" type="button" onclick="recAgregarExtra()">➕ Agregar producto</button>
+      <button class="btn" type="button" onclick="recCerrarExtras()">Listo</button>
+    </div>
   </div>
 </div>
 
@@ -1124,7 +1149,8 @@ async function abrirRecepcion(id){
     const selA=document.getElementById('rec-almacen');
     selA.innerHTML='<option value="">— Elige el almacén —</option>'+REC_ALMACENES.map(a=>
       `<option value="${a.id}" data-codigo="${recEsc(a.codigo||'')}" ${String(rec.almacen_id)===String(a.id)?'selected':''}>${recEsc(a.nombre)}${a.codigo?(' ('+recEsc(a.codigo)+')'):''}</option>`).join('');
-    // Ítems
+    // Ítems (los EXTRA se editan aparte en su popup)
+    const md=document.getElementById('rec-extras-modal'); if(md)md.style.display='none';
     renderRecItems();
     // Si ya está validada y NO soy maestro, dejar solo lectura
     const soloLectura = rec.estado==='validada' && !ES_MAESTRO;
@@ -1135,6 +1161,7 @@ async function abrirRecepcion(id){
 function renderRecItems(){
   const rec=REC_ACTUAL, cont=document.getElementById('rec-items');
   cont.innerHTML=rec.items.map((it,i)=>{
+    if(it.es_extra) return ''; // los EXTRA van aparte, en su propio popup (no en la lista de factura)
     const sku = it.sku_confirmado || it.sku_sugerido || '';
     const nomAsig = recNombreSku(sku);
     const skuBloque = `<div class="rec-field">
@@ -1146,18 +1173,6 @@ function renderRecItems(){
         </div>
         <div class="rec-sku-name" id="rec-nom-${i}" style="font-size:12px;margin-top:4px;color:${nomAsig?'#15803d':'#b91c1c'};font-weight:600">${nomAsig?('✓ '+recEsc(nomAsig)):(sku?'⚠ SKU no está en el catálogo':'Sin producto asignado')}</div>
       </div>`;
-    // ── Ítem EXTRA (llegó y no estaba en la factura) ──
-    if(it.es_extra){
-      return `<div class="rec-item diff" data-i="${i}" style="border-left:4px solid #7c3aed">
-        <div class="ri-desc" style="color:#6d28d9">➕ Extra — no estaba en la factura <button type="button" onclick="recQuitarExtra(${i})" title="Quitar" style="float:right;color:#b91c1c;background:none;border:none;font-size:16px;cursor:pointer">✕</button></div>
-        ${skuBloque}
-        <div class="rec-field">
-          <label>¿Cuánto llegó?</label>
-          <input class="rec-input" type="number" step="any" min="0" value="${it.cant_recibida==null?'':it.cant_recibida}"
-                 oninput="recSetCampoExtra(${i},this.value)" placeholder="Cantidad que llegó">
-        </div>
-      </div>`;
-    }
     // ── Ítem de la factura SUBDIVIDIDO en 2+ SKU (parte de la factura) ──
     if(it.sub && it.sub.length){
       const modo=it.split_modo||'precio';
@@ -1212,13 +1227,54 @@ function renderRecItems(){
       </div>
     </div>`;
   }).join('');
+  recActualizarContadorExtras();
 }
+// ══════════ FUERA DE FACTURA (EXTRAS): viven aparte, en su propio popup ══════════
+// Se guardan en REC_ACTUAL.items con es_extra:true (el backend ya los separa), pero
+// NO se muestran en la lista de la factura: se editan solo en el popup.
+function recExtrasIdx(){ return REC_ACTUAL ? REC_ACTUAL.items.map((it,i)=>it.es_extra?i:-1).filter(i=>i>=0) : []; }
+function recActualizarContadorExtras(){
+  const b=document.getElementById('rec-extras-count'); if(!b)return;
+  const n=recExtrasIdx().length; b.textContent=n; b.style.display=n?'':'none';
+}
+function renderRecExtras(){
+  const cont=document.getElementById('rec-extras-list'); if(!cont||!REC_ACTUAL)return;
+  const idxs=recExtrasIdx();
+  cont.innerHTML = idxs.length ? idxs.map(i=>{
+    const it=REC_ACTUAL.items[i]; const sku=it.sku_confirmado||''; const nom=recNombreSku(sku);
+    return `<div class="rec-item diff" data-i="${i}" style="border-left:4px solid #7c3aed">
+      <div class="ri-desc" style="color:#6d28d9">➕ Fuera de factura <button type="button" onclick="recQuitarExtra(${i})" title="Quitar" style="float:right;color:#b91c1c;background:none;border:none;font-size:16px;cursor:pointer">✕</button></div>
+      <div class="rec-field">
+        <label>Producto del sistema (busca por nombre o SKU)</label>
+        <div class="rec-sug">
+          <input class="rec-input rec-sku-inp" data-i="${i}" value="${recEsc(sku)}" placeholder="Escribe el nombre o SKU del producto..."
+                 oninput="recBuscarSku(${i},this.value)" onblur="setTimeout(()=>recCerrarSug(${i}),180)" autocomplete="off">
+          <div class="rec-sug-list" id="rec-sug-${i}"></div>
+        </div>
+        <div class="rec-sku-name" id="rec-nom-${i}" style="font-size:12px;margin-top:4px;color:${nom?'#15803d':'#b91c1c'};font-weight:600">${nom?('✓ '+recEsc(nom)):(sku?'⚠ SKU no está en el catálogo':'Sin producto asignado')}</div>
+      </div>
+      <div class="rec-field">
+        <label>¿Cuánto llegó?</label>
+        <input class="rec-input" type="number" step="any" min="0" value="${it.cant_recibida==null?'':it.cant_recibida}"
+               oninput="recSetCampoExtra(${i},this.value)" placeholder="Cantidad que llegó">
+      </div>
+      <div class="rec-field">
+        <label>Nota (opcional)</label>
+        <input class="rec-input" value="${recEsc(it.nota||'')}" oninput="recSetNotaExtra(${i},this.value)" placeholder="p. ej. muestra, regalo, repuesto suelto">
+      </div>
+    </div>`;
+  }).join('') : '<div class="muted" style="font-size:13px;padding:6px 0">Todavía no agregaste nada fuera de factura. Usa “➕ Agregar producto”.</div>';
+  recActualizarContadorExtras();
+}
+function recAbrirExtras(){ const m=document.getElementById('rec-extras-modal'); if(!m)return; renderRecExtras(); m.style.display=''; }
+function recCerrarExtras(){ const m=document.getElementById('rec-extras-modal'); if(m)m.style.display='none'; recAutoGuardar(); }
 function recAgregarExtra(){
   REC_ACTUAL.items.push({codigo:'',desc:'(no estaba en la factura)',cantidad:null,sku_sugerido:'',sku_confirmado:'',cuadra:false,cant_recibida:null,estado_item:'extra',nota:'',es_extra:true});
-  renderRecItems();
+  renderRecExtras(); // solo el popup; NO la lista de la factura
 }
-function recQuitarExtra(i){ REC_ACTUAL.items.splice(i,1); renderRecItems(); recAutoGuardar(); }
+function recQuitarExtra(i){ REC_ACTUAL.items.splice(i,1); renderRecExtras(); recAutoGuardar(); }
 function recSetCampoExtra(i,val){ REC_ACTUAL.items[i].cant_recibida = (val===''?null:Number(val)); recAutoGuardar(); }
+function recSetNotaExtra(i,val){ if(REC_ACTUAL.items[i]) REC_ACTUAL.items[i].nota = val; recAutoGuardar(); }
 // ── Subdivisión de una línea de factura en 2+ SKU (por defecto KIT / divide precio) ──
 function recSubdividir(i){
   const it=REC_ACTUAL.items[i];
@@ -1329,7 +1385,7 @@ function recBuscarSku(i,q){
   box.style.marginTop='4px'; box.style.color='#0f172a'; box.style.maxHeight='240px'; box.style.overflow='auto';
   box.style.display='block';
 }
-function recElegirSku(i,sku){ REC_ACTUAL.items[i].sku_confirmado=sku; recCerrarSug(i); renderRecItems(); recAutoGuardar(); }
+function recElegirSku(i,sku){ REC_ACTUAL.items[i].sku_confirmado=sku; recCerrarSug(i); if(REC_ACTUAL.items[i]&&REC_ACTUAL.items[i].es_extra) renderRecExtras(); else renderRecItems(); recAutoGuardar(); }
 function recCerrarSug(i){ const box=document.getElementById('rec-sug-'+i); if(box)box.style.display='none'; }
 function recVolver(){ cargarRecepciones(); }
 // Guardado automático de borrador conforme el almacenero avanza (silencioso, con rebote).
@@ -1354,7 +1410,7 @@ async function recGuardar(confirmar, silent){
   const extras=rec.items.filter(it=>it.es_extra).map(it=>({sku_confirmado:it.sku_confirmado||'',cant_recibida:it.cant_recibida,nota:it.nota||''}));
   // Validar extras: deben tener SKU (solo al confirmar)
   const extrasSinSku=extras.filter(e=>!e.sku_confirmado).length;
-  if(confirmar && extrasSinSku){ showToast('Falta elegir el producto (SKU) de '+extrasSinSku+' ítem(s) extra.',true); return; }
+  if(confirmar && extrasSinSku){ showToast('Falta elegir el producto (SKU) de '+extrasSinSku+' ítem(s) fuera de factura.',true); recAbrirExtras(); return; }
   if(!silent) st.textContent = confirmar?'Confirmando...':'Guardando...';
   else if(ind){ if(recAutoEnCurso)return; recAutoEnCurso=true; ind.textContent='· guardando…'; }
   try{

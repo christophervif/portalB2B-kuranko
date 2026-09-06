@@ -870,7 +870,7 @@ function aplicarRecepcionAlCosteo(rec){
     }
   });
   items=nuevas;
-  RECEP_INGRESO={destino:rec.almacen_codigo||'',almacenNombre:rec.almacen_nombre||'',extras};
+  RECEP_INGRESO={recepId:rec.id||'',destino:rec.almacen_codigo||'',almacenNombre:rec.almacen_nombre||'',extras};
   renderItems();
 }
 // Exporta los productos EXTRA (fuera de factura) de una recepción, en su propia hoja.
@@ -956,9 +956,28 @@ function guardarImportacion(){
   const rec={id:'imp_'+nMax,n:nMax,tipo:tipoImportacion(),nombre:$('save_nombre').value||codigo,
     savedAt:new Date().toISOString().slice(0,16).replace('T',' '),meta,state:buildState()};
   saved.push(rec);persistOne(rec);renderSavedList();
+  // Si esta importación vino de una recepción validada, archívala para que
+  // desaparezca de la pestaña Recepción (ya quedó costeada y en Guardadas).
+  archivarRecepcionDeImportacion();
   const st=$('save_status');if(st)st.textContent='guardada ✓';
   tab('guard');
   setTimeout(()=>alert('✓ Importación «'+codigo+'» guardada correctamente.'),50);
+}
+function archivarRecepcionDeImportacion(){
+  const rid=RECEP_INGRESO&&RECEP_INGRESO.recepId;
+  if(!rid)return;
+  // 1) Archivar la recepción (queda como registro de almacén, oculta de la lista).
+  recApi('/api/recepcion/'+encodeURIComponent(rid)+'/archivar','PUT')
+    .then(()=>{ if(typeof cargarRecepLista==='function')cargarRecepLista(); })
+    .catch(()=>{}); // si falla el archivado no bloqueamos el guardado
+  // 2) Borrar el costeo INTERMEDIO (imprec_*): solo servía para poder retomar la
+  //    DUA antes de finalizar. Ya está todo oficialmente en Guardadas, así que se
+  //    elimina para no dejar información duplicada.
+  const idImp='imprec_'+rid;
+  if(saved.some(x=>x.id===idImp)){
+    saved=saved.filter(x=>x.id!==idImp);
+    apiSend('/importaciones/'+encodeURIComponent(idImp),'DELETE');
+  }
 }
 function renderSavedList(){
   const box=$('savedList');if(!box)return;

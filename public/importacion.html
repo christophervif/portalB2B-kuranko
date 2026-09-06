@@ -658,11 +658,24 @@ async function enviarARecepcion(){
   const lineas=facMatches.filter(x=>x.item||x.desc||x.sku).map(x=>({
     codigo:x.item||'', desc:x.desc_es||x.desc||'', cantidad:+x.qty||0, sku_sugerido:x.sku||'', confianza:x.tipo||'' }));
   if(!lineas.length){alert('No hay ítems para enviar.');return;}
-  // ¿Ya existe una recepción con esta MISMA factura? (mismo N° → mismo id). Avisar antes de pisar.
-  let existe=null;
-  try{ existe=await recApi('/api/recepcion/'+encodeURIComponent(id)); }catch(e){ existe=null; }
+  // ¿Ya existe una recepción para esta MISMA factura? Se busca por N° de factura +
+  // proveedor (normalizados), NO solo por el id: aunque el id derivado cambie un
+  // poco (prefijo de impuesto/tipo, o recepciones viejas sin la factura en el id),
+  // reutilizamos la MISMA recepción y así no se duplica.
+  const normF=s=>String(s==null?'':s).replace(/[^A-Za-z0-9]/g,'').toUpperCase();
+  const provEnvio=(m.proveedorNombre||m.proveedor||'').split('(')[0];
+  let existe=null, idFinal=id;
+  try{
+    const todas=await recApi('/api/recepciones?incluir_archivadas=1');
+    const inv=normF(m.invoice);
+    existe=(todas||[]).find(r=> inv && normF(r.n_factura)===inv && normF(r.proveedor)===normF(provEnvio)) || null;
+  }catch(e){ existe=null; }
+  // Respaldo: match por id exacto (por si el proveedor quedó escrito distinto).
+  if(!existe){ try{ const x=await recApi('/api/recepcion/'+encodeURIComponent(id)); if(x)existe=x; }catch(_){ existe=null; } }
   if(existe){
+    idFinal=existe.id; // ← reutiliza el id existente: NO se crea otra recepción
     if(existe.estado==='validada'){
+      if(existe.archivada){ alert('Esta factura ("'+(existe.n_factura||'')+'") ya fue recepcionada, costeada y archivada. No necesitas reenviarla: ya está en 💾 Guardadas.'); return; }
       alert('⚠ Ya existe una recepción para la factura "'+(existe.n_factura||'')+'" y el almacén YA la validó. No se puede reemplazar. Si de verdad quieres rehacerla, elimínala primero desde la pestaña Recepciones.');
       return;
     }
@@ -671,12 +684,12 @@ async function enviarARecepcion(){
     if(!confirm('¿Enviar esta carga al almacén para que la confirmen? (No incluye precios.)')) return;
   }
   try{
-    await recApi('/api/recepcion','POST',{ id, importacion_id:id, proveedor:(m.proveedorNombre||m.proveedor||'').split('(')[0],
+    await recApi('/api/recepcion','POST',{ id:idFinal, importacion_id:idFinal, proveedor:provEnvio,
       empresa:m.empresa||'', n_factura:m.invoice||'', tipo:'compra', items:lineas });
     // Asegurar que las líneas de costeo estén armadas desde la factura antes de guardar el estado.
     items=facMatches.filter(x=>x.sku).map(mm=>({parte:mm.item,codigo:mm.sku,desc:mm.desc,precioEXW:mm.exw,cantidad:mm.qty,peso:0,partida:'',avLib:'',exwAduanas:'',descTotal:(mm.total!=null?mm.total:''),split:mm.split||''}));
     // Guardar el costeo completo ligado a esta recepción, para poder retomarlo cuando el almacén valide.
-    try{ guardarImportacionParaRecepcion(id); }catch(e){}
+    try{ guardarImportacionParaRecepcion(idFinal); }catch(e){}
     alert('✓ Enviado al almacén. El almacenero lo verá en su celular. Cuando confirme, entras a Recepción y eliges «Continuar a la DUA».');
     tab('recep');
   }catch(e){alert('No se pudo enviar: '+e.message);}

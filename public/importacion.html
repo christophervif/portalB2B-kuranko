@@ -371,13 +371,17 @@ function computeImport(s){
   const _dig=s=>String(s||'').replace(/\D/g,''); // normaliza partida por dígitos (87.08.30.25.00 == 8708.30.25.00)
   const rateMap={};for(const p of s.partidas)rateMap[_dig(p.partida)]=p;
   const rate=(p,k)=>{const r=rateMap[_dig(p)];return r?(+r[k]||0):0;};const imoOf=p=>{const r=rateMap[_dig(p)];return r?(r.imo==='si'?'si':'no'):'no';};
-  const it=s.items.map(x=>({codigo:x.codigo,desc:x.desc,partida:x.partida,exwAduanas:(x.exwAduanas===''||x.exwAduanas==null)?'':+x.exwAduanas,
+  // Prefiere las tasas CONGELADAS en el ítem (las que se usaron al guardar); si no
+  // hay (registros viejos o ítem sin snapshot), cae a la tabla del estado.
+  const rateR=(r,k)=>{const T=r&&r.tasas;return (T&&T[k]!=null)?(+T[k]||0):rate(r.partida,k);};
+  const imoR=(r)=>{const T=r&&r.tasas;return T?(T.imo==='si'?'si':'no'):imoOf(r.partida);};
+  const it=s.items.map(x=>({codigo:x.codigo,desc:x.desc,partida:x.partida,tasas:x.tasas||null,exwAduanas:(x.exwAduanas===''||x.exwAduanas==null)?'':+x.exwAduanas,
     precioEXW:+x.precioEXW||0,cantidad:+x.cantidad||0,peso:+x.peso||0,avLibRaw:(x.avLib===''||x.avLib==null)?'':+x.avLib,
     descTotal:(x.descTotal===''||x.descTotal==null)?'':+x.descTotal}));
   // subtotal de la línea = total con descuento si se indicó; si no, precio × cantidad
   it.forEach(r=>{r.subEXW=(r.descTotal!==''&&r.descTotal>0)?r.descTotal:r.precioEXW*r.cantidad;});
   const sumPeso=sum(it.map(r=>r.peso)),sumEXW=sum(it.map(r=>r.subEXW));
-  it.forEach(r=>{r.factorPeso=sumPeso===0?0:r.peso/sumPeso;r.factorEXW=sumEXW===0?0:r.subEXW/sumEXW;r.imo=imoOf(r.partida);});
+  it.forEach(r=>{r.factorPeso=sumPeso===0?0:r.peso/sumPeso;r.factorEXW=sumEXW===0?0:r.subEXW/sumEXW;r.imo=imoR(r);});
   const sIMOsi=sum(it.filter(r=>r.imo==='si').map(r=>r.subEXW)),sAVnb=sum(it.filter(r=>r.avLibRaw!=='').map(r=>r.subEXW));
   it.forEach(r=>{r.factorIMO=(r.avLibRaw!==''&&sIMOsi)?r.subEXW/sIMOsi:0;r.factorEUR1=(r.avLibRaw!==''&&sAVnb)?r.subEXW/sAVnb:0;});
   const facPror=r=>(s.prorateo==='PESO'?r.factorPeso:r.factorEXW),facProrFOB=r=>(s.prorateo==='PESO'?r.factorPeso:r.factorFOB);
@@ -388,7 +392,7 @@ function computeImport(s){
   it.forEach(r=>{const t1=(M2==='USD')?(B18-B20-B21)*r.factorEXW:(B18-B20-B21)*r.factorEXW*I3/I4;const exwAdu=(r.exwAduanas==='')?r.subEXW:r.exwAduanas*r.cantidad;
     const t2=(J1==='USD')?exwAdu:exwAdu*I3/I4;r.fobAduUSD=t1+t2;});
   const sumFobAdu=sum(it.map(r=>r.fobAduUSD));
-  it.forEach(r=>{r.pSeguro=rate(r.partida,'seguro');r.pAV=rate(r.partida,'av');r.pISC=rate(r.partida,'isc');r.pIGV=rate(r.partida,'igv');r.pIPM=rate(r.partida,'ipm');r.pPercep=percep;
+  it.forEach(r=>{r.pSeguro=rateR(r,'seguro');r.pAV=rateR(r,'av');r.pISC=rateR(r,'isc');r.pIGV=rateR(r,'igv');r.pIPM=rateR(r,'ipm');r.pPercep=percep;
     r.seguro=(D15==='')?r.fobAduUSD*r.pSeguro:(sumFobAdu?D15*r.fobAduUSD/sumFobAdu:0);
     const cifCore=(M1==='USD'&&M2==='USD')?r.factorEXW*B12+(B20+B21)*r.factorEXW:r.factorEXW*B12*I3/I4+(B20+B21)*r.factorEXW*I3/I4;r.cifAduUSD=r.fobAduUSD+r.seguro+cifCore;});
   it.forEach(r=>{r.avTeo=r.cifAduUSD*r.pAV;r.av=r.avTeo*(1-(r.avLibRaw===''?0:r.avLibRaw));r.iscTeo=r.cifAduUSD*r.pISC;r.isc=r.cifAduUSD*r.pISC;
@@ -400,8 +404,16 @@ function computeImport(s){
   it.forEach(r=>{r.costoSinTeo=r.cifItem+r.gastosLoc+(!impuesto?0:(sAV?rnd(sAV,0)*r.av/sAV:0)*tcTax);
     const aI=(!impuesto?0:(sIGV?rnd(sIGV,0)*r.igv/sIGV:0))*tcTax,aP=(!impuesto?0:(sIPM?rnd(sIPM,0)*r.ipm/sIPM:0))*tcTax,aPe=!impuesto?0:((rnd(sPer,0)*(r.percep!==0&&sPer?r.percep/sPer:0))*tcTax+r.gastosLoc*0.18);
     r.costoConTeo=r.costoSinTeo+aI+aP+aPe;
-    r.avReal=!impuesto?0:(sAV?r.av/sAV*O20:0);r.iscReal=sISC?r.isc/sISC*O21:0;r.igvReal=!impuesto?0:(sIGV?r.igv/sIGV*O14:0);r.ipmReal=!impuesto?0:(sIPM?r.ipm/sIPM*O15:0);
-    r.percepReal=!impuesto?0:(r.percep!==0&&sPer?r.percep/sPer*O16:0);
+    // Reparto de los impuestos REALES pagados entre ítems: normalmente por su parte
+    // teórica (r.igv/sIGV…). Si la partida no está en la tabla de tasas (p. ej. una
+    // partida courier del DUA que no figura, como 9810.*), esas partes teóricas son
+    // 0 y el denominador se anula: entonces se reparte por participación de FOB
+    // (factorFOB, suma 1) para no perder el impuesto efectivamente pagado.
+    r.avReal =!impuesto?0:(sAV ? r.av/sAV*O20   : O20*r.factorFOB);
+    r.iscReal=            (sISC? r.isc/sISC*O21 : O21*r.factorFOB);
+    r.igvReal=!impuesto?0:(sIGV? r.igv/sIGV*O14 : O14*r.factorFOB);
+    r.ipmReal=!impuesto?0:(sIPM? r.ipm/sIPM*O15 : O15*r.factorFOB);
+    r.percepReal=!impuesto?0:((r.percep!==0&&sPer)? r.percep/sPer*O16 : O16*r.factorFOB);
     const oR=(B18-B20-B21)*facPror(r)+B20*r.factorIMO+B21*r.factorEUR1;r.origenSoles=oR*L2;r.cifSoles=((B12-B14)*r.factorFOB+B14*facProrFOB(r))*L1;r.costosOrigenReal=r.origenSoles+r.cifSoles;
     // Gastos locales: si NO están facturados (sin IGV incluido) el monto completo es costo y no genera crédito de IGV
     r.costosLocalReal=(localesIGV?F11/1.18:F11)*r.factorFOB*L3;r.igvLocalReal=localesIGV?r.costosLocalReal*0.18:0;r.impDedIGVReal=r.igvLocalReal+r.igvReal+r.ipmReal;r.impNoDedReal=r.avReal+r.iscReal;
@@ -955,7 +967,7 @@ function renderItems(){$('tblItems').querySelector('tbody').innerHTML=items.map(
    <td><input type="number" step="0.01" value="${(it.descTotal===''||it.descTotal==null)?'':it.descTotal}" oninput="items[${i}].descTotal=(this.value===''?'':this.value)" placeholder="${n2((+it.precioEXW||0)*(+it.cantidad||0))}" title="Total con descuento; vacío = precio × cantidad" style="min-width:72px"></td>
    <td><input type="number" value="${it.cantidad}" oninput="items[${i}].cantidad=this.value" style="min-width:50px"></td>
    <td><input type="number" step="0.01" value="${it.peso}" oninput="items[${i}].peso=this.value" style="min-width:56px"></td>
-   <td class="l"><input value="${esc(it.partida)}" oninput="items[${i}].partida=this.value;var d=document.getElementById('pd${i}');if(d)d.textContent=partidaDescOf(this.value)" list="pl" style="min-width:120px"><div class="nm" id="pd${i}">${esc(partidaDescOf(it.partida))}</div></td>
+   <td class="l"><input value="${esc(it.partida)}" oninput="items[${i}].partida=this.value;items[${i}].tasas=null;var d=document.getElementById('pd${i}');if(d)d.textContent=partidaDescOf(this.value)" list="pl" style="min-width:120px"><div class="nm" id="pd${i}">${esc(partidaDescOf(it.partida))}</div></td>
    <td><input value="${it.avLib}" oninput="items[${i}].avLib=this.value" style="min-width:50px"></td>
    <td><input type="number" step="0.01" value="${it.exwAduanas}" oninput="items[${i}].exwAduanas=this.value" style="min-width:64px"></td>
    <td><span class="btn-del" onclick="items.splice(${i},1);renderItems()">✕</span></td></tr>`).join('')
@@ -1240,6 +1252,14 @@ async function leerLiquidacionIA(){
 }
 function addItem(){items.push({parte:'',codigo:'',desc:'',precioEXW:0,cantidad:1,peso:0,partida:'',avLib:'',exwAduanas:'',descTotal:''});renderItems();}
 
+// Tasas de la partida TAL COMO ESTÁN AHORA en la tabla (para congelarlas en el
+// ítem al guardar/calcular, y que un cambio futuro de la tabla no altere lo ya
+// guardado). Devuelve null si la partida no está en la tabla.
+function _tasasPartida(part){
+  const d=String(part||'').replace(/\D/g,''); if(!d)return null;
+  const p=partidas.find(x=>String(x.partida).replace(/\D/g,'')===d);
+  return p?{seguro:+p.seguro||0,av:+p.av||0,isc:+p.isc||0,igv:+p.igv||0,ipm:+p.ipm||0,imo:(p.imo==='si'?'si':'no')}:null;
+}
 function buildState(){return{modo:$('modo').value,prorateo:$('prorateo').value,impuesto:$('impuesto').value,localesIGV:($('localesIncIGV')&&$('localesIncIGV').checked?'Si':'No'),
   percepPct:percepValue(),seguroDeclarado:$('seguroDecl').value,
   tc:{fact:$('tcFact').value,cif:$('tcCif').value,orig:$('tcOrig').value,local:$('tcLocal').value,sunat:$('tcSunat').value,sunatDolar:$('tcSunatD').value},
@@ -1247,7 +1267,10 @@ function buildState(){return{modo:$('modo').value,prorateo:$('prorateo').value,i
   real:{enabled:realOn(),M8:$('r_M8').value,N8:$('r_N8').value,N14:$('r_N14').value,N15:$('r_N15').value,N20:$('r_N20').value,N21:$('r_N21').value,Nperc:($('r_Nperc')?$('r_Nperc').value:0)},
   gastos:{cif:{flete:$('g_flete').value,seguro:$('g_seguro').value,otros:$('g_otrosCif').value},origen:{imo:$('g_imo').value,eur1:$('g_eur1').value,pickup:$('g_pickup').value,otros:$('g_otrosOr').value},locales},
   dua:((lastSeries&&lastSeries.length)?{series:lastSeries,tot:lastTot,header:lastDuaHeader,decl:{num:($('duaDeclNum')?$('duaDeclNum').value:''),fecha:($('duaDeclFecha')?$('duaDeclFecha').value:'')}}:null),
-  partidas:partidas.filter(p=>p.modo===$('modo').value),items,recep:RECEP_INGRESO};}
+  // Se congela por ítem la tasa usada (tasas) y se guarda la tabla COMPLETA como
+  // respaldo, para que recalcular/exportar después no dependa de la tabla actual.
+  partidas:partidas.slice(),
+  items:items.map(it=>({...it,tasas:(it.tasas||_tasasPartida(it.partida))})),recep:RECEP_INGRESO};}
 function calcular(){
   const s=buildState();let r;try{r=computeImport(s);}catch(e){$('calcResult').innerHTML=`<div class="card" style="color:#991b1b">Error: ${e.message}</div>`;return;}
   const rows=r.items.map((it,i)=>`<tr><td class="l"><b class="sku">${esc(it.codigo||('ítem '+(i+1)))}</b><div class="nm">${esc(descSistema(it.codigo)||it.desc||'')}</div></td><td class="n">${n2(it.subEXW)}</td><td class="n">${n2(it.fobItem)}</td><td class="n">${n2(it.cifItem)}</td><td class="n">${n2(it.av)}</td><td class="n">${n2(it.igv)}</td><td class="n unit">${n2(it.unitSin)}</td><td class="n unit">${n2(it.unitCon)}</td></tr>`).join('');
@@ -1474,7 +1497,7 @@ function aplicarDua(){
   const perSerie={};items.forEach((it,ii)=>{const si=duaPick[ii];if(si!=null&&si>=0)perSerie[si]=(perSerie[si]||0)+1;});
   let n=0,libs=0;
   items.forEach((it,ii)=>{const si=duaPick[ii];if(si==null||si<0||!lastSeries[si])return;const s=lastSeries[si];const k=perSerie[si]||1;
-    if(s.nandina)it.partida=s.nandina;
+    if(s.nandina){it.partida=s.nandina;it.tasas=null;}
     if(s.peso)it.peso=rnd(s.peso/k,3);       // se reparte entre los ítems que comparten esa serie
     if(s.fob)it.duaFob=s.fob/k;
     // Liberación de A/V: reporte ADV=0 + partida con %A/V ⇒ liberación 100% en el ítem (NO se toca la partida)
@@ -1567,7 +1590,7 @@ function autoModoPorFactura(){
 function aplicarCourier(){
   if($('modo')&&$('modo').value==='Courier'){
     const part=($('impuesto')&&$('impuesto').value==='no')?'9809.00.00.20':'9809.00.00.30';
-    items.forEach(it=>{it.partida=part;});
+    items.forEach(it=>{it.partida=part;it.tasas=null;});
     renderItems();
   }
 }

@@ -67,7 +67,7 @@
     <h2>1 · Sube la factura</h2>
     <div style="background:#fff7ed;border:2px solid #fdba74;border-radius:9px;padding:11px 13px;margin-bottom:11px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <label style="font-weight:800;color:#9a3412;margin:0;font-size:14px">Tipo de importación:</label>
-      <select id="tipoImp" onchange="aplicarTipo();updateCodigo()" style="padding:9px 12px;font-weight:800;border:1px solid #fdba74;border-radius:8px;font-size:14px"><option>Cotización</option><option>Compra</option></select>
+      <select id="tipoImp" onchange="aplicarTipo();updateCodigo()" style="padding:9px 12px;font-weight:800;border:1px solid #fdba74;border-radius:8px;font-size:14px"><option>Cotización</option><option selected>Compra</option></select>
       <span class="hint" style="flex:1;min-width:220px"><b>Compra</b> habilita la DUA, la liquidación real y el paso de <b>📥 Recepción</b>. <b>Cotización</b> los oculta.</span>
     </div>
     <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:9px;padding:11px 13px">
@@ -95,7 +95,7 @@
       <div><label>Proveedor</label><select id="f_prov" onchange="updateCodigo()"></select></div>
       <div><label>Empresa (RUC)</label><select id="empresa" onchange="updateCodigo()"><option value="20514359661">DISEÑOS CORPORATIVOS (20514359661)</option><option value="10736768432">Christopher Villasante (10736768432)</option></select></div>
       <div><label>N° factura / invoice</label><input id="f_inv" placeholder="IN231741"></div>
-      <div><label>Modo de importación</label><select id="modo" onchange="onModoChange()"><option>Definitiva</option><option>Courier</option></select></div>
+      <div><label>Modo de importación</label><select id="modo" onchange="onModoChangeUser()"><option>Definitiva</option><option>Courier</option></select></div>
     </div>
     <div class="hint"><b>Cotización</b> = valores teóricos (aún no compras): se ocultan la DUA y la liquidación real. <b>Compra</b> = ya la importaste: se habilitan la DUA, la liquidación y los impuestos reales. · En <b>Definitiva</b> puedes usar cualquier partida (menos las Courier); en <b>Courier</b> solo las <b>9809.*</b>.</div>
   </div>
@@ -524,7 +524,7 @@ async function leerConIA(){
     $('ai_status').textContent=arr.length+' líneas ✓'+(obj&&obj.invoice?' · factura '+obj.invoice:'')+provTxt;
     // Construye facMatches directo del resultado de la IA (conserva desc_es y marca de cada línea)
     facMatches=arr.map(o=>{const disc=(o.total!=null&&o.total!==''&&Math.abs((+o.total)-(+o.price||0)*(+o.qty||0))>0.01)?(+o.total):'';const l={item:o.item||'',desc:o.desc||'',desc_es:o.desc_es||'',marca:o.marca||'',qty:+o.qty||0,exw:+o.price||0,total:disc};return {...l,...matchLinea(l)};});
-    renderFactura();
+    modoManual=false; renderFactura(); autoModoPorFactura();
   }catch(e){$('ai_status').textContent='⚠ '+e.message;}
 }
 // Cruza UNA línea: el código de la factura contra el SKU del sistema o dentro del nombre;
@@ -552,7 +552,7 @@ function matchLinea(l){
 function procesarFactura(){
   const lineas=parseLineas($('f_paste').value);
   facMatches=lineas.map(l=>{const r=aiRich[String(l.item||'').trim()]||{};l.desc_es=r.desc_es||'';l.marca=r.marca||'';return {item:l.item,desc:l.desc,desc_es:l.desc_es,marca:l.marca,qty:l.qty,exw:l.exw,total:(l.total!=null?l.total:''),...matchLinea(l)};});
-  renderFactura();
+  modoManual=false; renderFactura(); autoModoPorFactura();
 }
 // --- edición manual de líneas de la factura ---
 function facRecalcRow(i){const m=facMatches[i];const l={item:m.item,desc:m.desc,desc_es:m.desc_es||'',marca:m.marca||''};const r=aiRich[String(m.item||'').trim()];if(r){if(!l.desc_es)l.desc_es=r.desc_es||'';if(!l.marca)l.marca=r.marca||'';}facMatches[i]={item:m.item,desc:m.desc,desc_es:l.desc_es,marca:l.marca,qty:m.qty,exw:m.exw,total:(m.total!=null?m.total:''),...matchLinea(l)};renderFactura();}
@@ -630,6 +630,7 @@ function renderFactura(){
 }
 function enviarACalc(){
   RECEP_INGRESO=null; // ruta DIRECTA (sin recepción): cantidades de la factura y sin almacén heredado
+  autoModoPorFactura(); // define Courier/Definitiva por el valor de la factura
   items=facMatches.filter(m=>m.sku).map(m=>({parte:m.item,codigo:m.sku,desc:m.desc,precioEXW:m.exw,cantidad:m.qty,peso:0,partida:'',avLib:'',exwAduanas:'',descTotal:(m.total!=null?m.total:''),split:m.split||''}));
   updateCodigo();aplicarCourier();renderItems();tab(duaAplica()?'dua':'calc');
 }
@@ -1040,7 +1041,7 @@ function eliminarImportacion(id){if(!confirm('¿Eliminar esta importación guard
 function cargarImportacion(id){
   const r=saved.find(x=>x.id===id);if(!r)return;const s=r.state,m=r.meta;
   if($('tipoImp'))$('tipoImp').value=(r.tipo||(s.real&&s.real.enabled?'Compra':'Cotización'));
-  $('modo').value=s.modo;$('prorateo').value=s.prorateo;$('impuesto').value=s.impuesto;
+  $('modo').value=s.modo;modoManual=true;$('prorateo').value=s.prorateo;$('impuesto').value=s.impuesto;
   if($('localesIncIGV'))$('localesIncIGV').checked=(s.localesIGV==='Si');
   setPercep(s.percepPct);$('seguroDecl').value=s.seguroDeclarado||'';
   $('tcFact').value=s.tc.fact;$('tcCif').value=s.tc.cif;$('tcOrig').value=s.tc.orig;$('tcLocal').value=s.tc.local;$('tcSunat').value=s.tc.sunat;$('tcSunatD').value=s.tc.sunatDolar;tcTouched={cif:true,orig:true,local:true};
@@ -1526,6 +1527,41 @@ function onModoChange(){
   const sel=$('percepSel');
   if(sel && $('modo').value!=='Courier' && sel.value==='0'){sel.value='0.035';onPercepSel();}
   aplicarCourier();aplicarTipo();updateCodigo();
+}
+// Si el usuario elige el modo a mano, la regla automática deja de pisarlo
+// (hasta que se lea una factura nueva, que reactiva el automático).
+let modoManual=false;
+function onModoChangeUser(){ modoManual=true; onModoChange(); }
+// Valor APROXIMADO de la mercadería de la factura (sin flete), en la MONEDA de la
+// factura: usa el total de línea si viene, si no exw×cantidad.
+function valorFacturaAprox(){
+  try{ return (facMatches||[]).reduce((s,m)=>{
+    const v=(m.total!=null&&m.total!==''&&!isNaN(+m.total))?(+m.total):((+m.exw||0)*(+m.qty||0));
+    return s+(+v||0);
+  },0); }catch(e){ return 0; }
+}
+// Moneda efectiva de la factura ('PEN' | 'USD' | 'EUR').
+function monedaFacturaEfectiva(){
+  const code=$('curFactSel')?$('curFactSel').value:'auto';
+  const tc=+($('tcFact')&&$('tcFact').value)||0;
+  return curOf(code,tc);
+}
+// Valor de la factura convertido a DÓLARES con tipos de cambio FIJOS (a soles:
+// EUR=4.2, USD=3.4, PEN=1), para comparar contra el umbral en US$.
+const TC_FIJO_SOLES={EUR:4.2,USD:3.4,PEN:1};
+function valorFacturaUSD(){
+  const bruto=valorFacturaAprox();
+  const r=TC_FIJO_SOLES[monedaFacturaEfectiva()]||TC_FIJO_SOLES.USD;
+  return bruto*r/TC_FIJO_SOLES.USD; // moneda → soles → dólares
+}
+// Regla de negocio: por el valor de la mercadería en DÓLARES (sin envío),
+// < US$2000 → Courier; ≥ US$2000 → Definitiva. Se aplica al leer/confirmar la
+// factura; el usuario puede cambiarlo a mano después.
+function autoModoPorFactura(){
+  const sel=$('modo'); if(!sel||modoManual) return; // respeta la elección manual
+  const val=valorFacturaUSD(); if(!val) return; // sin datos aún → no forzar
+  const nuevo = val<2000 ? 'Courier' : 'Definitiva';
+  if(sel.value!==nuevo){ sel.value=nuevo; onModoChange(); }
 }
 // Courier: todos los ítems llevan la MISMA partida — 9809.00.00.20 si no paga impuesto (FOB < US$200), 9809.00.00.30 si paga
 function aplicarCourier(){

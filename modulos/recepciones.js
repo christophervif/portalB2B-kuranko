@@ -195,11 +195,21 @@ module.exports = function registrarRecepciones({
         if (prev[0].estado === 'validada') {
           return res.status(409).json({ error: 'Esta recepción ya fue validada por el almacén; no se puede reenviar.' });
         }
-        // Conservar lo que el supervisor ya haya adelantado (match por código+sku_sugerido)
+        // Conservar lo que el almacén YA adelantó. Se empareja por CÓDIGO de la
+        // factura (y por posición entre códigos repetidos), NO por sku_sugerido:
+        // así, aunque el sistema sugiera otro SKU al reenviar, no se pierde lo que
+        // el almacén contó/confirmó. Los EXTRA (fuera de factura) se conservan tal cual.
         const antes = asJson(prev[0].items, []) || [];
-        const clave = (i) => `${i.codigo}${i.sku_sugerido}`;
-        const mapa = {}; antes.forEach(i => { mapa[clave(i)] = i; });
-        items = itemsCarga.map(i => fusionarValidacion(i, mapa[clave(i)] || {}));
+        const normCod = (x) => s(x).replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+        const colas = {}; // codigo normalizado -> cola de ítems previos (no-extra) en orden
+        antes.filter(i => !i.es_extra).forEach(i => { const k = normCod(i.codigo); (colas[k] = colas[k] || []).push(i); });
+        items = itemsCarga.map(i => {
+          const cola = colas[normCod(i.codigo)];
+          const prevIt = (cola && cola.length) ? cola.shift() : null;
+          return fusionarValidacion(i, prevIt || {});
+        });
+        // Re-adjuntar los EXTRA que agregó el almacén (no vienen en la carga de factura).
+        antes.filter(i => i.es_extra).forEach(e => items.push(e));
       } else {
         items = itemsCarga.map(i => fusionarValidacion(i, {}));
       }

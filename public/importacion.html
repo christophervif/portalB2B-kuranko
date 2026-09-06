@@ -679,7 +679,7 @@ async function enviarARecepcion(){
       alert('⚠ Ya existe una recepción para la factura "'+(existe.n_factura||'')+'" y el almacén YA la validó. No se puede reemplazar. Si de verdad quieres rehacerla, elimínala primero desde la pestaña Recepciones.');
       return;
     }
-    if(!confirm('⚠ Ya hay una recepción para la factura "'+(existe.n_factura||'')+'" (estado: '+existe.estado+'). Esto NO crea otra: reemplaza su contenido con esta carga. ¿Continuar?')) return;
+    if(!confirm('Ya hay una recepción para la factura "'+(existe.n_factura||'')+'" (estado: '+existe.estado+').\n\nEsto NO crea otra: actualiza las líneas de la factura y MANTIENE lo que el almacén ya contó/confirmó y sus productos fuera de factura. ¿Continuar?')) return;
   } else {
     if(!confirm('¿Enviar esta carga al almacén para que la confirmen? (No incluye precios.)')) return;
   }

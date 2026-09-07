@@ -245,6 +245,9 @@ module.exports = function registrarImportacion({
   //    texto cuyo nombre sugiere "importación" o "referencia", y se busca ahí.
   //    SOLO LECTURA.
   let _refPlan = null;
+  // Celda CONFIRMADA donde Renzo guarda la "Ref. importación" (verificada en la
+  // base). Se busca primero aquí; el resto queda como respaldo por si cambia.
+  const REF_FIJA = { t: 'stock_entries', c: 'importacion_ref' };
   async function planImportRef() {
     if (_refPlan !== null) return _refPlan;
     try {
@@ -253,13 +256,22 @@ module.exports = function registrarImportacion({
           FROM information_schema.COLUMNS
          WHERE TABLE_SCHEMA = DATABASE()
            AND DATA_TYPE IN ('varchar','char','text','tinytext','mediumtext','longtext')
-           AND (COLUMN_NAME LIKE '%import%' OR COLUMN_NAME LIKE '%referenc%'
-                OR COLUMN_NAME LIKE '%ref\\_%' OR COLUMN_NAME LIKE 'ref%')
-         LIMIT 100`);
+           AND (COLUMN_NAME LIKE '%import%' OR COLUMN_NAME LIKE '%referen%'
+                OR COLUMN_NAME LIKE '%ref%' OR COLUMN_NAME LIKE '%doc%'
+                OR COLUMN_NAME LIKE '%guia%' OR COLUMN_NAME LIKE '%gu_a%'
+                OR COLUMN_NAME LIKE '%comprob%' OR COLUMN_NAME LIKE '%nota%'
+                OR COLUMN_NAME LIKE '%glosa%' OR COLUMN_NAME LIKE '%observ%'
+                OR COLUMN_NAME LIKE '%codigo%' OR COLUMN_NAME LIKE '%numero%'
+                OR COLUMN_NAME LIKE '%number%')
+         LIMIT 200`);
       // Preferir las columnas que hablan de "import" (la etiqueta es "Ref. importación").
       const imp = rows.filter(r => /import/i.test(r.c));
-      _refPlan = (imp.length ? imp : rows).slice(0, 40).map(r => ({ t: r.t, c: r.c }));
-    } catch (e) { _refPlan = []; }
+      const ref = rows.filter(r => /referen|ref/i.test(r.c) && !/import/i.test(r.c));
+      const resto = [...imp, ...ref, ...rows.filter(r => !imp.includes(r) && !ref.includes(r))]
+        .slice(0, 80).map(r => ({ t: r.t, c: r.c }));
+      // La celda confirmada va SIEMPRE primero (sin duplicar).
+      _refPlan = [REF_FIJA, ...resto.filter(p => !(p.t === REF_FIJA.t && p.c === REF_FIJA.c))];
+    } catch (e) { _refPlan = [REF_FIJA]; }
     return _refPlan;
   }
   // Caché por referencia (positivos y negativos) para no golpear el ERP en cada
@@ -287,7 +299,7 @@ module.exports = function registrarImportacion({
           for (const { t, c } of plan) {
             try {
               const [rows] = await prodPool.query(
-                'SELECT `' + c + '` AS ref, id FROM `' + t + '` WHERE `' + c + '` IN (?) LIMIT 500', [need]);
+                'SELECT `' + c + '` AS ref, id FROM `' + t + '` WHERE TRIM(`' + c + '`) IN (?) LIMIT 500', [need]);
               rows.forEach(row => {
                 const val = String(row.ref == null ? '' : row.ref).trim().toUpperCase();
                 const i = upper.indexOf(val);
@@ -320,7 +332,7 @@ module.exports = function registrarImportacion({
         if (!refs.length) break;
         try {
           const [rows] = await prodPool.query(
-            'SELECT `' + c + '` AS ref, id FROM `' + t + '` WHERE `' + c + '` IN (?) LIMIT 500', [refs]);
+            'SELECT `' + c + '` AS ref, id FROM `' + t + '` WHERE TRIM(`' + c + '`) IN (?) LIMIT 500', [refs]);
           rows.forEach(row => {
             const val = String(row.ref == null ? '' : row.ref).trim().toUpperCase();
             const i = upper.indexOf(val);

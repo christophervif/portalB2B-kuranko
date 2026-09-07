@@ -181,14 +181,20 @@ module.exports = function registrarImportacion({
     try {
       const key = process.env.GEMINI_API_KEY;
       if (!key) return res.status(500).json({ error: 'GEMINI_API_KEY no está configurada en el servidor' });
-      const { model, prompt, pdf_base64 } = req.body || {};
-      if (!prompt || !pdf_base64) return res.status(400).json({ error: 'Falta el prompt o el PDF' });
+      const { model, prompt, pdf_base64, pdfs_base64 } = req.body || {};
+      // Acepta un solo PDF (pdf_base64) o VARIOS (pdfs_base64: array). Se usa
+      // para leer con IA la Consulta de Declaración + Consulta de Series (courier
+      // por empresa privada, sin reporte de DUA descargable) en una sola llamada.
+      const pdfs = (Array.isArray(pdfs_base64) && pdfs_base64.length)
+        ? pdfs_base64.filter(Boolean)
+        : (pdf_base64 ? [pdf_base64] : []);
+      if (!prompt || !pdfs.length) return res.status(400).json({ error: 'Falta el prompt o el PDF' });
       const mdl = (model || 'gemini-3.6-flash').replace(/[^a-zA-Z0-9.\-]/g, '');
 
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${mdl}:generateContent?key=${encodeURIComponent(key)}`;
       const body = {
         contents: [{ parts: [
-          { inline_data: { mime_type: 'application/pdf', data: pdf_base64 } },
+          ...pdfs.map(d => ({ inline_data: { mime_type: 'application/pdf', data: d } })),
           { text: prompt }
         ] }],
         generationConfig: { temperature: 0, response_mime_type: 'application/json' }

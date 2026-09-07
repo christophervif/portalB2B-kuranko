@@ -55,6 +55,11 @@ td.n,th.n{text-align:right}
 .pill-count{display:inline-flex;gap:5px;align-items:center}
 .k{display:inline-block;background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:4px 10px;font-weight:700;margin-right:6px}
 .hide{display:none!important}
+.skucell{position:relative}
+.skudrop{margin-top:4px;border:1px solid var(--border);border-radius:8px;max-height:210px;overflow:auto;background:var(--card2)}
+.skuopt{padding:6px 9px;cursor:pointer;white-space:normal;border-bottom:1px solid var(--border);line-height:1.35}
+.skuopt:last-child{border-bottom:0}
+.skuopt:hover{background:var(--card)}
 .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:14px;z-index:50}
 .modal{background:var(--card);border:1px solid var(--border);border-radius:12px;max-width:820px;width:100%;max-height:88vh;overflow:auto;padding:16px}
 .toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 16px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.4);z-index:80;opacity:0;transition:opacity .2s}
@@ -132,9 +137,10 @@ td.n,th.n{text-align:right}
       <h3 style="margin:0">Envíos</h3>
       <div class="row" style="align-items:center">
         <select id="filtroEnv" onchange="pintarEnvios()">
-          <option value="">Todos</option>
+          <option value="">Activos</option>
           <option value="en_transito">En tránsito</option>
           <option value="recibido">Recibidos</option>
+          <option value="archivados">🗄️ Archivados</option>
         </select>
         <button class="ghost sm" onclick="cargarEnvios()">↻</button>
       </div>
@@ -148,10 +154,11 @@ td.n,th.n{text-align:right}
 
   <div id="boTools" class="card hide">
     <h3>Gestión de backorders</h3>
-    <div class="hint">Todos los pedidos en backorder del sistema se traen automáticamente. Organízalos en grupos con la info de la venta, marca cuáles ya compraste y anota por qué o cuándo comprarás cada uno. Cuando subes una factura con tracking, los backorders que cubre se marcan solos como comprados y en camino.</div>
-    <div class="row">
-      <button class="ghost" onclick="sincronizarBo()">↻ Actualizar desde el sistema</button>
+    <div class="hint">Todos los pedidos en backorder del sistema se traen automáticamente. Organízalos en grupos con la info de la venta, marca cuáles ya compraste y anota por qué o cuándo comprarás cada uno. Cuando subes una factura con tracking, los backorders que cubre se marcan solos como comprados y en camino. Cuando ya ingresaste el producto al ERP, ese backorder se archiva solo (deja de estar pendiente en el sistema).</div>
+    <div class="row" style="align-items:center">
+      <button id="btnSync" class="ghost" onclick="sincronizarBo()">↻ Actualizar desde el sistema</button>
       <button class="ghost" onclick="abrirGrupo()">+ Nuevo grupo</button>
+      <label class="sm" style="display:flex;gap:5px;align-items:center;cursor:pointer"><input type="checkbox" id="boVerArch" onchange="cargarBackorders()"> Ver archivados</label>
       <span id="boMsg" class="muted sm"></span>
     </div>
   </div>
@@ -247,9 +254,14 @@ let BO_SKU_PEND=new Set();      // SKUs de backorders NO comprados (para autodet
 async function init(){
   $('rolLine').textContent = ES_MAESTRO ? ('Administrador — '+(USUARIO||'maestro')) : ('Supervisor — solo lectura'+(USUARIO?(' ('+USUARIO+')'):''));
   if(!ES_MAESTRO){$('roNote').classList.remove('hide');}
-  else{$('nuevoEnvio').classList.remove('hide');$('boTools').classList.remove('hide');}
+  else{$('nuevoEnvio').classList.remove('hide');}
+  // La barra de backorders la ven ambos (para agrupar y notas); el botón de
+  // sincronizar solo el maestro.
+  $('boTools').classList.remove('hide');
+  if(!ES_MAESTRO){const b=$('btnSync');if(b)b.style.display='none';}
   try{CATALOG=await api('/catalogo');initCat();}catch(e){CATALOG=[];}
-  // El maestro trae automáticamente TODOS los backorders del sistema al abrir.
+  // El maestro trae automáticamente TODOS los backorders del sistema al abrir
+  // (y de paso archiva solos los que ya se ingresaron al ERP).
   if(ES_MAESTRO){try{await api('/bo-items/sync','POST',{});}catch(e){}}
   await Promise.all([cargarEnvios(),cargarBackorders()]);
 }
@@ -265,21 +277,25 @@ function verTab(t){
   $('tab-bo').classList.toggle('hide',t!=='bo');
 }
 function refreshKpis(){
-  const et=ENVIOS.filter(e=>e.estado==='en_transito').length;
-  const bp=BOITEMS.filter(b=>!b.comprado).length;
+  const et=ENVIOS.filter(e=>e.estado==='en_transito'&&!e.archivado).length;
+  const bp=BOITEMS.filter(b=>!b.archivado&&(b.cantidad!=null?((b.cubierto||0)<b.cantidad):!b.comprado)).length;
   $('kEnv').textContent=et+' en tránsito';
   $('kBo').textContent=bp+' por comprar';
 }
 
 /* ═══════════ ENVÍOS ═══════════ */
 async function cargarEnvios(){
-  try{ENVIOS=await api('/envios');}catch(e){ENVIOS=[];toast(e.message);}
+  try{ENVIOS=await api('/envios?incluir_archivados=1');}catch(e){ENVIOS=[];toast(e.message);}
   pintarEnvios();refreshKpis();
 }
 function badgeEstado(est){return est==='recibido'?'<span class="badge b-rec">✓ recibido</span>':'<span class="badge b-tra">en tránsito</span>';}
 function pintarEnvios(){
   const filtro=$('filtroEnv').value;
-  const list=ENVIOS.filter(e=>!filtro||e.estado===filtro);
+  const list=ENVIOS.filter(e=>{
+    if(filtro==='archivados')return e.archivado;
+    if(e.archivado)return false;               // por defecto ocultar archivados
+    return !filtro||e.estado===filtro;
+  });
   const host=$('envList');
   if(!list.length){host.innerHTML='<div class="muted sm">No hay envíos'+(filtro?' en este filtro':'')+'.</div>';return;}
   host.innerHTML=list.map(e=>{
@@ -287,6 +303,7 @@ function pintarEnvios(){
     const head=`<div class="env-h" onclick="this.parentNode.classList.toggle('open')">
       <b>📦 ${esc(e.tracking||'(sin tracking)')}</b>
       ${badgeEstado(e.estado)}
+      ${e.archivado?'<span class="chip">🗄️ archivado</span>':''}
       ${e.courier?`<span class="chip">${esc(e.courier)}</span>`:''}
       <span class="muted sm">${ES_MAESTRO&&e.proveedor?esc(e.proveedor):''}${e.n_factura?((ES_MAESTRO&&e.proveedor?' · ':'')+'Fact. '+esc(e.n_factura)):''}</span>
       <span class="muted sm">· ${(e.items||[]).length} ítems</span>
@@ -349,32 +366,68 @@ async function leerFactura(){
   finally{$('btnLeer').disabled=false;}
 }
 function autoBo(sku){return sku&&BO_SKU_PEND.has(clean(sku));}
+// Unidades de backorder aún por cubrir para un SKU (suma de faltantes).
+function pendPorSku(sku){const k=clean(sku||'');if(!k)return 0;
+  return BOITEMS.filter(b=>!b.archivado&&clean(b.sku)===k).reduce((sm,b)=>sm+(b.cantidad!=null?Math.max(0,b.cantidad-(b.cubierto||0)):0),0);}
+function boBadge(sku){const p=pendPorSku(sku);return `<span class="badge b-bo">backorder${p>0?(' · faltan '+p):''}</span>`;}
 function addItem(){editItems.push({codigo:'',desc:'',desc_es:'',marca:'',cantidad:1,sku:'',nombre:'',confianza:'no',cand:[],es_backorder:false});renderItems();}
 function delItem(i){editItems.splice(i,1);renderItems();}
 function recalc(i){const m=editItems[i];const r=matchLinea(m);m.sku=r.sku;m.nombre=r.nombre;m.confianza=r.tipo;m.cand=r.cand;m.es_backorder=autoBo(r.sku);renderItems();}
 function renderItems(){
   $('itemsBody').innerHTML=editItems.map((m,i)=>{
     const cb=CONF_BADGE[m.confianza]||CONF_BADGE.no;
-    let sel;
-    if((m.cand||[]).length){
-      const opts=m.cand.map(c=>`<option value="${esc(c.sku)}" ${c.sku===m.sku?'selected':''}>${esc(c.sku)} · ${esc(c.name)}${c.score?(' ('+Math.round(c.score)+')'):''}</option>`).join('');
-      sel=`<select onchange="setSku(${i},this.value)">${opts}<option value="">(ninguno)</option></select>`;
-    }else{
-      sel=`<input value="${esc(m.sku||'')}" oninput="setSku(${i},this.value)" placeholder="SKU manual" style="min-width:120px">`;
-    }
     return `<tr>
       <td>${i+1}</td>
       <td>${esc(m.codigo||'—')}</td>
-      <td style="min-width:220px;white-space:normal">${esc(m.desc_es||m.desc||'')}</td>
-      <td class="n">${m.cantidad!=null?m.cantidad:''}</td>
-      <td>${sel}${m.nombre?`<div class="muted sm">${esc(m.nombre)}</div>`:''}</td>
+      <td style="min-width:200px;white-space:normal">${esc(m.desc_es||m.desc||'')}</td>
+      <td class="n"><input type="number" value="${m.cantidad!=null?m.cantidad:''}" oninput="editItems[${i}].cantidad=(this.value===''?null:+this.value)" style="width:64px"></td>
+      <td>
+        <div class="skucell">
+          <input id="ci${i}" value="${esc(m.sku||'')}" autocomplete="off" spellcheck="false"
+            oninput="catType(${i},this.value)" onfocus="catType(${i},this.value)" onblur="catBlur(${i})"
+            placeholder="Escribe nombre o SKU" style="min-width:170px">
+          <div id="cd${i}" class="skudrop" style="display:none"></div>
+        </div>
+        ${m.nombre?`<div class="muted sm">${esc(m.nombre)}</div>`:''}
+      </td>
       <td><span class="badge ${cb[0]}">${cb[1]}</span></td>
-      <td style="text-align:center">${m.es_backorder?'<span class="badge b-bo">backorder</span>':''}</td>
+      <td style="text-align:center">${m.es_backorder?boBadge(m.sku):''}</td>
       <td><button class="danger sm" onclick="delItem(${i})">✕</button></td>
     </tr>`;
   }).join('');
 }
-function setSku(i,v){const m=editItems[i];m.sku=v;const c=CATMAP[v];m.nombre=c||'';if(v&&(m.confianza==='no'||m.confianza==='rev'))m.confianza='manual';m.es_backorder=autoBo(v);renderItems();}
+const jsq=s=>String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+// Buscador inline: escribe nombre o SKU en CUALQUIER orden ("freno magura" = "magura freno").
+function catType(i,q){
+  q=(q||'').trim();
+  const m=editItems[i]||{};
+  let list=[];
+  if(q.length){
+    const qt=normalize(q).split(' ').filter(Boolean);
+    const tl=q.toLowerCase();
+    list=CAT.map(c=>{let sc=tokenSet(qt,c.tokens);if(c.sku.toLowerCase().includes(tl))sc=Math.max(sc,96);return{sku:c.sku,name:c.name,score:sc};})
+            .sort((a,b)=>b.score-a.score).slice(0,10);
+  }else{
+    list=(m.cand||[]).slice(0,10); // sin texto: muestra las opciones que sugirió la IA
+  }
+  const drop=$('cd'+i);if(!drop)return;
+  if(!list.length){drop.style.display='none';drop.innerHTML='';return;}
+  drop.innerHTML=list.map(c=>`<div class="skuopt" onmousedown="catChoose(${i},'${jsq(c.sku)}')"><b>${esc(c.sku)}</b> <span class="muted sm">${esc(c.name)}</span></div>`).join('');
+  drop.style.display='block';
+}
+function catChoose(i,sku){
+  const c=CAT.find(x=>x.sku===sku);const m=editItems[i];
+  if(m){m.sku=sku;m.nombre=c?c.name:'';m.confianza='manual';m.cand=c?[{sku:c.sku,name:c.name,score:100}]:[];m.es_backorder=autoBo(sku);}
+  renderItems();
+}
+function catBlur(i){
+  setTimeout(()=>{const d=$('cd'+i);if(d)d.style.display='none';},180);
+  const inp=$('ci'+i);if(!inp)return;
+  const v=inp.value.trim();const m=editItems[i];
+  if(!m)return;
+  if(v&&CATMAP[v]){ if(m.sku!==v){m.sku=v;m.nombre=CATMAP[v];m.confianza='manual';m.es_backorder=autoBo(v);renderItems();} }
+  else if(!v){ if(m.sku){m.sku='';m.nombre='';m.es_backorder=false;renderItems();} } // borró el SKU
+}
 function cancelarEditor(){editItems=[];editId='';$('editor').classList.add('hide');$('leerMsg').textContent='';$('pdf').value='';}
 function limpiaEditor(){$('e_tracking').value='';$('e_courier').value='';$('e_prov').value='';$('e_fact').value='';$('e_eta').value='';$('e_nota').value='';}
 async function guardarEnvio(){
@@ -412,9 +465,11 @@ async function borrarEnvio(id){if(!confirm('¿Eliminar este envío?'))return;try
 
 /* ═══════════ BACKORDERS ═══════════ */
 async function cargarBackorders(){
-  try{const[g,b]=await Promise.all([api('/grupos'),api('/bo-items')]);GRUPOS=g||[];BOITEMS=b||[];}
+  const verArch=$('boVerArch')&&$('boVerArch').checked;
+  try{const[g,b]=await Promise.all([api('/grupos'),api('/bo-items'+(verArch?'?incluir_archivados=1':''))]);GRUPOS=g||[];BOITEMS=b||[];}
   catch(e){GRUPOS=[];BOITEMS=[];toast(e.message);}
-  BO_SKU_PEND=new Set(BOITEMS.filter(x=>!x.comprado&&x.sku).map(x=>clean(x.sku)));
+  // Pendiente = todavía falta cubrir cantidad (o, si no hay cantidad, no está marcado comprado).
+  BO_SKU_PEND=new Set(BOITEMS.filter(x=>!x.archivado&&x.sku&&(x.cantidad!=null?((x.cubierto||0)<x.cantidad):!x.comprado)).map(x=>clean(x.sku)));
   pintarBackorders();refreshKpis();
 }
 function grpOptions(sel){return '<option value="">(sin grupo)</option>'+GRUPOS.map(g=>`<option value="${g.id}" ${g.id===sel?'selected':''}>${esc(g.nombre||'(grupo)')}</option>`).join('');}
@@ -428,7 +483,7 @@ function pintarBackorders(){
   host.innerHTML=bloques.join('')||'<div class="muted sm">Sin backorders.</div>';
 }
 function bloqueGrupo(g,items){
-  const nComp=items.filter(i=>i.comprado).length;
+  const porComprar=items.filter(i=>!i.archivado&&(i.cantidad!=null?((i.cubierto||0)<i.cantidad):!i.comprado)).length;
   const info=g?`<div class="saleinfo">
       ${g.vta?`<span>VTA: <b>${esc(g.vta)}</b></span>`:''}
       ${g.cliente?`<span>Cliente: <b>${esc(g.cliente)}</b></span>`:''}
@@ -436,35 +491,49 @@ function bloqueGrupo(g,items){
       ${g.precio_pagado!=null?`<span>Pagado: <b>S/ ${esc(n2(g.precio_pagado))}</b></span>`:''}
     </div>${g.nota?`<div class="muted sm" style="margin-top:4px">📝 ${esc(g.nota)}</div>`:''}`:'';
   const titulo=g?esc(g.nombre||'(grupo sin nombre)'):'Sin grupo';
-  const accG = (g&&ES_MAESTRO) ? `<div class="row" style="margin-left:auto">
+  // Editar grupo: ambos (el supervisor también puede agrupar). Eliminar: solo el maestro.
+  const accG = g ? `<div class="row" style="margin-left:auto">
       <button class="ghost sm" onclick="abrirGrupo('${g.id}')">Editar grupo</button>
-      <button class="danger sm" onclick="borrarGrupo('${g.id}')">Eliminar</button>
+      ${ES_MAESTRO?`<button class="danger sm" onclick="borrarGrupo('${g.id}')">Eliminar</button>`:''}
     </div>` : '';
   const rows=items.map(b=>filaBo(b)).join('');
   const body = items.length ? `<div class="tw"><table><thead><tr>
-      <th style="width:34px">✓</th><th>SKU</th><th>Producto</th><th>Cliente</th><th>Venta</th><th class="n">Cant</th><th>Nota</th>${ES_MAESTRO?'<th>Grupo</th><th></th>':''}
+      <th style="width:34px">✓</th><th>SKU</th><th>Producto</th><th>Cliente</th><th>Venta</th><th class="n">Cant</th><th>Nota</th><th>Grupo</th>
     </tr></thead><tbody>${rows}</tbody></table></div>`
     : '<div class="muted sm">Sin ítems en este grupo.</div>';
   return `<div class="grp"><div class="grp-h"><b>${g?'📁 ':''}${titulo}</b>
-      <span class="muted sm">${items.length} ítems · ${nComp} comprados</span>${accG}</div>
+      <span class="muted sm">${items.length} ítems · ${porComprar} por comprar</span>${accG}</div>
     <div class="grp-body">${info}${body}</div></div>`;
 }
 function filaBo(b){
-  const chk=`<input type="checkbox" ${b.comprado?'checked':''} ${ES_MAESTRO?`onchange="setBo('${b.id}','comprado',this.checked?1:0)"`:'disabled'}>`;
-  const nota= ES_MAESTRO
-    ? `<input value="${esc(b.nota||'')}" onchange="setBo('${b.id}','nota',this.value)" placeholder="¿por qué / cuándo comprarás?" style="min-width:180px">`
-    : `<span class="muted sm">${esc(b.nota||'')}</span>`;
-  const grp= ES_MAESTRO ? `<td><select onchange="setBo('${b.id}','grupo_id',this.value)">${grpOptions(b.grupo_id)}</select></td>` : '';
-  const del= ES_MAESTRO ? `<td><button class="danger sm" onclick="borrarBo('${b.id}')">✕</button></td>` : '';
-  const track = b.tracking ? `<div class="muted sm" style="margin-top:3px"><span class="badge b-tra">🚚 en camino</span> ${esc(b.tracking)}</div>` : '';
-  return `<tr>
+  // Marcar comprado, poner nota y agrupar: lo pueden hacer AMBOS (maestro y supervisor). Eliminar: nadie desde aquí.
+  const chk=`<input type="checkbox" title="Marca manual" ${b.comprado?'checked':''} onchange="setBo('${b.id}','comprado',this.checked?1:0)">`;
+  const nota=`<input value="${esc(b.nota||'')}" onchange="setBo('${b.id}','nota',this.value)" placeholder="¿por qué / cuándo comprarás?" style="min-width:180px">`;
+  const grp=`<td><select onchange="setBo('${b.id}','grupo_id',this.value)">${grpOptions(b.grupo_id)}</select></td>`;
+  const arch = b.archivado ? ` <span class="chip">🗄️ ingresado</span>` : '';
+  // Cobertura por cantidades: cuánto va en camino, cuánto falta, y con qué tracking(s).
+  const need=(b.cantidad!=null)?b.cantidad:null, cub=b.cubierto||0;
+  const faltan=(need!=null)?Math.max(0,need-cub):null;
+  let cov='';
+  if(cub>0){
+    cov=`<div class="muted sm" style="margin-top:3px">`+
+      `<span class="badge b-tra">🚚 en camino ${cub}${need!=null?(' / '+need):''}</span>`+
+      (faltan>0?` <span class="badge b-rev">faltan ${faltan}</span>`:` <span class="badge b-exact">completo</span>`)+
+      (b.tracking?` <span class="muted">${esc(b.tracking)}</span>`:'')+`</div>`;
+  }else if(need!=null){
+    cov=`<div class="muted sm" style="margin-top:3px"><span class="badge b-no">por comprar ${need}</span></div>`;
+  }
+  const cantCell = need!=null
+    ? `<b>${need}</b>${cub>0?`<div class="muted sm">faltan ${faltan}</div>`:''}`
+    : '';
+  return `<tr style="${b.archivado?'opacity:.65':''}">
     <td style="text-align:center">${chk}</td>
     <td>${esc(b.sku||'')}</td>
-    <td>${esc(b.nombre||'')}${track}</td>
+    <td>${esc(b.nombre||'')}${arch}${cov}</td>
     <td>${esc(b.cliente||'')}</td>
     <td>${esc(b.venta||'')}${b.fecha?`<div class="muted sm">${esc(b.fecha)}</div>`:''}</td>
-    <td class="n">${b.cantidad!=null?b.cantidad:''}</td>
-    <td>${nota}</td>${grp}${del}
+    <td class="n">${cantCell}</td>
+    <td>${nota}</td>${grp}
   </tr>`;
 }
 async function setBo(id,campo,val){
@@ -476,7 +545,6 @@ async function setBo(id,campo,val){
     if(campo==='comprado')refreshKpis();
   }catch(e){toast(e.message);await cargarBackorders();}
 }
-async function borrarBo(id){if(!confirm('¿Eliminar este ítem de backorder?'))return;try{await api('/bo-item/'+encodeURIComponent(id),'DELETE');await cargarBackorders();}catch(e){toast(e.message);}}
 
 /* grupos */
 function abrirGrupo(id){

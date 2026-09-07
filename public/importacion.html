@@ -1700,7 +1700,9 @@ async function leerDuaIA(){
   try{
     const pdfs=[];
     for(const f of files){ pdfs.push(await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(',')[1]);r.onerror=rej;r.readAsDataURL(f);})); }
-    const resp=await fetch(API+'/ia',{method:'POST',headers:_authHeaders(true),body:JSON.stringify({model,prompt:DUA_IA_PROMPT,pdfs_base64:pdfs})});
+    // Se manda pdfs_base64 (varios, backend nuevo) Y pdf_base64 (el primero) como
+    // respaldo, para que también funcione si el backend aún no está redesplegado.
+    const resp=await fetch(API+'/ia',{method:'POST',headers:_authHeaders(true),body:JSON.stringify({model,prompt:DUA_IA_PROMPT,pdfs_base64:pdfs,pdf_base64:pdfs[0]})});
     if(!resp.ok)throw new Error('IA '+resp.status+' — '+(await resp.text()).slice(0,150));
     const data=await resp.json();const txt=(data.candidates?.[0]?.content?.parts||[]).map(p=>p.text||'').join('');
     let o;try{o=JSON.parse(txt);}catch(e){const mm=txt.match(/{[\s\S]*}/);o=mm?JSON.parse(mm[0]):null;}

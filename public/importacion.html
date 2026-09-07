@@ -1126,6 +1126,9 @@ async function marcarSubidasERP(){
   const faltan=refs.filter(r=>!(r in _erpChk));
   const consultar = fresco ? faltan : refs;
   if(!consultar.length) return;
+  // Señal de que el código NUEVO está corriendo: pinta "verificando…" ya mismo.
+  // (Si en pantalla se queda el "…" fijo, es que no cargó el importacion.html nuevo.)
+  spans.forEach(s=>{ if(consultar.includes(s.dataset.ref)&&!(s.dataset.ref in _erpChk)) s.innerHTML='<span style="display:inline-block;background:#eef2f7;color:#64748b;border-radius:10px;padding:2px 9px;font-size:12px;font-style:italic" title="Consultando el ERP…">verificando…</span>'; });
   let mapa=null;
   try{ mapa=await apiPost('/erp-subidas',{refs:consultar}); }
   catch(e){ spans.forEach(s=>{ if(consultar.includes(s.dataset.ref)&&!(s.dataset.ref in _erpChk)) s.innerHTML='<span style="display:inline-block;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:10px;padding:2px 8px;font-size:12px;font-weight:700" title="No se pudo verificar el ERP: '+esc(e.message)+'">⚠ sin verificar</span>'; }); return; }

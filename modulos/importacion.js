@@ -262,26 +262,42 @@ module.exports = function registrarImportacion({
     } catch (e) { _refPlan = []; }
     return _refPlan;
   }
+  // Caché por referencia (positivos y negativos) para no golpear el ERP en cada
+  // render. TTL corto: si subes un ingreso, se refleja en pocos minutos.
+  const _erpCache = new Map(); // refUpper -> { hit:{...}|null, at }
+  const ERP_TTL = 5 * 60 * 1000;
   app.post('/api/importacion/erp-subidas', authAdmin, mImp, async (req, res) => {
     try {
       const refs = Array.isArray(req.body && req.body.refs)
         ? [...new Set(req.body.refs.map(s => String(s || '').trim()).filter(Boolean))] : [];
       if (!refs.length) return res.json({});
-      const plan = await planImportRef();
-      if (!plan.length) return res.json({});
-      const upper = refs.map(r => r.toUpperCase());
+      const now = Date.now();
       const resp = {};
-      for (const { t, c } of plan) {
-        try {
-          const [rows] = await prodPool.query(
-            'SELECT `' + c + '` AS ref, id FROM `' + t + '` WHERE `' + c + '` IN (?) LIMIT 500', [refs]);
-          rows.forEach(row => {
-            const val = String(row.ref == null ? '' : row.ref).trim().toUpperCase();
-            const i = upper.indexOf(val);
-            if (i >= 0 && !resp[refs[i]]) resp[refs[i]] = { subida: true, entry_id: row.id, tabla: t, campo: c };
-          });
-        } catch (e) { /* la tabla puede no tener 'id' u otra cosa: se ignora */ }
-        if (Object.keys(resp).length === refs.length) break;
+      const need = [];
+      refs.forEach(r => {
+        const c = _erpCache.get(r.toUpperCase());
+        if (c && (now - c.at) < ERP_TTL) { if (c.hit) resp[r] = c.hit; }
+        else need.push(r);
+      });
+      if (need.length) {
+        const plan = await planImportRef();
+        const upper = need.map(r => r.toUpperCase());
+        const found = {}; // refExacto -> hit
+        if (plan.length) {
+          for (const { t, c } of plan) {
+            try {
+              const [rows] = await prodPool.query(
+                'SELECT `' + c + '` AS ref, id FROM `' + t + '` WHERE `' + c + '` IN (?) LIMIT 500', [need]);
+              rows.forEach(row => {
+                const val = String(row.ref == null ? '' : row.ref).trim().toUpperCase();
+                const i = upper.indexOf(val);
+                if (i >= 0 && !found[need[i]]) found[need[i]] = { subida: true, entry_id: row.id, tabla: t, campo: c };
+              });
+            } catch (e) { /* la tabla puede no tener 'id' u otra cosa: se ignora */ }
+            if (Object.keys(found).length === need.length) break;
+          }
+        }
+        need.forEach(r => { const hit = found[r] || null; _erpCache.set(r.toUpperCase(), { hit, at: now }); if (hit) resp[r] = hit; });
       }
       res.json(resp);
     } catch (e) {

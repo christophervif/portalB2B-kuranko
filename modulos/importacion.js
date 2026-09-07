@@ -246,33 +246,11 @@ module.exports = function registrarImportacion({
   //    SOLO LECTURA.
   let _refPlan = null;
   // Celda CONFIRMADA donde Renzo guarda la "Ref. importación" (verificada en la
-  // base). Se busca primero aquí; el resto queda como respaldo por si cambia.
+  // base): stock_entries.importacion_ref. Se busca SOLO aquí — una consulta rápida
+  // y barata, sin escanear todo el esquema (eso era lento y encarecía Railway).
   const REF_FIJA = { t: 'stock_entries', c: 'importacion_ref' };
   async function planImportRef() {
-    if (_refPlan !== null) return _refPlan;
-    try {
-      const [rows] = await prodPool.query(`
-        SELECT TABLE_NAME AS t, COLUMN_NAME AS c
-          FROM information_schema.COLUMNS
-         WHERE TABLE_SCHEMA = DATABASE()
-           AND DATA_TYPE IN ('varchar','char','text','tinytext','mediumtext','longtext')
-           AND (COLUMN_NAME LIKE '%import%' OR COLUMN_NAME LIKE '%referen%'
-                OR COLUMN_NAME LIKE '%ref%' OR COLUMN_NAME LIKE '%doc%'
-                OR COLUMN_NAME LIKE '%guia%' OR COLUMN_NAME LIKE '%gu_a%'
-                OR COLUMN_NAME LIKE '%comprob%' OR COLUMN_NAME LIKE '%nota%'
-                OR COLUMN_NAME LIKE '%glosa%' OR COLUMN_NAME LIKE '%observ%'
-                OR COLUMN_NAME LIKE '%codigo%' OR COLUMN_NAME LIKE '%numero%'
-                OR COLUMN_NAME LIKE '%number%')
-         LIMIT 200`);
-      // Preferir las columnas que hablan de "import" (la etiqueta es "Ref. importación").
-      const imp = rows.filter(r => /import/i.test(r.c));
-      const ref = rows.filter(r => /referen|ref/i.test(r.c) && !/import/i.test(r.c));
-      const resto = [...imp, ...ref, ...rows.filter(r => !imp.includes(r) && !ref.includes(r))]
-        .slice(0, 80).map(r => ({ t: r.t, c: r.c }));
-      // La celda confirmada va SIEMPRE primero (sin duplicar).
-      _refPlan = [REF_FIJA, ...resto.filter(p => !(p.t === REF_FIJA.t && p.c === REF_FIJA.c))];
-    } catch (e) { _refPlan = [REF_FIJA]; }
-    return _refPlan;
+    return [REF_FIJA];
   }
   // Caché por referencia (positivos y negativos) para no golpear el ERP en cada
   // render. TTL corto: si subes un ingreso, se refleja en pocos minutos.

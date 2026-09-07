@@ -1090,42 +1090,51 @@ function renderSavedList(){
   box.innerHTML='<div class="tw"><table><thead><tr><th>#</th><th>Tipo</th><th>Nombre</th><th>Proveedor</th><th>N° imp.</th><th class="n">FOB total (S/)</th><th class="n" title="Flete en soles">Flete (S/)</th><th class="n" title="Costo logístico total puerta a puerta (CIF + origen + locales) en soles">Costo import. logíst. p/p (S/)</th><th class="n">Costo inv. (S/)</th><th>Guardada</th><th title="¿El ingreso ya se subió al sistema de Renzo? (busca la Ref. importación)">ERP</th><th>Acciones</th></tr></thead><tbody>'+
     visibles.map(r=>{let R={items:[],totals:{}};try{R=computeImport(r.state);}catch(e){}const tt=R.totals||{};const invT=sum((R.items||[]).map(it=>it.unitSin*(+it.cantidad||0)));
       return `<tr><td>${r.n}</td><td>${esc(r.tipo)}${r.tipo==='Compra'?' <span class="badge b-exact">real</span>':' <span class="badge b-rev">teórico</span>'}</td><td>${esc(r.nombre)}</td><td>${esc((r.meta.proveedorNombre||r.meta.proveedor||'').split('(')[0])}</td><td>${esc(r.meta.numImp||'')}</td><td class="n">${n2(tt.sumFOBsoles)}</td><td class="n">${n2(tt.costoFleteSoles)}</td><td class="n">${n2(tt.costoLogisticoTotal)}</td><td class="n">${n2(invT)}</td><td class="nm">${esc(r.savedAt)}</td>
-      <td class="nm"><span class="erp-chk" data-ref="${esc(_refImp(r))}"><span class="hint">…</span></span></td>
+      <td class="nm"><span class="erp-chk" data-refs="${esc(_refCands(r).join('|'))}"><span class="hint">…</span></span></td>
       <td style="white-space:nowrap"><button class="btn-sm" onclick="cargarImportacion('${r.id}')">Cargar</button> <button class="btn-sm" onclick="exportImportExcel('${r.id}')">Excel</button> <button class="btn-sm" onclick="exportIngresoSaved('${r.id}')">Ingreso</button> ${(r.state&&r.state.dua&&((r.state.dua.series&&r.state.dua.series.length)||r.state.dua.header))?`<button class="btn-sm" onclick="exportDuaSaved('${r.id}')">DUA</button> `:''}<button class="btn-sm" onclick="exportImportPDF('${r.id}')">PDF</button> <span class="btn-del" onclick="eliminarImportacion('${r.id}')">✕</span></td></tr>`;}).join('')+'</tbody></table></div>'
       +'<div class="actions" style="margin-top:8px"><button class="btn-sm" onclick="exportResumenGeneral()">⬇ Exportar tabla general (resumen + detalle)</button></div>';
   marcarSubidasERP();
 }
 // Marca en Guardadas cuáles importaciones ya tienen su ingreso subido al ERP de
 // Renzo (busca la Ref. importación = código en el ingreso). Best-effort.
-// Código de importación (Ref. importación) de un registro guardado, de forma
-// confiable: meta.codigo; si falta, el nombre cuando parece un código (IMP/SIMP/COT).
-function _refImp(r){
-  const c=(r&&r.meta&&r.meta.codigo)?String(r.meta.codigo).trim():'';
-  if(c) return c;
+// CANDIDATOS de "Ref. importación" de un guardado: el código (meta.codigo) Y el
+// nombre (la columna que ves), ambos si parecen código. Se compara contra el ERP
+// por cualquiera de los dos — así coincide aunque uno quedara distinto del otro.
+function _refCands(r){
+  const out=[];
+  const push=v=>{ v=String(v==null?'':v).trim(); if(v && !out.includes(v)) out.push(v); };
+  if(r&&r.meta&&r.meta.codigo) push(r.meta.codigo);
   const n=(r&&r.nombre)?String(r.nombre).trim():'';
-  return /^(IMP|SIMP|COT)/i.test(n)?n:'';
+  if(/^(IMP|SIMP|COT)/i.test(n)) push(n);
+  return out;
 }
-let _erpChk={}, _erpChkAt=0; // caché de sesión (evita golpear el ERP en cada render)
+function _spanCands(s){ return String((s&&s.dataset&&s.dataset.refs)||'').split('|').filter(Boolean); }
+let _erpChk={}, _erpChkAt=0; // caché de sesión (evita golpear el ERP en cada render): código -> hit|false
 function _erpPinta(s){
-  const hit=_erpChk[s.dataset.ref];
-  if(hit===undefined) return false;
+  const cands=_spanCands(s); if(!cands.length) return false;
+  // ¿algún candidato ya consultado? si sí, decide (verde si alguno es subida).
+  let visto=false, hit=null;
+  for(const c of cands){ if(c in _erpChk){ visto=true; if(_erpChk[c]){ hit=_erpChk[c]; break; } } }
+  if(!visto) return false;
   if(hit) s.innerHTML='<span style="display:inline-block;background:#16a34a;color:#fff;border-radius:10px;padding:2px 9px;font-size:12px;font-weight:800;box-shadow:0 1px 3px rgba(22,163,74,.4)" title="Ya registrada en el ERP de Renzo (tabla '+esc(hit.tabla||'')+', campo '+esc(hit.campo||'')+', ingreso #'+esc(hit.entry_id)+')">✓ Subida</span>';
   else s.innerHTML='<span style="display:inline-block;background:#e2e8f0;color:#475569;border-radius:10px;padding:2px 9px;font-size:12px;font-weight:600" title="Aún no aparece en el ERP de Renzo">Pendiente</span>';
   return true;
 }
 function _erpSpans(){ const box=$('savedList'); return (box&&box.querySelectorAll)?[...box.querySelectorAll('.erp-chk')]:[]; }
-function _erpPintaTodo(){ _erpSpans().forEach(s=>{ if(!s.dataset.ref) return; _erpPinta(s); }); }
+function _erpPintaTodo(){ _erpSpans().forEach(_erpPinta); }
+function _erpTieneVerif(s){ return _spanCands(s).some(c=>!(c in _erpChk)); } // ¿algún candidato aún sin consultar?
 async function marcarSubidasERP(){
   let spans=_erpSpans(); if(!spans.length)return;
-  // Las que no tienen código no se pueden verificar: se marca distinto.
-  spans.filter(s=>!s.dataset.ref).forEach(s=>{ s.innerHTML='<span style="display:inline-block;background:#f1f5f9;color:#94a3b8;border-radius:10px;padding:2px 8px;font-size:11px" title="Este guardado no tiene código de importación para buscar en el ERP">sin código</span>'; });
-  const refs=[...new Set(spans.map(s=>s.dataset.ref).filter(Boolean))];
-  if(!refs.length)return;
+  // Las que no tienen ningún candidato no se pueden verificar: se marca distinto.
+  spans.filter(s=>_spanCands(s).length===0).forEach(s=>{ s.innerHTML='<span style="display:inline-block;background:#f1f5f9;color:#94a3b8;border-radius:10px;padding:2px 8px;font-size:11px" title="Este guardado no tiene código de importación para buscar en el ERP">sin código</span>'; });
+  // Unión de TODOS los candidatos (código y nombre) de todas las filas.
+  const all=[...new Set(spans.flatMap(_spanCands))];
+  if(!all.length)return;
   spans.forEach(_erpPinta); // pinta lo ya cacheado al instante
   const fresco=(Date.now()-_erpChkAt)<5*60*1000;
-  const consultar = fresco ? refs.filter(r=>!(r in _erpChk)) : refs;
+  const consultar = fresco ? all.filter(c=>!(c in _erpChk)) : all;
   if(!consultar.length) return;
-  spans.forEach(s=>{ if(consultar.includes(s.dataset.ref)&&!(s.dataset.ref in _erpChk)) s.innerHTML='<span style="display:inline-block;background:#eef2f7;color:#64748b;border-radius:10px;padding:2px 9px;font-size:12px;font-style:italic" title="Consultando el ERP…">verificando…</span>'; });
+  spans.forEach(s=>{ if(_erpTieneVerif(s)&&_spanCands(s).length) s.innerHTML='<span style="display:inline-block;background:#eef2f7;color:#64748b;border-radius:10px;padding:2px 9px;font-size:12px;font-style:italic" title="Consultando el ERP…">verificando…</span>'; });
   // FETCH directo (probado) con timeout; luego se REBUSCAN las celdas por si el DOM se re-renderizó.
   let mapa=null;
   try{
@@ -1137,9 +1146,9 @@ async function marcarSubidasERP(){
     if(!r.ok) throw new Error('API '+r.status);
     mapa=await r.json();
   }catch(e){ const m=(e&&e.name==='AbortError')?'timeout (>8s)':String(e&&e.message||e);
-    _erpSpans().forEach(s=>{ if(consultar.includes(s.dataset.ref)&&!(s.dataset.ref in _erpChk)) s.innerHTML='<span style="display:inline-block;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:10px;padding:2px 8px;font-size:12px;font-weight:700" title="No se pudo verificar el ERP: '+esc(m)+'">⚠ sin verificar</span>'; });
+    _erpSpans().forEach(s=>{ if(_erpTieneVerif(s)&&_spanCands(s).length) s.innerHTML='<span style="display:inline-block;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:10px;padding:2px 8px;font-size:12px;font-weight:700" title="No se pudo verificar el ERP: '+esc(m)+'">⚠ sin verificar</span>'; });
     console.warn('[ERP] erp-subidas falló:', m); return; }
-  consultar.forEach(r=>{ _erpChk[r]=(mapa&&mapa[r]&&mapa[r].subida)?mapa[r]:false; });
+  consultar.forEach(c=>{ _erpChk[c]=(mapa&&mapa[c]&&mapa[c].subida)?mapa[c]:false; });
   _erpChkAt=Date.now();
   _erpPintaTodo(); // rebusca las celdas actuales y pinta el resultado
 }

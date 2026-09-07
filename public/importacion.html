@@ -233,6 +233,13 @@
       <div><label>Fecha numeración <span class="hint">(del reporte; editable)</span></label><input id="duaDeclFecha" placeholder="09/06/2026"></div></div>
     <div class="actions"><button class="btn btn-blue" onclick="procesarDuaPDF()">▶ Leer DUA del PDF</button><button class="btn-sm" id="duaPrevBtn" onclick="togglePreview('dua_pdf','duaPrev','duaPrevBtn')">👁 Ver documento</button><span class="hint" id="dua_status"></span></div>
     <div id="duaPrev" class="hide" style="margin-top:8px"><iframe style="width:100%;height:70vh;border:1px solid #cbd5e1;border-radius:8px"></iframe></div>
+    <details style="margin-top:10px" id="duaIaBox"><summary style="cursor:pointer;font-weight:700;color:#1d4ed8">🤖 ¿Es courier por empresa privada y no puedes descargar el reporte de DUA? — leer con IA</summary>
+      <div class="note" style="margin-top:6px">Úsalo <b>solo cuando NO tengas el reporte de DUA descargable</b>. Adjunta lo que sí tienes de SUNAT: la <b>Consulta de Declaración</b> y/o la <b>Consulta de Series de la Declaración</b> (RegSerie) en PDF —puedes adjuntar ambas—. La IA extrae lo mismo que sacaría del reporte de DUA: por serie la <b>partida (NANDINA)</b>, el <b>peso</b>, el <b>FOB</b> y la <b>liquidación</b> (si aparece), más el <b>N° de declaración</b>. Luego se cruza con los ítems igual que el reporte normal.</div>
+      <div class="grid"><div><label>Consulta de Declaración / Series (PDF, una o ambas)</label><input id="dua_ia_pdf" type="file" accept="application/pdf" multiple></div></div>
+      <div class="actions"><button class="btn btn-blue" onclick="leerDuaIA()">🤖 Leer con IA</button><button class="btn-sm" id="duaIaPrevBtn" onclick="togglePreview('dua_ia_pdf','duaIaPrev','duaIaPrevBtn')">👁 Ver documento</button><span class="hint" id="dua_ia_status"></span></div>
+      <div id="duaIaPrev" class="hide" style="margin-top:8px"><iframe style="width:100%;height:70vh;border:1px solid #cbd5e1;border-radius:8px"></iframe></div>
+      <div class="hint" style="margin-top:6px">Si la liquidación de tributos (IGV/IPM/A-V/ISC) no viene en estos documentos, se dejan en 0: complétala luego con «🤖 Extraer liquidación» (constancia) o a mano en la pestaña 1.</div>
+    </details>
     <details style="margin-top:8px"><summary class="hint" style="cursor:pointer">o pega el TSV del extractor (respaldo)</summary>
       <textarea id="dua_paste" placeholder="Pega aquí las filas de Series del extractor de DUA (TSV)" style="margin-top:6px"></textarea>
       <div class="actions"><button class="btn-sm" onclick="procesarDua()">Leer TSV pegado</button></div>
@@ -812,10 +819,26 @@ async function abrirRecepEnImp(id){
   try{ recepImp=await recApi('/api/recepcion/'+encodeURIComponent(id)); renderRecepEstado(); }
   catch(e){ if(det)det.innerHTML='<div class="card"><span class="hint">No se pudo abrir: '+esc(e.message)+'</span></div>'; }
 }
+// ¿La factura cargada AHORA en la app corresponde a esta recepción?
+// Coincide por id exacto O por N° de factura + proveedor normalizados: el id
+// derivado (código de importación) puede variar —tipo, empresa, etc.— igual que
+// el drift que ya arreglamos en el reenvío. Exige que haya una factura cargada
+// (facMatches) para poder usar sus precios en vivo.
+function _facCargadaCoincide(r){
+  if(!r)return false;
+  if(r.id===recepId())return true;
+  if(!(typeof facMatches!=='undefined' && facMatches && facMatches.length))return false;
+  const normF=x=>String(x==null?'':x).replace(/[^A-Za-z0-9]/g,'').toUpperCase();
+  const provSel=$('f_prov')&&$('f_prov').selectedOptions&&$('f_prov').selectedOptions[0];
+  const prov=(provSel?(provSel.textContent||''):($('f_prov')?$('f_prov').value:'')).split('(')[0].trim();
+  const inv=($('f_inv')&&$('f_inv').value)||'';
+  const invN=normF(inv);
+  return !!(invN && normF(r.n_factura)===invN && normF(r.proveedor)===normF(prov));
+}
 function renderRecepEstado(){
   const det=$('recepDetalle'); const r=recepImp; if(!det||!r)return;
   const est=r.estado, val=est==='validada';
-  const esActual = r.id===recepId(); // ¿es la factura cargada ahora en la app?
+  const esActual = _facCargadaCoincide(r); // ¿es la factura cargada ahora en la app?
   const badge = val?'<span class="badge b-exact">validada</span>':(est==='borrador'?'<span class="badge b-rev">en progreso</span>':'<span class="badge b-rev">pendiente</span>');
   const conDif=(r.items||[]).filter(i=>i.cuadra===false||['falta','sobra','no_llego','extra'].includes(i.estado_item)).length;
   const rows=(r.items||[]).map((it,i)=>{
@@ -983,7 +1006,7 @@ function exportExtrasDeRecep(rec){
 }
 function continuarADua(){
   const rec=recepImp; if(!rec)return;
-  if(rec.id===recepId()){
+  if(_facCargadaCoincide(rec)){
     // La factura cargada AHORA en la app: usar su estado en vivo (tiene los precios).
     items=facMatches.filter(m=>m.sku).map(m=>({parte:m.item,codigo:m.sku,desc:m.desc,precioEXW:m.exw,cantidad:m.qty,peso:0,partida:'',avLib:'',exwAduanas:'',descTotal:(m.total!=null?m.total:''),split:m.split||''}));
     updateCodigo();aplicarCourier();
@@ -1628,6 +1651,68 @@ async function procesarDuaPDF(){
     if(!series.length){$('dua_status').textContent='No se detectaron series. ¿Es el reporte de DUA? Si no, usa el respaldo por TSV.';return;}
     renderDuaSeries(series);
   }catch(e){$('dua_status').textContent='⚠ '+e.message;}
+}
+// ── Lectura con IA cuando NO hay reporte de DUA (courier por empresa privada) ──
+// Lee la "Consulta de Declaración" y/o la "Consulta de Series" (RegSerie) de SUNAT
+// y devuelve las series con la MISMA forma que produce el parser del reporte, para
+// pasarlas por el mismo flujo (renderDuaSeries → aplicarDua).
+const DUA_IA_PROMPT='Eres un asistente que lee documentos de SUNAT (Perú) de una importación courier / "envíos de entrega rápida": la "CONSULTA DE DECLARACION" (datos generales) y/o la "CONSULTA DE SERIES DE LA DECLARACION" (RegSerie, una sección por serie). Pueden venir uno o ambos; combínalos. Devuelve ÚNICAMENTE un objeto JSON (sin texto adicional) con esta forma exacta:\n'
++'{"declaracion":string,"fecha_numeracion":string,"importador":string,"importador_ruc":string,"modo":string,"peso_neto":number,"peso_bruto":number,"cant_bultos":number,"fob_usd":number,"flete_usd":number,"seguro_usd":number,"valor_aduana":number,"adv":number,"igv":number,"ipm":number,"isc":number,'
++'"series":[{"serie":number,"nandina":string,"descripcion_partida":string,"descripcion_mercancias":string,"peso_neto":number,"peso_bruto":number,"cant_bultos":number,"unidades":number,"fob_usd":number,"flete_usd":number,"seguro_usd":number,"adv":number,"igv":number,"ipm":number,"isc":number,"n_factura":string}]}\n'
++'Mapeo: declaracion = del título (ej "235-2026-28-20195353-70-9-00"); fecha_numeracion = "DD/MM/AAAA"; a nivel declaración fob_usd = "6.1 FOB/Valor Cláusula de Venta", flete_usd = "6.2 Flete/Comisión Exterior", seguro_usd = "6.3 Seguro/Otros Gastos Deducibles", valor_aduana = "6.5 Valor en aduana/Valor Neto". Por serie: nandina = "7.19 Subpartida Nacional" (dígitos, ej 9809000030); peso_neto = "7.14 Peso Neto"; peso_bruto = "7.15 Peso Bruto"; cant_bultos = "7.12 Cantidad de Bultos"; unidades = "7.16 Cantidad Unidad Física"; fob_usd = "7.30 FOB"; flete_usd = "7.31 Flete US$"; seguro_usd = "7.32 Seguro US$"; descripcion_mercancias = "7.35 Descripción de la Mercancía" (une las líneas 1..5); n_factura = "7.36 Número de Factura Comercial". '
++'Reglas: usa punto como decimal y NO uses separador de miles (ej 1999.5, no 1,999.500). Si un dato no aparece, usa 0 (números) o "" (texto). NO inventes tributos: si la liquidación (IGV/IPM/Ad Valorem/ISC) no está en los documentos, ponla en 0. Si es courier de una sola serie, devuelve un solo elemento en "series".';
+function _iaNum(x){const n=parseFloat(String(x==null?'':x).replace(/,/g,''));return isFinite(n)?n:0;}
+function _serieDesdeIA(x,i){
+  const s={};DUA_SER_H.forEach(k=>s[k]='');
+  const dig=String(x.nandina==null?'':x.nandina).replace(/\D/g,'');
+  const nanFmt=dig.length>=10?dig.slice(0,10).replace(/(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/,'$1.$2.$3.$4.$5'):String(x.nandina||'');
+  const set=(k,v)=>{s[k]=(v===''||v==null)?'':String(v);};
+  set("SERIE",x.serie!=null?x.serie:(i+1));
+  set("CANT BULTOS",x.cant_bultos); set("PESO NETO KG",x.peso_neto); set("PESO BRUTO KG",x.peso_bruto);
+  set("FOB USD",x.fob_usd); set("FLETE",x.flete_usd); set("SEGURO",x.seguro_usd);
+  set("ADV",x.adv); set("IGV",x.igv); set("IPM",x.ipm); set("ISC",x.isc);
+  set("UNIDADES COMERCIALES",x.unidades); set("N FACTURA 1",x.n_factura);
+  s["NANDINA"]=nanFmt; s["DESCRIPCION PARTIDA ARANCELARIA"]=x.descripcion_partida||''; s["DESCRIPCION MERCANCIAS"]=x.descripcion_mercancias||'';
+  // alias internos que usa el resto de la app (idénticos a los del parser)
+  s.serie=s["SERIE"]||String(i+1); s.nandina=s["NANDINA"];
+  s.peso=_iaNum(x.peso_neto); s.fob=_iaNum(x.fob_usd);
+  s.adv=_iaNum(x.adv); s.igv=_iaNum(x.igv); s.ipm=_iaNum(x.ipm); s.isc=_iaNum(x.isc);
+  s.desc=s["DESCRIPCION MERCANCIAS"]; s.partidaDesc=s["DESCRIPCION PARTIDA ARANCELARIA"];
+  s.raw=[s.serie,nanFmt,x.descripcion_mercancias||'',x.n_factura||''].join(' ');
+  return s;
+}
+function _duaHeaderDesdeIA(o){
+  const h={};DUA_IMP_H.forEach(k=>h[k]='');
+  const set=(k,v)=>{h[k]=(v===''||v==null)?'':String(v);};
+  set("Declaracion",o.declaracion); set("Fecha Numeracion",o.fecha_numeracion);
+  set("Importador RUC",o.importador_ruc); set("Razon Social Importador",o.importador); set("Modo",o.modo);
+  set("Peso Neto KG",o.peso_neto); set("Peso Bruto KG",o.peso_bruto); set("Cant Bultos",o.cant_bultos);
+  set("Total Series",(o.series||[]).length);
+  set("FOB USD",o.fob_usd); set("Flete USD",o.flete_usd); set("Seguro USD",o.seguro_usd); set("CIF USD",o.valor_aduana);
+  set("AdValorem Liq",o.adv); set("IGV Liq",o.igv); set("IPM Liq",o.ipm); set("ISC Liq",o.isc);
+  return h;
+}
+async function leerDuaIA(){
+  const model=($('ai_model')&&$('ai_model').value.trim())||'gemini-3.6-flash';
+  const files=($('dua_ia_pdf')&&$('dua_ia_pdf').files)||[];
+  if(!files.length){$('dua_ia_status').textContent='Adjunta la Consulta de Declaración y/o la Consulta de Series (PDF).';return;}
+  $('dua_ia_status').textContent='🤖 Leyendo…';
+  try{
+    const pdfs=[];
+    for(const f of files){ pdfs.push(await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(',')[1]);r.onerror=rej;r.readAsDataURL(f);})); }
+    const resp=await fetch(API+'/ia',{method:'POST',headers:_authHeaders(true),body:JSON.stringify({model,prompt:DUA_IA_PROMPT,pdfs_base64:pdfs})});
+    if(!resp.ok)throw new Error('IA '+resp.status+' — '+(await resp.text()).slice(0,150));
+    const data=await resp.json();const txt=(data.candidates?.[0]?.content?.parts||[]).map(p=>p.text||'').join('');
+    let o;try{o=JSON.parse(txt);}catch(e){const mm=txt.match(/{[\s\S]*}/);o=mm?JSON.parse(mm[0]):null;}
+    if(!o||!Array.isArray(o.series)||!o.series.length)throw new Error('La IA no devolvió series. Verifica que el PDF sea la Consulta de Declaración o de Series de SUNAT.');
+    const series=o.series.map((x,i)=>_serieDesdeIA(x,i));
+    lastDuaHeader=_duaHeaderDesdeIA(o);
+    if($('duaDeclNum')&&o.declaracion)$('duaDeclNum').value=o.declaracion;
+    if($('duaDeclFecha')&&o.fecha_numeracion)$('duaDeclFecha').value=o.fecha_numeracion;
+    renderDuaSeries(series); // MISMO flujo que el reporte: asigna series↔ítems y muestra la tabla
+    const sinLiq=series.every(s=>!(s.adv||s.igv||s.ipm||s.isc));
+    $('dua_ia_status').textContent='✓ '+series.length+' serie(s) leída(s) con IA'+(sinLiq?' · sin liquidación (compléta­la aparte)':'')+'. Revisa y confirma abajo.';
+  }catch(e){$('dua_ia_status').textContent='⚠ '+e.message;}
 }
 function aplicarDua(){
   if(!lastSeries.length){alert('Primero lee la DUA.');return;}

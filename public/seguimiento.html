@@ -1,0 +1,579 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Seguimiento — Trackings y Backorders</title>
+<style>
+:root{--bg:#0f172a;--card:#1e293b;--card2:#0b1220;--border:#334155;--txt:#e2e8f0;--muted:#94a3b8;--acc:#38bdf8;--acc2:#0ea5e9;--ok:#22c55e;--warn:#f59e0b;--bad:#ef4444;--chip:#0b1220}
+:root[data-theme="light"]{--bg:#f1f5f9;--card:#ffffff;--card2:#f8fafc;--border:#cbd5e1;--txt:#0f172a;--muted:#64748b;--acc:#0284c7;--acc2:#0369a1;--ok:#16a34a;--warn:#d97706;--bad:#dc2626;--chip:#f1f5f9}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:14px}
+h2{font-size:18px;margin:0 0 2px}h3{font-size:15px;margin:0 0 8px}
+.muted{color:var(--muted)}.sm{font-size:12px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:14px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+.f{display:flex;flex-direction:column;gap:3px}
+label{font-size:12px;color:var(--muted)}
+input,select,textarea{background:var(--card2);color:var(--txt);border:1px solid var(--border);border-radius:8px;padding:8px;font:inherit}
+input[type=checkbox]{width:17px;height:17px}
+textarea{min-height:38px;resize:vertical;width:100%}
+button{background:var(--acc2);color:#fff;border:0;border-radius:8px;padding:8px 12px;font:inherit;font-weight:600;cursor:pointer}
+button:hover{filter:brightness(1.08)}
+button.ghost{background:transparent;color:var(--txt);border:1px solid var(--border);font-weight:500}
+button.sm{padding:5px 9px;font-size:12px}
+button.danger{background:var(--bad)}button.ok{background:var(--ok)}
+.subtabs{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}
+.subtabs button{background:var(--card);border:1px solid var(--border);color:var(--txt);font-weight:600}
+.subtabs button.active{background:var(--acc2);color:#fff;border-color:var(--acc2)}
+.tw{overflow-x:auto;border:1px solid var(--border);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:13px;min-width:640px}
+th,td{padding:7px 8px;text-align:left;border-bottom:1px solid var(--border);vertical-align:middle}
+th{background:var(--card2);color:var(--muted);font-weight:600;position:sticky;top:0}
+td.n,th.n{text-align:right}
+.badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;white-space:nowrap}
+.b-exact{background:rgba(34,197,94,.18);color:var(--ok)}
+.b-alta{background:rgba(56,189,248,.18);color:var(--acc)}
+.b-rev{background:rgba(245,158,11,.2);color:var(--warn)}
+.b-no{background:rgba(239,68,68,.18);color:var(--bad)}
+.b-bo{background:rgba(168,85,247,.2);color:#c084fc;border:1px solid rgba(168,85,247,.4)}
+.b-tra{background:rgba(56,189,248,.16);color:var(--acc)}
+.b-rec{background:rgba(34,197,94,.16);color:var(--ok)}
+.chip{background:var(--chip);border:1px solid var(--border);border-radius:8px;padding:2px 8px;font-size:12px;display:inline-block}
+.env{border:1px solid var(--border);border-radius:10px;margin-bottom:10px;overflow:hidden}
+.env-h{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 12px;background:var(--card2);cursor:pointer}
+.env-h b{font-size:14px}
+.env-body{padding:10px 12px;display:none}
+.env.open .env-body{display:block}
+.grp{border:1px solid var(--border);border-radius:10px;margin-bottom:12px;overflow:hidden}
+.grp-h{padding:10px 12px;background:var(--card2);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.grp-h b{font-size:14px}
+.grp-body{padding:8px 12px}
+.saleinfo{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:2px}
+.saleinfo b{color:var(--txt)}
+.hint{font-size:12px;color:var(--muted);margin:6px 0}
+.pill-count{display:inline-flex;gap:5px;align-items:center}
+.k{display:inline-block;background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:4px 10px;font-weight:700;margin-right:6px}
+.hide{display:none!important}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:14px;z-index:50}
+.modal{background:var(--card);border:1px solid var(--border);border-radius:12px;max-width:820px;width:100%;max-height:88vh;overflow:auto;padding:16px}
+.toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 16px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.4);z-index:80;opacity:0;transition:opacity .2s}
+.toast.show{opacity:1}
+.ro-note{background:rgba(56,189,248,.08);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:12px;color:var(--muted);margin-bottom:12px}
+@media(max-width:640px){table{min-width:560px}.card{padding:11px}}
+</style>
+</head>
+<body>
+
+<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+  <div>
+    <h2>Seguimiento de envíos y backorders</h2>
+    <div class="muted sm" id="rolLine">—</div>
+  </div>
+  <div class="row" style="align-items:center">
+    <span class="k" id="kEnv">0 en tránsito</span>
+    <span class="k" id="kBo">0 por comprar</span>
+  </div>
+</div>
+
+<div class="subtabs">
+  <button id="st-env" class="active" onclick="verTab('env')">📦 Envíos / Trackings</button>
+  <button id="st-bo" onclick="verTab('bo')">🧾 Backorders</button>
+</div>
+
+<div id="roNote" class="ro-note hide">Vista de solo lectura: el supervisor visualiza los envíos y backorders. La carga de facturas, la asignación de tracking y la gestión de backorders las hace únicamente el administrador.</div>
+
+<!-- ══════════════════ TAB ENVÍOS ══════════════════ -->
+<div id="tab-env">
+
+  <!-- (maestro) Nuevo envío desde factura -->
+  <div id="nuevoEnvio" class="card hide">
+    <h3>Nuevo envío — leer factura con IA</h3>
+    <div class="hint">Sube la factura del proveedor (PDF). La IA la lee y traduce las descripciones al español; a cada línea le sugiere el SKU del sistema con un indicador de confianza. La factura no se modifica: solo asignas el N° de tracking y marcas qué ítems cubren backorders.</div>
+    <div class="row">
+      <div class="f"><label>Factura (PDF)</label><input type="file" id="pdf" accept="application/pdf"></div>
+      <div class="f"><label>Modelo IA</label><input id="model" value="gemini-3.6-flash" style="width:170px"></div>
+      <button id="btnLeer" onclick="leerFactura()">Leer factura</button>
+      <span id="leerMsg" class="muted sm"></span>
+    </div>
+
+    <div id="editor" class="hide" style="margin-top:12px">
+      <div class="row">
+        <div class="f"><label>N° de tracking *</label><input id="e_tracking" placeholder="Ej: 1Z999AA..." style="min-width:200px"></div>
+        <div class="f"><label>Courier</label><input id="e_courier" placeholder="DHL, FedEx, UPS…" style="width:140px"></div>
+        <div class="f"><label>Proveedor</label><input id="e_prov" style="min-width:170px"></div>
+        <div class="f"><label>N° factura</label><input id="e_fact" style="width:150px"></div>
+        <div class="f"><label>Llegada estimada</label><input id="e_eta" type="date"></div>
+      </div>
+      <div class="f" style="margin-top:8px"><label>Nota (opcional)</label><textarea id="e_nota" placeholder="Observaciones del envío"></textarea></div>
+
+      <div class="tw" style="margin-top:10px">
+        <table>
+          <thead><tr>
+            <th>#</th><th>Código</th><th>Descripción (original)</th><th>Descripción (español)</th>
+            <th class="n">Cant</th><th>SKU en sistema</th><th>Confianza</th><th title="¿Cubre un producto en backorder?">Backorder</th><th></th>
+          </tr></thead>
+          <tbody id="itemsBody"></tbody>
+        </table>
+      </div>
+      <div class="row" style="margin-top:10px;justify-content:space-between">
+        <button class="ghost sm" onclick="addItem()">+ Agregar línea</button>
+        <div class="row">
+          <button class="ghost" onclick="cancelarEditor()">Cancelar</button>
+          <button class="ok" id="btnGuardarEnv" onclick="guardarEnvio()">Guardar envío</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Lista de envíos -->
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <h3 style="margin:0">Envíos</h3>
+      <div class="row" style="align-items:center">
+        <select id="filtroEnv" onchange="pintarEnvios()">
+          <option value="">Todos</option>
+          <option value="en_transito">En tránsito</option>
+          <option value="recibido">Recibidos</option>
+        </select>
+        <button class="ghost sm" onclick="cargarEnvios()">↻</button>
+      </div>
+    </div>
+    <div id="envList" style="margin-top:10px"><div class="muted sm">Cargando…</div></div>
+  </div>
+</div>
+
+<!-- ══════════════════ TAB BACKORDERS ══════════════════ -->
+<div id="tab-bo" class="hide">
+
+  <div id="boTools" class="card hide">
+    <h3>Gestión de backorders</h3>
+    <div class="hint">Trae los pedidos en backorder del sistema de ventas, organízalos en grupos con la info de la venta, marca cuáles ya compraste y anota por qué o cuándo comprarás cada uno.</div>
+    <div class="row">
+      <button onclick="traerErp()">⬇ Traer backorders del sistema</button>
+      <button class="ghost" onclick="abrirGrupo()">+ Nuevo grupo</button>
+      <button class="ghost" onclick="abrirItemManual()">+ Ítem manual</button>
+      <span id="boMsg" class="muted sm"></span>
+    </div>
+  </div>
+
+  <div id="boList"><div class="muted sm">Cargando…</div></div>
+</div>
+
+<div id="modalHost"></div>
+<div id="toast" class="toast"></div>
+
+<script>
+/* ═══════════ base ═══════════ */
+function $(id){return document.getElementById(id);}
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function n2(v){const n=Number(v);return isNaN(n)?'':n.toFixed(2);}
+function tok(){try{return localStorage.getItem('admtoken')||'';}catch(e){return '';}}
+function H(json){const h={'Authorization':'Bearer '+tok()};if(json)h['Content-Type']='application/json';return h;}
+async function api(path,method='GET',body){
+  const r=await fetch('/api/seguimiento'+path,{method,headers:H(!!body),body:body?JSON.stringify(body):undefined});
+  const t=await r.text();let d=null;try{d=t?JSON.parse(t):null;}catch(e){}
+  if(!r.ok)throw new Error((d&&d.error)||('Error '+r.status));
+  return d;
+}
+let TOAST_T=null;
+function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(TOAST_T);TOAST_T=setTimeout(()=>t.classList.remove('show'),2200);}
+
+/* tema heredado del panel admin (mismo origen) */
+(function(){try{const g=localStorage.getItem('tema_admin');if(g)document.documentElement.setAttribute('data-theme',g);}catch(e){}})();
+
+/* rol: leído del JWT (solo para la UI; el servidor es quien manda de verdad) */
+let ES_MAESTRO=false, USUARIO='';
+(function(){try{const p=JSON.parse(atob(tok().split('.')[1]||''));ES_MAESTRO=!!p.maestro;USUARIO=p.usuario||'';}catch(e){}})();
+
+/* ═══════════ motor de confianza (idéntico a Importaciones) ═══════════ */
+const QUOTES={'»':'"','«':'"','”':'"','“':'"','″':'"','’':"'",'‘':"'",'′':"'",'–':'-','—':'-','―':'-'};
+function normalize(t){if(!t)return'';t=String(t);for(const k in QUOTES)t=t.split(k).join(QUOTES[k]);
+  t=t.normalize('NFKD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/["']/g,' ').replace(/[^a-z0-9 ]+/g,' ');
+  return t.replace(/\s+/g,' ').trim();}
+function lcs(a,b){const la=a.length,lb=b.length;if(!la||!lb)return 0;let p=new Uint16Array(lb+1),c=new Uint16Array(lb+1);
+  for(let i=1;i<=la;i++){const ai=a.charCodeAt(i-1);for(let j=1;j<=lb;j++){c[j]=ai===b.charCodeAt(j-1)?p[j-1]+1:(p[j]>=c[j-1]?p[j]:c[j-1]);}const t=p;p=c;c=t;}return p[lb];}
+function ratio(a,b){const t=a.length+b.length;return t?2*lcs(a,b)/t*100:100;}
+function tokenSet(aT,bT){if(!aT.length||!bT.length)return 0;const A=new Set(aT),B=new Set(bT);
+  const inter=[...A].filter(x=>B.has(x)).sort(),dA=[...A].filter(x=>!B.has(x)).sort(),dB=[...B].filter(x=>!A.has(x)).sort();
+  const is=inter.join(' '),cA=(is+' '+dA.join(' ')).trim(),cB=(is+' '+dB.join(' ')).trim();
+  return Math.max(ratio(is,cA),ratio(is,cB),ratio(cA,cB));}
+const clean=s=>String(s||'').normalize('NFKD').replace(/[̀-ͯ]/g,'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+const EN_ES={brake:'freno',brakes:'frenos',braking:'freno',rotor:'disco',rotors:'discos',disc:'disco',disk:'disco',pad:'pastilla',pads:'pastillas',lever:'palanca',blade:'palanca',adapter:'adaptador',adaptor:'adaptador',hose:'manguera',caliper:'caliper',bleed:'purga',bleeding:'purga',spacer:'espaciador',oil:'aceite',fluid:'liquido',tool:'herramienta',tools:'herramienta',front:'delantero',rear:'trasero',left:'izquierda',right:'derecha',screw:'tornillo',screws:'tornillo',bolt:'perno',bolts:'perno',washer:'arandela',clamp:'abrazadera',mount:'montaje',wheel:'rueda',rim:'aro',spoke:'radio',spokes:'radio',hub:'maza',chain:'cadena',cassette:'cassette',shifter:'mando',shift:'mando',handlebar:'manillar',stem:'potencia',seatpost:'tija',saddle:'sillin',grip:'puno',grips:'puno',pedal:'pedal',pedals:'pedal',crank:'biela',fork:'horquilla',shock:'amortiguador',bearing:'rodamiento',bearings:'rodamiento',seal:'reten',bottle:'botella',cage:'portabotella',pump:'bomba',valve:'valvula',tube:'camara',tubeless:'tubeless',hardware:'tornilleria',kit:'kit',set:'juego',ring:'anillo',mineral:'mineral',blood:'sangre',service:'servicio',small:'pequeno',large:'grande',piston:'piston',alignment:'alineacion',organic:'organico',mm:'mm'};
+function glossaryES(t){const o=normalize(t).split(' ').filter(Boolean);const es=o.map(w=>EN_ES[w]||w);return o.concat(es).join(' ');}
+
+let CAT=[],CATMAP={};
+function initCat(){CAT=CATALOG.map(([s,n])=>({sku:s,name:n,norm:normalize(n)}));CAT.forEach(c=>{c.tokens=c.norm.split(' ');c.cleanSku=clean(c.sku);c.cleanName=clean(c.name);CATMAP[c.sku]=c.name;});}
+function buscarPorParte(part){if(!part)return null;const p=clean(part);if(!p)return null;
+  let exact=CAT.filter(c=>c.cleanSku===p);if(exact.length)return exact.map(c=>({...c,score:100}));
+  if(p.length>=4){const hits=CAT.filter(c=>c.cleanSku.includes(p)||c.cleanName.includes(p));if(hits.length)return hits.map(c=>({...c,score:99}));}
+  return null;}
+function buscarFuzzy(desc,brand,limit=4){const qt=normalize(desc).split(' ').filter(Boolean);if(!qt.length)return[];
+  const bns=brand?normalize(brand):'',bn=bns.replace(/\s+/g,'');
+  let pool=CAT;
+  if(bns&&bns.length>=3){const bm=CAT.filter(c=>c.norm.includes(bns)||c.norm.replace(/\s+/g,'').includes(bn));if(bm.length>=3)pool=bm;}
+  const sc=pool.map(c=>({sku:c.sku,name:c.name,score:tokenSet(qt,c.tokens)}));
+  sc.sort((a,b)=>b.score-a.score);return sc.slice(0,limit);}
+function _lineQueryEs(l){return (l&&l.desc_es)?l.desc_es:glossaryES((l&&l.desc)||'');}
+function _lineBrand(l){return (l&&l.marca)?l.marca:'';}
+function matchLinea(l){
+  let tipo,sku,nombre,cand=null;
+  const brand=_lineBrand(l), q=_lineQueryEs(l);
+  const byPart=buscarPorParte(l.codigo);
+  if(byPart){
+    let best=byPart[0];
+    if(byPart.length>1&&q.trim()){const qt=normalize(q).split(' ').filter(Boolean);
+      best=byPart.slice().sort((a,b)=>tokenSet(qt,normalize(b.name).split(' '))-tokenSet(qt,normalize(a.name).split(' ')))[0];}
+    tipo='exact';sku=best.sku;nombre=best.name;cand=byPart;
+  }else{
+    const f=buscarFuzzy(q,brand,4);cand=f;
+    if(f.length&&f[0].score>=88&&(f.length<2||f[0].score-f[1].score>6)){tipo='alta';sku=f[0].sku;nombre=f[0].name;}
+    else if(f.length){tipo='rev';sku=f[0].sku;nombre=f[0].name;}
+    else{tipo='no';sku='';nombre='';}
+  }
+  return{tipo,sku,nombre,cand:cand||[]};
+}
+const CONF_BADGE={exact:['b-exact','exacto · n° parte'],alta:['b-alta','alta · descripción'],rev:['b-rev','revisar'],no:['b-no','sin match'],manual:['b-alta','manual']};
+
+/* ═══════════ estado global ═══════════ */
+let CATALOG=[];                 // [[sku,name],...]
+let ENVIOS=[];                  // envíos guardados
+let GRUPOS=[];                  // grupos de backorder
+let BOITEMS=[];                 // ítems de backorder gestionados
+let editItems=[];              // líneas del envío en edición
+let editId='';                 // id del envío en edición ('' = nuevo)
+let BO_SKU_PEND=new Set();      // SKUs de backorders NO comprados (para autodetección)
+
+/* ═══════════ arranque ═══════════ */
+async function init(){
+  $('rolLine').textContent = ES_MAESTRO ? ('Administrador — '+(USUARIO||'maestro')) : ('Supervisor — solo lectura'+(USUARIO?(' ('+USUARIO+')'):''));
+  if(!ES_MAESTRO){$('roNote').classList.remove('hide');}
+  else{$('nuevoEnvio').classList.remove('hide');$('boTools').classList.remove('hide');}
+  try{CATALOG=await api('/catalogo');initCat();}catch(e){CATALOG=[];}
+  await Promise.all([cargarEnvios(),cargarBackorders()]);
+}
+function verTab(t){
+  $('st-env').classList.toggle('active',t==='env');
+  $('st-bo').classList.toggle('active',t==='bo');
+  $('tab-env').classList.toggle('hide',t!=='env');
+  $('tab-bo').classList.toggle('hide',t!=='bo');
+}
+function refreshKpis(){
+  const et=ENVIOS.filter(e=>e.estado==='en_transito').length;
+  const bp=BOITEMS.filter(b=>!b.comprado).length;
+  $('kEnv').textContent=et+' en tránsito';
+  $('kBo').textContent=bp+' por comprar';
+}
+
+/* ═══════════ ENVÍOS ═══════════ */
+async function cargarEnvios(){
+  try{ENVIOS=await api('/envios');}catch(e){ENVIOS=[];toast(e.message);}
+  pintarEnvios();refreshKpis();
+}
+function badgeEstado(est){return est==='recibido'?'<span class="badge b-rec">✓ recibido</span>':'<span class="badge b-tra">en tránsito</span>';}
+function pintarEnvios(){
+  const filtro=$('filtroEnv').value;
+  const list=ENVIOS.filter(e=>!filtro||e.estado===filtro);
+  const host=$('envList');
+  if(!list.length){host.innerHTML='<div class="muted sm">No hay envíos'+(filtro?' en este filtro':'')+'.</div>';return;}
+  host.innerHTML=list.map(e=>{
+    const nbo=(e.items||[]).filter(i=>i.es_backorder).length;
+    const head=`<div class="env-h" onclick="this.parentNode.classList.toggle('open')">
+      <b>📦 ${esc(e.tracking||'(sin tracking)')}</b>
+      ${badgeEstado(e.estado)}
+      ${e.courier?`<span class="chip">${esc(e.courier)}</span>`:''}
+      <span class="muted sm">${esc(e.proveedor||'')}${e.n_factura?(' · Fact. '+esc(e.n_factura)):''}</span>
+      <span class="muted sm">· ${(e.items||[]).length} ítems</span>
+      ${nbo?`<span class="badge b-bo">${nbo} backorder</span>`:''}
+      ${e.fecha_estimada?`<span class="muted sm">· llega ${esc(String(e.fecha_estimada).slice(0,10))}</span>`:''}
+    </div>`;
+    const rows=(e.items||[]).map(i=>{
+      const cb=CONF_BADGE[i.confianza]||CONF_BADGE.no;
+      return `<tr>
+        <td>${esc(i.codigo||'')}</td>
+        <td>${esc(i.desc_es||i.desc||'')}</td>
+        <td>${esc(i.sku||'—')}${i.nombre?`<div class="muted sm">${esc(i.nombre)}</div>`:''}</td>
+        <td class="n">${i.cantidad!=null?i.cantidad:''}</td>
+        <td><span class="badge ${cb[0]}">${cb[1]}</span></td>
+        <td>${i.es_backorder?'<span class="badge b-bo">backorder</span>':''}</td>
+      </tr>`;
+    }).join('');
+    const acciones = ES_MAESTRO ? `<div class="row" style="margin-top:10px">
+        <button class="ghost sm" onclick="editarEnvio('${e.id}')">Editar</button>
+        <button class="sm ${e.estado==='recibido'?'ghost':'ok'}" onclick="toggleEstado('${e.id}','${e.estado==='recibido'?'en_transito':'recibido'}')">${e.estado==='recibido'?'Marcar en tránsito':'Marcar recibido'}</button>
+        <button class="danger sm" onclick="borrarEnvio('${e.id}')">Eliminar</button>
+      </div>` : '';
+    return `<div class="env">${head}<div class="env-body">
+      ${e.nota?`<div class="muted sm" style="margin-bottom:6px">📝 ${esc(e.nota)}</div>`:''}
+      <div class="tw"><table><thead><tr><th>Código</th><th>Descripción (español)</th><th>SKU en sistema</th><th class="n">Cant</th><th>Confianza</th><th>Backorder</th></tr></thead><tbody>${rows||'<tr><td colspan=6 class="muted">Sin ítems</td></tr>'}</tbody></table></div>
+      ${acciones}
+    </div></div>`;
+  }).join('');
+}
+
+/* leer factura con IA */
+async function leerFactura(){
+  const f=$('pdf').files[0];
+  if(!f){toast('Elige el PDF de la factura');return;}
+  const model=($('model').value||'gemini-3.6-flash').trim();
+  $('btnLeer').disabled=true;$('leerMsg').textContent='Leyendo la factura con IA…';
+  try{
+    const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(',')[1]);r.onerror=rej;r.readAsDataURL(f);});
+    const prompt='De esta factura de proveedor devuelve ÚNICAMENTE un objeto JSON (sin texto adicional ni markdown) con la forma {"proveedor": string, "invoice": string, "date": string, "items": [{"item","desc","desc_es","marca","qty"}]}. proveedor = nombre/razón social del EMISOR/vendedor; invoice = número de factura tal como aparece; date = fecha AAAA-MM-DD si aparece; items = SOLO líneas de PRODUCTO: item = código o número de parte del proveedor como string ("" si no hay); desc = descripción del producto TAL CUAL en la factura (idioma original); desc_es = la MISMA descripción traducida al ESPAÑOL de repuestos de bicicleta (ej: brake→freno, rotor/disc→disco, pads→pastillas, lever→palanca, adapter→adaptador, hose→manguera, bleed kit→kit de purga, spacer→espaciador, front→delantero, rear→trasero); marca = la MARCA/fabricante del producto si se identifica ("" si no); qty = cantidad como número. Excluye envío, flete, handling, impuestos, subtotales, totales, descuentos sueltos y cualquier fila que no sea un producto.';
+    const resp=await fetch('/api/seguimiento/ia',{method:'POST',headers:H(true),body:JSON.stringify({model,prompt,pdf_base64:b64})});
+    const raw=await resp.text();
+    if(!resp.ok){let er='';try{er=JSON.parse(raw).error||'';}catch(e){}throw new Error(er||('IA error '+resp.status));}
+    let g;try{g=JSON.parse(raw);}catch(e){throw new Error('Respuesta de IA no válida');}
+    let txt='';try{txt=g.candidates[0].content.parts.map(p=>p.text||'').join('');}catch(e){txt=raw;}
+    let obj;try{obj=JSON.parse(txt);}catch(e){const m=txt.match(/[\[{][\s\S]*[\]}]/);obj=m?JSON.parse(m[0]):null;}
+    if(!obj)throw new Error('No se pudo interpretar la factura');
+    const arr=Array.isArray(obj)?obj:(obj.items||[]);
+    if(obj.proveedor)$('e_prov').value=obj.proveedor;
+    if(obj.invoice)$('e_fact').value=obj.invoice;
+    editId='';
+    editItems=arr.map(o=>{
+      const l={codigo:o.item||'',desc:o.desc||'',desc_es:o.desc_es||'',marca:o.marca||'',cantidad:(+o.qty||0)};
+      const m=matchLinea(l);
+      return {...l,sku:m.sku,nombre:m.nombre,confianza:m.tipo,cand:m.cand,es_backorder:autoBo(m.sku)};
+    });
+    $('editor').classList.remove('hide');
+    $('leerMsg').textContent='Factura leída: '+editItems.length+' líneas. Revisa los SKU y asigna el tracking.';
+    renderItems();
+  }catch(e){$('leerMsg').textContent='';toast(e.message||'No se pudo leer la factura');}
+  finally{$('btnLeer').disabled=false;}
+}
+function autoBo(sku){return sku&&BO_SKU_PEND.has(clean(sku));}
+function addItem(){editItems.push({codigo:'',desc:'',desc_es:'',marca:'',cantidad:1,sku:'',nombre:'',confianza:'no',cand:[],es_backorder:false});renderItems();}
+function delItem(i){editItems.splice(i,1);renderItems();}
+function recalc(i){const m=editItems[i];const r=matchLinea(m);m.sku=r.sku;m.nombre=r.nombre;m.confianza=r.tipo;m.cand=r.cand;m.es_backorder=autoBo(r.sku);renderItems();}
+function renderItems(){
+  $('itemsBody').innerHTML=editItems.map((m,i)=>{
+    const cb=CONF_BADGE[m.confianza]||CONF_BADGE.no;
+    let sel;
+    if((m.cand||[]).length){
+      const opts=m.cand.map(c=>`<option value="${esc(c.sku)}" ${c.sku===m.sku?'selected':''}>${esc(c.sku)} · ${esc(c.name)}${c.score?(' ('+Math.round(c.score)+')'):''}</option>`).join('');
+      sel=`<select onchange="setSku(${i},this.value)">${opts}<option value="">(ninguno)</option></select>`;
+    }else{
+      sel=`<input value="${esc(m.sku||'')}" oninput="setSku(${i},this.value)" placeholder="SKU manual" style="min-width:120px">`;
+    }
+    return `<tr>
+      <td>${i+1}</td>
+      <td><input value="${esc(m.codigo||'')}" oninput="editItems[${i}].codigo=this.value" style="min-width:90px"></td>
+      <td><input value="${esc(m.desc||'')}" oninput="editItems[${i}].desc=this.value" style="min-width:150px"></td>
+      <td><input value="${esc(m.desc_es||'')}" oninput="editItems[${i}].desc_es=this.value" onchange="recalc(${i})" style="min-width:150px"></td>
+      <td class="n"><input type="number" value="${m.cantidad!=null?m.cantidad:''}" oninput="editItems[${i}].cantidad=(this.value===''?null:+this.value)" style="width:60px"></td>
+      <td>${sel}${m.nombre?`<div class="muted sm">${esc(m.nombre)}</div>`:''}</td>
+      <td><span class="badge ${cb[0]}">${cb[1]}</span></td>
+      <td style="text-align:center"><input type="checkbox" ${m.es_backorder?'checked':''} onchange="editItems[${i}].es_backorder=this.checked"></td>
+      <td><button class="danger sm" onclick="delItem(${i})">✕</button></td>
+    </tr>`;
+  }).join('');
+}
+function setSku(i,v){const m=editItems[i];m.sku=v;const c=CATMAP[v];m.nombre=c||'';if(v&&(m.confianza==='no'||m.confianza==='rev'))m.confianza='manual';m.es_backorder=autoBo(v);renderItems();}
+function cancelarEditor(){editItems=[];editId='';$('editor').classList.add('hide');$('leerMsg').textContent='';$('pdf').value='';}
+function limpiaEditor(){$('e_tracking').value='';$('e_courier').value='';$('e_prov').value='';$('e_fact').value='';$('e_eta').value='';$('e_nota').value='';}
+async function guardarEnvio(){
+  const tracking=$('e_tracking').value.trim();
+  if(!tracking){toast('Escribe el N° de tracking');return;}
+  if(!editItems.length){toast('El envío no tiene ítems');return;}
+  const payload={
+    id:editId||undefined, tracking, courier:$('e_courier').value.trim(),
+    proveedor:$('e_prov').value.trim(), n_factura:$('e_fact').value.trim(),
+    fecha_estimada:$('e_eta').value||null, nota:$('e_nota').value.trim(),
+    estado:'en_transito',
+    items:editItems.map(m=>({codigo:m.codigo,desc:m.desc,desc_es:m.desc_es,marca:m.marca,cantidad:m.cantidad,sku:m.sku,nombre:m.nombre,confianza:m.confianza,es_backorder:!!m.es_backorder,bo_id:m.bo_id||''}))
+  };
+  try{
+    $('btnGuardarEnv').disabled=true;
+    await api('/envio','POST',payload);
+    toast('Envío guardado');
+    cancelarEditor();limpiaEditor();
+    await cargarEnvios();
+  }catch(e){toast(e.message);}
+  finally{$('btnGuardarEnv').disabled=false;}
+}
+function editarEnvio(id){
+  const e=ENVIOS.find(x=>x.id===id);if(!e)return;
+  editId=id;
+  $('e_tracking').value=e.tracking||'';$('e_courier').value=e.courier||'';$('e_prov').value=e.proveedor||'';
+  $('e_fact').value=e.n_factura||'';$('e_eta').value=e.fecha_estimada?String(e.fecha_estimada).slice(0,10):'';$('e_nota').value=e.nota||'';
+  editItems=(e.items||[]).map(i=>({...i,cand:matchLinea(i).cand}));
+  $('nuevoEnvio').classList.remove('hide');$('editor').classList.remove('hide');
+  $('leerMsg').textContent='Editando envío existente.';
+  renderItems();window.scrollTo({top:0,behavior:'smooth'});
+}
+async function toggleEstado(id,estado){try{await api('/envio/'+encodeURIComponent(id)+'/estado','PUT',{estado});await cargarEnvios();}catch(e){toast(e.message);}}
+async function borrarEnvio(id){if(!confirm('¿Eliminar este envío?'))return;try{await api('/envio/'+encodeURIComponent(id),'DELETE');await cargarEnvios();}catch(e){toast(e.message);}}
+
+/* ═══════════ BACKORDERS ═══════════ */
+async function cargarBackorders(){
+  try{const[g,b]=await Promise.all([api('/grupos'),api('/bo-items')]);GRUPOS=g||[];BOITEMS=b||[];}
+  catch(e){GRUPOS=[];BOITEMS=[];toast(e.message);}
+  BO_SKU_PEND=new Set(BOITEMS.filter(x=>!x.comprado&&x.sku).map(x=>clean(x.sku)));
+  pintarBackorders();refreshKpis();
+}
+function grpOptions(sel){return '<option value="">(sin grupo)</option>'+GRUPOS.map(g=>`<option value="${g.id}" ${g.id===sel?'selected':''}>${esc(g.nombre||'(grupo)')}</option>`).join('');}
+function pintarBackorders(){
+  const host=$('boList');
+  const bloques=[];
+  const porGrupo=id=>BOITEMS.filter(b=>String(b.grupo_id||'')===String(id));
+  GRUPOS.forEach(g=>bloques.push(bloqueGrupo(g,porGrupo(g.id))));
+  const sinGrupo=BOITEMS.filter(b=>!b.grupo_id);
+  bloques.push(bloqueGrupo(null,sinGrupo));
+  host.innerHTML=bloques.join('')||'<div class="muted sm">Sin backorders.</div>';
+}
+function bloqueGrupo(g,items){
+  const nComp=items.filter(i=>i.comprado).length;
+  const info=g?`<div class="saleinfo">
+      ${g.vta?`<span>VTA: <b>${esc(g.vta)}</b></span>`:''}
+      ${g.cliente?`<span>Cliente: <b>${esc(g.cliente)}</b></span>`:''}
+      ${g.precio_venta!=null?`<span>P. venta: <b>S/ ${esc(n2(g.precio_venta))}</b></span>`:''}
+      ${g.precio_pagado!=null?`<span>Pagado: <b>S/ ${esc(n2(g.precio_pagado))}</b></span>`:''}
+    </div>${g.nota?`<div class="muted sm" style="margin-top:4px">📝 ${esc(g.nota)}</div>`:''}`:'';
+  const titulo=g?esc(g.nombre||'(grupo sin nombre)'):'Sin grupo';
+  const accG = (g&&ES_MAESTRO) ? `<div class="row" style="margin-left:auto">
+      <button class="ghost sm" onclick="abrirGrupo('${g.id}')">Editar grupo</button>
+      <button class="danger sm" onclick="borrarGrupo('${g.id}')">Eliminar</button>
+    </div>` : '';
+  const rows=items.map(b=>filaBo(b)).join('');
+  const body = items.length ? `<div class="tw"><table><thead><tr>
+      <th style="width:34px">✓</th><th>SKU</th><th>Producto</th><th>Cliente</th><th>Venta</th><th class="n">Cant</th><th>Nota</th>${ES_MAESTRO?'<th>Grupo</th><th></th>':''}
+    </tr></thead><tbody>${rows}</tbody></table></div>`
+    : '<div class="muted sm">Sin ítems en este grupo.</div>';
+  return `<div class="grp"><div class="grp-h"><b>${g?'📁 ':''}${titulo}</b>
+      <span class="muted sm">${items.length} ítems · ${nComp} comprados</span>${accG}</div>
+    <div class="grp-body">${info}${body}</div></div>`;
+}
+function filaBo(b){
+  const chk=`<input type="checkbox" ${b.comprado?'checked':''} ${ES_MAESTRO?`onchange="setBo('${b.id}','comprado',this.checked?1:0)"`:'disabled'}>`;
+  const nota= ES_MAESTRO
+    ? `<input value="${esc(b.nota||'')}" onchange="setBo('${b.id}','nota',this.value)" placeholder="¿por qué / cuándo comprarás?" style="min-width:180px">`
+    : `<span class="muted sm">${esc(b.nota||'')}</span>`;
+  const grp= ES_MAESTRO ? `<td><select onchange="setBo('${b.id}','grupo_id',this.value)">${grpOptions(b.grupo_id)}</select></td>` : '';
+  const del= ES_MAESTRO ? `<td><button class="danger sm" onclick="borrarBo('${b.id}')">✕</button></td>` : '';
+  return `<tr style="${b.comprado?'opacity:.6':''}">
+    <td style="text-align:center">${chk}</td>
+    <td>${esc(b.sku||'')}</td>
+    <td>${esc(b.nombre||'')}</td>
+    <td>${esc(b.cliente||'')}</td>
+    <td>${esc(b.venta||'')}${b.fecha?`<div class="muted sm">${esc(b.fecha)}</div>`:''}</td>
+    <td class="n">${b.cantidad!=null?b.cantidad:''}</td>
+    <td>${nota}</td>${grp}${del}
+  </tr>`;
+}
+async function setBo(id,campo,val){
+  const b=BOITEMS.find(x=>x.id===id);if(!b)return;
+  const payload={id:b.id,grupo_id:b.grupo_id||'',sku:b.sku,nombre:b.nombre,cliente:b.cliente,venta:b.venta,cantidad:b.cantidad,fecha:b.fecha,comprado:b.comprado,nota:b.nota,archivado:b.archivado||0};
+  payload[campo]= (campo==='grupo_id') ? (val||'') : val;
+  try{await api('/bo-item','POST',payload);b[campo]=payload[campo];
+    if(campo==='comprado'||campo==='grupo_id'){await cargarBackorders();}else{b.nota=payload.nota;}
+    if(campo==='comprado')refreshKpis();
+  }catch(e){toast(e.message);await cargarBackorders();}
+}
+async function borrarBo(id){if(!confirm('¿Eliminar este ítem de backorder?'))return;try{await api('/bo-item/'+encodeURIComponent(id),'DELETE');await cargarBackorders();}catch(e){toast(e.message);}}
+
+/* traer del ERP */
+async function traerErp(){
+  $('boMsg').textContent='Consultando el sistema…';
+  try{
+    const lineas=await api('/erp-backorders');
+    if(!lineas.length){$('boMsg').textContent='No hay pedidos en backorder en el sistema.';return;}
+    modalErp(lineas);$('boMsg').textContent='';
+  }catch(e){$('boMsg').textContent='';toast(e.message);}
+}
+function modalErp(lineas){
+  const yaFijados=new Set(BOITEMS.map(b=>b.id));
+  const rows=lineas.map((l,i)=>{
+    const id='erp:'+l.sale_item_id;const ya=yaFijados.has(id);
+    return `<tr>
+      <td style="text-align:center"><input type="checkbox" class="erpChk" data-i="${i}" ${ya?'disabled':'checked'}></td>
+      <td>${esc(l.sku)}</td><td>${esc(l.producto)}</td><td>${esc(l.cliente)}</td>
+      <td>${esc(l.venta)}<div class="muted sm">${esc(l.fecha)}</div></td><td class="n">${l.cantidad}</td>
+      <td>${ya?'<span class="muted sm">ya fijado</span>':''}</td>
+    </tr>`;
+  }).join('');
+  window._erpLineas=lineas;
+  showModal(`<h3>Backorders del sistema (${lineas.length})</h3>
+    <div class="hint">Marca los que quieras gestionar en el portal y fíjalos. Los ya fijados no se vuelven a traer (conservan su nota y grupo).</div>
+    <div class="tw" style="max-height:52vh;overflow:auto"><table><thead><tr><th style="width:34px"></th><th>SKU</th><th>Producto</th><th>Cliente</th><th>Venta</th><th class="n">Cant</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="row" style="margin-top:12px;justify-content:flex-end">
+      <button class="ghost" onclick="cerrarModal()">Cerrar</button>
+      <button class="ok" onclick="fijarErp()">Fijar seleccionados</button>
+    </div>`);
+}
+async function fijarErp(){
+  const chks=[...document.querySelectorAll('.erpChk')].filter(c=>c.checked&&!c.disabled);
+  const lineas=chks.map(c=>window._erpLineas[+c.dataset.i]).filter(Boolean);
+  if(!lineas.length){toast('No hay líneas nuevas seleccionadas');return;}
+  try{const r=await api('/bo-items/importar','POST',{lineas});cerrarModal();toast('Fijados '+(r.insertados||0)+' ítems');await cargarBackorders();}
+  catch(e){toast(e.message);}
+}
+
+/* grupos */
+function abrirGrupo(id){
+  const g=id?GRUPOS.find(x=>x.id===id):null;
+  showModal(`<h3>${g?'Editar grupo':'Nuevo grupo'}</h3>
+    <div class="row" style="flex-direction:column;align-items:stretch;gap:8px">
+      <div class="f"><label>Nombre del grupo *</label><input id="g_nombre" value="${g?esc(g.nombre):''}" placeholder="Ej: Pedido Juan / Octubre"></div>
+      <div class="row">
+        <div class="f"><label>VTA</label><input id="g_vta" value="${g?esc(g.vta):''}" style="width:130px"></div>
+        <div class="f" style="flex:1"><label>Cliente</label><input id="g_cli" value="${g?esc(g.cliente):''}"></div>
+      </div>
+      <div class="row">
+        <div class="f"><label>Precio venta</label><input id="g_pv" type="number" step="0.01" value="${g&&g.precio_venta!=null?esc(g.precio_venta):''}" style="width:130px"></div>
+        <div class="f"><label>Precio ya pagado</label><input id="g_pp" type="number" step="0.01" value="${g&&g.precio_pagado!=null?esc(g.precio_pagado):''}" style="width:130px"></div>
+      </div>
+      <div class="f"><label>Nota</label><textarea id="g_nota">${g?esc(g.nota):''}</textarea></div>
+    </div>
+    <div class="row" style="margin-top:12px;justify-content:flex-end">
+      <button class="ghost" onclick="cerrarModal()">Cancelar</button>
+      <button class="ok" onclick="guardarGrupo('${g?g.id:''}')">Guardar</button>
+    </div>`);
+}
+async function guardarGrupo(id){
+  const nombre=$('g_nombre').value.trim();
+  if(!nombre){toast('Ponle un nombre al grupo');return;}
+  const payload={id:id||undefined,nombre,vta:$('g_vta').value.trim(),cliente:$('g_cli').value.trim(),
+    precio_venta:$('g_pv').value===''?null:+$('g_pv').value,precio_pagado:$('g_pp').value===''?null:+$('g_pp').value,
+    nota:$('g_nota').value.trim()};
+  try{await api('/grupo','POST',payload);cerrarModal();toast('Grupo guardado');await cargarBackorders();}catch(e){toast(e.message);}
+}
+async function borrarGrupo(id){if(!confirm('¿Eliminar el grupo? Sus ítems quedarán sin grupo (no se borran).'))return;try{await api('/grupo/'+encodeURIComponent(id),'DELETE');await cargarBackorders();}catch(e){toast(e.message);}}
+
+/* ítem manual */
+function abrirItemManual(){
+  showModal(`<h3>Ítem de backorder manual</h3>
+    <div class="row" style="flex-direction:column;align-items:stretch;gap:8px">
+      <div class="row">
+        <div class="f"><label>SKU</label><input id="m_sku" style="width:140px"></div>
+        <div class="f" style="flex:1"><label>Producto</label><input id="m_nom"></div>
+      </div>
+      <div class="row">
+        <div class="f" style="flex:1"><label>Cliente</label><input id="m_cli"></div>
+        <div class="f"><label>Venta (VTA)</label><input id="m_vta" style="width:130px"></div>
+        <div class="f"><label>Cantidad</label><input id="m_cant" type="number" style="width:90px"></div>
+      </div>
+      <div class="f"><label>Grupo</label><select id="m_grp">${grpOptions('')}</select></div>
+      <div class="f"><label>Nota</label><textarea id="m_nota" placeholder="¿por qué no lo has comprado / cuándo?"></textarea></div>
+    </div>
+    <div class="row" style="margin-top:12px;justify-content:flex-end">
+      <button class="ghost" onclick="cerrarModal()">Cancelar</button>
+      <button class="ok" onclick="guardarItemManual()">Agregar</button>
+    </div>`);
+}
+async function guardarItemManual(){
+  const payload={sku:$('m_sku').value.trim(),nombre:$('m_nom').value.trim(),cliente:$('m_cli').value.trim(),
+    venta:$('m_vta').value.trim(),cantidad:$('m_cant').value===''?null:+$('m_cant').value,
+    grupo_id:$('m_grp').value||'',nota:$('m_nota').value.trim(),comprado:0};
+  if(!payload.sku&&!payload.nombre){toast('Escribe al menos SKU o producto');return;}
+  try{await api('/bo-item','POST',payload);cerrarModal();toast('Ítem agregado');await cargarBackorders();}catch(e){toast(e.message);}
+}
+
+/* modal helpers */
+function showModal(html){$('modalHost').innerHTML=`<div class="modal-bg" onclick="if(event.target===this)cerrarModal()"><div class="modal">${html}</div></div>`;}
+function cerrarModal(){$('modalHost').innerHTML='';}
+
+init();
+</script>
+</body>
+</html>

@@ -1092,29 +1092,8 @@ function renderSavedList(){
       return `<tr><td>${r.n}</td><td>${esc(r.tipo)}${r.tipo==='Compra'?' <span class="badge b-exact">real</span>':' <span class="badge b-rev">teórico</span>'}</td><td>${esc(r.nombre)}</td><td>${esc((r.meta.proveedorNombre||r.meta.proveedor||'').split('(')[0])}</td><td>${esc(r.meta.numImp||'')}</td><td class="n">${n2(tt.sumFOBsoles)}</td><td class="n">${n2(tt.costoFleteSoles)}</td><td class="n">${n2(tt.costoLogisticoTotal)}</td><td class="n">${n2(invT)}</td><td class="nm">${esc(r.savedAt)}</td>
       <td class="nm"><span class="erp-chk" data-ref="${esc(_refImp(r))}"><span class="hint">…</span></span></td>
       <td style="white-space:nowrap"><button class="btn-sm" onclick="cargarImportacion('${r.id}')">Cargar</button> <button class="btn-sm" onclick="exportImportExcel('${r.id}')">Excel</button> <button class="btn-sm" onclick="exportIngresoSaved('${r.id}')">Ingreso</button> ${(r.state&&r.state.dua&&((r.state.dua.series&&r.state.dua.series.length)||r.state.dua.header))?`<button class="btn-sm" onclick="exportDuaSaved('${r.id}')">DUA</button> `:''}<button class="btn-sm" onclick="exportImportPDF('${r.id}')">PDF</button> <span class="btn-del" onclick="eliminarImportacion('${r.id}')">✕</span></td></tr>`;}).join('')+'</tbody></table></div>'
-      +'<div class="actions" style="margin-top:8px"><button class="btn-sm" onclick="exportResumenGeneral()">⬇ Exportar tabla general (resumen + detalle)</button> <button class="btn-sm" style="border-color:#f59e0b" onclick="probarERP()">🔧 Probar ERP</button></div>';
+      +'<div class="actions" style="margin-top:8px"><button class="btn-sm" onclick="exportResumenGeneral()">⬇ Exportar tabla general (resumen + detalle)</button></div>';
   marcarSubidasERP();
-}
-// Diagnóstico de un clic: muestra el resultado CRUDO del endpoint del ERP.
-async function probarERP(){
-  const url=API+'/erp-subidas';
-  try{
-    const ctrl=(typeof AbortController!=='undefined')?new AbortController():null;
-    const to=ctrl?setTimeout(()=>ctrl.abort(),8000):null;
-    const r=await fetch(url,{method:'POST',headers:_authHeaders(true),body:JSON.stringify({refs:['IMP-76-DISCORP-77DE','IMP-78-DISCORP-JPRA']}),signal:ctrl?ctrl.signal:undefined});
-    if(to)clearTimeout(to);
-    let body=''; try{ body=await r.text(); }catch(_){}
-    let diag;
-    if(r.status===404) diag='HTTP 404 → el endpoint NO existe: el importacion.js NUEVO no está desplegado (redeploya y reinicia el servicio en Railway).';
-    else if(r.status===200 && (body==='{}'||body.trim()==='{}')) diag='HTTP 200 pero respuesta VACÍA {} → el backend funciona pero NO encontró el código en stock_entries.importacion_ref (revisamos el valor guardado).';
-    else if(r.status===200) diag='HTTP 200 ✓ → el backend SÍ respondió y encontró datos.';
-    else diag='HTTP '+r.status+' '+(r.statusText||'');
-    alert('🔧 Probar ERP\nURL: '+url+'\n\n'+diag+'\n\nRespuesta cruda:\n'+String(body).slice(0,600));
-  }catch(e){
-    alert('🔧 Probar ERP — FALLÓ\nURL: '+url+'\n\n'+(e&&e.name==='AbortError'
-      ? 'TIMEOUT (>8s): el backend no respondió. Es un importacion.js viejo con la búsqueda lenta, o el servicio no reinició con el archivo nuevo.'
-      : (e&&e.message)||e));
-  }
 }
 // Marca en Guardadas cuáles importaciones ya tienen su ingreso subido al ERP de
 // Renzo (busca la Ref. importación = código en el ingreso). Best-effort.
@@ -1134,33 +1113,35 @@ function _erpPinta(s){
   else s.innerHTML='<span style="display:inline-block;background:#e2e8f0;color:#475569;border-radius:10px;padding:2px 9px;font-size:12px;font-weight:600" title="Aún no aparece en el ERP de Renzo">Pendiente</span>';
   return true;
 }
+function _erpSpans(){ const box=$('savedList'); return (box&&box.querySelectorAll)?[...box.querySelectorAll('.erp-chk')]:[]; }
+function _erpPintaTodo(){ _erpSpans().forEach(s=>{ if(!s.dataset.ref) return; _erpPinta(s); }); }
 async function marcarSubidasERP(){
-  const box=$('savedList'); if(!box||!box.querySelectorAll)return;
-  const spans=[...box.querySelectorAll('.erp-chk')];
+  let spans=_erpSpans(); if(!spans.length)return;
   // Las que no tienen código no se pueden verificar: se marca distinto.
   spans.filter(s=>!s.dataset.ref).forEach(s=>{ s.innerHTML='<span style="display:inline-block;background:#f1f5f9;color:#94a3b8;border-radius:10px;padding:2px 8px;font-size:11px" title="Este guardado no tiene código de importación para buscar en el ERP">sin código</span>'; });
   const refs=[...new Set(spans.map(s=>s.dataset.ref).filter(Boolean))];
   if(!refs.length)return;
-  const fresco=(Date.now()-_erpChkAt)<5*60*1000; // 5 min
   spans.forEach(_erpPinta); // pinta lo ya cacheado al instante
-  // Consultar solo lo que falta; si la caché venció, refrescar todo.
-  const faltan=refs.filter(r=>!(r in _erpChk));
-  const consultar = fresco ? faltan : refs;
+  const fresco=(Date.now()-_erpChkAt)<5*60*1000;
+  const consultar = fresco ? refs.filter(r=>!(r in _erpChk)) : refs;
   if(!consultar.length) return;
-  // Señal de que el código NUEVO está corriendo: pinta "verificando…" ya mismo.
-  // (Si en pantalla se queda el "…" fijo, es que no cargó el importacion.html nuevo.)
   spans.forEach(s=>{ if(consultar.includes(s.dataset.ref)&&!(s.dataset.ref in _erpChk)) s.innerHTML='<span style="display:inline-block;background:#eef2f7;color:#64748b;border-radius:10px;padding:2px 9px;font-size:12px;font-style:italic" title="Consultando el ERP…">verificando…</span>'; });
+  // FETCH directo (probado) con timeout; luego se REBUSCAN las celdas por si el DOM se re-renderizó.
   let mapa=null;
-  try{ mapa=await apiPost('/erp-subidas',{refs:consultar},8000); }
-  catch(e){ const m=String(e&&e.message||'');
-    const hint = /404/.test(m) ? 'el backend importacion.js NO está desplegado (falta reiniciar el servicio)'
-               : /espera/.test(m) ? 'el ERP no respondió en 8s (¿importacion.js viejo con la búsqueda lenta?)'
-               : m;
-    spans.forEach(s=>{ if(consultar.includes(s.dataset.ref)&&!(s.dataset.ref in _erpChk)) s.innerHTML='<span style="display:inline-block;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:10px;padding:2px 8px;font-size:12px;font-weight:700" title="No se pudo verificar el ERP: '+esc(hint)+'">⚠ sin verificar</span>'; });
+  try{
+    const ctrl=(typeof AbortController!=='undefined')?new AbortController():null;
+    const to=ctrl?setTimeout(()=>ctrl.abort(),8000):null;
+    const r=await fetch(API+'/erp-subidas',{method:'POST',headers:_authHeaders(true),body:JSON.stringify({refs:consultar}),signal:ctrl?ctrl.signal:undefined});
+    if(to)clearTimeout(to);
+    if(r.status===401||r.status===403) throw new Error('sesión expirada');
+    if(!r.ok) throw new Error('API '+r.status);
+    mapa=await r.json();
+  }catch(e){ const m=(e&&e.name==='AbortError')?'timeout (>8s)':String(e&&e.message||e);
+    _erpSpans().forEach(s=>{ if(consultar.includes(s.dataset.ref)&&!(s.dataset.ref in _erpChk)) s.innerHTML='<span style="display:inline-block;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:10px;padding:2px 8px;font-size:12px;font-weight:700" title="No se pudo verificar el ERP: '+esc(m)+'">⚠ sin verificar</span>'; });
     console.warn('[ERP] erp-subidas falló:', m); return; }
-  consultar.forEach(r=>{ _erpChk[r]=(mapa[r]&&mapa[r].subida)?mapa[r]:false; });
+  consultar.forEach(r=>{ _erpChk[r]=(mapa&&mapa[r]&&mapa[r].subida)?mapa[r]:false; });
   _erpChkAt=Date.now();
-  spans.forEach(_erpPinta);
+  _erpPintaTodo(); // rebusca las celdas actuales y pinta el resultado
 }
 function eliminarImportacion(id){if(!confirm('¿Eliminar esta importación guardada?'))return;saved=saved.filter(r=>r.id!==id);apiSend('/importaciones/'+encodeURIComponent(id),'DELETE');renderSavedList();}
 function cargarImportacion(id){

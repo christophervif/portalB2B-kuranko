@@ -288,7 +288,7 @@ function pintarEnvios(){
       <b>📦 ${esc(e.tracking||'(sin tracking)')}</b>
       ${badgeEstado(e.estado)}
       ${e.courier?`<span class="chip">${esc(e.courier)}</span>`:''}
-      <span class="muted sm">${ES_MAESTRO&&e.proveedor?esc(e.proveedor):''}${(ES_MAESTRO&&e.n_factura)?(' · Fact. '+esc(e.n_factura)):''}</span>
+      <span class="muted sm">${ES_MAESTRO&&e.proveedor?esc(e.proveedor):''}${e.n_factura?((ES_MAESTRO&&e.proveedor?' · ':'')+'Fact. '+esc(e.n_factura)):''}</span>
       <span class="muted sm">· ${(e.items||[]).length} ítems</span>
       ${nbo?`<span class="badge b-bo">${nbo} backorder</span>`:''}
       ${e.fecha_estimada?`<span class="muted sm">· llega ${esc(String(e.fecha_estimada).slice(0,10))}</span>`:''}

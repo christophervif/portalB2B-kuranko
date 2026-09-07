@@ -877,9 +877,18 @@ function renderRecepEstado(){
     <div class="actions" style="margin-top:10px">
       ${esMaestroImp()?'<button class="btn-sm" onclick="recepGuardarCorreccion()">💾 Guardar correcciones de SKU</button>':''}
       ${(r.items||[]).some(i=>i.es_extra)?'<button class="btn-sm" onclick="exportExtrasDeRecep(recepImp)" title="Productos que llegaron y no estaban en la factura — se manejan aparte">⬇ Exportar fuera de factura</button>':''}
+      ${(esMaestroImp()&&val&&!r.archivada)?'<button class="btn-sm" style="border-color:#c4b5fd;color:#6d28d9" title="Si ya hiciste el ingreso en el ERP por fuera, archívala para sacarla de la lista (queda en Archivadas)" onclick="recepArchivarManual()">🗄 Ya ingresada aparte — archivar</button>':''}
       ${accion}
     </div>
   </div>`;
+}
+// Archivar manualmente una recepción validada que ya fue ingresada al ERP por
+// fuera del flujo (no pasa por costeo). Queda en la sección «Archivadas».
+async function recepArchivarManual(){
+  const r=recepImp; if(!r)return;
+  if(!confirm('¿Archivar la recepción de la factura "'+(r.n_factura||'')+'"?\n\nÚsalo si ya hiciste el ingreso en el ERP por fuera: sale de la lista y queda en «Archivadas» (no pasa por costeo).'))return;
+  try{ await recApi('/api/recepcion/'+encodeURIComponent(r.id)+'/archivar','PUT'); alert('✓ Archivada. La encuentras en «🗄 Archivadas».'); const d=$('recepDetalle'); if(d)d.innerHTML=''; cargarRecepLista(); }
+  catch(e){ alert('No se pudo archivar: '+e.message); }
 }
 function recepSetSku(i,v){ if(recepImp&&recepImp.items[i])recepImp.items[i].sku_confirmado=v.trim(); }
 // Buscador de SKU por NOMBRE o código (hijos/variaciones y simples; los padres no están en CAT)
@@ -1088,17 +1097,31 @@ function renderSavedList(){
 }
 // Marca en Guardadas cuáles importaciones ya tienen su ingreso subido al ERP de
 // Renzo (busca la Ref. importación = código en el ingreso). Best-effort.
+let _erpChk={}, _erpChkAt=0; // caché de sesión (evita golpear el ERP en cada render)
+function _erpPinta(s){
+  const hit=_erpChk[s.dataset.ref];
+  if(hit===undefined) return false;
+  if(hit) s.innerHTML='<span style="display:inline-block;background:#16a34a;color:#fff;border-radius:10px;padding:2px 9px;font-size:12px;font-weight:800;box-shadow:0 1px 3px rgba(22,163,74,.4)" title="Ya registrada en el ERP de Renzo (tabla '+esc(hit.tabla||'')+', campo '+esc(hit.campo||'')+', ingreso #'+esc(hit.entry_id)+')">✓ Subida</span>';
+  else s.innerHTML='<span style="display:inline-block;background:#e2e8f0;color:#475569;border-radius:10px;padding:2px 9px;font-size:12px;font-weight:600" title="Aún no aparece en el ERP de Renzo">Pendiente</span>';
+  return true;
+}
 async function marcarSubidasERP(){
   const box=$('savedList'); if(!box||!box.querySelectorAll)return;
   const spans=[...box.querySelectorAll('.erp-chk')];
   const refs=[...new Set(spans.map(s=>s.dataset.ref).filter(Boolean))];
   if(!refs.length)return;
-  let mapa={};
-  try{ mapa=await apiPost('/erp-subidas',{refs}); }catch(e){ return; }
-  spans.forEach(s=>{ const hit=mapa[s.dataset.ref];
-    if(hit&&hit.subida){ s.innerHTML='<span class="badge b-exact" title="Encontrada en el ERP (ingreso #'+esc(hit.entry_id)+', campo '+esc(hit.campo||'')+')">✓ subida</span>'; }
-    else { s.innerHTML='<span class="hint" title="Aún no aparece en el ERP de Renzo">—</span>'; }
-  });
+  const fresco=(Date.now()-_erpChkAt)<5*60*1000; // 5 min
+  spans.forEach(_erpPinta); // pinta lo ya cacheado al instante
+  // Consultar solo lo que falta; si la caché venció, refrescar todo.
+  const faltan=refs.filter(r=>!(r in _erpChk));
+  const consultar = fresco ? faltan : refs;
+  if(!consultar.length) return;
+  let mapa=null;
+  try{ mapa=await apiPost('/erp-subidas',{refs:consultar}); }
+  catch(e){ spans.forEach(s=>{ if(consultar.includes(s.dataset.ref)&&!(s.dataset.ref in _erpChk)) s.innerHTML='<span style="display:inline-block;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:10px;padding:2px 8px;font-size:12px;font-weight:700" title="No se pudo verificar el ERP: '+esc(e.message)+'">⚠ sin verificar</span>'; }); return; }
+  consultar.forEach(r=>{ _erpChk[r]=(mapa[r]&&mapa[r].subida)?mapa[r]:false; });
+  _erpChkAt=Date.now();
+  spans.forEach(_erpPinta);
 }
 function eliminarImportacion(id){if(!confirm('¿Eliminar esta importación guardada?'))return;saved=saved.filter(r=>r.id!==id);apiSend('/importaciones/'+encodeURIComponent(id),'DELETE');renderSavedList();}
 function cargarImportacion(id){

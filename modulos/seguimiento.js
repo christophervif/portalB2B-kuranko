@@ -79,10 +79,15 @@ module.exports = function registrarSeguimiento({
         orden          INT NOT NULL DEFAULT 0,
         origen         VARCHAR(10) NOT NULL DEFAULT 'erp',
         archivado      TINYINT(1) NOT NULL DEFAULT 0,
+        envio_id       VARCHAR(40) NULL,
+        tracking       VARCHAR(160) NOT NULL DEFAULT '',
         creado_en      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX (grupo_id), INDEX (sku), INDEX (comprado), INDEX (archivado)
+        INDEX (grupo_id), INDEX (sku), INDEX (comprado), INDEX (archivado), INDEX (envio_id)
       )`);
+    // Por si la tabla ya existía sin el vínculo al envío (relación con el tracking).
+    try { await portalPool.query(`ALTER TABLE seg_bo_items ADD COLUMN envio_id VARCHAR(40) NULL`); } catch (e) {}
+    try { await portalPool.query(`ALTER TABLE seg_bo_items ADD COLUMN tracking VARCHAR(160) NOT NULL DEFAULT ''`); } catch (e) {}
 
     // Envíos (trackings) con sus ítems leídos de la factura (tabla, no el PDF).
     await portalPool.query(`
@@ -112,21 +117,47 @@ module.exports = function registrarSeguimiento({
   const s = (v) => (v == null ? '' : String(v));
   const numOrNull = (v) => (v === '' || v == null || isNaN(Number(v))) ? null : Number(v);
   const quienEs = (req) => (req.admin && (req.admin.usuario || (req.admin.maestro ? 'maestro' : ''))) || '';
+  // Normaliza un SKU para comparar (mayúsculas, solo letras/números) — igual que el frontend.
+  const cleanSku = (v) => String(v == null ? '' : v).normalize('NFKD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+  // Backorders EN VIVO del ERP (SOLO LECTURA). Se usa para traerlos y para sincronizar.
+  async function erpBackorders() {
+    const [rows] = await prodPool.query(`
+      SELECT si.id AS sale_item_id, TRIM(pv.sku) AS sku, p.name AS producto,
+             s.code AS venta, s.created_at AS fecha, si.quantity AS cantidad,
+             COALESCE(NULLIF(TRIM(cli.business_name),''),
+                      NULLIF(TRIM(CONCAT_WS(' ', cli.first_name, cli.last_name)),''), '—') AS cliente
+        FROM sale_items si
+        JOIN sales s ON s.id = si.sale_id
+        JOIN product_variations pv ON pv.id = si.product_variation_id
+        JOIN products p ON p.id = pv.product_id
+        LEFT JOIN parties cli ON cli.id = s.customer_id
+       WHERE si.stock_batch_id IS NULL AND si.is_backorder = 1
+         AND s.deleted_at IS NULL AND s.status <> 'cancelled'
+       ORDER BY s.created_at DESC, pv.sku
+       LIMIT 2000`);
+    return rows.map(r => ({
+      sale_item_id: String(r.sale_item_id),
+      sku: r.sku || '', producto: r.producto || '', cliente: r.cliente || '—',
+      venta: r.venta || '', cantidad: Number(r.cantidad) || 0,
+      fecha: r.fecha ? String(r.fecha).slice(0, 10) : ''
+    }));
+  }
 
   // Normaliza una línea de ítem de envío (lo que manda el frontend ya resuelto).
   function itemEnvio(it) {
     it = it || {};
     return {
-      codigo:    s(it.codigo).slice(0, 120),                    // código/n° parte de la factura
-      desc:      s(it.desc).slice(0, 500),                      // descripción original (idioma factura)
-      desc_es:   s(it.desc_es).slice(0, 500),                   // traducción al español (IA)
+      codigo:    s(it.codigo).slice(0, 160),                    // código/n° parte de la factura
+      desc:      s(it.desc).slice(0, 1000),                     // descripción original (idioma factura)
+      desc_es:   s(it.desc_es).slice(0, 1000),                  // traducción al español (IA), completa
       marca:     s(it.marca).slice(0, 120),
       cantidad:  numOrNull(it.cantidad),
       sku:       s(it.sku).slice(0, 120),                       // SKU asignado en el sistema de ventas
       nombre:    s(it.nombre).slice(0, 255),                    // nombre del producto en el sistema
       confianza: s(it.confianza).slice(0, 20),                  // exact | alta | rev | no | manual
       es_backorder: !!it.es_backorder,                          // ¿cubre un producto en backorder?
-      bo_id:     s(it.bo_id).slice(0, 60)                       // ítem de backorder vinculado (opcional)
+      bo_ids:    Array.isArray(it.bo_ids) ? it.bo_ids.map(x => s(x).slice(0, 60)).filter(Boolean) : []
     };
   }
 
@@ -220,6 +251,7 @@ module.exports = function registrarSeguimiento({
         fecha: b.fecha ? String(b.fecha).slice(0, 10) : '',
         comprado: b.comprado ? 1 : 0, nota: b.nota || '', orden: b.orden,
         origen: b.origen, archivado: b.archivado ? 1 : 0,
+        envio_id: b.envio_id || '', tracking: b.tracking || '',
         creado_en: b.creado_en, actualizado_en: b.actualizado_en
       })));
     } catch (e) {
@@ -277,30 +309,34 @@ module.exports = function registrarSeguimiento({
   //    SOLO LECTURA. Igual que /api/importacion/backorders pero devuelve el id
   //    del sale_item para poder "fijarlo" en el portal sin perder su estado.
   app.get('/api/seguimiento/erp-backorders', authAdmin, mSeg, soloMaestroSeg, async (req, res) => {
-    try {
-      const [rows] = await prodPool.query(`
-        SELECT si.id AS sale_item_id, TRIM(pv.sku) AS sku, p.name AS producto,
-               s.code AS venta, s.created_at AS fecha, si.quantity AS cantidad,
-               COALESCE(NULLIF(TRIM(cli.business_name),''),
-                        NULLIF(TRIM(CONCAT_WS(' ', cli.first_name, cli.last_name)),''), '—') AS cliente
-          FROM sale_items si
-          JOIN sales s ON s.id = si.sale_id
-          JOIN product_variations pv ON pv.id = si.product_variation_id
-          JOIN products p ON p.id = pv.product_id
-          LEFT JOIN parties cli ON cli.id = s.customer_id
-         WHERE si.stock_batch_id IS NULL AND si.is_backorder = 1
-           AND s.deleted_at IS NULL AND s.status <> 'cancelled'
-         ORDER BY s.created_at DESC, pv.sku
-         LIMIT 1000`);
-      res.json(rows.map(r => ({
-        sale_item_id: String(r.sale_item_id),
-        sku: r.sku || '', producto: r.producto || '', cliente: r.cliente || '—',
-        venta: r.venta || '', cantidad: Number(r.cantidad) || 0,
-        fecha: r.fecha ? String(r.fecha).slice(0, 10) : ''
-      })));
-    } catch (e) {
+    try { res.json(await erpBackorders()); }
+    catch (e) {
       console.error('[seguimiento] erp-backorders', e.message);
       res.status(500).json({ error: 'No se pudieron leer los backorders del sistema' });
+    }
+  });
+
+  // ── Sincronizar TODOS los backorders del ERP al portal (traerlos por defecto) ─
+  //    Inserta los que aún no están fijados (INSERT IGNORE, conserva nota/grupo/
+  //    comprado de los existentes). Devuelve cuántos nuevos entraron.
+  app.post('/api/seguimiento/bo-items/sync', authAdmin, mSeg, soloMaestroSeg, async (req, res) => {
+    try {
+      const lineas = await erpBackorders();
+      let insertados = 0;
+      for (const l of lineas) {
+        const id = 'erp:' + l.sale_item_id;
+        const [r] = await portalPool.query(
+          `INSERT IGNORE INTO seg_bo_items (id, sku, nombre, cliente, venta, cantidad, fecha, origen)
+           VALUES (?,?,?,?,?,?,?, 'erp')`,
+          [id, s(l.sku).slice(0,120), s(l.producto).slice(0,255), s(l.cliente).slice(0,255),
+           s(l.venta).slice(0,120), numOrNull(l.cantidad),
+           (l.fecha && /^\d{4}-\d{2}-\d{2}/.test(String(l.fecha))) ? String(l.fecha).slice(0,10) : null]);
+        if (r && r.affectedRows) insertados++;
+      }
+      res.json({ ok: true, insertados, total: lineas.length });
+    } catch (e) {
+      console.error('[seguimiento] sync backorders', e.message);
+      res.status(500).json({ error: 'No se pudieron sincronizar los backorders' });
     }
   });
 
@@ -402,6 +438,35 @@ module.exports = function registrarSeguimiento({
       const b = req.body || {};
       const id = s(b.id).trim() || ('env:' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7));
       const items = Array.isArray(b.items) ? b.items.map(itemEnvio) : [];
+      const tracking = s(b.tracking).slice(0, 160);
+
+      // ── RELACIÓN con los backorders ──────────────────────────────────────
+      //  1) Soltar lo que este envío tenía vinculado (por si se editó/quitó una línea).
+      await portalPool.query(
+        `UPDATE seg_bo_items SET comprado = 0, envio_id = NULL, tracking = '' WHERE envio_id = ?`, [id]);
+      //  2) Candidatos: backorders pendientes y libres (no vinculados a otro envío).
+      const [cand] = await portalPool.query(
+        `SELECT id, sku FROM seg_bo_items
+          WHERE comprado = 0 AND (envio_id IS NULL OR envio_id = '') AND archivado = 0`);
+      const mapa = {}; // sku normalizado -> [ids]
+      cand.forEach(r => { const k = cleanSku(r.sku); if (k) (mapa[k] = mapa[k] || []).push(r.id); });
+      //  3) Emparejar cada ítem del envío por SKU. Un SKU se asigna a la 1ª línea que lo trae.
+      const vinculados = new Set();
+      items.forEach(it => {
+        const k = cleanSku(it.sku);
+        const ids = (k && mapa[k]) ? mapa[k] : [];
+        it.bo_ids = ids.slice();
+        if (ids.length) it.es_backorder = true;
+        ids.forEach(x => vinculados.add(x));
+        if (k) mapa[k] = []; // ya consumidos
+      });
+      //  4) Marcar esos backorders como comprados y pegarles el tracking.
+      if (vinculados.size) {
+        await portalPool.query(
+          `UPDATE seg_bo_items SET comprado = 1, envio_id = ?, tracking = ? WHERE id IN (?)`,
+          [id, tracking, [...vinculados]]);
+      }
+
       // ¿Ya existía? conservar creado_por.
       const [prev] = await portalPool.query(`SELECT creado_por FROM seg_envios WHERE id = ?`, [id]);
       const creadoPor = (prev.length && prev[0].creado_por) ? prev[0].creado_por : quienEs(req);
@@ -411,11 +476,11 @@ module.exports = function registrarSeguimiento({
          ON DUPLICATE KEY UPDATE tracking=VALUES(tracking), courier=VALUES(courier), proveedor=VALUES(proveedor),
            n_factura=VALUES(n_factura), estado=VALUES(estado), fecha_estimada=VALUES(fecha_estimada),
            nota=VALUES(nota), items=VALUES(items)`,
-        [id, s(b.tracking).slice(0,160), s(b.courier).slice(0,80), s(b.proveedor).slice(0,255),
+        [id, tracking, s(b.courier).slice(0,80), s(b.proveedor).slice(0,255),
          s(b.n_factura).slice(0,160), (b.estado === 'recibido' ? 'recibido' : 'en_transito'),
          (b.fecha_estimada && /^\d{4}-\d{2}-\d{2}/.test(String(b.fecha_estimada))) ? String(b.fecha_estimada).slice(0,10) : null,
          s(b.nota).slice(0, 2000), JSON.stringify(items), creadoPor]);
-      res.json({ ok: true, id });
+      res.json({ ok: true, id, backorders_vinculados: vinculados.size });
     } catch (e) {
       console.error('[seguimiento] envio guardar', e.message);
       res.status(500).json({ error: 'No se pudo guardar el envío' });
@@ -437,6 +502,9 @@ module.exports = function registrarSeguimiento({
   // ── Eliminar un envío ──────────────────────────────────────────────────────
   app.delete('/api/seguimiento/envio/:id', authAdmin, mSeg, soloMaestroSeg, async (req, res) => {
     try {
+      // Soltar los backorders que este envío tenía vinculados (vuelven a pendientes).
+      await portalPool.query(
+        `UPDATE seg_bo_items SET comprado = 0, envio_id = NULL, tracking = '' WHERE envio_id = ?`, [req.params.id]);
       await portalPool.query(`DELETE FROM seg_envios WHERE id = ?`, [req.params.id]);
       res.json({ ok: true });
     } catch (e) {

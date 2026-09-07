@@ -110,7 +110,7 @@ td.n,th.n{text-align:right}
       <div class="tw" style="margin-top:10px">
         <table>
           <thead><tr>
-            <th>#</th><th>Código</th><th>Descripción (original)</th><th>Descripción (español)</th>
+            <th>#</th><th>Código</th><th>Descripción (español)</th>
             <th class="n">Cant</th><th>SKU en sistema</th><th>Confianza</th><th title="¿Cubre un producto en backorder?">Backorder</th><th></th>
           </tr></thead>
           <tbody id="itemsBody"></tbody>
@@ -148,11 +148,10 @@ td.n,th.n{text-align:right}
 
   <div id="boTools" class="card hide">
     <h3>Gestión de backorders</h3>
-    <div class="hint">Trae los pedidos en backorder del sistema de ventas, organízalos en grupos con la info de la venta, marca cuáles ya compraste y anota por qué o cuándo comprarás cada uno.</div>
+    <div class="hint">Todos los pedidos en backorder del sistema se traen automáticamente. Organízalos en grupos con la info de la venta, marca cuáles ya compraste y anota por qué o cuándo comprarás cada uno. Cuando subes una factura con tracking, los backorders que cubre se marcan solos como comprados y en camino.</div>
     <div class="row">
-      <button onclick="traerErp()">⬇ Traer backorders del sistema</button>
+      <button class="ghost" onclick="sincronizarBo()">↻ Actualizar desde el sistema</button>
       <button class="ghost" onclick="abrirGrupo()">+ Nuevo grupo</button>
-      <button class="ghost" onclick="abrirItemManual()">+ Ítem manual</button>
       <span id="boMsg" class="muted sm"></span>
     </div>
   </div>
@@ -250,7 +249,14 @@ async function init(){
   if(!ES_MAESTRO){$('roNote').classList.remove('hide');}
   else{$('nuevoEnvio').classList.remove('hide');$('boTools').classList.remove('hide');}
   try{CATALOG=await api('/catalogo');initCat();}catch(e){CATALOG=[];}
+  // El maestro trae automáticamente TODOS los backorders del sistema al abrir.
+  if(ES_MAESTRO){try{await api('/bo-items/sync','POST',{});}catch(e){}}
   await Promise.all([cargarEnvios(),cargarBackorders()]);
+}
+async function sincronizarBo(){
+  $('boMsg').textContent='Actualizando desde el sistema…';
+  try{const r=await api('/bo-items/sync','POST',{});$('boMsg').textContent=(r.insertados||0)+' nuevos · '+(r.total||0)+' en total.';await cargarBackorders();}
+  catch(e){$('boMsg').textContent='';toast(e.message);}
 }
 function verTab(t){
   $('st-env').classList.toggle('active',t==='env');
@@ -282,7 +288,7 @@ function pintarEnvios(){
       <b>📦 ${esc(e.tracking||'(sin tracking)')}</b>
       ${badgeEstado(e.estado)}
       ${e.courier?`<span class="chip">${esc(e.courier)}</span>`:''}
-      <span class="muted sm">${esc(e.proveedor||'')}${e.n_factura?(' · Fact. '+esc(e.n_factura)):''}</span>
+      <span class="muted sm">${ES_MAESTRO&&e.proveedor?esc(e.proveedor):''}${(ES_MAESTRO&&e.n_factura)?(' · Fact. '+esc(e.n_factura)):''}</span>
       <span class="muted sm">· ${(e.items||[]).length} ítems</span>
       ${nbo?`<span class="badge b-bo">${nbo} backorder</span>`:''}
       ${e.fecha_estimada?`<span class="muted sm">· llega ${esc(String(e.fecha_estimada).slice(0,10))}</span>`:''}
@@ -319,7 +325,7 @@ async function leerFactura(){
   $('btnLeer').disabled=true;$('leerMsg').textContent='Leyendo la factura con IA…';
   try{
     const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(',')[1]);r.onerror=rej;r.readAsDataURL(f);});
-    const prompt='De esta factura de proveedor devuelve ÚNICAMENTE un objeto JSON (sin texto adicional ni markdown) con la forma {"proveedor": string, "invoice": string, "date": string, "items": [{"item","desc","desc_es","marca","qty"}]}. proveedor = nombre/razón social del EMISOR/vendedor; invoice = número de factura tal como aparece; date = fecha AAAA-MM-DD si aparece; items = SOLO líneas de PRODUCTO: item = código o número de parte del proveedor como string ("" si no hay); desc = descripción del producto TAL CUAL en la factura (idioma original); desc_es = la MISMA descripción traducida al ESPAÑOL de repuestos de bicicleta (ej: brake→freno, rotor/disc→disco, pads→pastillas, lever→palanca, adapter→adaptador, hose→manguera, bleed kit→kit de purga, spacer→espaciador, front→delantero, rear→trasero); marca = la MARCA/fabricante del producto si se identifica ("" si no); qty = cantidad como número. Excluye envío, flete, handling, impuestos, subtotales, totales, descuentos sueltos y cualquier fila que no sea un producto.';
+    const prompt='De esta factura de proveedor devuelve ÚNICAMENTE un objeto JSON (sin texto adicional ni markdown) con la forma {"proveedor": string, "invoice": string, "date": string, "items": [{"item","desc","desc_es","marca","qty"}]}. proveedor = nombre/razón social del EMISOR/vendedor; invoice = número de factura tal como aparece; date = fecha AAAA-MM-DD si aparece; items = SOLO líneas de PRODUCTO: item = código o número de parte del proveedor como string ("" si no hay); desc = descripción del producto TAL CUAL en la factura (idioma original), COMPLETA sin acortar; desc_es = esa MISMA descripción traducida al ESPAÑOL de repuestos de bicicleta de forma ÍNTEGRA — traduce TODAS las palabras y conserva TODOS los datos (medidas, colores, lados, tallas, códigos), no resumas ni omitas nada (ej: brake→freno, rotor/disc→disco, pads→pastillas, lever→palanca, adapter→adaptador, hose→manguera, bleed kit→kit de purga, spacer→espaciador, front→delantero, rear→trasero); marca = la MARCA/fabricante del producto si se identifica ("" si no); qty = cantidad como número. Excluye envío, flete, handling, impuestos, subtotales, totales, descuentos sueltos y cualquier fila que no sea un producto.';
     const resp=await fetch('/api/seguimiento/ia',{method:'POST',headers:H(true),body:JSON.stringify({model,prompt,pdf_base64:b64})});
     const raw=await resp.text();
     if(!resp.ok){let er='';try{er=JSON.parse(raw).error||'';}catch(e){}throw new Error(er||('IA error '+resp.status));}
@@ -358,13 +364,12 @@ function renderItems(){
     }
     return `<tr>
       <td>${i+1}</td>
-      <td><input value="${esc(m.codigo||'')}" oninput="editItems[${i}].codigo=this.value" style="min-width:90px"></td>
-      <td><input value="${esc(m.desc||'')}" oninput="editItems[${i}].desc=this.value" style="min-width:150px"></td>
-      <td><input value="${esc(m.desc_es||'')}" oninput="editItems[${i}].desc_es=this.value" onchange="recalc(${i})" style="min-width:150px"></td>
-      <td class="n"><input type="number" value="${m.cantidad!=null?m.cantidad:''}" oninput="editItems[${i}].cantidad=(this.value===''?null:+this.value)" style="width:60px"></td>
+      <td>${esc(m.codigo||'—')}</td>
+      <td style="min-width:220px;white-space:normal">${esc(m.desc_es||m.desc||'')}</td>
+      <td class="n">${m.cantidad!=null?m.cantidad:''}</td>
       <td>${sel}${m.nombre?`<div class="muted sm">${esc(m.nombre)}</div>`:''}</td>
       <td><span class="badge ${cb[0]}">${cb[1]}</span></td>
-      <td style="text-align:center"><input type="checkbox" ${m.es_backorder?'checked':''} onchange="editItems[${i}].es_backorder=this.checked"></td>
+      <td style="text-align:center">${m.es_backorder?'<span class="badge b-bo">backorder</span>':''}</td>
       <td><button class="danger sm" onclick="delItem(${i})">✕</button></td>
     </tr>`;
   }).join('');
@@ -451,10 +456,11 @@ function filaBo(b){
     : `<span class="muted sm">${esc(b.nota||'')}</span>`;
   const grp= ES_MAESTRO ? `<td><select onchange="setBo('${b.id}','grupo_id',this.value)">${grpOptions(b.grupo_id)}</select></td>` : '';
   const del= ES_MAESTRO ? `<td><button class="danger sm" onclick="borrarBo('${b.id}')">✕</button></td>` : '';
-  return `<tr style="${b.comprado?'opacity:.6':''}">
+  const track = b.tracking ? `<div class="muted sm" style="margin-top:3px"><span class="badge b-tra">🚚 en camino</span> ${esc(b.tracking)}</div>` : '';
+  return `<tr>
     <td style="text-align:center">${chk}</td>
     <td>${esc(b.sku||'')}</td>
-    <td>${esc(b.nombre||'')}</td>
+    <td>${esc(b.nombre||'')}${track}</td>
     <td>${esc(b.cliente||'')}</td>
     <td>${esc(b.venta||'')}${b.fecha?`<div class="muted sm">${esc(b.fecha)}</div>`:''}</td>
     <td class="n">${b.cantidad!=null?b.cantidad:''}</td>
@@ -471,43 +477,6 @@ async function setBo(id,campo,val){
   }catch(e){toast(e.message);await cargarBackorders();}
 }
 async function borrarBo(id){if(!confirm('¿Eliminar este ítem de backorder?'))return;try{await api('/bo-item/'+encodeURIComponent(id),'DELETE');await cargarBackorders();}catch(e){toast(e.message);}}
-
-/* traer del ERP */
-async function traerErp(){
-  $('boMsg').textContent='Consultando el sistema…';
-  try{
-    const lineas=await api('/erp-backorders');
-    if(!lineas.length){$('boMsg').textContent='No hay pedidos en backorder en el sistema.';return;}
-    modalErp(lineas);$('boMsg').textContent='';
-  }catch(e){$('boMsg').textContent='';toast(e.message);}
-}
-function modalErp(lineas){
-  const yaFijados=new Set(BOITEMS.map(b=>b.id));
-  const rows=lineas.map((l,i)=>{
-    const id='erp:'+l.sale_item_id;const ya=yaFijados.has(id);
-    return `<tr>
-      <td style="text-align:center"><input type="checkbox" class="erpChk" data-i="${i}" ${ya?'disabled':'checked'}></td>
-      <td>${esc(l.sku)}</td><td>${esc(l.producto)}</td><td>${esc(l.cliente)}</td>
-      <td>${esc(l.venta)}<div class="muted sm">${esc(l.fecha)}</div></td><td class="n">${l.cantidad}</td>
-      <td>${ya?'<span class="muted sm">ya fijado</span>':''}</td>
-    </tr>`;
-  }).join('');
-  window._erpLineas=lineas;
-  showModal(`<h3>Backorders del sistema (${lineas.length})</h3>
-    <div class="hint">Marca los que quieras gestionar en el portal y fíjalos. Los ya fijados no se vuelven a traer (conservan su nota y grupo).</div>
-    <div class="tw" style="max-height:52vh;overflow:auto"><table><thead><tr><th style="width:34px"></th><th>SKU</th><th>Producto</th><th>Cliente</th><th>Venta</th><th class="n">Cant</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
-    <div class="row" style="margin-top:12px;justify-content:flex-end">
-      <button class="ghost" onclick="cerrarModal()">Cerrar</button>
-      <button class="ok" onclick="fijarErp()">Fijar seleccionados</button>
-    </div>`);
-}
-async function fijarErp(){
-  const chks=[...document.querySelectorAll('.erpChk')].filter(c=>c.checked&&!c.disabled);
-  const lineas=chks.map(c=>window._erpLineas[+c.dataset.i]).filter(Boolean);
-  if(!lineas.length){toast('No hay líneas nuevas seleccionadas');return;}
-  try{const r=await api('/bo-items/importar','POST',{lineas});cerrarModal();toast('Fijados '+(r.insertados||0)+' ítems');await cargarBackorders();}
-  catch(e){toast(e.message);}
-}
 
 /* grupos */
 function abrirGrupo(id){
@@ -539,35 +508,6 @@ async function guardarGrupo(id){
   try{await api('/grupo','POST',payload);cerrarModal();toast('Grupo guardado');await cargarBackorders();}catch(e){toast(e.message);}
 }
 async function borrarGrupo(id){if(!confirm('¿Eliminar el grupo? Sus ítems quedarán sin grupo (no se borran).'))return;try{await api('/grupo/'+encodeURIComponent(id),'DELETE');await cargarBackorders();}catch(e){toast(e.message);}}
-
-/* ítem manual */
-function abrirItemManual(){
-  showModal(`<h3>Ítem de backorder manual</h3>
-    <div class="row" style="flex-direction:column;align-items:stretch;gap:8px">
-      <div class="row">
-        <div class="f"><label>SKU</label><input id="m_sku" style="width:140px"></div>
-        <div class="f" style="flex:1"><label>Producto</label><input id="m_nom"></div>
-      </div>
-      <div class="row">
-        <div class="f" style="flex:1"><label>Cliente</label><input id="m_cli"></div>
-        <div class="f"><label>Venta (VTA)</label><input id="m_vta" style="width:130px"></div>
-        <div class="f"><label>Cantidad</label><input id="m_cant" type="number" style="width:90px"></div>
-      </div>
-      <div class="f"><label>Grupo</label><select id="m_grp">${grpOptions('')}</select></div>
-      <div class="f"><label>Nota</label><textarea id="m_nota" placeholder="¿por qué no lo has comprado / cuándo?"></textarea></div>
-    </div>
-    <div class="row" style="margin-top:12px;justify-content:flex-end">
-      <button class="ghost" onclick="cerrarModal()">Cancelar</button>
-      <button class="ok" onclick="guardarItemManual()">Agregar</button>
-    </div>`);
-}
-async function guardarItemManual(){
-  const payload={sku:$('m_sku').value.trim(),nombre:$('m_nom').value.trim(),cliente:$('m_cli').value.trim(),
-    venta:$('m_vta').value.trim(),cantidad:$('m_cant').value===''?null:+$('m_cant').value,
-    grupo_id:$('m_grp').value||'',nota:$('m_nota').value.trim(),comprado:0};
-  if(!payload.sku&&!payload.nombre){toast('Escribe al menos SKU o producto');return;}
-  try{await api('/bo-item','POST',payload);cerrarModal();toast('Ítem agregado');await cargarBackorders();}catch(e){toast(e.message);}
-}
 
 /* modal helpers */
 function showModal(html){$('modalHost').innerHTML=`<div class="modal-bg" onclick="if(event.target===this)cerrarModal()"><div class="modal">${html}</div></div>`;}

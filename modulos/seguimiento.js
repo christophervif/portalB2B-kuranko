@@ -192,9 +192,13 @@ module.exports = function registrarSeguimiento({
       if (req.query.estado) { sql += ` WHERE estado = ?`; args.push(String(req.query.estado)); }
       sql += ` ORDER BY (estado='recibido') ASC, actualizado_en DESC`;
       const [rows] = await portalPool.query(sql, args);
+      // El proveedor y el N° de factura SOLO los ve el maestro. Al supervisor ni
+      // siquiera se le envían desde el servidor (no basta con ocultarlos en la UI).
+      const esMaestro = !!(req.admin && req.admin.maestro);
       res.json(rows.map(r => ({
-        id: r.id, tracking: r.tracking, courier: r.courier, proveedor: r.proveedor,
-        n_factura: r.n_factura, estado: r.estado, fecha_estimada: r.fecha_estimada,
+        id: r.id, tracking: r.tracking, courier: r.courier,
+        proveedor: esMaestro ? r.proveedor : '', n_factura: esMaestro ? r.n_factura : '',
+        estado: r.estado, fecha_estimada: r.fecha_estimada,
         nota: r.nota || '', items: asJson(r.items, []) || [],
         creado_por: r.creado_por, creado_en: r.creado_en, actualizado_en: r.actualizado_en
       })));
@@ -209,9 +213,11 @@ module.exports = function registrarSeguimiento({
       const [rows] = await portalPool.query(`SELECT * FROM seg_envios WHERE id = ?`, [req.params.id]);
       if (!rows.length) return res.status(404).json({ error: 'Envío no encontrado' });
       const r = rows[0];
+      const esMaestro = !!(req.admin && req.admin.maestro);
       res.json({
-        id: r.id, tracking: r.tracking, courier: r.courier, proveedor: r.proveedor,
-        n_factura: r.n_factura, estado: r.estado, fecha_estimada: r.fecha_estimada,
+        id: r.id, tracking: r.tracking, courier: r.courier,
+        proveedor: esMaestro ? r.proveedor : '', n_factura: esMaestro ? r.n_factura : '',
+        estado: r.estado, fecha_estimada: r.fecha_estimada,
         nota: r.nota || '', items: asJson(r.items, []) || [],
         creado_por: r.creado_por, creado_en: r.creado_en, actualizado_en: r.actualizado_en
       });

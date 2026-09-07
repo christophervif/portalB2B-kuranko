@@ -471,7 +471,7 @@ function tab(t){document.querySelectorAll('.tabbtn').forEach(b=>b.classList.togg
   ['factura','recep','dua','calc','part','guard'].forEach(x=>{const p=$('tab-'+x);if(p)p.classList.toggle('hide',x!==t);});
   if(t==='recep')cargarRecepLista();}
 
-const esc=s=>(s||'').replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
 const n2=v=>(Number(v)||0).toFixed(2);
 
 /* ---------- FACTURA ---------- */
@@ -1087,7 +1087,7 @@ function renderSavedList(){
   // Los guardados internos de recepción (imprec_*) no se listan aquí; se usan desde la pestaña Recepción.
   const visibles=saved.filter(r=>!String(r.id).startsWith('imprec_'));
   if(!visibles.length){box.innerHTML='<div class="hint">Aún no hay importaciones guardadas.</div>';return;}
-  box.innerHTML='<div class="tw"><table><thead><tr><th>#</th><th>Tipo</th><th>Nombre</th><th>Proveedor</th><th>N° imp.</th><th class="n">FOB total (S/)</th><th class="n" title="Flete en soles">Flete (S/)</th><th class="n" title="Costo logístico total puerta a puerta (CIF + origen + locales) en soles">Costo import. logíst. p/p (S/)</th><th class="n">Costo inv. (S/)</th><th>Guardada</th><th title="¿El ingreso ya se subió al sistema de Renzo? (busca la Ref. importación)">ERP·v12</th><th>Acciones</th></tr></thead><tbody>'+
+  box.innerHTML='<div class="tw"><table><thead><tr><th>#</th><th>Tipo</th><th>Nombre</th><th>Proveedor</th><th>N° imp.</th><th class="n">FOB total (S/)</th><th class="n" title="Flete en soles">Flete (S/)</th><th class="n" title="Costo logístico total puerta a puerta (CIF + origen + locales) en soles">Costo import. logíst. p/p (S/)</th><th class="n">Costo inv. (S/)</th><th>Guardada</th><th title="¿El ingreso ya se subió al sistema de Renzo? (busca la Ref. importación)">ERP</th><th>Acciones</th></tr></thead><tbody>'+
     visibles.map(r=>{let R={items:[],totals:{}};try{R=computeImport(r.state);}catch(e){}const tt=R.totals||{};const invT=sum((R.items||[]).map(it=>it.unitSin*(+it.cantidad||0)));
       return `<tr><td>${r.n}</td><td>${esc(r.tipo)}${r.tipo==='Compra'?' <span class="badge b-exact">real</span>':' <span class="badge b-rev">teórico</span>'}</td><td>${esc(r.nombre)}</td><td>${esc((r.meta.proveedorNombre||r.meta.proveedor||'').split('(')[0])}</td><td>${esc(r.meta.numImp||'')}</td><td class="n">${n2(tt.sumFOBsoles)}</td><td class="n">${n2(tt.costoFleteSoles)}</td><td class="n">${n2(tt.costoLogisticoTotal)}</td><td class="n">${n2(invT)}</td><td class="nm">${esc(r.savedAt)}</td>
       <td class="nm"><span class="erp-chk" data-refs="${esc(_refCands(r).join('|'))}"><span class="hint">…</span></span></td>
@@ -1135,7 +1135,6 @@ async function marcarSubidasERP(){
   const consultar = fresco ? all.filter(c=>!(c in _erpChk)) : all;
   if(!consultar.length) return;
   spans.forEach(s=>{ if(_erpTieneVerif(s)&&_spanCands(s).length) s.innerHTML='<span style="display:inline-block;background:#eef2f7;color:#64748b;border-radius:10px;padding:2px 9px;font-size:12px;font-style:italic" title="Consultando el ERP…">verificando…</span>'; });
-  console.log('[ERP v12] consultando', consultar);
   // FETCH directo (probado) con timeout; luego se REBUSCAN las celdas por si el DOM se re-renderizó.
   let mapa=null;
   try{
@@ -1143,18 +1142,15 @@ async function marcarSubidasERP(){
     const to=ctrl?setTimeout(()=>ctrl.abort(),8000):null;
     const r=await fetch(API+'/erp-subidas',{method:'POST',headers:_authHeaders(true),body:JSON.stringify({refs:consultar}),signal:ctrl?ctrl.signal:undefined});
     if(to)clearTimeout(to);
-    console.log('[ERP v12] respondió HTTP', r.status);
     if(r.status===401||r.status===403) throw new Error('sesión expirada');
     if(!r.ok) throw new Error('API '+r.status);
     mapa=await r.json();
-    console.log('[ERP v12] datos', mapa);
-  }catch(e){ console.warn('[ERP v12] catch', e&&e.name, e&&e.message); const m=(e&&e.name==='AbortError')?'timeout (>8s)':String(e&&e.message||e);
+  }catch(e){ const m=(e&&e.name==='AbortError')?'timeout (>8s)':String(e&&e.message||e);
     _erpSpans().forEach(s=>{ if(_erpTieneVerif(s)&&_spanCands(s).length) s.innerHTML='<span style="display:inline-block;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:10px;padding:2px 8px;font-size:12px;font-weight:700" title="No se pudo verificar el ERP: '+esc(m)+'">⚠ sin verificar</span>'; });
     console.warn('[ERP] erp-subidas falló:', m); return; }
   consultar.forEach(c=>{ _erpChk[c]=(mapa&&mapa[c]&&mapa[c].subida)?mapa[c]:false; });
   _erpChkAt=Date.now();
   _erpPintaTodo(); // rebusca las celdas actuales y pinta el resultado
-  console.log('[ERP v12] pintado. cache=', _erpChk);
 }
 function eliminarImportacion(id){if(!confirm('¿Eliminar esta importación guardada?'))return;saved=saved.filter(r=>r.id!==id);apiSend('/importaciones/'+encodeURIComponent(id),'DELETE');renderSavedList();}
 function cargarImportacion(id){

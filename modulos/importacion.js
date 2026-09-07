@@ -277,7 +277,7 @@ module.exports = function registrarImportacion({
           for (const { t, c } of plan) {
             try {
               const [rows] = await prodPool.query(
-                'SELECT `' + c + '` AS ref, id FROM `' + t + '` WHERE TRIM(`' + c + '`) IN (?) LIMIT 500', [need]);
+                'SELECT `' + c + '` AS ref, id FROM `' + t + '` WHERE `' + c + '` IN (?) LIMIT 500', [need]);
               rows.forEach(row => {
                 const val = String(row.ref == null ? '' : row.ref).trim().toUpperCase();
                 const i = upper.indexOf(val);
@@ -310,7 +310,7 @@ module.exports = function registrarImportacion({
         if (!refs.length) break;
         try {
           const [rows] = await prodPool.query(
-            'SELECT `' + c + '` AS ref, id FROM `' + t + '` WHERE TRIM(`' + c + '`) IN (?) LIMIT 500', [refs]);
+            'SELECT `' + c + '` AS ref, id FROM `' + t + '` WHERE `' + c + '` IN (?) LIMIT 500', [refs]);
           rows.forEach(row => {
             const val = String(row.ref == null ? '' : row.ref).trim().toUpperCase();
             const i = upper.indexOf(val);

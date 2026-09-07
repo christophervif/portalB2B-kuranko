@@ -1387,7 +1387,17 @@ function _ingresoRows(r,ctx){const H=_ingresoHead();
     const cant=it.cantidad;
     const m={fecha:ctx.fecha,'Código':it.codigo,'Cantidad':cant,destino:dest,'almacen_nombre':anom,'Precio EXW':(+it.cantidad?rnd(it.subEXW/it.cantidad,4):it.precioEXW),moneda:r.totals.J1,tipo_cambio:ctx.tc,'Costo real sin impuesto deducible soles UNITARIO':n2(it.unitSin),'Costo real soles UNITARIO':n2(it.unitCon),'Importación':ctx.impCode,tipo_documento:'00',numero_documento:ctx.numDoc,tipo_doc_proveedor:'00',proveedor:ctx.prov,empresa:ctx.empresa,N:ctx.N,costo_logistico:n2(r.totals.costoLogistico),costo_envio_origen:n2(r.totals.costoEnvioOrigen),impuesto_deducible:n2(r.totals.impDeducible),impuesto_no_deducible1:n2(r.totals.impNoDeducible)};return H.map(h=>m[h]!==undefined?m[h]:'');});}
 let lastIngreso=null;
-async function apiPost(ep,body){const r=await fetch(API+ep,{method:'POST',headers:_authHeaders(true),body:JSON.stringify(body||{})});if(r.status===401||r.status===403){throw new Error('Sesión del portal expirada — vuelve a entrar al panel.');}if(!r.ok)throw new Error('API '+r.status);return r.json();}
+async function apiPost(ep,body,timeoutMs){
+  const ctrl=(typeof AbortController!=='undefined')?new AbortController():null;
+  const to=ctrl?setTimeout(()=>ctrl.abort(),timeoutMs||15000):null; // no colgarse si el ERP no responde
+  try{
+    const r=await fetch(API+ep,{method:'POST',headers:_authHeaders(true),body:JSON.stringify(body||{}),signal:ctrl?ctrl.signal:undefined});
+    if(r.status===401||r.status===403){throw new Error('Sesión del portal expirada — vuelve a entrar al panel.');}
+    if(!r.ok)throw new Error('API '+r.status);
+    return r.json();
+  }catch(e){ if(e&&e.name==='AbortError') throw new Error('tiempo de espera agotado'); throw e; }
+  finally{ if(to)clearTimeout(to); }
+}
 // Hoja "Productos a pedido": ventas en backorder que coinciden en SKU con lo que
 // se ingresa. Se consulta al ERP en cada exportación (SOLO LECTURA).
 async function _hojaPedidos(skus){

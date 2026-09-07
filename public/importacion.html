@@ -1090,13 +1090,21 @@ function renderSavedList(){
   box.innerHTML='<div class="tw"><table><thead><tr><th>#</th><th>Tipo</th><th>Nombre</th><th>Proveedor</th><th>N° imp.</th><th class="n">FOB total (S/)</th><th class="n" title="Flete en soles">Flete (S/)</th><th class="n" title="Costo logístico total puerta a puerta (CIF + origen + locales) en soles">Costo import. logíst. p/p (S/)</th><th class="n">Costo inv. (S/)</th><th>Guardada</th><th title="¿El ingreso ya se subió al sistema de Renzo? (busca la Ref. importación)">ERP</th><th>Acciones</th></tr></thead><tbody>'+
     visibles.map(r=>{let R={items:[],totals:{}};try{R=computeImport(r.state);}catch(e){}const tt=R.totals||{};const invT=sum((R.items||[]).map(it=>it.unitSin*(+it.cantidad||0)));
       return `<tr><td>${r.n}</td><td>${esc(r.tipo)}${r.tipo==='Compra'?' <span class="badge b-exact">real</span>':' <span class="badge b-rev">teórico</span>'}</td><td>${esc(r.nombre)}</td><td>${esc((r.meta.proveedorNombre||r.meta.proveedor||'').split('(')[0])}</td><td>${esc(r.meta.numImp||'')}</td><td class="n">${n2(tt.sumFOBsoles)}</td><td class="n">${n2(tt.costoFleteSoles)}</td><td class="n">${n2(tt.costoLogisticoTotal)}</td><td class="n">${n2(invT)}</td><td class="nm">${esc(r.savedAt)}</td>
-      <td class="nm"><span class="erp-chk" data-ref="${esc(r.meta.codigo||'')}"><span class="hint">·</span></span></td>
+      <td class="nm"><span class="erp-chk" data-ref="${esc(_refImp(r))}"><span class="hint">…</span></span></td>
       <td style="white-space:nowrap"><button class="btn-sm" onclick="cargarImportacion('${r.id}')">Cargar</button> <button class="btn-sm" onclick="exportImportExcel('${r.id}')">Excel</button> <button class="btn-sm" onclick="exportIngresoSaved('${r.id}')">Ingreso</button> ${(r.state&&r.state.dua&&((r.state.dua.series&&r.state.dua.series.length)||r.state.dua.header))?`<button class="btn-sm" onclick="exportDuaSaved('${r.id}')">DUA</button> `:''}<button class="btn-sm" onclick="exportImportPDF('${r.id}')">PDF</button> <span class="btn-del" onclick="eliminarImportacion('${r.id}')">✕</span></td></tr>`;}).join('')+'</tbody></table></div>'
       +'<div class="actions" style="margin-top:8px"><button class="btn-sm" onclick="exportResumenGeneral()">⬇ Exportar tabla general (resumen + detalle)</button></div>';
   marcarSubidasERP();
 }
 // Marca en Guardadas cuáles importaciones ya tienen su ingreso subido al ERP de
 // Renzo (busca la Ref. importación = código en el ingreso). Best-effort.
+// Código de importación (Ref. importación) de un registro guardado, de forma
+// confiable: meta.codigo; si falta, el nombre cuando parece un código (IMP/SIMP/COT).
+function _refImp(r){
+  const c=(r&&r.meta&&r.meta.codigo)?String(r.meta.codigo).trim():'';
+  if(c) return c;
+  const n=(r&&r.nombre)?String(r.nombre).trim():'';
+  return /^(IMP|SIMP|COT)/i.test(n)?n:'';
+}
 let _erpChk={}, _erpChkAt=0; // caché de sesión (evita golpear el ERP en cada render)
 function _erpPinta(s){
   const hit=_erpChk[s.dataset.ref];
@@ -1108,6 +1116,8 @@ function _erpPinta(s){
 async function marcarSubidasERP(){
   const box=$('savedList'); if(!box||!box.querySelectorAll)return;
   const spans=[...box.querySelectorAll('.erp-chk')];
+  // Las que no tienen código no se pueden verificar: se marca distinto.
+  spans.filter(s=>!s.dataset.ref).forEach(s=>{ s.innerHTML='<span style="display:inline-block;background:#f1f5f9;color:#94a3b8;border-radius:10px;padding:2px 8px;font-size:11px" title="Este guardado no tiene código de importación para buscar en el ERP">sin código</span>'; });
   const refs=[...new Set(spans.map(s=>s.dataset.ref).filter(Boolean))];
   if(!refs.length)return;
   const fresco=(Date.now()-_erpChkAt)<5*60*1000; // 5 min

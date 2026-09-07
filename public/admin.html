@@ -257,6 +257,7 @@ tr:hover td{background:var(--hover)}
       <button class="tab" onclick="tab('crm',this)">CRM Kommo</button>
       <button class="tab" onclick="tab('importaciones',this)">Importaciones</button>
       <button class="tab" onclick="tab('recepciones',this)">Recepciones <span id="rec-badge" class="rec-badge" style="display:none">0</span></button>
+      <button class="tab" onclick="tab('seguimiento',this)">Seguimiento <span id="seg-badge" class="rec-badge" style="display:none">0</span></button>
       <button class="tab" data-modulos="sync,pagos,accesos" onclick="tab('sistemas',this)">Sistemas</button>
     </div>
 
@@ -740,6 +741,13 @@ tr:hover td{background:var(--hover)}
       </div>
     </div>
 
+    <div id="tab-seguimiento" class="panel">
+      <div class="card" style="padding:0;overflow:hidden">
+        <iframe id="seg-frame" title="Seguimiento — trackings y backorders"
+          style="width:100%;height:calc(100vh - 150px);min-height:560px;border:0;display:block"></iframe>
+      </div>
+    </div>
+
     <div id="tab-recepciones" class="panel">
       <!-- LISTA de recepciones -->
       <div id="rec-lista-vista">
@@ -907,7 +915,7 @@ function aplicarPermisos(){
 const APP_ICONOS={
   clientes_gestion:'👤', ventas_ingresos:'📊', clientes_bi:'👥',
   inventario:'📦', restock:'🔁', reportes:'💰', auditoria:'🔍',
-  crm:'📣', sistemas:'⚙️', promociones:'🏷️', importaciones:'🚢', recepciones:'📥'
+  crm:'📣', sistemas:'⚙️', promociones:'🏷️', importaciones:'🚢', recepciones:'📥', seguimiento:'🚚'
 };
 
 // Genera las tarjetas del launcher a partir de las pestañas visibles (respeta permisos)
@@ -1001,6 +1009,11 @@ function cargarDatosTab(id){
     // Comparte el mismo origen, así que la app lee el token admin de localStorage.
     const fr=document.getElementById('imp-frame');
     if(fr&&!fr.src){fr.src='/importacion.html?v='+Date.now();} // ?v evita que el iframe quede cacheado con una versión vieja
+  }
+  else if(id==='seguimiento'){
+    // App de seguimiento (trackings + backorders) en iframe; lee el token de localStorage.
+    const fr=document.getElementById('seg-frame');
+    if(fr&&!fr.src){fr.src='/seguimiento.html?v='+Date.now();}
   }
 }
 
@@ -3161,7 +3174,7 @@ async function cargarEstadoActualizacion(){
   }catch(e){ if(box)box.style.display='none'; }
 }
 // Nombres legibles de los módulos
-const NOMBRE_MODULO={clientes_gestion:'Gestión de clientes',sync:'Sincronización web (en Sistemas)',auditoria:'Auditoría de catálogo',resumen:'Resumen de ventas (en Ventas e ingresos)',rentabilidad:'Rentabilidad (en Ventas e ingresos)',inventario:'Inventario',restock:'Restock',clientes_bi:'Clientes BI',caja_bi:'Ingresos y caja (en Ventas e ingresos)',crm:'CRM Kommo',reportes:'Contabilidad',pagos:'Métodos de pago (en Sistemas)',importaciones:'Importaciones',recepciones:'Recepciones'};
+const NOMBRE_MODULO={clientes_gestion:'Gestión de clientes',sync:'Sincronización web (en Sistemas)',auditoria:'Auditoría de catálogo',resumen:'Resumen de ventas (en Ventas e ingresos)',rentabilidad:'Rentabilidad (en Ventas e ingresos)',inventario:'Inventario',restock:'Restock',clientes_bi:'Clientes BI',caja_bi:'Ingresos y caja (en Ventas e ingresos)',crm:'CRM Kommo',reportes:'Contabilidad',pagos:'Métodos de pago (en Sistemas)',importaciones:'Importaciones',recepciones:'Recepciones',seguimiento:'Seguimiento (trackings y backorders)'};
 let accesosCache={modulos_disponibles:[],usuarios:[]};
 async function cargarAccesos(){
   try{

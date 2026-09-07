@@ -12,10 +12,16 @@ const path = require('path');
 const { EMPRESAS_BI, fechaHoraLima, fechaLima, nombreTrazable, rango, cabeceraExcel } = require('./modulos/comunes');
 
 const app = express();
+// Compresión gzip: reduce MUCHO el egress de Railway (las páginas pesan cientos
+// de KB). Si el paquete no está instalado, sigue funcionando sin comprimir.
+try { const compression = require('compression'); app.use(compression()); }
+catch (e) { console.warn('[perf] compression no disponible (npm i compression):', e.message); }
 app.use(cors({ origin: '*' }));
 // Límite amplio: el módulo de Importaciones reenvía PDFs (base64) a la IA.
 app.use(express.json({ limit: '25mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+// Estáticos con caché de navegador (etag + 1h): evita reenviar los HTML/JS
+// completos en cada visita.
+app.use(express.static(path.join(__dirname, 'public'), { maxAge: '1h', etag: true }));
 
 // ─── Conexiones (usan URLs públicas completas de Railway) ────────────────────
 // PROD_URL    = MYSQL_PUBLIC_URL de la base de producción (se fuerza readonly por usuario)

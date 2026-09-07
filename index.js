@@ -19,9 +19,16 @@ catch (e) { console.warn('[perf] compression no disponible (npm i compression):'
 app.use(cors({ origin: '*' }));
 // Límite amplio: el módulo de Importaciones reenvía PDFs (base64) a la IA.
 app.use(express.json({ limit: '25mb' }));
-// Estáticos con caché de navegador (etag + 1h): evita reenviar los HTML/JS
-// completos en cada visita.
-app.use(express.static(path.join(__dirname, 'public'), { maxAge: '1h', etag: true }));
+// Estáticos: el HTML SIEMPRE revalida (no-cache + etag) para no servir versiones
+// viejas tras un deploy; los demás recursos sí se cachean 1h. La compresión gzip
+// (arriba) es la que ahorra egress, no la caché.
+app.use(express.static(path.join(__dirname, 'public'), {
+  etag: true,
+  setHeaders: (res, filePath) => {
+    if (/\.html?$/i.test(filePath)) res.setHeader('Cache-Control', 'no-cache');
+    else res.setHeader('Cache-Control', 'public, max-age=3600');
+  }
+}));
 
 // ─── Conexiones (usan URLs públicas completas de Railway) ────────────────────
 // PROD_URL    = MYSQL_PUBLIC_URL de la base de producción (se fuerza readonly por usuario)

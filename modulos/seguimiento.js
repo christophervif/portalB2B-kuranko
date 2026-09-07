@@ -1,521 +1,333 @@
 // ═══════════════════════════════════════════════════════════════════════════
-//  MÓDULO: Seguimiento de envíos (trackings) + gestión de Backorders
+//  MÓDULO: Importaciones (costeo de importación / landed cost)
+//  La app vive en /importacion.html (dentro del panel admin, pestaña 🚢).
 //
-//  Idea (lo pediste tú):
-//   1) TÚ (maestro) subes una factura de proveedor. La IA (Gemini, misma clave
-//      protegida que Importaciones) la lee y devuelve las líneas con su
-//      traducción al ESPAÑOL. La factura NO se modifica: se muestra tal cual y
-//      se le asigna manualmente un N° de TRACKING. Cada línea trae su SKU
-//      sugerido con un INDICADOR DE CONFIANZA (exacto/alta/revisar/sin match),
-//      igual que en Importaciones.
-//   2) El envío queda con su tracking y sus ítems. Se marca cuáles de esos
-//      ítems corresponden a productos en BACKORDER (los que un cliente ya pidió
-//      y están esperando stock). Así el SUPERVISOR ve, con el tracking, qué está
-//      llegando y con cuánta confianza, y cuáles cubren backorders.
-//   3) GESTIÓN DE BACKORDERS: la lista de pedidos a la espera de stock se lee
-//      del ERP (sale_items.is_backorder = 1, SOLO LECTURA) y se "fija" en el
-//      portal para poder gestionarla: marcar cuáles YA compraste, escribir una
-//      NOTA por ítem (por qué no lo has comprado / cuándo lo comprarás) y
-//      organizarlos en GRUPOS con nombre. Cada grupo lleva info de la venta:
-//      VTA, cliente, precio de venta y precio ya pagado.
+//  - CATÁLOGO: se LEE en vivo del sistema de ventas de Renzo (prodPool →
+//    product_variations), SOLO LECTURA, excluyendo los productos padre
+//    ('variable'). No se copia ni se guarda: siempre refleja lo que hay en
+//    ventas.
+//  - TASAS por partida, IMPORTACIONES guardadas y MEMORIA producto↔partida:
+//    se guardan en la base del PORTAL (portalPool), en las tablas imp_*.
+//  - IA (Gemini): el navegador manda { model, prompt, pdf_base64 } y el
+//    servidor le agrega la CLAVE (GEMINI_API_KEY) y reenvía a Google. El PDF
+//    NO se almacena: solo vive en memoria durante el reenvío.
 //
-//  Permisos:
-//   · LEER  todo → cualquier admin con el módulo 'seguimiento' (incluye al
-//     supervisor). El supervisor VE los envíos, trackings, confianza,
-//     backorders y la info de venta de los grupos.
-//   · ESCRIBIR (subir factura, IA, asignar tracking, gestionar backorders,
-//     grupos) → SOLO el maestro. El supervisor no sube nada.
-//
-//  Almacenamiento:
-//   · prodPool (ERP de Renzo) → SOLO LECTURA: catálogo y líneas de backorder.
-//   · portalPool → tablas seg_* (envíos, backorders gestionados, grupos).
-//   · La factura NO se guarda (ni el PDF): solo la tabla de líneas ya leída.
+//  Todo va protegido por authAdmin + requiereModulo('importaciones').
 // ═══════════════════════════════════════════════════════════════════════════
 
-module.exports = function registrarSeguimiento({
+module.exports = function registrarImportacion({
   app, authAdmin, requiereModulo, prodPool, portalPool
 }) {
 
-  const mSeg = requiereModulo('seguimiento'); // lectura: admin con el módulo (el maestro pasa)
+  const mImp = requiereModulo('importaciones'); // solo admins con el módulo (el maestro siempre pasa)
 
-  // Escritura: SOLO el maestro. El supervisor únicamente visualiza.
-  function soloMaestroSeg(req, res, next) {
-    if (!req.admin || !req.admin.maestro)
-      return res.status(403).json({ error: 'Solo el administrador puede modificar el seguimiento.' });
-    next();
-  }
-
-  // ── Preparar tablas del portal (se llama una vez al arrancar) ──────────────
+  // ── Preparar las tablas del portal (se llama una vez al arrancar) ──────────
   async function prepararTablas() {
-    // Grupos de backorder (con info de la venta). Un grupo agrupa varios ítems.
+    // Tasas por partida arancelaria: un solo registro con el arreglo completo en JSON.
     await portalPool.query(`
-      CREATE TABLE IF NOT EXISTS seg_grupos (
-        id             VARCHAR(40) PRIMARY KEY,
-        nombre         VARCHAR(200) NOT NULL DEFAULT '',
-        vta            VARCHAR(120) NOT NULL DEFAULT '',
-        cliente        VARCHAR(255) NOT NULL DEFAULT '',
-        precio_venta   DECIMAL(12,2) NULL,
-        precio_pagado  DECIMAL(12,2) NULL,
-        nota           TEXT,
-        orden          INT NOT NULL DEFAULT 0,
-        creado_en      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      CREATE TABLE IF NOT EXISTS imp_partidas (
+        id   TINYINT UNSIGNED PRIMARY KEY,
+        data JSON NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       )`);
-
-    // Ítems de backorder GESTIONADOS. Se "fijan" desde el ERP (origen='erp',
-    // id = 'erp:'+sale_item_id) o se agregan a mano (origen='manual').
+    // Memoria producto ↔ partida: un solo registro, objeto JSON.
     await portalPool.query(`
-      CREATE TABLE IF NOT EXISTS seg_bo_items (
-        id             VARCHAR(60) PRIMARY KEY,
-        grupo_id       VARCHAR(40) NULL,
-        sku            VARCHAR(120) NOT NULL DEFAULT '',
-        nombre         VARCHAR(255) NOT NULL DEFAULT '',
-        cliente        VARCHAR(255) NOT NULL DEFAULT '',
-        venta          VARCHAR(120) NOT NULL DEFAULT '',
-        cantidad       INT NULL,
-        fecha          DATE NULL,
-        comprado       TINYINT(1) NOT NULL DEFAULT 0,
-        nota           TEXT,
-        orden          INT NOT NULL DEFAULT 0,
-        origen         VARCHAR(10) NOT NULL DEFAULT 'erp',
-        archivado      TINYINT(1) NOT NULL DEFAULT 0,
-        envio_id       VARCHAR(40) NULL,
-        tracking       VARCHAR(160) NOT NULL DEFAULT '',
-        creado_en      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX (grupo_id), INDEX (sku), INDEX (comprado), INDEX (archivado), INDEX (envio_id)
+      CREATE TABLE IF NOT EXISTS imp_partida_mem (
+        id   TINYINT UNSIGNED PRIMARY KEY,
+        data JSON NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       )`);
-    // Por si la tabla ya existía sin el vínculo al envío (relación con el tracking).
-    try { await portalPool.query(`ALTER TABLE seg_bo_items ADD COLUMN envio_id VARCHAR(40) NULL`); } catch (e) {}
-    try { await portalPool.query(`ALTER TABLE seg_bo_items ADD COLUMN tracking VARCHAR(160) NOT NULL DEFAULT ''`); } catch (e) {}
-
-    // Envíos (trackings) con sus ítems leídos de la factura (tabla, no el PDF).
+    // Importaciones guardadas (cotizaciones y compras): una fila por importación.
     await portalPool.query(`
-      CREATE TABLE IF NOT EXISTS seg_envios (
-        id             VARCHAR(40) PRIMARY KEY,
-        tracking       VARCHAR(160) NOT NULL DEFAULT '',
-        courier        VARCHAR(80)  NOT NULL DEFAULT '',
-        proveedor      VARCHAR(255) NOT NULL DEFAULT '',
-        n_factura      VARCHAR(160) NOT NULL DEFAULT '',
-        estado         VARCHAR(20)  NOT NULL DEFAULT 'en_transito',
-        fecha_estimada DATE NULL,
-        nota           TEXT,
-        items          JSON NOT NULL,
-        creado_por     VARCHAR(120) NOT NULL DEFAULT '',
-        creado_en      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX (tracking), INDEX (estado)
+      CREATE TABLE IF NOT EXISTS imp_importaciones (
+        id     VARCHAR(40) PRIMARY KEY,
+        n      INT UNSIGNED NOT NULL DEFAULT 0,
+        tipo   VARCHAR(20)  NOT NULL DEFAULT '',
+        codigo VARCHAR(80)  NOT NULL DEFAULT '',
+        rec    JSON NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX (n), INDEX (codigo), INDEX (tipo)
       )`);
   }
 
-  // ── Helpers ────────────────────────────────────────────────────────────────
-  const asJson = (v, fb) => {
-    if (v == null) return fb;
+  // Helper: parsea JSON que puede venir como string o ya como objeto (mysql2 con
+  // columnas JSON a veces devuelve el objeto ya parseado).
+  const asJson = (v, fallback) => {
+    if (v == null) return fallback;
     if (typeof v === 'object') return v;
-    try { return JSON.parse(v); } catch (e) { return fb; }
+    try { return JSON.parse(v); } catch (e) { return fallback; }
   };
-  const s = (v) => (v == null ? '' : String(v));
-  const numOrNull = (v) => (v === '' || v == null || isNaN(Number(v))) ? null : Number(v);
-  const quienEs = (req) => (req.admin && (req.admin.usuario || (req.admin.maestro ? 'maestro' : ''))) || '';
-  // Normaliza un SKU para comparar (mayúsculas, solo letras/números) — igual que el frontend.
-  const cleanSku = (v) => String(v == null ? '' : v).normalize('NFKD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-  // Backorders EN VIVO del ERP (SOLO LECTURA). Se usa para traerlos y para sincronizar.
-  async function erpBackorders() {
-    const [rows] = await prodPool.query(`
-      SELECT si.id AS sale_item_id, TRIM(pv.sku) AS sku, p.name AS producto,
-             s.code AS venta, s.created_at AS fecha, si.quantity AS cantidad,
-             COALESCE(NULLIF(TRIM(cli.business_name),''),
-                      NULLIF(TRIM(CONCAT_WS(' ', cli.first_name, cli.last_name)),''), '—') AS cliente
-        FROM sale_items si
-        JOIN sales s ON s.id = si.sale_id
-        JOIN product_variations pv ON pv.id = si.product_variation_id
-        JOIN products p ON p.id = pv.product_id
-        LEFT JOIN parties cli ON cli.id = s.customer_id
-       WHERE si.stock_batch_id IS NULL AND si.is_backorder = 1
-         AND s.deleted_at IS NULL AND s.status <> 'cancelled'
-       ORDER BY s.created_at DESC, pv.sku
-       LIMIT 2000`);
-    return rows.map(r => ({
-      sale_item_id: String(r.sale_item_id),
-      sku: r.sku || '', producto: r.producto || '', cliente: r.cliente || '—',
-      venta: r.venta || '', cantidad: Number(r.cantidad) || 0,
-      fecha: r.fecha ? String(r.fecha).slice(0, 10) : ''
-    }));
-  }
-
-  // Normaliza una línea de ítem de envío (lo que manda el frontend ya resuelto).
-  function itemEnvio(it) {
-    it = it || {};
-    return {
-      codigo:    s(it.codigo).slice(0, 160),                    // código/n° parte de la factura
-      desc:      s(it.desc).slice(0, 1000),                     // descripción original (idioma factura)
-      desc_es:   s(it.desc_es).slice(0, 1000),                  // traducción al español (IA), completa
-      marca:     s(it.marca).slice(0, 120),
-      cantidad:  numOrNull(it.cantidad),
-      sku:       s(it.sku).slice(0, 120),                       // SKU asignado en el sistema de ventas
-      nombre:    s(it.nombre).slice(0, 255),                    // nombre del producto en el sistema
-      confianza: s(it.confianza).slice(0, 20),                  // exact | alta | rev | no | manual
-      es_backorder: !!it.es_backorder,                          // ¿cubre un producto en backorder?
-      bo_ids:    Array.isArray(it.bo_ids) ? it.bo_ids.map(x => s(x).slice(0, 60)).filter(Boolean) : []
-    };
-  }
-
-  // ════════════════════════════════════════════════════════════════════════
-  //  LECTURA (supervisor + maestro)
-  // ════════════════════════════════════════════════════════════════════════
-
-  // ── Catálogo del sistema de ventas (solo lectura) → [[sku, name], ...] ─────
+  // ── 1) CATÁLOGO (solo lectura, desde Renzo) → [[sku, name], ...] ───────────
+  //    Excluye 'variable' (productos padre) y borrados. TRIM al sku (a veces
+  //    trae tabuladores/espacios). Caché en memoria de 10 min.
   let _catCache = null, _catAt = 0;
   const CAT_TTL = 10 * 60 * 1000;
-  app.get('/api/seguimiento/catalogo', authAdmin, mSeg, async (req, res) => {
+
+  app.get('/api/importacion/catalogo', authAdmin, mImp, async (req, res) => {
     try {
-      if (_catCache && (Date.now() - _catAt) < CAT_TTL && !req.query.fresh) return res.json(_catCache);
+      if (_catCache && (Date.now() - _catAt) < CAT_TTL && !req.query.fresh) {
+        return res.json(_catCache);
+      }
       const [rows] = await prodPool.query(`
-        SELECT TRIM(sku) AS sku, name FROM product_variations
-         WHERE product_type <> 'variable' AND deleted_at IS NULL
-           AND sku IS NOT NULL AND TRIM(sku) <> '' ORDER BY sku`);
+        SELECT TRIM(sku) AS sku, name
+          FROM product_variations
+         WHERE product_type <> 'variable'
+           AND deleted_at IS NULL
+           AND sku IS NOT NULL AND TRIM(sku) <> ''
+         ORDER BY sku`);
       _catCache = rows.map(r => [r.sku, r.name || '']);
       _catAt = Date.now();
       res.json(_catCache);
     } catch (e) {
-      console.error('[seguimiento] catalogo', e.message);
+      console.error('[importacion] catalogo', e.message);
       res.status(500).json({ error: 'No se pudo leer el catálogo' });
     }
   });
 
-  // ── Envíos (con sus ítems) ─────────────────────────────────────────────────
-  //    ?estado=en_transito|recibido para filtrar.
-  app.get('/api/seguimiento/envios', authAdmin, mSeg, async (req, res) => {
+  // ── 2) TASAS POR PARTIDA (portal) — se guarda/lee el arreglo completo ──────
+  app.get('/api/importacion/partidas', authAdmin, mImp, async (req, res) => {
     try {
-      let sql = `SELECT * FROM seg_envios`, args = [];
-      if (req.query.estado) { sql += ` WHERE estado = ?`; args.push(String(req.query.estado)); }
-      sql += ` ORDER BY (estado='recibido') ASC, actualizado_en DESC`;
-      const [rows] = await portalPool.query(sql, args);
-      // El proveedor y el N° de factura SOLO los ve el maestro. Al supervisor ni
-      // siquiera se le envían desde el servidor (no basta con ocultarlos en la UI).
-      const esMaestro = !!(req.admin && req.admin.maestro);
-      res.json(rows.map(r => ({
-        id: r.id, tracking: r.tracking, courier: r.courier,
-        proveedor: esMaestro ? r.proveedor : '', n_factura: r.n_factura,
-        estado: r.estado, fecha_estimada: r.fecha_estimada,
-        nota: r.nota || '', items: asJson(r.items, []) || [],
-        creado_por: r.creado_por, creado_en: r.creado_en, actualizado_en: r.actualizado_en
-      })));
+      const [rows] = await portalPool.query(`SELECT data FROM imp_partidas WHERE id = 1`);
+      res.json(rows.length ? asJson(rows[0].data, null) : null); // null => la app usa DEFAULT_PARTIDAS
     } catch (e) {
-      console.error('[seguimiento] envios', e.message);
-      res.status(500).json({ error: 'No se pudieron leer los envíos' });
+      console.error('[importacion] get partidas', e.message);
+      res.status(500).json({ error: 'No se pudieron leer las partidas' });
     }
   });
 
-  app.get('/api/seguimiento/envio/:id', authAdmin, mSeg, async (req, res) => {
+  app.put('/api/importacion/partidas', authAdmin, mImp, async (req, res) => {
     try {
-      const [rows] = await portalPool.query(`SELECT * FROM seg_envios WHERE id = ?`, [req.params.id]);
-      if (!rows.length) return res.status(404).json({ error: 'Envío no encontrado' });
-      const r = rows[0];
-      const esMaestro = !!(req.admin && req.admin.maestro);
-      res.json({
-        id: r.id, tracking: r.tracking, courier: r.courier,
-        proveedor: esMaestro ? r.proveedor : '', n_factura: r.n_factura,
-        estado: r.estado, fecha_estimada: r.fecha_estimada,
-        nota: r.nota || '', items: asJson(r.items, []) || [],
-        creado_por: r.creado_por, creado_en: r.creado_en, actualizado_en: r.actualizado_en
-      });
-    } catch (e) {
-      console.error('[seguimiento] envio', e.message);
-      res.status(500).json({ error: 'No se pudo leer el envío' });
-    }
-  });
-
-  // ── Grupos de backorder ────────────────────────────────────────────────────
-  app.get('/api/seguimiento/grupos', authAdmin, mSeg, async (req, res) => {
-    try {
-      const [rows] = await portalPool.query(`SELECT * FROM seg_grupos ORDER BY orden ASC, creado_en ASC`);
-      res.json(rows.map(g => ({
-        id: g.id, nombre: g.nombre, vta: g.vta, cliente: g.cliente,
-        precio_venta: g.precio_venta, precio_pagado: g.precio_pagado,
-        nota: g.nota || '', orden: g.orden,
-        creado_en: g.creado_en, actualizado_en: g.actualizado_en
-      })));
-    } catch (e) {
-      console.error('[seguimiento] grupos', e.message);
-      res.status(500).json({ error: 'No se pudieron leer los grupos' });
-    }
-  });
-
-  // ── Ítems de backorder gestionados ─────────────────────────────────────────
-  //    ?incluir_archivados=1 para ver también los archivados.
-  app.get('/api/seguimiento/bo-items', authAdmin, mSeg, async (req, res) => {
-    try {
-      let sql = `SELECT * FROM seg_bo_items`;
-      if (!req.query.incluir_archivados) sql += ` WHERE archivado = 0`;
-      sql += ` ORDER BY orden ASC, creado_en ASC`;
-      const [rows] = await portalPool.query(sql);
-      res.json(rows.map(b => ({
-        id: b.id, grupo_id: b.grupo_id || '', sku: b.sku, nombre: b.nombre,
-        cliente: b.cliente, venta: b.venta, cantidad: b.cantidad,
-        fecha: b.fecha ? String(b.fecha).slice(0, 10) : '',
-        comprado: b.comprado ? 1 : 0, nota: b.nota || '', orden: b.orden,
-        origen: b.origen, archivado: b.archivado ? 1 : 0,
-        envio_id: b.envio_id || '', tracking: b.tracking || '',
-        creado_en: b.creado_en, actualizado_en: b.actualizado_en
-      })));
-    } catch (e) {
-      console.error('[seguimiento] bo-items', e.message);
-      res.status(500).json({ error: 'No se pudieron leer los backorders' });
-    }
-  });
-
-  // ── Resumen (para el badge y las tarjetas) ─────────────────────────────────
-  app.get('/api/seguimiento/resumen', authAdmin, mSeg, async (req, res) => {
-    try {
-      const [[env]] = await portalPool.query(
-        `SELECT SUM(estado='en_transito') AS en_transito, SUM(estado='recibido') AS recibido FROM seg_envios`);
-      const [[bo]] = await portalPool.query(
-        `SELECT SUM(comprado=0) AS sin_comprar, SUM(comprado=1) AS comprados FROM seg_bo_items WHERE archivado = 0`);
-      res.json({
-        en_transito: Number(env && env.en_transito) || 0,
-        recibido: Number(env && env.recibido) || 0,
-        bo_sin_comprar: Number(bo && bo.sin_comprar) || 0,
-        bo_comprados: Number(bo && bo.comprados) || 0
-      });
-    } catch (e) { res.json({ en_transito: 0, recibido: 0, bo_sin_comprar: 0, bo_comprados: 0 }); }
-  });
-
-  // ════════════════════════════════════════════════════════════════════════
-  //  ESCRITURA (solo maestro)
-  // ════════════════════════════════════════════════════════════════════════
-
-  // ── Proxy de IA (Gemini) — idéntico a Importaciones, el PDF no se almacena ──
-  app.post('/api/seguimiento/ia', authAdmin, mSeg, soloMaestroSeg, async (req, res) => {
-    try {
-      const key = process.env.GEMINI_API_KEY;
-      if (!key) return res.status(500).json({ error: 'GEMINI_API_KEY no está configurada en el servidor' });
-      const { model, prompt, pdf_base64 } = req.body || {};
-      if (!prompt || !pdf_base64) return res.status(400).json({ error: 'Falta el prompt o el PDF' });
-      const mdl = (model || 'gemini-3.6-flash').replace(/[^a-zA-Z0-9.\-]/g, '');
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${mdl}:generateContent?key=${encodeURIComponent(key)}`;
-      const body = {
-        contents: [{ parts: [
-          { inline_data: { mime_type: 'application/pdf', data: pdf_base64 } },
-          { text: prompt }
-        ] }],
-        generationConfig: { temperature: 0, response_mime_type: 'application/json' }
-      };
-      const g = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      const text = await g.text();
-      res.status(g.status).type('application/json').send(text);
-    } catch (e) {
-      console.error('[seguimiento] ia', e.message);
-      res.status(500).json({ error: 'Error llamando a la IA' });
-    }
-  });
-
-  // ── Backorders EN VIVO desde el ERP (para elegir cuáles gestionar) ─────────
-  //    SOLO LECTURA. Igual que /api/importacion/backorders pero devuelve el id
-  //    del sale_item para poder "fijarlo" en el portal sin perder su estado.
-  app.get('/api/seguimiento/erp-backorders', authAdmin, mSeg, soloMaestroSeg, async (req, res) => {
-    try { res.json(await erpBackorders()); }
-    catch (e) {
-      console.error('[seguimiento] erp-backorders', e.message);
-      res.status(500).json({ error: 'No se pudieron leer los backorders del sistema' });
-    }
-  });
-
-  // ── Sincronizar TODOS los backorders del ERP al portal (traerlos por defecto) ─
-  //    Inserta los que aún no están fijados (INSERT IGNORE, conserva nota/grupo/
-  //    comprado de los existentes). Devuelve cuántos nuevos entraron.
-  app.post('/api/seguimiento/bo-items/sync', authAdmin, mSeg, soloMaestroSeg, async (req, res) => {
-    try {
-      const lineas = await erpBackorders();
-      let insertados = 0;
-      for (const l of lineas) {
-        const id = 'erp:' + l.sale_item_id;
-        const [r] = await portalPool.query(
-          `INSERT IGNORE INTO seg_bo_items (id, sku, nombre, cliente, venta, cantidad, fecha, origen)
-           VALUES (?,?,?,?,?,?,?, 'erp')`,
-          [id, s(l.sku).slice(0,120), s(l.producto).slice(0,255), s(l.cliente).slice(0,255),
-           s(l.venta).slice(0,120), numOrNull(l.cantidad),
-           (l.fecha && /^\d{4}-\d{2}-\d{2}/.test(String(l.fecha))) ? String(l.fecha).slice(0,10) : null]);
-        if (r && r.affectedRows) insertados++;
-      }
-      res.json({ ok: true, insertados, total: lineas.length });
-    } catch (e) {
-      console.error('[seguimiento] sync backorders', e.message);
-      res.status(500).json({ error: 'No se pudieron sincronizar los backorders' });
-    }
-  });
-
-  // ── Fijar (importar) líneas de backorder del ERP al portal ─────────────────
-  //    Body: { lineas:[{sale_item_id, sku, producto, cliente, venta, cantidad, fecha}] }
-  //    Upsert por id 'erp:'+sale_item_id. Conserva grupo/nota/comprado si ya existía.
-  app.post('/api/seguimiento/bo-items/importar', authAdmin, mSeg, soloMaestroSeg, async (req, res) => {
-    try {
-      const lineas = Array.isArray(req.body && req.body.lineas) ? req.body.lineas : [];
-      if (!lineas.length) return res.json({ ok: true, insertados: 0 });
-      let insertados = 0;
-      for (const l of lineas) {
-        const sid = s(l && l.sale_item_id).trim();
-        if (!sid) continue;
-        const id = 'erp:' + sid;
-        // Solo inserta si no existe (para no pisar nota/grupo/comprado ya puestos).
-        const [r] = await portalPool.query(
-          `INSERT IGNORE INTO seg_bo_items (id, sku, nombre, cliente, venta, cantidad, fecha, origen)
-           VALUES (?,?,?,?,?,?,?, 'erp')`,
-          [id, s(l.sku).slice(0,120), s(l.producto).slice(0,255), s(l.cliente).slice(0,255),
-           s(l.venta).slice(0,120), numOrNull(l.cantidad),
-           (l.fecha && /^\d{4}-\d{2}-\d{2}/.test(String(l.fecha))) ? String(l.fecha).slice(0,10) : null]);
-        if (r && r.affectedRows) insertados++;
-      }
-      res.json({ ok: true, insertados });
-    } catch (e) {
-      console.error('[seguimiento] importar backorders', e.message);
-      res.status(500).json({ error: 'No se pudieron fijar los backorders' });
-    }
-  });
-
-  // ── Crear/actualizar un ítem de backorder (manual o editar gestión) ────────
-  app.post('/api/seguimiento/bo-item', authAdmin, mSeg, soloMaestroSeg, async (req, res) => {
-    try {
-      const b = req.body || {};
-      const id = s(b.id).trim() || ('man:' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7));
-      const origen = id.startsWith('erp:') ? 'erp' : 'manual';
+      const data = JSON.stringify(Array.isArray(req.body) ? req.body : []);
       await portalPool.query(
-        `INSERT INTO seg_bo_items (id, grupo_id, sku, nombre, cliente, venta, cantidad, fecha, comprado, nota, orden, origen, archivado)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-         ON DUPLICATE KEY UPDATE grupo_id=VALUES(grupo_id), sku=VALUES(sku), nombre=VALUES(nombre),
-           cliente=VALUES(cliente), venta=VALUES(venta), cantidad=VALUES(cantidad), fecha=VALUES(fecha),
-           comprado=VALUES(comprado), nota=VALUES(nota), orden=VALUES(orden), archivado=VALUES(archivado)`,
-        [id, s(b.grupo_id).trim() || null, s(b.sku).slice(0,120), s(b.nombre).slice(0,255),
-         s(b.cliente).slice(0,255), s(b.venta).slice(0,120), numOrNull(b.cantidad),
-         (b.fecha && /^\d{4}-\d{2}-\d{2}/.test(String(b.fecha))) ? String(b.fecha).slice(0,10) : null,
-         b.comprado ? 1 : 0, s(b.nota).slice(0, 2000), +b.orden || 0, origen, b.archivado ? 1 : 0]);
-      res.json({ ok: true, id });
-    } catch (e) {
-      console.error('[seguimiento] bo-item', e.message);
-      res.status(500).json({ error: 'No se pudo guardar el backorder' });
-    }
-  });
-
-  app.delete('/api/seguimiento/bo-item/:id', authAdmin, mSeg, soloMaestroSeg, async (req, res) => {
-    try {
-      await portalPool.query(`DELETE FROM seg_bo_items WHERE id = ?`, [req.params.id]);
+        `INSERT INTO imp_partidas (id, data) VALUES (1, ?)
+         ON DUPLICATE KEY UPDATE data = VALUES(data)`, [data]);
       res.json({ ok: true });
     } catch (e) {
-      console.error('[seguimiento] del bo-item', e.message);
+      console.error('[importacion] put partidas', e.message);
+      res.status(500).json({ error: 'No se pudieron guardar las partidas' });
+    }
+  });
+
+  // ── 3) MEMORIA producto↔partida (portal) — objeto JSON ─────────────────────
+  app.get('/api/importacion/partida-mem', authAdmin, mImp, async (req, res) => {
+    try {
+      const [rows] = await portalPool.query(`SELECT data FROM imp_partida_mem WHERE id = 1`);
+      res.json(rows.length ? asJson(rows[0].data, {}) : {});
+    } catch (e) {
+      console.error('[importacion] get mem', e.message);
+      res.status(500).json({ error: 'No se pudo leer la memoria' });
+    }
+  });
+
+  app.put('/api/importacion/partida-mem', authAdmin, mImp, async (req, res) => {
+    try {
+      const data = JSON.stringify(req.body && typeof req.body === 'object' ? req.body : {});
+      await portalPool.query(
+        `INSERT INTO imp_partida_mem (id, data) VALUES (1, ?)
+         ON DUPLICATE KEY UPDATE data = VALUES(data)`, [data]);
+      res.json({ ok: true });
+    } catch (e) {
+      console.error('[importacion] put mem', e.message);
+      res.status(500).json({ error: 'No se pudo guardar la memoria' });
+    }
+  });
+
+  // ── 4) IMPORTACIONES GUARDADAS (portal) — una fila por importación ─────────
+  app.get('/api/importacion/importaciones', authAdmin, mImp, async (req, res) => {
+    try {
+      const [rows] = await portalPool.query(`SELECT rec FROM imp_importaciones ORDER BY n ASC`);
+      res.json(rows.map(r => asJson(r.rec, null)).filter(Boolean));
+    } catch (e) {
+      console.error('[importacion] get importaciones', e.message);
+      res.status(500).json({ error: 'No se pudieron leer las importaciones' });
+    }
+  });
+
+  app.post('/api/importacion/importaciones', authAdmin, mImp, async (req, res) => {
+    try {
+      const rec = req.body;
+      if (!rec || !rec.id) return res.status(400).json({ error: 'Falta el registro' });
+      const codigo = (rec.meta && (rec.meta.codigo || rec.meta.numImp)) || '';
+      await portalPool.query(
+        `INSERT INTO imp_importaciones (id, n, tipo, codigo, rec) VALUES (?,?,?,?,?)
+         ON DUPLICATE KEY UPDATE n=VALUES(n), tipo=VALUES(tipo), codigo=VALUES(codigo), rec=VALUES(rec)`,
+        [String(rec.id), +rec.n || 0, String(rec.tipo || ''), String(codigo), JSON.stringify(rec)]);
+      res.json({ ok: true });
+    } catch (e) {
+      console.error('[importacion] post importacion', e.message);
+      res.status(500).json({ error: 'No se pudo guardar la importación' });
+    }
+  });
+
+  app.delete('/api/importacion/importaciones/:id', authAdmin, mImp, async (req, res) => {
+    try {
+      await portalPool.query(`DELETE FROM imp_importaciones WHERE id = ?`, [req.params.id]);
+      res.json({ ok: true });
+    } catch (e) {
+      console.error('[importacion] delete importacion', e.message);
       res.status(500).json({ error: 'No se pudo eliminar' });
     }
   });
 
-  // ── Crear/actualizar un grupo ──────────────────────────────────────────────
-  app.post('/api/seguimiento/grupo', authAdmin, mSeg, soloMaestroSeg, async (req, res) => {
+  // ── 5) PROXY DE IA (Gemini) ────────────────────────────────────────────────
+  //    El navegador manda { model, prompt, pdf_base64 }. El servidor agrega la
+  //    CLAVE y reenvía a Google. Devuelve la respuesta cruda de Gemini (la app
+  //    ya parsea candidates[].content.parts[].text). El PDF NO se almacena.
+  //    OJO: el body trae el PDF en base64 (varios MB). El parser global de
+  //    index.js debe permitir ese tamaño (ver el express.json({limit}) de ahí).
+  app.post('/api/importacion/ia', authAdmin, mImp, async (req, res) => {
     try {
-      const b = req.body || {};
-      const id = s(b.id).trim() || ('grp:' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7));
-      await portalPool.query(
-        `INSERT INTO seg_grupos (id, nombre, vta, cliente, precio_venta, precio_pagado, nota, orden)
-         VALUES (?,?,?,?,?,?,?,?)
-         ON DUPLICATE KEY UPDATE nombre=VALUES(nombre), vta=VALUES(vta), cliente=VALUES(cliente),
-           precio_venta=VALUES(precio_venta), precio_pagado=VALUES(precio_pagado), nota=VALUES(nota), orden=VALUES(orden)`,
-        [id, s(b.nombre).slice(0,200), s(b.vta).slice(0,120), s(b.cliente).slice(0,255),
-         numOrNull(b.precio_venta), numOrNull(b.precio_pagado), s(b.nota).slice(0, 2000), +b.orden || 0]);
-      res.json({ ok: true, id });
-    } catch (e) {
-      console.error('[seguimiento] grupo', e.message);
-      res.status(500).json({ error: 'No se pudo guardar el grupo' });
-    }
-  });
+      const key = process.env.GEMINI_API_KEY;
+      if (!key) return res.status(500).json({ error: 'GEMINI_API_KEY no está configurada en el servidor' });
+      const { model, prompt, pdf_base64, pdfs_base64 } = req.body || {};
+      // Acepta un solo PDF (pdf_base64) o VARIOS (pdfs_base64: array). Se usa
+      // para leer con IA la Consulta de Declaración + Consulta de Series (courier
+      // por empresa privada, sin reporte de DUA descargable) en una sola llamada.
+      const pdfs = (Array.isArray(pdfs_base64) && pdfs_base64.length)
+        ? pdfs_base64.filter(Boolean)
+        : (pdf_base64 ? [pdf_base64] : []);
+      if (!prompt || !pdfs.length) return res.status(400).json({ error: 'Falta el prompt o el PDF' });
+      const mdl = (model || 'gemini-3.6-flash').replace(/[^a-zA-Z0-9.\-]/g, '');
 
-  // ── Eliminar un grupo (sus ítems quedan sin grupo, no se borran) ───────────
-  app.delete('/api/seguimiento/grupo/:id', authAdmin, mSeg, soloMaestroSeg, async (req, res) => {
-    try {
-      await portalPool.query(`UPDATE seg_bo_items SET grupo_id = NULL WHERE grupo_id = ?`, [req.params.id]);
-      await portalPool.query(`DELETE FROM seg_grupos WHERE id = ?`, [req.params.id]);
-      res.json({ ok: true });
-    } catch (e) {
-      console.error('[seguimiento] del grupo', e.message);
-      res.status(500).json({ error: 'No se pudo eliminar el grupo' });
-    }
-  });
-
-  // ── Crear/actualizar un envío (tracking + ítems leídos de la factura) ──────
-  app.post('/api/seguimiento/envio', authAdmin, mSeg, soloMaestroSeg, async (req, res) => {
-    try {
-      const b = req.body || {};
-      const id = s(b.id).trim() || ('env:' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7));
-      const items = Array.isArray(b.items) ? b.items.map(itemEnvio) : [];
-      const tracking = s(b.tracking).slice(0, 160);
-
-      // ── RELACIÓN con los backorders ──────────────────────────────────────
-      //  1) Soltar lo que este envío tenía vinculado (por si se editó/quitó una línea).
-      await portalPool.query(
-        `UPDATE seg_bo_items SET comprado = 0, envio_id = NULL, tracking = '' WHERE envio_id = ?`, [id]);
-      //  2) Candidatos: backorders pendientes y libres (no vinculados a otro envío).
-      const [cand] = await portalPool.query(
-        `SELECT id, sku FROM seg_bo_items
-          WHERE comprado = 0 AND (envio_id IS NULL OR envio_id = '') AND archivado = 0`);
-      const mapa = {}; // sku normalizado -> [ids]
-      cand.forEach(r => { const k = cleanSku(r.sku); if (k) (mapa[k] = mapa[k] || []).push(r.id); });
-      //  3) Emparejar cada ítem del envío por SKU. Un SKU se asigna a la 1ª línea que lo trae.
-      const vinculados = new Set();
-      items.forEach(it => {
-        const k = cleanSku(it.sku);
-        const ids = (k && mapa[k]) ? mapa[k] : [];
-        it.bo_ids = ids.slice();
-        if (ids.length) it.es_backorder = true;
-        ids.forEach(x => vinculados.add(x));
-        if (k) mapa[k] = []; // ya consumidos
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${mdl}:generateContent?key=${encodeURIComponent(key)}`;
+      const body = {
+        contents: [{ parts: [
+          ...pdfs.map(d => ({ inline_data: { mime_type: 'application/pdf', data: d } })),
+          { text: prompt }
+        ] }],
+        generationConfig: { temperature: 0, response_mime_type: 'application/json' }
+      };
+      const g = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
       });
-      //  4) Marcar esos backorders como comprados y pegarles el tracking.
-      if (vinculados.size) {
-        await portalPool.query(
-          `UPDATE seg_bo_items SET comprado = 1, envio_id = ?, tracking = ? WHERE id IN (?)`,
-          [id, tracking, [...vinculados]]);
+      const text = await g.text(); // reenvía tal cual
+      res.status(g.status).type('application/json').send(text);
+    } catch (e) {
+      console.error('[importacion] ia', e.message);
+      res.status(500).json({ error: 'Error llamando a la IA' });
+    }
+  });
+
+  // ── BACKORDERS (ventas "a pedido" esperando stock) por SKU ─────────────────
+  //    Para el export de Ingreso: qué ventas pendientes se pueden despachar con
+  //    lo que está ingresando. SOLO LECTURA del ERP.
+  app.post('/api/importacion/backorders', authAdmin, mImp, async (req, res) => {
+    try {
+      const skus = Array.isArray(req.body && req.body.skus)
+        ? [...new Set(req.body.skus.map(s => String(s || '').trim()).filter(Boolean))] : [];
+      if (!skus.length) return res.json([]);
+      const [rows] = await prodPool.query(`
+        SELECT TRIM(pv.sku) AS sku, p.name AS producto, s.code AS venta,
+               s.created_at AS fecha, si.quantity AS cantidad,
+               COALESCE(NULLIF(TRIM(cli.business_name),''),
+                        NULLIF(TRIM(CONCAT_WS(' ', cli.first_name, cli.last_name)),''), '—') AS cliente
+          FROM sale_items si
+          JOIN sales s ON s.id = si.sale_id
+          JOIN product_variations pv ON pv.id = si.product_variation_id
+          JOIN products p ON p.id = pv.product_id
+          LEFT JOIN parties cli ON cli.id = s.customer_id
+         WHERE si.stock_batch_id IS NULL AND si.is_backorder = 1
+           AND s.deleted_at IS NULL AND s.status <> 'cancelled'
+           AND TRIM(pv.sku) IN (?)
+         ORDER BY pv.sku, s.created_at`, [skus]);
+      res.json(rows.map(r => ({
+        sku: r.sku, producto: r.producto || '', cliente: r.cliente || '—',
+        venta: r.venta || '', cantidad: Number(r.cantidad) || 0,
+        fecha: r.fecha ? String(r.fecha).slice(0, 10) : ''
+      })));
+    } catch (e) {
+      console.error('[importacion] backorders', e.message);
+      res.status(500).json({ error: 'No se pudieron leer los productos a pedido' });
+    }
+  });
+
+  // ── ¿Ya se subió al ERP? El código de importación (Ref. importación) puede
+  //    estar en cualquier tabla de Renzo (ingreso, compra, etc.). En vez de
+  //    adivinar la tabla, se descubre sola vía information_schema: columnas de
+  //    texto cuyo nombre sugiere "importación" o "referencia", y se busca ahí.
+  //    SOLO LECTURA.
+  let _refPlan = null;
+  // Celda CONFIRMADA donde Renzo guarda la "Ref. importación" (verificada en la
+  // base): stock_entries.importacion_ref. Se busca SOLO aquí — una consulta rápida
+  // y barata, sin escanear todo el esquema (eso era lento y encarecía Railway).
+  const REF_FIJA = { t: 'stock_entries', c: 'importacion_ref' };
+  async function planImportRef() {
+    return [REF_FIJA];
+  }
+  // Caché por referencia (positivos y negativos) para no golpear el ERP en cada
+  // render. TTL corto: si subes un ingreso, se refleja en pocos minutos.
+  const _erpCache = new Map(); // refUpper -> { hit:{...}|null, at }
+  const ERP_TTL = 5 * 60 * 1000;
+  app.post('/api/importacion/erp-subidas', authAdmin, mImp, async (req, res) => {
+    try {
+      const refs = Array.isArray(req.body && req.body.refs)
+        ? [...new Set(req.body.refs.map(s => String(s || '').trim()).filter(Boolean))] : [];
+      if (!refs.length) return res.json({});
+      const now = Date.now();
+      const resp = {};
+      const need = [];
+      refs.forEach(r => {
+        const c = _erpCache.get(r.toUpperCase());
+        if (c && (now - c.at) < ERP_TTL) { if (c.hit) resp[r] = c.hit; }
+        else need.push(r);
+      });
+      if (need.length) {
+        const plan = await planImportRef();
+        const upper = need.map(r => r.toUpperCase());
+        const found = {}; // refExacto -> hit
+        if (plan.length) {
+          for (const { t, c } of plan) {
+            try {
+              const [rows] = await prodPool.query(
+                'SELECT `' + c + '` AS ref, id FROM `' + t + '` WHERE `' + c + '` IN (?) LIMIT 500', [need]);
+              rows.forEach(row => {
+                const val = String(row.ref == null ? '' : row.ref).trim().toUpperCase();
+                const i = upper.indexOf(val);
+                if (i >= 0 && !found[need[i]]) found[need[i]] = { subida: true, entry_id: row.id, tabla: t, campo: c };
+              });
+            } catch (e) { /* la tabla puede no tener 'id' u otra cosa: se ignora */ }
+            if (Object.keys(found).length === need.length) break;
+          }
+        }
+        need.forEach(r => { const hit = found[r] || null; _erpCache.set(r.toUpperCase(), { hit, at: now }); if (hit) resp[r] = hit; });
       }
-
-      // ¿Ya existía? conservar creado_por.
-      const [prev] = await portalPool.query(`SELECT creado_por FROM seg_envios WHERE id = ?`, [id]);
-      const creadoPor = (prev.length && prev[0].creado_por) ? prev[0].creado_por : quienEs(req);
-      await portalPool.query(
-        `INSERT INTO seg_envios (id, tracking, courier, proveedor, n_factura, estado, fecha_estimada, nota, items, creado_por)
-         VALUES (?,?,?,?,?,?,?,?,?,?)
-         ON DUPLICATE KEY UPDATE tracking=VALUES(tracking), courier=VALUES(courier), proveedor=VALUES(proveedor),
-           n_factura=VALUES(n_factura), estado=VALUES(estado), fecha_estimada=VALUES(fecha_estimada),
-           nota=VALUES(nota), items=VALUES(items)`,
-        [id, tracking, s(b.courier).slice(0,80), s(b.proveedor).slice(0,255),
-         s(b.n_factura).slice(0,160), (b.estado === 'recibido' ? 'recibido' : 'en_transito'),
-         (b.fecha_estimada && /^\d{4}-\d{2}-\d{2}/.test(String(b.fecha_estimada))) ? String(b.fecha_estimada).slice(0,10) : null,
-         s(b.nota).slice(0, 2000), JSON.stringify(items), creadoPor]);
-      res.json({ ok: true, id, backorders_vinculados: vinculados.size });
+      res.json(resp);
     } catch (e) {
-      console.error('[seguimiento] envio guardar', e.message);
-      res.status(500).json({ error: 'No se pudo guardar el envío' });
+      console.error('[importacion] erp-subidas', e.message);
+      res.status(500).json({ error: 'No se pudo verificar el ERP' });
     }
   });
 
-  // ── Cambiar estado del envío (en_transito ↔ recibido) ──────────────────────
-  app.put('/api/seguimiento/envio/:id/estado', authAdmin, mSeg, soloMaestroSeg, async (req, res) => {
+  // ── Diagnóstico: identificar en qué TABLA/COLUMNA del ERP vive la Ref.
+  //    importación. Devuelve los candidatos y dónde se encontró cada ref.
+  app.post('/api/importacion/erp-diag', authAdmin, mImp, async (req, res) => {
     try {
-      const estado = (req.body && req.body.estado === 'recibido') ? 'recibido' : 'en_transito';
-      await portalPool.query(`UPDATE seg_envios SET estado = ? WHERE id = ?`, [estado, req.params.id]);
-      res.json({ ok: true, estado });
+      const refs = Array.isArray(req.body && req.body.refs)
+        ? [...new Set(req.body.refs.map(s => String(s || '').trim()).filter(Boolean))] : [];
+      const plan = await planImportRef();
+      const candidatos = plan.map(p => p.t + '.' + p.c);
+      const hallazgos = {};
+      const upper = refs.map(r => r.toUpperCase());
+      for (const { t, c } of plan) {
+        if (!refs.length) break;
+        try {
+          const [rows] = await prodPool.query(
+            'SELECT `' + c + '` AS ref, id FROM `' + t + '` WHERE `' + c + '` IN (?) LIMIT 500', [refs]);
+          rows.forEach(row => {
+            const val = String(row.ref == null ? '' : row.ref).trim().toUpperCase();
+            const i = upper.indexOf(val);
+            if (i >= 0 && !hallazgos[refs[i]]) hallazgos[refs[i]] = { tabla: t, campo: c, id: row.id };
+          });
+        } catch (e) { /* ignora */ }
+      }
+      res.json({ candidatos, hallazgos });
     } catch (e) {
-      console.error('[seguimiento] envio estado', e.message);
-      res.status(500).json({ error: 'No se pudo cambiar el estado' });
-    }
-  });
-
-  // ── Eliminar un envío ──────────────────────────────────────────────────────
-  app.delete('/api/seguimiento/envio/:id', authAdmin, mSeg, soloMaestroSeg, async (req, res) => {
-    try {
-      // Soltar los backorders que este envío tenía vinculados (vuelven a pendientes).
-      await portalPool.query(
-        `UPDATE seg_bo_items SET comprado = 0, envio_id = NULL, tracking = '' WHERE envio_id = ?`, [req.params.id]);
-      await portalPool.query(`DELETE FROM seg_envios WHERE id = ?`, [req.params.id]);
-      res.json({ ok: true });
-    } catch (e) {
-      console.error('[seguimiento] del envio', e.message);
-      res.status(500).json({ error: 'No se pudo eliminar el envío' });
+      console.error('[importacion] erp-diag', e.message);
+      res.status(500).json({ error: 'No se pudo diagnosticar el ERP' });
     }
   });
 

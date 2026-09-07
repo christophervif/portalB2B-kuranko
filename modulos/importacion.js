@@ -239,50 +239,83 @@ module.exports = function registrarImportacion({
     }
   });
 
-  // ── ¿Ya se subió al ERP? Busca el código de importación en el campo de
-  //    referencia del ingreso de Renzo (stock_entries). Detecta sola la columna
-  //    (nombre con ref/import/doc/guía/comprobante/nota/code). SOLO LECTURA.
-  let _refCols = null;
-  async function columnasRefEntries() {
-    if (_refCols !== null) return _refCols;
+  // ── ¿Ya se subió al ERP? El código de importación (Ref. importación) puede
+  //    estar en cualquier tabla de Renzo (ingreso, compra, etc.). En vez de
+  //    adivinar la tabla, se descubre sola vía information_schema: columnas de
+  //    texto cuyo nombre sugiere "importación" o "referencia", y se busca ahí.
+  //    SOLO LECTURA.
+  let _refPlan = null;
+  async function planImportRef() {
+    if (_refPlan !== null) return _refPlan;
     try {
-      const [cols] = await prodPool.query(`SHOW COLUMNS FROM stock_entries`);
-      const texto = cols.filter(c => /char|text|varchar/i.test(String(c.Type || c.type || '')))
-        .map(c => String(c.Field || c.field));
-      const re = /(import|refer|ref|doc|gu[ií]a|guide|comprob|nota|note|code|c[oó]digo)/i;
-      const cand = texto.filter(n => re.test(n));
-      _refCols = (cand.length ? cand : texto).slice(0, 12); // límite de seguridad
-    } catch (e) { _refCols = []; }
-    return _refCols;
+      const [rows] = await prodPool.query(`
+        SELECT TABLE_NAME AS t, COLUMN_NAME AS c
+          FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND DATA_TYPE IN ('varchar','char','text','tinytext','mediumtext','longtext')
+           AND (COLUMN_NAME LIKE '%import%' OR COLUMN_NAME LIKE '%referenc%'
+                OR COLUMN_NAME LIKE '%ref\\_%' OR COLUMN_NAME LIKE 'ref%')
+         LIMIT 100`);
+      // Preferir las columnas que hablan de "import" (la etiqueta es "Ref. importación").
+      const imp = rows.filter(r => /import/i.test(r.c));
+      _refPlan = (imp.length ? imp : rows).slice(0, 40).map(r => ({ t: r.t, c: r.c }));
+    } catch (e) { _refPlan = []; }
+    return _refPlan;
   }
   app.post('/api/importacion/erp-subidas', authAdmin, mImp, async (req, res) => {
     try {
       const refs = Array.isArray(req.body && req.body.refs)
         ? [...new Set(req.body.refs.map(s => String(s || '').trim()).filter(Boolean))] : [];
       if (!refs.length) return res.json({});
-      const cols = await columnasRefEntries();
-      if (!cols.length) return res.json({});
-      const where = cols.map(c => '`' + c + '` IN (?)').join(' OR ');
-      const args = cols.map(() => refs);
-      const sel = cols.map(c => '`' + c + '`').join(', ');
-      const [rows] = await prodPool.query(
-        `SELECT id, ${sel} FROM stock_entries WHERE ${where} ORDER BY id DESC LIMIT 2000`, args);
-      const refSet = new Set(refs.map(r => r.toUpperCase()));
-      const out = {}; // ref -> { subida:true, entry_id }
-      rows.forEach(row => {
-        for (const c of cols) {
-          const v = row[c]; if (v == null) continue;
-          const val = String(v).trim().toUpperCase();
-          if (refSet.has(val) && !out[val]) out[val] = { subida: true, entry_id: row.id, campo: c };
-        }
-      });
-      // Devolver con la clave EXACTA que mandó el cliente
+      const plan = await planImportRef();
+      if (!plan.length) return res.json({});
+      const upper = refs.map(r => r.toUpperCase());
       const resp = {};
-      refs.forEach(r => { const hit = out[r.toUpperCase()]; if (hit) resp[r] = hit; });
+      for (const { t, c } of plan) {
+        try {
+          const [rows] = await prodPool.query(
+            'SELECT `' + c + '` AS ref, id FROM `' + t + '` WHERE `' + c + '` IN (?) LIMIT 500', [refs]);
+          rows.forEach(row => {
+            const val = String(row.ref == null ? '' : row.ref).trim().toUpperCase();
+            const i = upper.indexOf(val);
+            if (i >= 0 && !resp[refs[i]]) resp[refs[i]] = { subida: true, entry_id: row.id, tabla: t, campo: c };
+          });
+        } catch (e) { /* la tabla puede no tener 'id' u otra cosa: se ignora */ }
+        if (Object.keys(resp).length === refs.length) break;
+      }
       res.json(resp);
     } catch (e) {
       console.error('[importacion] erp-subidas', e.message);
       res.status(500).json({ error: 'No se pudo verificar el ERP' });
+    }
+  });
+
+  // ── Diagnóstico: identificar en qué TABLA/COLUMNA del ERP vive la Ref.
+  //    importación. Devuelve los candidatos y dónde se encontró cada ref.
+  app.post('/api/importacion/erp-diag', authAdmin, mImp, async (req, res) => {
+    try {
+      const refs = Array.isArray(req.body && req.body.refs)
+        ? [...new Set(req.body.refs.map(s => String(s || '').trim()).filter(Boolean))] : [];
+      const plan = await planImportRef();
+      const candidatos = plan.map(p => p.t + '.' + p.c);
+      const hallazgos = {};
+      const upper = refs.map(r => r.toUpperCase());
+      for (const { t, c } of plan) {
+        if (!refs.length) break;
+        try {
+          const [rows] = await prodPool.query(
+            'SELECT `' + c + '` AS ref, id FROM `' + t + '` WHERE `' + c + '` IN (?) LIMIT 500', [refs]);
+          rows.forEach(row => {
+            const val = String(row.ref == null ? '' : row.ref).trim().toUpperCase();
+            const i = upper.indexOf(val);
+            if (i >= 0 && !hallazgos[refs[i]]) hallazgos[refs[i]] = { tabla: t, campo: c, id: row.id };
+          });
+        } catch (e) { /* ignora */ }
+      }
+      res.json({ candidatos, hallazgos });
+    } catch (e) {
+      console.error('[importacion] erp-diag', e.message);
+      res.status(500).json({ error: 'No se pudo diagnosticar el ERP' });
     }
   });
 

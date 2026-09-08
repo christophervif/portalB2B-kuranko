@@ -312,13 +312,21 @@ function pintarEnvios(){
     </div>`;
     const rows=(e.items||[]).map(i=>{
       const cb=CONF_BADGE[i.confianza]||CONF_BADGE.no;
+      const alloc=i.bo_alloc||[];
+      let boCell='';
+      if(alloc.length){
+        boCell=alloc.map(a=>`<div class="sm"><span class="badge b-bo">${a.cant}→</span> ${esc(a.venta||'')}${a.cliente?` · <span class="muted">${esc(a.cliente)}</span>`:''}</div>`).join('');
+        if(i.sobra>0)boCell+=`<div class="sm" style="margin-top:2px"><span class="badge b-rev">sobran ${i.sobra}</span></div>`;
+      }else{
+        boCell=`<span class="muted sm">sin backorder</span>`;
+      }
       return `<tr>
         <td>${esc(i.codigo||'')}</td>
         <td>${esc(i.desc_es||i.desc||'')}</td>
         <td>${esc(i.sku||'—')}${i.nombre?`<div class="muted sm">${esc(i.nombre)}</div>`:''}</td>
         <td class="n">${i.cantidad!=null?i.cantidad:''}</td>
         <td><span class="badge ${cb[0]}">${cb[1]}</span></td>
-        <td>${i.es_backorder?'<span class="badge b-bo">backorder</span>':''}</td>
+        <td style="min-width:150px">${boCell}</td>
       </tr>`;
     }).join('');
     const acciones = ES_MAESTRO ? `<div class="row" style="margin-top:10px">
@@ -328,7 +336,7 @@ function pintarEnvios(){
       </div>` : '';
     return `<div class="env">${head}<div class="env-body">
       ${e.nota?`<div class="muted sm" style="margin-bottom:6px">📝 ${esc(e.nota)}</div>`:''}
-      <div class="tw"><table><thead><tr><th>Código</th><th>Descripción (español)</th><th>SKU en sistema</th><th class="n">Cant</th><th>Confianza</th><th>Backorder</th></tr></thead><tbody>${rows||'<tr><td colspan=6 class="muted">Sin ítems</td></tr>'}</tbody></table></div>
+      <div class="tw"><table><thead><tr><th>Código</th><th>Descripción (español)</th><th>SKU en sistema</th><th class="n">Cant</th><th>Confianza</th><th>Cubre backorder / sobra</th></tr></thead><tbody>${rows||'<tr><td colspan=6 class="muted">Sin ítems</td></tr>'}</tbody></table></div>
       ${acciones}
     </div></div>`;
   }).join('');
@@ -519,12 +527,14 @@ function filaBo(b){
     cov=`<div class="muted sm" style="margin-top:3px">`+
       `<span class="badge b-tra">🚚 en camino ${cub}${need!=null?(' / '+need):''}</span>`+
       (faltan>0?` <span class="badge b-rev">faltan ${faltan}</span>`:` <span class="badge b-exact">completo</span>`)+
-      (b.tracking?` <span class="muted">${esc(b.tracking)}</span>`:'')+`</div>`;
+      (b.tracking?` <span class="muted">tracking ${esc(b.tracking)}</span>`:'')+`</div>`;
+  }else if(b.comprado){
+    cov=`<div class="muted sm" style="margin-top:3px"><span class="badge b-exact">✓ comprado (manual)</span></div>`;
   }else if(need!=null){
     cov=`<div class="muted sm" style="margin-top:3px"><span class="badge b-no">por comprar ${need}</span></div>`;
   }
   const cantCell = need!=null
-    ? `<b>${need}</b>${cub>0?`<div class="muted sm">faltan ${faltan}</div>`:''}`
+    ? `<b>${need}</b>${(cub>0&&faltan>0)?`<div class="muted sm">faltan ${faltan}</div>`:''}`
     : '';
   return `<tr style="${b.archivado?'opacity:.65':''}">
     <td style="text-align:center">${chk}</td>

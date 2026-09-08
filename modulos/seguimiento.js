@@ -152,6 +152,37 @@ module.exports = function registrarSeguimiento({
     }));
   }
 
+  // Referencias de las ENTRADAS del ERP (stock_entries.reference_number), donde
+  // el usuario escribe el/los N° de factura al hacer el ingreso. SOLO LECTURA.
+  //  Devuelve un Set de "tokens" normalizados (por si en una entrada juntan
+  //  varios números separados por coma/espacio/;/|) más las cadenas completas.
+  const normRef = (v) => String(v == null ? '' : v).trim().toUpperCase().replace(/\s+/g, '');
+  async function erpReferencias() {
+    const set = new Set();
+    try {
+      const [rows] = await prodPool.query(
+        `SELECT reference_number FROM stock_entries
+          WHERE reference_number IS NOT NULL AND reference_number <> ''
+          ORDER BY id DESC LIMIT 5000`);
+      rows.forEach(r => {
+        const full = normRef(r.reference_number);
+        if (full) set.add(full);
+        // Partir por separadores comunes por si pusieron varias facturas juntas.
+        String(r.reference_number).split(/[,;|]+/).forEach(p => { const t = normRef(p); if (t) set.add(t); });
+      });
+    } catch (e) { console.error('[seguimiento] erpReferencias', e.message); }
+    return set;
+  }
+  // ¿El N° de factura del envío ya está registrado como entrada en el ERP?
+  function facturaIngresada(nFactura, refSet, refArr) {
+    const nf = normRef(nFactura);
+    if (!nf || nf.length < 4) return false;
+    if (refSet.has(nf)) return true;
+    // Cobertura extra: alguna referencia CONTIENE el N° de factura (varias juntas
+    // sin separador estándar). Se exige longitud >=4 para evitar falsos positivos.
+    return refArr.some(ref => ref.includes(nf));
+  }
+
   // Normaliza una línea de ítem de envío (lo que manda el frontend ya resuelto).
   function itemEnvio(it) {
     it = it || {};
@@ -369,18 +400,26 @@ module.exports = function registrarSeguimiento({
         archivadosBo = (a && a.affectedRows) || 0;
       }
 
-      //  Un ENVÍO se archiva solo cuando TODOS los backorders que cubre ya se
-      //  archivaron (es decir, ya se ingresaron todos al ERP).
+      //  Un ENVÍO se archiva solo cuando YA SE INGRESÓ AL ERP:
+      //   (a) su N° de factura aparece en stock_entries.reference_number, o
+      //   (b) todos los backorders que cubre ya se archivaron.
+      //  La (a) cubre también los envíos que no tenían ningún backorder.
       let archivadosEnv = 0;
-      const [envs] = await portalPool.query(`SELECT id, items FROM seg_envios WHERE archivado = 0`);
+      const [envs] = await portalPool.query(`SELECT id, n_factura, items FROM seg_envios WHERE archivado = 0`);
       if (envs.length) {
         const [boAll] = await portalPool.query(`SELECT id, archivado FROM seg_bo_items`);
         const boArch = {}; boAll.forEach(b => { boArch[b.id] = !!b.archivado; });
+        const refSet = await erpReferencias();
+        const refArr = [...refSet];
         for (const ev of envs) {
-          const items = asJson(ev.items, []) || [];
-          const ids = [];
-          items.forEach(it => { if (Array.isArray(it.bo_ids)) it.bo_ids.forEach(x => ids.push(x)); });
-          if (ids.length && ids.every(id => boArch[id])) {
+          let archivar = facturaIngresada(ev.n_factura, refSet, refArr); // (a)
+          if (!archivar) { // (b)
+            const items = asJson(ev.items, []) || [];
+            const ids = [];
+            items.forEach(it => { if (Array.isArray(it.bo_ids)) it.bo_ids.forEach(x => ids.push(x)); });
+            archivar = ids.length > 0 && ids.every(id => boArch[id]);
+          }
+          if (archivar) {
             await portalPool.query(`UPDATE seg_envios SET archivado = 1 WHERE id = ?`, [ev.id]);
             archivadosEnv++;
           }

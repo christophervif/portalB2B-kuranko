@@ -1662,17 +1662,24 @@ function _cnum(x){const n=parseFloat(String(x==null?'':x).replace(/,/g,''));retu
 function _declNum(t){const m=t.match(/CONSULTA DE (?:SERIES DE LA )?DECLARACION[\s-]*(\d[\d\-\s]*?\d)\s+(?:DATOS|SECCION)/i);return m?m[1].replace(/\s+/g,''):'';}
 // Consulta de Declaración (datos generales / valor en aduanas)
 function _parseConsultaDeclaracion(t){
+  const cl=s=>String(s||'').replace(/\s+/g,' ').trim();
   const h={};
   h.declaracion=_declNum(t);
+  h.cod_aduana=(h.declaracion.match(/^(\d{3})/)||[])[1]||'';
   h.fecha_numeracion=(t.match(/Fecha Numeraci[oó]n\s*:?\s*(\d{2}\/\d{2}\/\d{4})/i)||[])[1]||'';
-  h.importador=((t.match(/1\.1\s*Importador\/Exportador\s+([\s\S]*?)\s+1\.2/i)||[])[1]||'').replace(/\s+/g,' ').trim();
+  h.importador=cl((t.match(/1\.1\s*Importador\/Exportador\s+([\s\S]*?)\s+1\.2/i)||[])[1]||'');
   h.importador_ruc=(t.match(/RUC\s*:\s*(\d{8,11})/i)||[])[1]||'';
+  h.direccion=cl((t.match(/1\.3\s*Direcci[oó]n de Importador\/Exportador\s+([\s\S]*?)\s+3\s+TRANSPORTE/i)||[])[1]||'');
   h.modo=((t.match(/V[ií]a Transporte[^0-9]*(?:[\d-]+\s+)*?(\d\s*-\s*[A-ZÁÉÍÓÚ]+)/i)||[])[1]||'').replace(/\s+/g,'');
+  h.manifiesto=((t.match(/V[ií]a Transporte[\s:.\-]*?(\d{3}-\d{4}-\s*\d{3,})\s+\d\s*-\s*[A-Z]/i)||[])[1]||'').replace(/\s+/g,'');
+  h.fec_llegada=(t.match(/Fecha de Llegada[\s\S]*?(\d{2}\/\d{2}\/\d{4})/i)||[])[1]||'';
+  h.terminal=cl((t.match(/DEPOSITO TEMPORAL[\s\S]*?RUC:\s*\d+\s+([\s\S]*?)\s+CAL\./i)||[])[1]||'');
+  h.declarante=cl((t.match(/8\s*DECLARANTE[\s\S]*?RUC\s*:\s*\d+\s*-\s*([\s\S]*?)\s+Observaciones/i)||[])[1]||'');
   const mv=t.match(/Valor en aduana\s*\/\s*Valor Neto\s+([\d.,]+)(?:\s+([\d.,]+))?(?:\s+([\d.,]+))?(?:\s+([\d.,]+))?(?:\s+([\d.,]+))?/i);
   if(mv){const g=[mv[1],mv[2],mv[3],mv[4],mv[5]].filter(x=>x!=null);
     h.fob_usd=_cnum(g[0]); h.valor_aduana=_cnum(g[g.length-1]); h.flete_usd=_cnum(g[1]||0); h.seguro_usd=_cnum(g[2]||0);}
   const md=t.match(/C[oó]digo de endose\s+(\d+)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)/i);
-  if(md){h.n_series=+md[1]; h.peso_neto=_cnum(md[2]); h.peso_bruto=_cnum(md[3]); h.cant_bultos=_cnum(md[4]);}
+  if(md){h.n_series=+md[1]; h.peso_neto=_cnum(md[2]); h.peso_bruto=_cnum(md[3]); h.cant_bultos=_cnum(md[4]); h.unid_fisicas=_cnum(md[5]); h.unid_comerciales=_cnum(md[6]);}
   return h;
 }
 // Consulta de Series (RegSerie): una entrada por "DATOS DE LA SERIE"
@@ -1680,16 +1687,32 @@ function _parseConsultaSeries(t){
   const parts=t.split(/DATOS DE LA SERIE/i).slice(1);
   if(!parts.length)return[];
   return parts.map((blk,ix)=>{
+    const cl=s=>String(s||'').replace(/\s+/g,' ').trim();
     const x={adv:0,igv:0,ipm:0,isc:0};
     x.serie=+((blk.match(/Serie Nro\.?\s*:?\s*(\d+)/i)||[])[1]||(ix+1));
-    const mb=blk.match(/Unid\.?\s*F[ií]sica(?=\s+\d)\s+(\d+)\s+([A-ZÑ ]+?)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s+[A-Z]/i);
-    if(mb){x.cant_bultos=_cnum(mb[1]); x.peso_neto=_cnum(mb[3]); x.peso_bruto=_cnum(mb[4]); x.unidades=_cnum(mb[5]);}
-    x.nandina=((blk.match(/Subpartida NALADI\s+(\d{8,12})/i)||blk.match(/\b(\d{10})\b/)||[])[1]||'');
-    const mf=blk.match(/Tipo De Seguro\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)/i);
+    // 7.12–7.16: fila de valores que termina justo antes de "7.19" (sirve para el
+    // RegSerie recortado y para el completo, donde cambian las etiquetas 7.16–7.18).
+    let mb=blk.match(/(\d+)\s+([A-ZÑ]+(?:\s+[A-ZÑ]+)?)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s+([A-ZÑ]+(?:\s+[A-ZÑ]+)?)\s+7\.19/i);
+    if(!mb)mb=blk.match(/Unid\.?\s*F[ií]sica(?=\s+\d)\s+(\d+)\s+([A-ZÑ ]+?)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s+([A-ZÑ ]+?)\s+7\.19/i);
+    if(mb){x.cant_bultos=_cnum(mb[1]); x.clase=cl(mb[2]); x.peso_neto=_cnum(mb[3]); x.peso_bruto=_cnum(mb[4]); x.unidades=_cnum(mb[5]); x.uf_unidad=cl(mb[6]||'');}
+    // NANDINA (subpartida nacional): dígitos tras "7.19 Subpartida Nacional" (el
+    // RegSerie completo mete "NALADISA/NABANDINA/Valor Provisional Estimado" en medio).
+    x.nandina=((blk.match(/7\.19\s*Subpartida Nacional[\s\S]*?(\d{8,12})/i)||blk.match(/\b(\d{10})\b/)||[])[1]||'');
+    // Guía máster: número tras el tipo de transporte (DIRECTO/INDIRECTO/…)
+    x.guia=((blk.match(/\b(?:DIRECTO|INDIRECTO|MASTER|HOUSE)\s+(\d{4,})/i)||[])[1]||'');
+    // País de origen: nombre en MAYÚSCULAS antes de "Valor prorrateado" o "7.29"
+    x.pais_origen=cl((blk.match(/Origen[\s\S]*?([A-Z]{2,}(?:\s+[A-Z]{2,})*)\s+(?:Valor prorrateado|7\.29)/)||[])[1]||'');
+    // Estado de la mercancía (solo en el RegSerie completo)
+    x.estado=cl((blk.match(/Estado De La Mercanc[ií]a\s+\d+\s*\/\s*\d+\s+(\d+-[A-ZÑ][A-ZÑ /]*?)\s+Tipo De Documento/i)||[])[1]||'');
+    // FOB/flete/seguro: 4 números seguidos justo antes de la letra del tipo de seguro
+    // (tolera las etiquetas 7.33/7.34 que el RegSerie completo intercala).
+    const mf=blk.match(/Seguro US\$[\s\S]*?\b(\d[\d.,]*)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s+[A-ZÑ]/i);
     if(mf){x.fob_usd=_cnum(mf[2]); x.flete_usd=_cnum(mf[3]); x.seguro_usd=_cnum(mf[4]);}
     const dm=blk.match(/Descripci[oó]n De La Mercanc[ií]a\s+([\s\S]*?)\s+7\.36\s*N[uú]mero/i);
     x.descripcion_mercancias=dm?dm[1].replace(/\b\d\b/g,' ').replace(/\s+/g,' ').trim():'';
-    x.n_factura=((blk.match(/Fact\.?\s*Venta Sucesiva\s+(\S+)/i)||[])[1]||'');
+    // Factura: <código> <dd/mm/aaaa> antes de "Mercancías" (el completo repite la
+    // etiqueta "Fact. Venta Sucesiva" 3 veces, por eso no se ancla en ella).
+    x.n_factura=((blk.match(/([A-Z0-9][A-Z0-9\-]{2,})\s+\d{2}\/\d{2}\/\d{4}\s+Mercanc[ií]as/i)||blk.match(/Fact\.?\s*Venta Sucesiva\s+([A-Z0-9\-]+)/i)||[])[1]||'');
     return x;
   });
 }
@@ -1700,9 +1723,13 @@ function _serieDesdeObj(x,i){
   const nanFmt=dig.length>=10?dig.slice(0,10).replace(/(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/,'$1.$2.$3.$4.$5'):String(x.nandina||'');
   const set=(k,v)=>{s[k]=(v===''||v==null)?'':String(v);};
   set("SERIE",x.serie!=null?x.serie:(i+1));
-  set("CANT BULTOS",x.cant_bultos); set("PESO NETO KG",x.peso_neto); set("PESO BRUTO KG",x.peso_bruto);
+  set("GUIA AEREA O BL",x.guia); set("ESTADO",x.estado);
+  set("CANT BULTOS",x.cant_bultos); set("CLASE",x.clase);
+  set("UNIDADES FISICAS UF",(x.unidades!=null?String(x.unidades)+(x.uf_unidad?(' '+x.uf_unidad):''):''));
+  set("PESO NETO KG",x.peso_neto); set("PESO BRUTO KG",x.peso_bruto);
   set("FOB USD",x.fob_usd); set("FLETE",x.flete_usd); set("SEGURO",x.seguro_usd);
   set("ADV",x.adv); set("IGV",x.igv); set("IPM",x.ipm); set("ISC",x.isc);
+  set("PAIS ORIGEN",x.pais_origen); set("PAIS ADQUISICION",x.pais_origen);
   set("UNIDADES COMERCIALES",x.unidades); set("N FACTURA 1",x.n_factura);
   s["NANDINA"]=nanFmt; s["DESCRIPCION PARTIDA ARANCELARIA"]=x.descripcion_partida||''; s["DESCRIPCION MERCANCIAS"]=x.descripcion_mercancias||'';
   s.serie=s["SERIE"]||String(i+1); s.nandina=s["NANDINA"];
@@ -1715,9 +1742,12 @@ function _serieDesdeObj(x,i){
 function _headerDesdeObj(o){
   const h={};DUA_IMP_H.forEach(k=>h[k]='');
   const set=(k,v)=>{h[k]=(v===''||v==null)?'':String(v);};
-  set("Declaracion",o.declaracion); set("Fecha Numeracion",o.fecha_numeracion);
-  set("Importador RUC",o.importador_ruc); set("Razon Social Importador",o.importador); set("Modo",o.modo);
+  set("Declaracion",o.declaracion); set("Fecha Numeracion",o.fecha_numeracion); set("Cod Aduana",o.cod_aduana);
+  set("Importador RUC",o.importador_ruc); set("Razon Social Importador",o.importador); set("Direccion",o.direccion);
+  set("Declarante",o.declarante); set("Manifiesto",o.manifiesto); set("Modo",o.modo);
+  set("Empresa",o.terminal); set("Fec Llegada",o.fec_llegada); set("Terminal",o.terminal);
   set("Peso Neto KG",o.peso_neto); set("Peso Bruto KG",o.peso_bruto); set("Cant Bultos",o.cant_bultos);
+  set("Unid Fisicas",o.unid_fisicas); set("Unid Comerciales",o.unid_comerciales);
   set("Total Series",(o.series||[]).length);
   set("FOB USD",o.fob_usd); set("Flete USD",o.flete_usd); set("Seguro USD",o.seguro_usd); set("CIF USD",o.valor_aduana);
   set("AdValorem Liq",o.adv); set("IGV Liq",o.igv); set("IPM Liq",o.ipm); set("ISC Liq",o.isc);

@@ -183,6 +183,59 @@ module.exports = function registrarSeguimiento({
     return refArr.some(ref => ref.includes(nf));
   }
 
+  // ── Reparto global por CANTIDADES ─────────────────────────────────────────
+  //  Recalcula desde cero cómo se cubren los backorders con los envíos:
+  //   · Backorders activos, del más antiguo al más nuevo (una venta cada uno).
+  //   · Envíos en orden de creación; cada ítem reparte su cantidad entre los
+  //     backorders del MISMO SKU. Lo que no alcanza a cubrir ningún backorder
+  //     queda como SOBRANTE del ítem.
+  //  Escribe en cada backorder: cubierto + coberturas[{envio_id,tracking,cant,venta,cliente}].
+  //  Escribe en cada ítem de envío: bo_alloc[{bo_id,venta,cliente,cant}] + sobra.
+  async function recomputarCoberturas() {
+    const [bo] = await portalPool.query(
+      `SELECT id, sku, cantidad, venta, cliente FROM seg_bo_items WHERE archivado = 0 ORDER BY creado_en ASC, id ASC`);
+    const boSt = bo.map(r => ({ id: r.id, k: cleanSku(r.sku), need: Number(r.cantidad) || 0, venta: r.venta || '', cliente: r.cliente || '', cob: [] }));
+    const porSku = {}; boSt.forEach(x => { (porSku[x.k] = porSku[x.k] || []).push(x); });
+
+    const [envs] = await portalPool.query(`SELECT id, tracking, items FROM seg_envios WHERE archivado = 0 ORDER BY creado_en ASC, id ASC`);
+    const updEnv = [];
+    for (const ev of envs) {
+      const items = asJson(ev.items, []) || [];
+      items.forEach(it => {
+        it.bo_alloc = []; it.bo_ids = []; it.sobra = 0;
+        const k = cleanSku(it.sku); const q = Number(it.cantidad) || 0;
+        if (!k || q <= 0) { it.sobra = q > 0 ? q : 0; return; }
+        let avail = q;
+        for (const bb of (porSku[k] || [])) {
+          if (avail <= 0) break;
+          const ya = bb.cob.reduce((sm, c) => sm + c.cant, 0);
+          const falta = bb.need > 0 ? Math.max(0, bb.need - ya) : 0;
+          const give = Math.min(avail, falta);
+          if (give > 0) {
+            bb.cob.push({ envio_id: ev.id, tracking: ev.tracking || '', cant: give, venta: bb.venta, cliente: bb.cliente });
+            it.bo_alloc.push({ bo_id: bb.id, venta: bb.venta, cliente: bb.cliente, cant: give });
+            it.bo_ids.push(bb.id);
+            avail -= give;
+          }
+        }
+        it.sobra = avail; // lo que sobró de este ítem (compraste de más para ese SKU)
+        it.es_backorder = it.bo_alloc.length > 0;
+      });
+      updEnv.push({ id: ev.id, items });
+    }
+
+    for (const bb of boSt) {
+      const cubierto = bb.cob.reduce((sm, c) => sm + c.cant, 0);
+      const trk = [...new Set(bb.cob.map(c => s(c.tracking)).filter(Boolean))].join(', ');
+      await portalPool.query(
+        `UPDATE seg_bo_items SET coberturas = ?, cubierto = ?, tracking = ?, envio_id = ? WHERE id = ?`,
+        [JSON.stringify(bb.cob), cubierto, trk, (bb.cob.length ? bb.cob[0].envio_id : null), bb.id]);
+    }
+    for (const e of updEnv) {
+      await portalPool.query(`UPDATE seg_envios SET items = ? WHERE id = ?`, [JSON.stringify(e.items), e.id]);
+    }
+  }
+
   // Normaliza una línea de ítem de envío (lo que manda el frontend ya resuelto).
   function itemEnvio(it) {
     it = it || {};
@@ -400,6 +453,9 @@ module.exports = function registrarSeguimiento({
         archivadosBo = (a && a.affectedRows) || 0;
       }
 
+      // Recalcular el reparto por cantidades con el set de backorders ya actualizado.
+      await recomputarCoberturas();
+
       //  Un ENVÍO se archiva solo cuando YA SE INGRESÓ AL ERP:
       //   (a) su N° de factura aparece en stock_entries.reference_number, o
       //   (b) todos los backorders que cubre ya se archivaron.
@@ -535,59 +591,6 @@ module.exports = function registrarSeguimiento({
       const items = Array.isArray(b.items) ? b.items.map(itemEnvio) : [];
       const tracking = s(b.tracking).slice(0, 160);
 
-      // ── RELACIÓN con los backorders POR CANTIDADES ───────────────────────
-      //  Cada ítem del envío aporta una cantidad. Se reparte entre los backorders
-      //  del mismo SKU, del MÁS ANTIGUO al más nuevo, cubriendo completo o parcial.
-      //  Cada backorder guarda `coberturas`=[{envio_id,tracking,cant}] y
-      //  `cubierto`=suma. "faltan" = cantidad − cubierto.
-      const traigo = {}; // sku normalizado -> unidades que trae ESTE envío
-      items.forEach(it => { const k = cleanSku(it.sku); const q = Number(it.cantidad) || 0; if (k && q > 0) traigo[k] = (traigo[k] || 0) + q; });
-
-      // Backorders candidatos (no archivados), del más antiguo al más nuevo.
-      const [bo] = await portalPool.query(
-        `SELECT id, sku, cantidad, coberturas FROM seg_bo_items WHERE archivado = 0 ORDER BY creado_en ASC, id ASC`);
-      const estado = bo.map(r => {
-        let cob = asJson(r.coberturas, []) || [];
-        const teniaMio = cob.some(c => c && c.envio_id === id);
-        cob = cob.filter(c => c && c.envio_id !== id); // quitar la cobertura previa de ESTE envío
-        const otros = cob.reduce((sm, c) => sm + (Number(c.cant) || 0), 0);
-        return { id: r.id, k: cleanSku(r.sku), need: Number(r.cantidad) || 0, cob, otros, mine: 0, teniaMio };
-      });
-
-      // Repartir lo que trae este envío por SKU (más antiguo primero).
-      Object.keys(traigo).forEach(k => {
-        let avail = traigo[k];
-        for (const st of estado) {
-          if (avail <= 0) break;
-          if (st.k !== k) continue;
-          const falta = st.need > 0 ? Math.max(0, st.need - st.otros - st.mine) : 0;
-          const give = Math.min(avail, falta);
-          if (give > 0) { st.mine += give; avail -= give; }
-        }
-      });
-
-      // Guardar la cobertura en cada backorder afectado y anotar en el ítem del
-      // envío a qué backorders (y cuántas unidades) fue.
-      const asignPorItem = items.map(() => []); // por índice de ítem: [{bo_id, cant}]
-      for (const st of estado) {
-        if (st.mine <= 0 && !st.teniaMio) continue; // no lo tocamos
-        const cobNueva = st.cob.slice();
-        if (st.mine > 0) cobNueva.push({ envio_id: id, tracking, cant: st.mine });
-        const cubierto = cobNueva.reduce((sm, c) => sm + (Number(c.cant) || 0), 0);
-        const trk = [...new Set(cobNueva.map(c => s(c.tracking)).filter(Boolean))].join(', ');
-        await portalPool.query(
-          `UPDATE seg_bo_items SET coberturas = ?, cubierto = ?, tracking = ?, envio_id = ? WHERE id = ?`,
-          [JSON.stringify(cobNueva), cubierto, trk, (cobNueva.length ? id : null), st.id]);
-      }
-      // Anotar en cada ítem del envío los backorders que cubrió (por SKU, respetando el reparto).
-      const restoPorSku = {}; Object.keys(traigo).forEach(k => { restoPorSku[k] = estado.filter(st => st.k === k && st.mine > 0).map(st => ({ id: st.id, cant: st.mine })); });
-      items.forEach((it, idx) => {
-        const k = cleanSku(it.sku);
-        const lista = restoPorSku[k] || [];
-        it.bo_ids = lista.map(x => x.id);
-        if (lista.length) it.es_backorder = true;
-      });
-
       // ¿Ya existía? conservar creado_por.
       const [prev] = await portalPool.query(`SELECT creado_por FROM seg_envios WHERE id = ?`, [id]);
       const creadoPor = (prev.length && prev[0].creado_por) ? prev[0].creado_por : quienEs(req);
@@ -601,7 +604,11 @@ module.exports = function registrarSeguimiento({
          s(b.n_factura).slice(0,160), (b.estado === 'recibido' ? 'recibido' : 'en_transito'),
          (b.fecha_estimada && /^\d{4}-\d{2}-\d{2}/.test(String(b.fecha_estimada))) ? String(b.fecha_estimada).slice(0,10) : null,
          s(b.nota).slice(0, 2000), JSON.stringify(items), creadoPor]);
-      res.json({ ok: true, id, backorders_vinculados: estado.filter(st => st.mine > 0).length });
+
+      // Recalcular TODO el reparto por cantidades (deja cada backorder con su
+      // cobertura y cada ítem de envío con su desglose y sobrante).
+      await recomputarCoberturas();
+      res.json({ ok: true, id });
     } catch (e) {
       console.error('[seguimiento] envio guardar', e.message);
       res.status(500).json({ error: 'No se pudo guardar el envío' });
@@ -636,20 +643,8 @@ module.exports = function registrarSeguimiento({
   // ── Eliminar un envío ──────────────────────────────────────────────────────
   app.delete('/api/seguimiento/envio/:id', authAdmin, mSeg, soloMaestroSeg, async (req, res) => {
     try {
-      const eid = req.params.id;
-      // Soltar la cobertura que este envío aportaba a cada backorder (recomputar cubierto).
-      const [bo] = await portalPool.query(`SELECT id, coberturas FROM seg_bo_items WHERE archivado = 0`);
-      for (const r of bo) {
-        let cob = asJson(r.coberturas, []) || [];
-        if (!cob.some(c => c && c.envio_id === eid)) continue;
-        cob = cob.filter(c => c && c.envio_id !== eid);
-        const cubierto = cob.reduce((sm, c) => sm + (Number(c.cant) || 0), 0);
-        const trk = [...new Set(cob.map(c => s(c.tracking)).filter(Boolean))].join(', ');
-        await portalPool.query(
-          `UPDATE seg_bo_items SET coberturas = ?, cubierto = ?, tracking = ?, envio_id = ? WHERE id = ?`,
-          [JSON.stringify(cob), cubierto, trk, (cob.length ? cob[cob.length - 1].envio_id : null), r.id]);
-      }
-      await portalPool.query(`DELETE FROM seg_envios WHERE id = ?`, [eid]);
+      await portalPool.query(`DELETE FROM seg_envios WHERE id = ?`, [req.params.id]);
+      await recomputarCoberturas(); // recalcular el reparto sin este envío
       res.json({ ok: true });
     } catch (e) {
       console.error('[seguimiento] del envio', e.message);

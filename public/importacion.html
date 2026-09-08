@@ -120,6 +120,11 @@
 
 <!-- ===================== TAB CALCULADORA ===================== -->
 <div id="tab-calc" class="hide">
+  <div class="card" id="cardImpTop" style="order:-3;border:2px solid #fde68a;background:#fffdf5">
+    <h2>¿Esta importación paga impuestos?</h2>
+    <div class="hint" style="margin-bottom:6px">Defínelo primero. Si <b>no</b> paga (courier bajo US$200, sin DUA), no necesitas liquidación. Si <b>sí</b> paga, sube la liquidación abajo.</div>
+    <div class="grid" style="max-width:300px"><div><label>¿Paga impuestos?</label><select id="impuesto" onchange="aplicarCourier();aplicarTipo();updateCodigo()"><option value="si">sí</option><option value="no">no</option></select></div></div>
+  </div>
   <div class="card" id="cardLiqTop" style="order:-2;border:2px solid #bfdbfe;background:#f8fbff">
     <h2>📄 Subir liquidación / constancia (lo primero)</h2>
     <div class="hint" style="margin-bottom:6px">Adjunta el PDF de la <b>liquidación / constancia</b> y la IA rellena los impuestos reales. Solo aplica en <b>Compra</b>. Usa tu misma API key de Gemini (la de la pestaña Factura).</div>
@@ -132,7 +137,6 @@
     <div class="grid">
       <div><label>Modo <span class="hint">(se define en Factura)</span></label><input id="modoView" readonly value="Definitiva" style="background:#f1f5f9"></div>
       <div><label>Prorrateo por</label><select id="prorateo"><option>FOB</option><option>PESO</option></select></div>
-      <div><label>¿Paga impuestos?</label><select id="impuesto" onchange="aplicarCourier();aplicarTipo();updateCodigo()"><option value="si">sí</option><option value="no">no</option></select></div>
       <div><label>N° importación</label><input id="numImp" placeholder="94" oninput="updateCodigo()"></div>
       <div><label>Percepción <span class="hint" id="percepHint"></span></label>
         <select id="percepSel" onchange="onPercepSel()"><option value="0">0%</option><option value="0.035" selected>3.5%</option><option value="0.10">10%</option><option value="otro">Otro…</option></select>
@@ -151,7 +155,7 @@
     <div class="flex2">
       <div style="border:1px solid #e2e8f0;border-radius:9px;padding:10px">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b style="color:#1e3a5f;font-size:13px">Gastos CIF</b>
-          <span style="display:flex;align-items:center;gap:5px"><label style="margin:0">T.C.</label><input id="tcCif" type="number" step="0.0001" value="3.6" style="width:70px;padding:5px" oninput="tcTouched.cif=true"><select id="curCifSel" title="moneda" style="width:64px;padding:5px"><option value="auto">auto</option><option value="PEN">S/</option><option value="USD">USD</option><option value="EUR">EUR</option></select></span></div>
+          <span style="display:flex;align-items:center;gap:5px"><label style="margin:0">T.C.</label><input id="tcCif" type="number" step="0.0001" value="3.6" style="width:70px;padding:5px" oninput="onGTC('cif')"><select id="curCifSel" title="moneda (auto = usa el T.C. de facturación)" onchange="mirrorTC()" style="width:64px;padding:5px"><option value="auto">auto</option><option value="PEN">S/</option><option value="USD">USD</option><option value="EUR">EUR</option></select></span></div>
         <div class="grid" style="grid-template-columns:1fr 1fr 1fr;margin-top:8px">
           <div><label>Flete</label><input id="g_flete" type="number" step="0.01" value="0"></div>
           <div><label>Seguro</label><input id="g_seguro" type="number" step="0.01" value="0"></div>
@@ -160,7 +164,7 @@
       </div>
       <div style="border:1px solid #e2e8f0;border-radius:9px;padding:10px">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><b style="color:#1e3a5f;font-size:13px">Gastos en origen</b>
-          <span style="display:flex;align-items:center;gap:5px"><label style="margin:0">T.C.</label><input id="tcOrig" type="number" step="0.0001" value="3.6" style="width:70px;padding:5px" oninput="tcTouched.orig=true"><select id="curOrigSel" title="moneda" style="width:64px;padding:5px"><option value="auto">auto</option><option value="PEN">S/</option><option value="USD">USD</option><option value="EUR">EUR</option></select></span></div>
+          <span style="display:flex;align-items:center;gap:5px"><label style="margin:0">T.C.</label><input id="tcOrig" type="number" step="0.0001" value="3.6" style="width:70px;padding:5px" oninput="onGTC('orig')"><select id="curOrigSel" title="moneda (auto = usa el T.C. de facturación)" onchange="mirrorTC()" style="width:64px;padding:5px"><option value="auto">auto</option><option value="PEN">S/</option><option value="USD">USD</option><option value="EUR">EUR</option></select></span></div>
         <div class="grid" style="grid-template-columns:1fr 1fr;margin-top:8px">
           <div><label>Recargo IMO</label><input id="g_imo" type="number" step="0.01" value="0"></div>
           <div><label>EUR 1</label><input id="g_eur1" type="number" step="0.01" value="0"></div>
@@ -173,7 +177,7 @@
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><b style="color:#1e3a5f;font-size:13px">Gastos locales</b>
         <span style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
           <label style="margin:0;display:flex;align-items:center;gap:6px;font-weight:600" title="Marca si estos servicios te los facturaron (el monto incluye IGV, que se separa como monto/1.18×0.18). Desmárcalo si NO te facturaron y el monto es el total pagado (sin IGV)."><input type="checkbox" id="localesIncIGV" checked style="width:auto"> están facturados (el monto incluye IGV)</label>
-          <span style="display:flex;align-items:center;gap:5px"><label style="margin:0">T.C.</label><input id="tcLocal" type="number" step="0.0001" value="3.6" style="width:70px;padding:5px" oninput="tcTouched.local=true"><select id="curLocalSel" title="moneda" style="width:64px;padding:5px"><option value="auto">auto</option><option value="PEN">S/</option><option value="USD">USD</option><option value="EUR">EUR</option></select></span>
+          <span style="display:flex;align-items:center;gap:5px"><label style="margin:0">T.C.</label><input id="tcLocal" type="number" step="0.0001" value="3.6" style="width:70px;padding:5px" oninput="onGTC('local')"><select id="curLocalSel" title="moneda (auto = usa el T.C. de facturación)" onchange="mirrorTC()" style="width:64px;padding:5px"><option value="auto">auto</option><option value="PEN">S/</option><option value="USD">USD</option><option value="EUR">EUR</option></select></span>
         </span>
       </div>
       <div class="tw" style="margin-top:8px"><table id="tblLocales"><tbody></tbody></table></div>
@@ -1110,9 +1114,10 @@ function renderSavedList(){
   // Los guardados internos de recepción (imprec_*) no se listan aquí; se usan desde la pestaña Recepción.
   const visibles=saved.filter(r=>!String(r.id).startsWith('imprec_'));
   if(!visibles.length){box.innerHTML='<div class="hint">Aún no hay importaciones guardadas.</div>';return;}
-  box.innerHTML='<div class="tw"><table><thead><tr><th>#</th><th>Tipo</th><th>Nombre</th><th>Proveedor</th><th>N° imp.</th><th class="n">FOB total (S/)</th><th class="n" title="Flete en soles">Flete (S/)</th><th class="n" title="Costo logístico total puerta a puerta (CIF + origen + locales) en soles">Costo import. logíst. p/p (S/)</th><th class="n">Costo inv. (S/)</th><th>Guardada</th><th title="¿El ingreso ya se subió al sistema de Renzo? (busca la Ref. importación)">ERP</th><th>Acciones</th></tr></thead><tbody>'+
-    visibles.map(r=>{let R={items:[],totals:{}};try{R=computeImport(r.state);}catch(e){}const tt=R.totals||{};const invT=sum((R.items||[]).map(it=>it.unitSin*(+it.cantidad||0)));
-      return `<tr><td>${r.n}</td><td>${esc(r.tipo)}${r.tipo==='Compra'?' <span class="badge b-exact">real</span>':' <span class="badge b-rev">teórico</span>'}</td><td>${esc(r.nombre)}</td><td>${esc((r.meta.proveedorNombre||r.meta.proveedor||'').split('(')[0])}</td><td>${esc(r.meta.numImp||'')}</td><td class="n">${n2(tt.sumFOBsoles)}</td><td class="n">${n2(tt.costoFleteSoles)}</td><td class="n">${n2(tt.costoLogisticoTotal)}</td><td class="n">${n2(invT)}</td><td class="nm">${esc(r.savedAt)}</td>
+  box.innerHTML='<div class="tw"><table><thead><tr><th>#</th><th>Tipo</th><th>Nombre</th><th>Proveedor</th><th>N° imp.</th><th class="n">FOB total (S/)</th><th class="n" title="Flete en soles">Flete (S/)</th><th class="n" title="Costo logístico total puerta a puerta (CIF + origen + locales) en soles">Costo import. logíst. p/p (S/)</th><th class="n" title="Costo de flete en soles por kilo (flete total en soles ÷ peso total en kg)">Flete/kg (S/)</th><th>Guardada</th><th title="¿El ingreso ya se subió al sistema de Renzo? (busca la Ref. importación)">ERP</th><th>Acciones</th></tr></thead><tbody>'+
+    visibles.map(r=>{let R={items:[],totals:{}};try{R=computeImport(r.state);}catch(e){}const tt=R.totals||{};
+      const kg=sum(((r.state&&r.state.items)||[]).map(it=>+it.peso||0));const fleteKg=(kg>0)?((+tt.costoFleteSoles||0)/kg):null;
+      return `<tr><td>${r.n}</td><td>${esc(r.tipo)}${r.tipo==='Compra'?' <span class="badge b-exact">real</span>':' <span class="badge b-rev">teórico</span>'}</td><td>${esc(r.nombre)}</td><td>${esc((r.meta.proveedorNombre||r.meta.proveedor||'').split('(')[0])}</td><td>${esc(r.meta.numImp||'')}</td><td class="n">${n2(tt.sumFOBsoles)}</td><td class="n">${n2(tt.costoFleteSoles)}</td><td class="n">${n2(tt.costoLogisticoTotal)}</td><td class="n" title="${kg>0?('flete '+n2(tt.costoFleteSoles)+' S/ ÷ '+n2(kg)+' kg'):'sin peso registrado'}">${fleteKg==null?'—':n2(fleteKg)}</td><td class="nm">${esc(r.savedAt)}</td>
       <td class="nm"><span class="erp-chk" data-refs="${esc(_refCands(r).join('|'))}"><span class="hint">…</span></span></td>
       <td style="white-space:nowrap"><button class="btn-sm" onclick="cargarImportacion('${r.id}')">Cargar</button> <button class="btn-sm" onclick="exportImportExcel('${r.id}')">Excel</button> <button class="btn-sm" onclick="exportIngresoSaved('${r.id}')">Ingreso</button> ${(r.state&&r.state.dua&&((r.state.dua.series&&r.state.dua.series.length)||r.state.dua.header))?`<button class="btn-sm" onclick="exportDuaSaved('${r.id}')">DUA</button> `:''}<button class="btn-sm" onclick="exportImportPDF('${r.id}')">PDF</button> <span class="btn-del" onclick="eliminarImportacion('${r.id}')">✕</span></td></tr>`;}).join('')+'</tbody></table></div>'
       +'<div class="actions" style="margin-top:8px"><button class="btn-sm" onclick="exportResumenGeneral()">⬇ Exportar tabla general (resumen + detalle)</button></div>';
@@ -1182,8 +1187,9 @@ function cargarImportacion(id){
   $('modo').value=s.modo;modoManual=true;$('prorateo').value=s.prorateo;$('impuesto').value=s.impuesto;
   if($('localesIncIGV'))$('localesIncIGV').checked=(s.localesIGV==='Si');
   setPercep(s.percepPct);$('seguroDecl').value=s.seguroDeclarado||'';
-  $('tcFact').value=s.tc.fact;$('tcCif').value=s.tc.cif;$('tcOrig').value=s.tc.orig;$('tcLocal').value=s.tc.local;$('tcSunat').value=s.tc.sunat;$('tcSunatD').value=s.tc.sunatDolar;tcTouched={cif:true,orig:true,local:true};
+  $('tcFact').value=s.tc.fact;$('tcCif').value=s.tc.cif;$('tcOrig').value=s.tc.orig;$('tcLocal').value=s.tc.local;$('tcSunat').value=s.tc.sunat;$('tcSunatD').value=s.tc.sunatDolar;
   const C=s.cur||{};if($('curFactSel'))$('curFactSel').value=C.fact||'auto';if($('curCifSel'))$('curCifSel').value=C.cif||'auto';if($('curOrigSel'))$('curOrigSel').value=C.orig||'auto';if($('curLocalSel'))$('curLocalSel').value=C.local||'auto';
+  mirrorTC(); // los grupos en «auto» siguen el T.C. de facturación cargado
   $('r_M8').value=s.real.M8;$('r_N8').value=s.real.N8;$('r_N14').value=s.real.N14;$('r_N15').value=s.real.N15;$('r_N20').value=s.real.N20;$('r_N21').value=s.real.N21;if($('r_Nperc'))$('r_Nperc').value=s.real.Nperc||0;
   $('g_flete').value=s.gastos.cif.flete;$('g_seguro').value=s.gastos.cif.seguro;$('g_otrosCif').value=s.gastos.cif.otros;
   $('g_imo').value=s.gastos.origen.imo;$('g_eur1').value=s.gastos.origen.eur1;$('g_pickup').value=s.gastos.origen.pickup;$('g_otrosOr').value=s.gastos.origen.otros;
@@ -1915,9 +1921,15 @@ function aplicarTipo(){
         && $('tab-factura') && !$('tab-factura').classList.contains('hide')) renderFactura(); }catch(e){}
 }
 // T.C. SUNAT dólar = Impuesto pagado real (soles) ÷ (IGV + IPM + A/V liquidación)  [solo esos tres]
-// Por defecto los T.C. de gastos (CIF, origen, locales) copian el T.C. de facturación, hasta que los edites a mano
-let tcTouched={cif:false,orig:false,local:false};
-function mirrorTC(){const v=$('tcFact').value;if(!tcTouched.cif&&$('tcCif'))$('tcCif').value=v;if(!tcTouched.orig&&$('tcOrig'))$('tcOrig').value=v;if(!tcTouched.local&&$('tcLocal'))$('tcLocal').value=v;}
+// Los T.C. de gastos (CIF, origen, locales) SIGUEN al T.C. de facturación mientras su
+// moneda esté en «auto». Si le pones una moneda fija a un grupo, ese queda independiente
+// (y puedes escribir su propio T.C.). Volverlo a «auto» lo vuelve a enganchar.
+const _GTC=[['tcCif','curCifSel'],['tcOrig','curOrigSel'],['tcLocal','curLocalSel']];
+function _gtcAuto(cid){const c=$(cid);return !c||!c.value||c.value==='auto';}
+function mirrorTC(){const v=$('tcFact').value;_GTC.forEach(([tid,cid])=>{if(_gtcAuto(cid)&&$(tid))$(tid).value=v;});}
+// Si escribes a mano el T.C. de un grupo que estaba en «auto», se fija su moneda
+// (según el valor) para que ya no lo pise el T.C. de facturación.
+function onGTC(k){const m={cif:['tcCif','curCifSel'],orig:['tcOrig','curOrigSel'],local:['tcLocal','curLocalSel']}[k];if(!m)return;const c=$(m[1]);if(c&&(!c.value||c.value==='auto'))c.value=cur(+$(m[0]).value||0);}
 function esFacturaUSD(){return curOf($('curFactSel')?$('curFactSel').value:'auto',+$('tcFact').value||0)==='USD';}
 function aplicarMonedaTC(){const usd=esFacturaUSD();const d=$('tcSunatD');if(!d)return;d.readOnly=usd;d.style.background=usd?'#e2e8f0':'';if(usd)d.value=$('tcSunat').value;}
 function recalcTCSunatDolar(){const M8=+$('r_M8').value||0;const den=(+$('r_N14').value||0)+(+$('r_N15').value||0)+(+$('r_N20').value||0);

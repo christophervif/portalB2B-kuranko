@@ -1175,8 +1175,7 @@ async function abrirRecepcion(id){
     document.getElementById('rec-detalle-status').textContent='';
     // Cabecera
     document.getElementById('rec-cab').innerHTML=
-      `<div style="font-weight:800;font-size:16px">${recEsc(rec.proveedor)||'(sin proveedor)'}</div>
-       <div class="muted" style="font-size:13px">Factura ${recEsc(rec.n_factura)||'—'} · ${recEsc(rec.empresa)||''} · ${rec.items.length} ítem(s)</div>`;
+      `<div style="font-weight:800;font-size:16px">Factura ${recEsc(rec.n_factura)||'—'} · ${recEsc(rec.empresa)||''} · ${rec.items.length} ítem(s)</div>`;
     // Almacén
     const selA=document.getElementById('rec-almacen');
     selA.innerHTML='<option value="">— Elige el almacén —</option>'+REC_ALMACENES.map(a=>

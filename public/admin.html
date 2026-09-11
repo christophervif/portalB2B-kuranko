@@ -1147,7 +1147,7 @@ function recCardHtml(r,archivada){
   const chipStyle = archivada?' style="background:#ede9fe;color:#6d28d9"':'';
   return `<div class="rec-card"${bg} onclick="abrirRecepcion('${recEsc(r.id)}')">
     <div class="r-top">
-      <div><b>Factura:</b> <span class="muted">${recEsc(r.n_factura)||'—'}</span></div>
+      <div><b>Invoice: <span>${recEsc(r.n_factura)||'—'}</span></b></div>
       
       <div style="display:flex;gap:6px"><span class="rec-chip ${est}"${chipStyle}>${etq}</span>${dif}</div>
     </div>

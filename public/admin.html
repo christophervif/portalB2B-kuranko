@@ -1147,7 +1147,8 @@ function recCardHtml(r,archivada){
   const chipStyle = archivada?' style="background:#ede9fe;color:#6d28d9"':'';
   return `<div class="rec-card"${bg} onclick="abrirRecepcion('${recEsc(r.id)}')">
     <div class="r-top">
-      <div><b>${recEsc(r.supplier_id)||'(sin proveedor)'}</b> <span class="muted">· Factura ${recEsc(r.n_factura)||'—'}</span></div>
+      <div><b>${recEsc(r.ruc_proveedor)||'(sin proveedor)'}</b> <span class="muted">· Factura ${recEsc(r.n_factura)||'—'}</span></div>
+      
       <div style="display:flex;gap:6px"><span class="rec-chip ${est}"${chipStyle}>${etq}</span>${dif}</div>
     </div>
     <div class="muted" style="margin-top:6px;font-size:13px">${r.n_items} ítem(s)${alm}${r.validado_por?(' · por '+recEsc(r.validado_por)):''}</div>

@@ -709,7 +709,7 @@ async function enviarARecepcion(){
     if(!confirm('¿Enviar esta carga al almacén para que la confirmen? (No incluye precios.)')) return;
   }
   try{
-    await recApi('/api/recepcion','POST',{ id:idFinal, importacion_id:idFinal, proveedor:provEnvio,
+    await recApi('/api/recepcion','POST',{ id:idFinal, importacion_id:idFinal, codigo:codigoImportacion(), proveedor:provEnvio,
       empresa:m.empresa||'', n_factura:m.invoice||'', tipo:'compra', items:lineas });
     // Asegurar que las líneas de costeo estén armadas desde la factura antes de guardar el estado.
     items=facMatches.filter(x=>x.sku).map(mm=>({parte:mm.item,codigo:mm.sku,desc:mm.desc,precioEXW:mm.exw,cantidad:mm.qty,peso:0,partida:'',avLib:'',exwAduanas:'',descTotal:(mm.total!=null?mm.total:''),split:mm.split||''}));
@@ -897,17 +897,31 @@ function renderRecepEstado(){
     <div><b>${esc(r.proveedor||'(sin proveedor)')}</b> · Factura ${esc(r.n_factura||'—')} · Estado: ${badge}
       ${r.almacen_nombre?('· Almacén: <b>'+esc(r.almacen_nombre)+'</b>'):''} ${r.validado_por?('· por <b>'+esc(r.validado_por)+'</b>'):''}
       ${conDif?(' · <span style="color:#b91c1c;font-weight:700">'+conDif+' ítem(s) con diferencia</span>'):''}</div>
+    ${(r.validado_en||r.modificada_en)?('<div style="font-size:11px;margin-top:2px;color:#94a3b8">'+(r.validado_en?('confirmada '+_recFecha(r.validado_en)):'')+(r.modificada_en?(' · ✎ modificada '+_recFecha(r.modificada_en)):'')+'</div>'):''}
     ${val?'':'<div class="hint" style="margin-top:6px">Aún no confirmado por el almacén. Actualiza con ↻ Actualizar.</div>'}
     <div class="tw" style="margin-top:8px"><table>
       <thead><tr><th>Cód. factura</th><th>Descripción</th><th>SKU sugerido</th><th>SKU confirmado</th><th class="n">Cant. factura</th><th class="n">Cant. recibida</th><th>Estado</th></tr></thead>
       <tbody>${rows}</tbody></table></div>
     <div class="actions" style="margin-top:10px">
       ${esMaestroImp()?'<button class="btn-sm" onclick="recepGuardarCorreccion()">💾 Guardar correcciones de SKU</button>':''}
+      ${(esMaestroImp()&&val&&!r.archivada)?'<button class="btn-sm" style="border-color:#fca5a5;color:#b91c1c" title="Quita el bloqueo para que el almacén pueda modificar y reconfirmar la recepción" onclick="recepReabrir()">🔓 Reabrir para el almacén</button>':''}
       ${(r.items||[]).some(i=>i.es_extra)?'<button class="btn-sm" onclick="exportExtrasDeRecep(recepImp)" title="Productos que llegaron y no estaban en la factura — se manejan aparte">⬇ Exportar fuera de factura</button>':''}
       ${(esMaestroImp()&&val&&!r.archivada)?'<button class="btn-sm" style="border-color:#c4b5fd;color:#6d28d9" title="Si ya hiciste el ingreso en el ERP por fuera, archívala para sacarla de la lista (queda en Archivadas)" onclick="recepArchivarManual()">🗄 Ya ingresada aparte — archivar</button>':''}
       ${accion}
     </div>
   </div>`;
+}
+// Fecha corta (dd/mm/aa hh:mm) para las marcas pequeñas de confirmación/modificación.
+function _recFecha(dt){ if(!dt)return ''; const d=new Date(dt); if(isNaN(d))return String(dt);
+  const p=n=>String(n).padStart(2,'0'); return p(d.getDate())+'/'+p(d.getMonth()+1)+'/'+String(d.getFullYear()).slice(2)+' '+p(d.getHours())+':'+p(d.getMinutes()); }
+// Reabrir una recepción confirmada (opción del ADMIN, aquí en Importación): quita el
+// bloqueo para que el almacén la modifique y reconfirme. El backend impide reabrir si
+// el ingreso ya se guardó/costeó en Importaciones.
+async function recepReabrir(){
+  const r=recepImp; if(!r)return;
+  if(!confirm('¿Reabrir la recepción de la factura "'+(r.n_factura||'')+'" para que el almacén pueda modificarla otra vez?\n\nSe quita el bloqueo; quedará registrado que se reabrió.'))return;
+  try{ await recApi('/api/recepcion/'+encodeURIComponent(r.id)+'/reabrir','PUT',{}); alert('✓ Recepción reabierta. El almacén ya puede editarla y reconfirmarla.'); abrirRecepEnImp(r.id); if(typeof cargarRecepLista==='function')cargarRecepLista(); }
+  catch(e){ alert('No se pudo reabrir: '+e.message); }
 }
 // Archivar manualmente una recepción validada que ya fue ingresada al ERP por
 // fuera del flujo (no pasa por costeo). Queda en la sección «Archivadas».

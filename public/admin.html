@@ -1138,6 +1138,9 @@ async function cargarRecepciones(){
     renderRecArchivadas();
   }catch(e){ if(st)st.textContent=''; showToast(e.message,true); }
 }
+// Fecha corta (dd/mm/aa hh:mm) para las marcas pequeñas de confirmación/modificación.
+function recFechaCorta(dt){ if(!dt)return ''; const d=new Date(dt); if(isNaN(d))return String(dt);
+  const p=n=>String(n).padStart(2,'0'); return p(d.getDate())+'/'+p(d.getMonth()+1)+'/'+String(d.getFullYear()).slice(2)+' '+p(d.getHours())+':'+p(d.getMinutes()); }
 function recCardHtml(r,archivada){
   const est = archivada?'arch':(r.estado==='validada'?'val':(r.estado==='borrador'?'bor':'pend'));
   const etq = archivada?'Archivada · costeada':(r.estado==='validada'?'Validada':(r.estado==='borrador'?'Borrador':'Pendiente'));
@@ -1145,13 +1148,14 @@ function recCardHtml(r,archivada){
   const alm = r.almacen_nombre ? ' · 📦 '+recEsc(r.almacen_nombre) : '';
   const bg = archivada?' style="opacity:.85"':'';
   const chipStyle = archivada?' style="background:#ede9fe;color:#6d28d9"':'';
+  const lock = (r.estado==='validada' && !archivada) ? ' · 🔒' : '';
+  const modif = r.modificada_en ? ' · <span style="color:#b45309">✎ modificada</span>' : '';
   return `<div class="rec-card"${bg} onclick="abrirRecepcion('${recEsc(r.id)}')">
     <div class="r-top">
-      <div><b>Invoice: <span>${recEsc(r.n_factura)||'—'}</span></b></div>
-      
+      <div><b>${recEsc(r.codigo||r.importacion_id||r.id)||'(sin código)'}</b> <span class="muted">· Factura ${recEsc(r.n_factura)||'—'}</span></div>
       <div style="display:flex;gap:6px"><span class="rec-chip ${est}"${chipStyle}>${etq}</span>${dif}</div>
     </div>
-    <div class="muted" style="margin-top:6px;font-size:13px">${r.n_items} ítem(s)${alm}${r.validado_por?(' · por '+recEsc(r.validado_por)):''}</div>
+    <div class="muted" style="margin-top:6px;font-size:13px">${r.n_items} ítem(s)${alm}${r.validado_por?(' · por '+recEsc(r.validado_por)):''}${lock}${modif}</div>
   </div>`;
 }
 async function renderRecArchivadas(){
@@ -1173,9 +1177,14 @@ async function abrirRecepcion(id){
     document.getElementById('rec-lista-vista').style.display='none';
     document.getElementById('rec-detalle-vista').style.display='';
     document.getElementById('rec-detalle-status').textContent='';
-    // Cabecera
+    // Cabecera: código de importación arriba; factura/empresa debajo; y (pequeño) la
+    // fecha de confirmación y si hubo modificación. Si está confirmada, banner de bloqueo
+    // (para TODOS por igual; el admin la reabre desde Importación).
     document.getElementById('rec-cab').innerHTML=
-      `<div style="font-weight:800;font-size:16px">Factura ${recEsc(rec.n_factura)||'—'} · ${recEsc(rec.empresa)||''} · ${rec.items.length} ítem(s)</div>`;
+      `<div style="font-weight:800;font-size:16px">${recEsc(rec.codigo||rec.importacion_id||rec.id)||'(sin código)'}</div>
+       <div class="muted" style="font-size:13px">Factura ${recEsc(rec.n_factura)||'—'} · ${recEsc(rec.empresa)||''} · ${rec.items.length} ítem(s)</div>
+       ${(rec.validado_en||rec.modificada_en)?('<div style="font-size:11px;margin-top:2px;color:#94a3b8">'+(rec.validado_en?('confirmada '+recFechaCorta(rec.validado_en)):'')+(rec.modificada_en?(' · ✎ modificada '+recFechaCorta(rec.modificada_en)):'')+'</div>'):''}
+       ${rec.estado==='validada'?'<div style="margin-top:8px;background:#fef9c3;border:1px solid #fde68a;border-radius:8px;padding:7px 10px;font-weight:700;color:#854d0e">🔒 Confirmada y bloqueada. Un administrador puede reabrirla desde Importación.</div>':''}`;
     // Almacén
     const selA=document.getElementById('rec-almacen');
     selA.innerHTML='<option value="">— Elige el almacén —</option>'+REC_ALMACENES.map(a=>
@@ -1183,9 +1192,15 @@ async function abrirRecepcion(id){
     // Ítems (los EXTRA se editan aparte en su popup)
     const md=document.getElementById('rec-extras-modal'); if(md)md.style.display='none';
     renderRecItems();
-    // Si ya está validada y NO soy maestro, dejar solo lectura
-    const soloLectura = rec.estado==='validada' && !ES_MAESTRO;
+    // Recepción IGUAL PARA TODOS: si está confirmada, queda en SOLO LECTURA para
+    // cualquiera (se deshabilitan los campos y se ocultan los botones). Reabrir es
+    // una opción del admin y vive en Importación, no aquí.
+    const soloLectura = rec.estado==='validada';
     document.getElementById('rec-acciones').style.display = soloLectura ? 'none' : '';
+    if(soloLectura){
+      document.querySelectorAll('#rec-almacen, #rec-items input, #rec-items select, #rec-items textarea, #rec-items button').forEach(el=>{ el.disabled=true; });
+      const eb=document.querySelector('[onclick="recAbrirExtras()"]'); if(eb)eb.disabled=true;
+    }
     window.scrollTo(0,0);
   }catch(e){ showToast(e.message,true); }
 }
@@ -1222,11 +1237,11 @@ function renderRecItems(){
       return `<div class="rec-item diff" data-i="${i}" style="border-left:4px solid #0891b2">
         <div class="ri-desc" style="color:#0e7490">✂ Subdividido: ${recEsc(it.desc)||'(sin descripción)'} <button type="button" onclick="recQuitarSub(${i})" title="Deshacer subdivisión" style="float:right;background:none;border:none;color:#b91c1c;cursor:pointer;font-weight:700">deshacer ✕</button></div>
         <div class="ri-cod">Cód. factura: ${recEsc(it.codigo)||'—'} · Cant. factura: <b>${it.cantidad==null?'—':it.cantidad}</b> · <i>cuenta como parte de la factura</i></div>
-        ${ES_MAESTRO?`<div class="rec-field"><label>Tipo de subdivisión <span style="color:#94a3b8;font-weight:400">(solo tú lo cambias)</span></label>
+        <div class="rec-field"><label>Tipo de subdivisión</label>
           <div class="rec-cuadra">
             <button type="button" class="${modo==='precio'?'on-si':''}" onclick="recSetSubModo(${i},'precio')">Kit (mismo N°, divide el precio)</button>
             <button type="button" class="${modo==='cant'?'on-si':''}" onclick="recSetSubModo(${i},'cant')">Repartir cantidad</button>
-          </div></div>`:''}
+          </div></div>
         ${modo==='precio'?`<div class="rec-field"><label>¿Cuántos llegaron? <span style="color:#94a3b8;font-weight:400">(aplica a cada SKU del kit)</span></label>
           <input class="rec-input" type="number" min="0" step="any" value="${it.cant_recibida==null?'':it.cant_recibida}" oninput="recSetRecibida(${i},this.value)" placeholder="cantidad recibida">
           <div id="rec-difcalc-${i}" style="font-size:12px;margin-top:5px;font-weight:700">${recDifTexto(it)}</div></div>`:''}
@@ -1445,17 +1460,13 @@ async function recGuardar(confirmar, silent){
   if(!silent) st.textContent = confirmar?'Confirmando...':'Guardando...';
   else if(ind){ if(recAutoEnCurso)return; recAutoEnCurso=true; ind.textContent='· guardando…'; }
   try{
-    // Si soy maestro y la recepción ya está validada, uso el endpoint de corrección
-    const yaValidada = rec.estado==='validada';
-    if(yaValidada && ES_MAESTRO && !confirmar){
-      await apiCall('/api/recepcion/'+encodeURIComponent(rec.id)+'/correccion','PUT',{items,extras});
-      if(!silent) st.textContent='✓ Corrección guardada.';
-    } else {
-      const d=await apiCall('/api/recepcion/'+encodeURIComponent(rec.id)+'/validacion','PUT',
-        {almacen_id:almId?Number(almId):null,almacen_nombre:almNom,almacen_codigo:almCod,items,extras,confirmar});
-      if(!silent) st.textContent = confirmar?'✓ Recepción confirmada.':'✓ Borrador guardado.';
-      if(d&&d.estado) rec.estado=d.estado; // p.ej. queda 'borrador' tras el auto-guardado
-    }
+    // Recepción igual para todos: siempre se guarda/confirma por /validacion. Una vez
+    // confirmada queda bloqueada (el backend la protege); las correcciones y el reabrir
+    // son opciones del admin y se hacen desde Importación.
+    const d=await apiCall('/api/recepcion/'+encodeURIComponent(rec.id)+'/validacion','PUT',
+      {almacen_id:almId?Number(almId):null,almacen_nombre:almNom,almacen_codigo:almCod,items,extras,confirmar});
+    if(!silent) st.textContent = confirmar?'✓ Recepción confirmada.':'✓ Borrador guardado.';
+    if(d&&d.estado) rec.estado=d.estado; // p.ej. queda 'borrador' tras el auto-guardado
     if(ind && silent){ const hh=new Date(); ind.textContent='· guardado '+String(hh.getHours()).padStart(2,'0')+':'+String(hh.getMinutes()).padStart(2,'0'); }
     actualizarBadgeRecepciones();
     if(confirmar) setTimeout(cargarRecepciones,700);

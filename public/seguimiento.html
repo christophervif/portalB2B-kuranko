@@ -260,14 +260,22 @@ async function init(){
   $('boTools').classList.remove('hide');
   if(!ES_MAESTRO){const b=$('btnSync');if(b)b.style.display='none';}
   try{CATALOG=await api('/catalogo');initCat();}catch(e){CATALOG=[];}
-  // El maestro trae automáticamente TODOS los backorders del sistema al abrir
-  // (y de paso archiva solos los que ya se ingresaron al ERP).
-  if(ES_MAESTRO){try{await api('/bo-items/sync','POST',{});}catch(e){}}
+  // 1) Pinta de inmediato lo YA guardado en el portal (rápido, pocas consultas).
   await Promise.all([cargarEnvios(),cargarBackorders()]);
+  // 2) El maestro sincroniza con el ERP EN SEGUNDO PLANO (no bloquea la vista) y
+  //    refresca cuando termina. El servidor limita la frecuencia (throttle).
+  if(ES_MAESTRO){
+    $('boMsg').textContent='Actualizando desde el sistema…';
+    api('/bo-items/sync','POST',{}).then(r=>{
+      $('boMsg').textContent = (r&&r.throttled) ? '' : 'Actualizado.';
+      if(!r||!r.throttled){ cargarEnvios(); cargarBackorders(); }
+      setTimeout(()=>{if($('boMsg'))$('boMsg').textContent='';},2500);
+    }).catch(()=>{ $('boMsg').textContent=''; });
+  }
 }
 async function sincronizarBo(){
   $('boMsg').textContent='Actualizando desde el sistema…';
-  try{const r=await api('/bo-items/sync','POST',{});$('boMsg').textContent=(r.insertados||0)+' nuevos · '+(r.total||0)+' en total.';await cargarBackorders();}
+  try{const r=await api('/bo-items/sync','POST',{force:true});$('boMsg').textContent=(r.insertados||0)+' nuevos · '+(r.total||0)+' en total.';await Promise.all([cargarEnvios(),cargarBackorders()]);}
   catch(e){$('boMsg').textContent='';toast(e.message);}
 }
 function verTab(t){
@@ -506,7 +514,7 @@ function bloqueGrupo(g,items){
     </div>` : '';
   const rows=items.map(b=>filaBo(b)).join('');
   const body = items.length ? `<div class="tw"><table><thead><tr>
-      <th style="width:34px">✓</th><th>SKU</th><th>Producto</th><th>Cliente</th><th>Venta</th><th class="n">Cant</th><th>Nota</th><th>Grupo</th>
+      <th style="width:34px">✓</th><th>SKU</th><th>Producto</th><th>Cliente</th><th>Venta</th><th>Fecha</th><th class="n">Cant</th><th>Nota</th><th>Grupo</th>
     </tr></thead><tbody>${rows}</tbody></table></div>`
     : '<div class="muted sm">Sin ítems en este grupo.</div>';
   return `<div class="grp"><div class="grp-h"><b>${g?'📁 ':''}${titulo}</b>
@@ -541,7 +549,8 @@ function filaBo(b){
     <td>${esc(b.sku||'')}</td>
     <td>${esc(b.nombre||'')}${arch}${cov}</td>
     <td>${esc(b.cliente||'')}</td>
-    <td>${esc(b.venta||'')}${b.fecha?`<div class="muted sm">${esc(b.fecha)}</div>`:''}</td>
+    <td>${esc(b.venta||'')}</td>
+    <td class="sm" style="white-space:nowrap">${b.fecha?esc(b.fecha):'—'}</td>
     <td class="n">${cantCell}</td>
     <td>${nota}</td>${grp}
   </tr>`;

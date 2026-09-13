@@ -672,19 +672,18 @@ module.exports = function registrarSincronizacion({ app, authAdmin, requiereModu
       const [pend] = await prodPool.query(
         `SELECT pv.id, TRIM(pv.sku) AS sku, pv.product_type, pv.name AS nombre, pv.product_id,
                 pv.regular_price, pv.sale_price, p.description AS descripcion,
-                COALESCE(SUM(ls.quantity),0) AS stock,
-                EXISTS(
-                  SELECT 1 FROM sale_items si
-                  WHERE si.product_variation_id = pv.id AND si.pending_stock_entry_id IS NOT NULL
-                ) AS ingreso_pendiente
+                COALESCE(SUM(ls.quantity),0) AS stock
            FROM product_variations pv
            JOIN products p ON p.id = pv.product_id
            LEFT JOIN location_stocks ls ON ls.product_variation_id = pv.id
           WHERE pv.woocommerce_id IS NULL
             AND pv.product_type IN ('variation','simple')
             AND pv.deleted_at IS NULL
+            -- Se exportan TODOS (con o sin stock), salvo los de marketplace:
+            -- excluimos si "MKP" aparece en cualquier parte del nombre (variación o padre).
+            AND UPPER(COALESCE(pv.name, '')) NOT LIKE '%MKP%'
+            AND UPPER(COALESCE(p.name, '')) NOT LIKE '%MKP%'
           GROUP BY pv.id, pv.sku, pv.product_type, pv.name, pv.product_id, pv.regular_price, pv.sale_price, p.description
-         HAVING stock > 0 OR ingreso_pendiente = 1
           ORDER BY pv.name, pv.sku`);
 
       const prodIds = [...new Set(pend.map(r => r.product_id))];
@@ -812,6 +811,31 @@ module.exports = function registrarSincronizacion({ app, authAdmin, requiereModu
       const valsPadreDe = (pid) => (aid) => { const s = valPadre[pid] && valPadre[pid][aid]; return s ? [...s].join(', ') : ''; };
       const valsVarDe = (vid) => (aid) => { const a = valVar[vid] && valVar[vid][aid]; return a ? a.join(', ') : ''; };
 
+      // Variaciones (pendientes) agrupadas por su producto padre, para armar el padre.
+      const varsPorProducto = {};
+      pend.forEach(r => {
+        if (r.product_type === 'variation') {
+          (varsPorProducto[r.product_id] = varsPorProducto[r.product_id] || []).push(r.id);
+        }
+      });
+      // Valores del atributo en el PADRE variable = UNIÓN (sin repetir) de los valores
+      // de todas sus variaciones. WooCommerce exige que el padre declare TODOS los
+      // valores posibles (ej. "Negro, Azul") para poder enganchar las variaciones.
+      // Respaldo: si las variaciones no traen valores, usa los del padre en el ERP.
+      const valsUnionVarDe = (pid) => (aid) => {
+        const vids = varsPorProducto[pid] || [];
+        const set = new Set();
+        for (const vid of vids) {
+          const a = valVar[vid] && valVar[vid][aid];
+          if (a) a.forEach(x => { if (x != null && String(x).trim() !== '') set.add(x); });
+        }
+        if (set.size === 0) {
+          const s = valPadre[pid] && valPadre[pid][aid];
+          if (s) [...s].forEach(x => { if (x != null && String(x).trim() !== '') set.add(x); });
+        }
+        return set.size ? [...set].join(', ') : '';
+      };
+
       // 4) Armar filas en el orden EXACTO de columnas de v3
       const idx = {}; V3_HEADERS.forEach((h, i) => { idx[h] = i; });
       const nueva = () => new Array(V3_HEADERS.length).fill('');
@@ -836,7 +860,8 @@ module.exports = function registrarSincronizacion({ app, authAdmin, requiereModu
         set(row, '¿Vendido individualmente?', 0);
         set(row, 'Categorías', cats[pid] || '');
         set(row, 'Imágenes', imgProd(pid));
-        ponerAtributos(row, pid, valsPadreDe(pid), false); // padre: nombre + todos los valores
+        // Padre: nombre del atributo + TODOS sus valores (unión de las variaciones).
+        ponerAtributos(row, pid, valsUnionVarDe(pid), false);
         filas.push(row);
       };
 
@@ -874,7 +899,9 @@ module.exports = function registrarSincronizacion({ app, authAdmin, requiereModu
           set(row, 'Precio normal', it.regular_price == null ? '' : Number(it.regular_price));
           if (it.sale_price != null && it.sale_price !== '') set(row, 'Precio rebajado', Number(it.sale_price));
           if (pa) set(row, 'Superior', pa.sku);
-          set(row, 'Imágenes', imgVar(it.id)); // imagen propia de la variación
+          // Imagen de la variación: la suya propia si existe en el ERP; si no, la del
+          // producto padre (antes quedaba en blanco cuando la variación no tenía imagen propia).
+          set(row, 'Imágenes', imgVar(it.id) || imgProd(it.product_id));
           ponerAtributos(row, it.product_id, valsVarDe(it.id), true); // variación: su valor puntual
           filas.push(row);
         }
@@ -921,6 +948,27 @@ module.exports = function registrarSincronizacion({ app, authAdmin, requiereModu
         };
         hoja('Con ID (en la web)', conId);
         hoja('Sin ID (por crear)', sinId);
+
+        // Tercera hoja: productos que están en la WEB pero NO existen en el ERP (cruce por SKU).
+        // Los recolecta el puente en la tabla sync_web_sin_erp (catálogo web − catálogo ERP).
+        // Formato enfocado (no es el importador v3: no se re-importan, son para revisar/crear en el ERP).
+        let webSinErp = [];
+        try {
+          const [rows] = await portalPool.query(
+            `SELECT woocommerce_id, sku, tipo, nombre, imagenes
+               FROM sync_web_sin_erp ORDER BY nombre, sku`);
+          webSinErp = rows;
+        } catch (e) { /* el puente aún no creó/llenó la tabla */ }
+        const wsWeb = wb.addWorksheet('En la web, no en el ERP');
+        wsWeb.addRow(['WooCommerce ID', 'SKU', 'Tipo', 'Nombre', 'Imágenes']);
+        webSinErp.forEach(r => wsWeb.addRow([
+          r.woocommerce_id, r.sku || '', r.tipo || '', r.nombre || '', r.imagenes || ''
+        ]));
+        wsWeb.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        wsWeb.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000726' } };
+        wsWeb.views = [{ state: 'frozen', ySplit: 1 }];
+        wsWeb.columns = [{ width: 14 }, { width: 24 }, { width: 12 }, { width: 50 }, { width: 60 }];
+
         const fechaX = new Date().toISOString().slice(0, 10);
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         res.setHeader('Content-Disposition', `attachment; filename="productos_web_${fechaX}.xlsx"`);

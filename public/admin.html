@@ -1204,6 +1204,13 @@ async function abrirRecepcion(id){
     window.scrollTo(0,0);
   }catch(e){ showToast(e.message,true); }
 }
+// Almacén DESTINO por ítem: nota libre, opcional y REFERENCIAL (a dónde se transferirá
+// después del ingreso). No elige de una lista ni toca el ERP; solo se guarda como texto.
+function recDestinoField(it,i){
+  return `<div class="rec-field"><label>Almacén destino <span style="color:#94a3b8;font-weight:400">(opcional · referencial · a dónde se transferirá)</span></label>
+    <input class="rec-input" value="${recEsc(it.destino||'')}" oninput="recSetDestino(${i},this.value)" placeholder="ej. Tienda Centro, Surco, bodega 2…" maxlength="120"></div>`;
+}
+function recSetDestino(i,val){ if(REC_ACTUAL&&REC_ACTUAL.items[i]) REC_ACTUAL.items[i].destino=val; recAutoGuardar(); }
 function renderRecItems(){
   const rec=REC_ACTUAL, cont=document.getElementById('rec-items');
   cont.innerHTML=rec.items.map((it,i)=>{
@@ -1247,6 +1254,7 @@ function renderRecItems(){
           <div id="rec-difcalc-${i}" style="font-size:12px;margin-top:5px;font-weight:700">${recDifTexto(it)}</div></div>`:''}
         ${subRows}
         <div style="margin-top:8px"><button class="btn btn-sec btn-sm" onclick="recAddSubRow(${i})">+ agregar otro SKU</button></div>
+        ${recDestinoField(it,i)}
       </div>`;
     }
     // ── Ítem de la factura ──
@@ -1271,6 +1279,7 @@ function renderRecItems(){
                oninput="recSetRecibida(${i},this.value)" placeholder="Cantidad recibida">
         <div id="rec-difcalc-${i}" style="font-size:12px;margin-top:5px;font-weight:700">${recDifTexto(it)}</div>
       </div>
+      ${recDestinoField(it,i)}
     </div>`;
   }).join('');
   recActualizarContadorExtras();
@@ -1308,6 +1317,7 @@ function renderRecExtras(){
         <label>Nota (opcional)</label>
         <input class="rec-input" value="${recEsc(it.nota||'')}" oninput="recSetNotaExtra(${i},this.value)" placeholder="p. ej. muestra, regalo, repuesto suelto">
       </div>
+      ${recDestinoField(it,i)}
     </div>`;
   }).join('') : '<div class="muted" style="font-size:13px;padding:6px 0">Todavía no agregaste nada fuera de factura. Usa “➕ Agregar producto”.</div>';
   recActualizarContadorExtras();
@@ -1451,9 +1461,9 @@ async function recGuardar(confirmar, silent){
   const almId=selA.value, almNom=opA?(opA.textContent||'').replace(/\s*\([^)]*\)\s*$/,'').trim():'', almCod=opA?(opA.dataset.codigo||''):'';
   // Ítems de la factura y ítems EXTRA (no facturados) por separado
   const items=rec.items.filter(it=>!it.es_extra).map(it=>({codigo:it.codigo,sku_sugerido:it.sku_sugerido,sku_confirmado:it.sku_confirmado||'',
-    cuadra:it.cuadra,cant_recibida:it.cant_recibida,estado_item:it.estado_item||'',nota:it.nota||'',
+    cuadra:it.cuadra,cant_recibida:it.cant_recibida,estado_item:it.estado_item||'',nota:it.nota||'',destino:it.destino||'',
     split_modo:it.split_modo||'',sub:(it.sub||[]).map(x=>({sku_confirmado:x.sku_confirmado||'',cant_recibida:x.cant_recibida}))}));
-  const extras=rec.items.filter(it=>it.es_extra).map(it=>({sku_confirmado:it.sku_confirmado||'',cant_recibida:it.cant_recibida,nota:it.nota||''}));
+  const extras=rec.items.filter(it=>it.es_extra).map(it=>({sku_confirmado:it.sku_confirmado||'',cant_recibida:it.cant_recibida,nota:it.nota||'',destino:it.destino||''}));
   // Validar extras: deben tener SKU (solo al confirmar)
   const extrasSinSku=extras.filter(e=>!e.sku_confirmado).length;
   if(confirmar && extrasSinSku){ showToast('Falta elegir el producto (SKU) de '+extrasSinSku+' ítem(s) fuera de factura.',true); recAbrirExtras(); return; }

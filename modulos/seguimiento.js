@@ -38,6 +38,11 @@ module.exports = function registrarSeguimiento({
 
   const mSeg = requiereModulo('seguimiento'); // lectura: admin con el módulo (el maestro pasa)
 
+  // Throttle de la sincronización con el ERP (lo más costoso). El botón
+  // "Actualizar" fuerza; la sincronización automática al abrir respeta este límite.
+  let _lastSyncSeg = 0;
+  const SYNC_TTL_SEG = 3 * 60 * 1000;
+
   // Escritura: SOLO el maestro. El supervisor únicamente visualiza.
   function soloMaestroSeg(req, res, next) {
     if (!req.admin || !req.admin.maestro)
@@ -192,15 +197,23 @@ module.exports = function registrarSeguimiento({
   //  Escribe en cada backorder: cubierto + coberturas[{envio_id,tracking,cant,venta,cliente}].
   //  Escribe en cada ítem de envío: bo_alloc[{bo_id,venta,cliente,cant}] + sobra.
   async function recomputarCoberturas() {
+    // Backorders activos, del MÁS ANTIGUO al más nuevo por fecha de venta (se
+    // cubren primero los pedidos más viejos). Traemos también el estado actual
+    // para escribir SOLO los que cambian (menos consultas = menos recursos).
     const [bo] = await portalPool.query(
-      `SELECT id, sku, cantidad, venta, cliente FROM seg_bo_items WHERE archivado = 0 ORDER BY creado_en ASC, id ASC`);
-    const boSt = bo.map(r => ({ id: r.id, k: cleanSku(r.sku), need: Number(r.cantidad) || 0, venta: r.venta || '', cliente: r.cliente || '', cob: [] }));
+      `SELECT id, sku, cantidad, venta, cliente, cubierto, coberturas, tracking
+         FROM seg_bo_items WHERE archivado = 0 ORDER BY fecha ASC, creado_en ASC, id ASC`);
+    const boSt = bo.map(r => ({
+      id: r.id, k: cleanSku(r.sku), need: Number(r.cantidad) || 0, venta: r.venta || '', cliente: r.cliente || '',
+      prevCub: Number(r.cubierto) || 0, prevCob: JSON.stringify(asJson(r.coberturas, []) || []), prevTrk: r.tracking || '', cob: []
+    }));
     const porSku = {}; boSt.forEach(x => { (porSku[x.k] = porSku[x.k] || []).push(x); });
 
     const [envs] = await portalPool.query(`SELECT id, tracking, items FROM seg_envios WHERE archivado = 0 ORDER BY creado_en ASC, id ASC`);
     const updEnv = [];
     for (const ev of envs) {
       const items = asJson(ev.items, []) || [];
+      const antes = JSON.stringify(items);
       items.forEach(it => {
         it.bo_alloc = []; it.bo_ids = []; it.sobra = 0;
         const k = cleanSku(it.sku); const q = Number(it.cantidad) || 0;
@@ -218,21 +231,24 @@ module.exports = function registrarSeguimiento({
             avail -= give;
           }
         }
-        it.sobra = avail; // lo que sobró de este ítem (compraste de más para ese SKU)
+        it.sobra = avail;
         it.es_backorder = it.bo_alloc.length > 0;
       });
-      updEnv.push({ id: ev.id, items });
+      const despues = JSON.stringify(items);
+      if (despues !== antes) updEnv.push({ id: ev.id, items: despues }); // solo si cambió
     }
 
     for (const bb of boSt) {
       const cubierto = bb.cob.reduce((sm, c) => sm + c.cant, 0);
+      const cobStr = JSON.stringify(bb.cob);
       const trk = [...new Set(bb.cob.map(c => s(c.tracking)).filter(Boolean))].join(', ');
+      if (cubierto === bb.prevCub && cobStr === bb.prevCob && trk === bb.prevTrk) continue; // sin cambios
       await portalPool.query(
         `UPDATE seg_bo_items SET coberturas = ?, cubierto = ?, tracking = ?, envio_id = ? WHERE id = ?`,
-        [JSON.stringify(bb.cob), cubierto, trk, (bb.cob.length ? bb.cob[0].envio_id : null), bb.id]);
+        [cobStr, cubierto, trk, (bb.cob.length ? bb.cob[0].envio_id : null), bb.id]);
     }
     for (const e of updEnv) {
-      await portalPool.query(`UPDATE seg_envios SET items = ? WHERE id = ?`, [JSON.stringify(e.items), e.id]);
+      await portalPool.query(`UPDATE seg_envios SET items = ? WHERE id = ?`, [e.items, e.id]);
     }
   }
 
@@ -343,7 +359,7 @@ module.exports = function registrarSeguimiento({
     try {
       let sql = `SELECT * FROM seg_bo_items`;
       if (!req.query.incluir_archivados) sql += ` WHERE archivado = 0`;
-      sql += ` ORDER BY orden ASC, creado_en ASC`;
+      sql += ` ORDER BY fecha ASC, creado_en ASC`; // por fecha de la venta (más antigua primero)
       const [rows] = await portalPool.query(sql);
       res.json(rows.map(b => ({
         id: b.id, grupo_id: b.grupo_id || '', sku: b.sku, nombre: b.nombre,
@@ -422,17 +438,25 @@ module.exports = function registrarSeguimiento({
   //    comprado de los existentes). Devuelve cuántos nuevos entraron.
   app.post('/api/seguimiento/bo-items/sync', authAdmin, mSeg, soloMaestroSeg, async (req, res) => {
     try {
+      // Throttle: la sincronización con el ERP es lo más caro. Si se pidió hace
+      // poco y NO es forzada (botón "Actualizar"), no se vuelve a golpear el ERP.
+      const forzar = !!(req.body && req.body.force) || !!req.query.force;
+      if (!forzar && (Date.now() - _lastSyncSeg) < SYNC_TTL_SEG) {
+        return res.json({ ok: true, throttled: true });
+      }
+
       const lineas = await erpBackorders();
+      // Inserta en UNA sola consulta (INSERT IGNORE múltiple) en vez de una por fila.
       let insertados = 0;
-      for (const l of lineas) {
-        const id = 'erp:' + l.sale_item_id;
+      if (lineas.length) {
+        const valores = lineas.map(l => [
+          'erp:' + l.sale_item_id, s(l.sku).slice(0,120), s(l.producto).slice(0,255), s(l.cliente).slice(0,255),
+          s(l.venta).slice(0,120), numOrNull(l.cantidad),
+          (l.fecha && /^\d{4}-\d{2}-\d{2}/.test(String(l.fecha))) ? String(l.fecha).slice(0,10) : null, 'erp'
+        ]);
         const [r] = await portalPool.query(
-          `INSERT IGNORE INTO seg_bo_items (id, sku, nombre, cliente, venta, cantidad, fecha, origen)
-           VALUES (?,?,?,?,?,?,?, 'erp')`,
-          [id, s(l.sku).slice(0,120), s(l.producto).slice(0,255), s(l.cliente).slice(0,255),
-           s(l.venta).slice(0,120), numOrNull(l.cantidad),
-           (l.fecha && /^\d{4}-\d{2}-\d{2}/.test(String(l.fecha))) ? String(l.fecha).slice(0,10) : null]);
-        if (r && r.affectedRows) insertados++;
+          `INSERT IGNORE INTO seg_bo_items (id, sku, nombre, cliente, venta, cantidad, fecha, origen) VALUES ?`, [valores]);
+        insertados = (r && r.affectedRows) || 0;
       }
 
       // ── ARCHIVADO AUTOMÁTICO (cuando ya se ingresó al ERP) ────────────────
@@ -482,6 +506,7 @@ module.exports = function registrarSeguimiento({
         }
       }
 
+      _lastSyncSeg = Date.now();
       res.json({ ok: true, insertados, total: lineas.length, archivados_backorders: archivadosBo, archivados_envios: archivadosEnv });
     } catch (e) {
       console.error('[seguimiento] sync backorders', e.message);

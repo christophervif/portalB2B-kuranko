@@ -46,6 +46,11 @@ module.exports = function registrarRecepciones({
     try { await portalPool.query(`ALTER TABLE imp_recepciones MODIFY id VARCHAR(80)`); } catch (e) {}
     try { await portalPool.query(`ALTER TABLE imp_recepciones ADD COLUMN almacen_codigo VARCHAR(80) NOT NULL DEFAULT ''`); } catch (e) {}
     try { await portalPool.query(`ALTER TABLE imp_recepciones ADD COLUMN archivada TINYINT(1) NOT NULL DEFAULT 0`); } catch (e) {}
+    // Código de importación (limpio, sin el N° de factura) para mostrar en las listas.
+    try { await portalPool.query(`ALTER TABLE imp_recepciones ADD COLUMN codigo VARCHAR(80) NOT NULL DEFAULT ''`); } catch (e) {}
+    // Marca de la última modificación DESPUÉS de la primera confirmación
+    // (reapertura+reconfirmación, o corrección). La 1ra confirmación va en validado_en.
+    try { await portalPool.query(`ALTER TABLE imp_recepciones ADD COLUMN modificada_en DATETIME NULL`); } catch (e) {}
   }
 
   const asJson = (v, fb) => {
@@ -120,12 +125,13 @@ module.exports = function registrarRecepciones({
     const conDif = items.filter(i => i.cuadra === false || ['falta', 'sobra', 'no_llego', 'extra'].includes(i.estado_item)).length;
     return {
       id: row.id, importacion_id: row.importacion_id || '',
+      codigo: row.codigo || row.importacion_id || '',
       proveedor: row.proveedor, empresa: row.empresa, n_factura: row.n_factura,
       tipo: row.tipo, estado: row.estado,
       almacen_id: row.almacen_id, almacen_nombre: row.almacen_nombre, almacen_codigo: row.almacen_codigo || '',
       archivada: row.archivada ? 1 : 0,
       n_items: items.length, con_diferencias: conDif,
-      validado_por: row.validado_por, validado_en: row.validado_en,
+      validado_por: row.validado_por, validado_en: row.validado_en, modificada_en: row.modificada_en,
       creado_en: row.creado_en, actualizado_en: row.actualizado_en
     };
   }
@@ -219,12 +225,12 @@ module.exports = function registrarRecepciones({
       }
 
       await portalPool.query(
-        `INSERT INTO imp_recepciones (id, importacion_id, proveedor, empresa, n_factura, tipo, estado, items)
-         VALUES (?,?,?,?,?,?, 'pendiente', ?)
-         ON DUPLICATE KEY UPDATE importacion_id=VALUES(importacion_id), proveedor=VALUES(proveedor),
+        `INSERT INTO imp_recepciones (id, importacion_id, codigo, proveedor, empresa, n_factura, tipo, estado, items)
+         VALUES (?,?,?,?,?,?,?, 'pendiente', ?)
+         ON DUPLICATE KEY UPDATE importacion_id=VALUES(importacion_id), codigo=VALUES(codigo), proveedor=VALUES(proveedor),
            empresa=VALUES(empresa), n_factura=VALUES(n_factura), tipo=VALUES(tipo), items=VALUES(items),
            estado = IF(estado='validada','validada','pendiente'), archivada = 0`,
-        [String(b.id), s(b.importacion_id), s(b.proveedor), s(b.empresa), s(b.n_factura),
+        [String(b.id), s(b.importacion_id), s(b.codigo || b.importacion_id), s(b.proveedor), s(b.empresa), s(b.n_factura),
          s(b.tipo || 'compra'), JSON.stringify(items)]);
       res.json({ ok: true, id: String(b.id) });
     } catch (e) {
@@ -279,6 +285,12 @@ module.exports = function registrarRecepciones({
     try {
       const [rows] = await portalPool.query(`SELECT * FROM imp_recepciones WHERE id = ?`, [req.params.id]);
       if (!rows.length) return res.status(404).json({ error: 'Recepción no encontrada' });
+      // BLOQUEO: una recepción ya confirmada queda cerrada para TODOS en recepción.
+      // Solo un administrador puede reabrirla desde Importación (endpoint /reabrir).
+      if (rows[0].estado === 'validada') {
+        return res.status(409).json({ error: '🔒 Esta recepción ya fue confirmada y está bloqueada. Un administrador puede reabrirla desde Importación para modificarla.' });
+      }
+      const yaConf = !!rows[0].validado_en; // ¿ya tenía fecha de confirmación? (reapertura)
       const b = req.body || {};
       const base = asJson(rows[0].items, []) || [];
       // Emparejar por POSICIÓN (índice): el frontend manda los ítems no-extra en
@@ -302,12 +314,16 @@ module.exports = function registrarRecepciones({
         if (faltan.length) return res.status(400).json({ error: `Falta confirmar el SKU de ${faltan.length} ítem(s).` });
       }
       const estado = confirmar ? 'validada' : 'borrador';
+      const setVal = (confirmar && !yaConf) ? 1 : 0;   // 1ra confirmación → fija validado_en
+      const setMod = (confirmar &&  yaConf) ? 1 : 0;   // reconfirmación tras reabrir → marca modificada
       await portalPool.query(
         `UPDATE imp_recepciones SET almacen_id=?, almacen_nombre=?, almacen_codigo=?, items=?, estado=?,
-           validado_por = IF(?, ?, validado_por), validado_en = IF(?, NOW(), validado_en)
+           validado_por  = IF(?, ?, validado_por),
+           validado_en   = IF(?, NOW(), validado_en),
+           modificada_en = IF(?, NOW(), modificada_en)
          WHERE id = ?`,
         [numOrNull(b.almacen_id), s(b.almacen_nombre), s(b.almacen_codigo), JSON.stringify(items), estado,
-         confirmar ? 1 : 0, quienEs(req), confirmar ? 1 : 0, req.params.id]);
+         confirmar ? 1 : 0, quienEs(req), setVal, setMod, req.params.id]);
       res.json({ ok: true, estado });
     } catch (e) {
       console.error('[recepciones] validar', e.message);
@@ -339,7 +355,10 @@ module.exports = function registrarRecepciones({
         // importacion.html: items = lista COMPLETA (incluye extras), en orden.
         items = base.map((it, k) => fusionarValidacion(it, sent[k] || {}));
       }
-      await portalPool.query(`UPDATE imp_recepciones SET items=? WHERE id=?`, [JSON.stringify(items), req.params.id]);
+      // Corregir una recepción ya confirmada cuenta como modificación posterior.
+      await portalPool.query(
+        `UPDATE imp_recepciones SET items=?, modificada_en = IF(estado='validada', NOW(), modificada_en) WHERE id=?`,
+        [JSON.stringify(items), req.params.id]);
       res.json({ ok: true });
     } catch (e) {
       console.error('[recepciones] corregir', e.message);

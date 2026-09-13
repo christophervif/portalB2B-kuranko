@@ -81,6 +81,9 @@ module.exports = function registrarRecepciones({
       cant_recibida: (v.cant_recibida !== undefined) ? numOrNull(v.cant_recibida) : (base.cant_recibida ?? null),
       estado_item: s(v.estado_item || base.estado_item || '').slice(0, 30), // ok|falta|sobra|no_llego|extra
       nota: s(v.nota || base.nota || '').slice(0, 300),
+      // Almacén/tienda DESTINO referencial del ítem (solo informativo, NO toca el ERP).
+      // Todo entra a un almacén y luego se transfiere; esto guarda a dónde irá cada ítem.
+      destino: s((v && v.destino !== undefined ? v.destino : (base && base.destino)) || '').slice(0, 120),
       es_extra: !!(v && v.es_extra) || !!(base && base.es_extra),
       // Subdivisión de una línea de factura en 2+ SKU (kit sin SKU único, o reparto de cantidad).
       // Cuenta como parte de la factura. modo: '' | 'precio' (kit) | 'cant' (reparto).
@@ -106,6 +109,7 @@ module.exports = function registrarRecepciones({
       cant_recibida: numOrNull(v.cant_recibida),
       estado_item: 'extra',
       nota: s(v.nota || '').slice(0, 300),
+      destino: s(v.destino || '').slice(0, 120),
       es_extra: true
     };
   }
@@ -352,6 +356,39 @@ module.exports = function registrarRecepciones({
     } catch (e) {
       console.error('[recepciones] archivar', e.message);
       res.status(500).json({ error: 'No se pudo archivar' });
+    }
+  });
+
+  // ── Reabrir una recepción validada (solo el ADMIN maestro) ─────────────────
+  //    Vuelve a 'borrador' para que el supervisor pueda modificar la confirmación.
+  //    NO se puede reabrir si el ingreso YA se guardó en Importaciones (guardados,
+  //    tabla imp_importaciones): en ese caso ya está costeado/cerrado.
+  app.put('/api/recepcion/:id/reabrir', authAdmin, mRec, async (req, res) => {
+    try {
+      if (!req.admin || !req.admin.maestro)
+        return res.status(403).json({ error: 'Solo el administrador puede reabrir la recepción.' });
+      const [rows] = await portalPool.query(
+        `SELECT importacion_id, n_factura, estado FROM imp_recepciones WHERE id = ?`, [req.params.id]);
+      if (!rows.length) return res.status(404).json({ error: 'Recepción no encontrada' });
+      const impId = s(rows[0].importacion_id);
+      const nFac = s(rows[0].n_factura);
+      // ¿Ya está guardada en Importaciones? (por id de importación o por N° de factura/código)
+      let guardada = false;
+      if (impId) {
+        const [a] = await portalPool.query(`SELECT 1 FROM imp_importaciones WHERE id = ? LIMIT 1`, [impId]);
+        if (a.length) guardada = true;
+      }
+      if (!guardada && nFac) {
+        const [b2] = await portalPool.query(`SELECT 1 FROM imp_importaciones WHERE codigo = ? LIMIT 1`, [nFac]);
+        if (b2.length) guardada = true;
+      }
+      if (guardada)
+        return res.status(409).json({ error: 'No se puede reabrir: el ingreso ya está guardado en Importaciones (guardados).' });
+      await portalPool.query(`UPDATE imp_recepciones SET estado='borrador' WHERE id = ?`, [req.params.id]);
+      res.json({ ok: true, estado: 'borrador' });
+    } catch (e) {
+      console.error('[recepciones] reabrir', e.message);
+      res.status(500).json({ error: 'No se pudo reabrir la recepción' });
     }
   });
 

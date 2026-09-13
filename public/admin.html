@@ -1207,7 +1207,7 @@ async function abrirRecepcion(id){
 // Almacén DESTINO por ítem: nota libre, opcional y REFERENCIAL (a dónde se transferirá
 // después del ingreso). No elige de una lista ni toca el ERP; solo se guarda como texto.
 function recDestinoField(it,i){
-  return `<div class="rec-field"><label>Almacén destino <span style="color:#94a3b8;font-weight:400">(opcional · referencial · a dónde se transferirá)</span></label>
+  return `<div class="rec-field"><label>Nota <span style="color:#94a3b8;font-weight:400">(opcional · referencial · a dónde se transferirá)</span></label>
     <input class="rec-input" value="${recEsc(it.destino||'')}" oninput="recSetDestino(${i},this.value)" placeholder="ej. Tienda Centro, Surco, bodega 2…" maxlength="120"></div>`;
 }
 function recSetDestino(i,val){ if(REC_ACTUAL&&REC_ACTUAL.items[i]) REC_ACTUAL.items[i].destino=val; recAutoGuardar(); }

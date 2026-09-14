@@ -251,7 +251,7 @@ tr:hover td{background:var(--hover)}
       <button class="tab" data-modulos="conciliacion" onclick="tab('conciliacion',this)">Conciliación</button>
       <button class="tab" onclick="tab('clientes_bi',this)">Clientes BI</button>
       <button class="tab" data-modulos="cuentas_cobrar" onclick="tab('cuentas_cobrar',this)">Cuentas por cobrar</button>
-      <button class="tab" data-modulos="saldo_favor" onclick="tab('saldo_favor',this)">Saldo a favor</button>
+      <button class="tab" data-modulos="saldo_favor" onclick="tab('saldo_favor',this)">Créditos</button>
       <button class="tab" onclick="tab('inventario',this)">Inventario</button>
       <button class="tab" data-modulos="inventario" onclick="tab('promociones',this)">Promociones</button>
       <button class="tab" onclick="tab('restock',this)">Restock</button>
@@ -730,7 +730,7 @@ tr:hover td{background:var(--hover)}
 
     <div id="tab-saldo_favor" class="panel">
       <div class="card" style="padding:0;overflow:hidden">
-        <iframe id="saldo-frame" title="Saldo a favor (créditos)"
+        <iframe id="saldo-frame" title="Créditos"
           style="width:100%;height:calc(100vh - 150px);min-height:560px;border:0;display:block"></iframe>
       </div>
     </div>
@@ -2779,7 +2779,7 @@ async function cargarEstadoActualizacion(){
   }catch(e){ if(box)box.style.display='none'; }
 }
 // Nombres legibles de los módulos
-const NOMBRE_MODULO={clientes_gestion:'Gestión de clientes',sync:'Sincronización web (en Sistemas)',auditoria:'Auditoría de catálogo',resumen:'Resumen de ventas (en Ventas e ingresos)',rentabilidad:'Rentabilidad (en Ventas e ingresos)',inventario:'Inventario',restock:'Restock',clientes_bi:'Clientes BI',caja_bi:'Ingresos y caja (en Ventas e ingresos)',crm:'CRM Kommo',reportes:'Contabilidad',pagos:'Métodos de pago (en Sistemas)',importaciones:'Importaciones',recepciones:'Recepciones',seguimiento:'Seguimiento (trackings y backorders)',conciliacion:'Conciliación de pagos online',cuentas_cobrar:'Cuentas por cobrar',saldo_favor:'Saldo a favor (créditos)'};
+const NOMBRE_MODULO={clientes_gestion:'Gestión de clientes',sync:'Sincronización web (en Sistemas)',auditoria:'Auditoría de catálogo',resumen:'Resumen de ventas (en Ventas e ingresos)',rentabilidad:'Rentabilidad (en Ventas e ingresos)',inventario:'Inventario',restock:'Restock',clientes_bi:'Clientes BI',caja_bi:'Ingresos y caja (en Ventas e ingresos)',crm:'CRM Kommo',reportes:'Contabilidad',pagos:'Métodos de pago (en Sistemas)',importaciones:'Importaciones',recepciones:'Recepciones',seguimiento:'Seguimiento (trackings y backorders)',conciliacion:'Conciliación de pagos online',cuentas_cobrar:'Cuentas por cobrar',saldo_favor:'Créditos'};
 let accesosCache={modulos_disponibles:[],usuarios:[]};
 async function cargarAccesos(){
   try{

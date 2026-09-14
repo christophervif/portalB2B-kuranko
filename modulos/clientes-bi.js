@@ -8,7 +8,7 @@
 const { EMPRESAS_BI, rango, nombreTrazable, cabeceraExcel } = require('./comunes');
 
 module.exports = function registrarClientesBI({
-  app, authAdmin, mClientes, mResumen, prodPool, portalPool, VV
+  app, authAdmin, mClientes, mResumen, mCxc, mSaldo, prodPool, portalPool, VV
 }) {
 
   // Calcula las cuentas por cobrar (deudas) de clientes
@@ -194,7 +194,7 @@ module.exports = function registrarClientesBI({
   }
 
 
-  app.get('/api/creditos-ventas-canceladas', authAdmin, mClientes, async (req, res) => {
+  app.get('/api/creditos-ventas-canceladas', authAdmin, mSaldo, async (req, res) => {
     try {
       const q = (req.query.q || '').trim();
       const [rows] = await prodPool.query(`
@@ -250,7 +250,7 @@ module.exports = function registrarClientesBI({
   });
 
 
-  app.post('/api/creditos', authAdmin, mClientes, async (req, res) => {
+  app.post('/api/creditos', authAdmin, mSaldo, async (req, res) => {
     try {
       await asegurarTablaCreditos();
       const b = req.body || {};
@@ -294,7 +294,7 @@ module.exports = function registrarClientesBI({
   });
 
 
-  app.get('/api/creditos', authAdmin, mClientes, async (req, res) => {
+  app.get('/api/creditos', authAdmin, mSaldo, async (req, res) => {
     try {
       await asegurarTablaCreditos();
       const [rows] = await portalPool.query(
@@ -340,7 +340,7 @@ module.exports = function registrarClientesBI({
   });
 
 
-  app.post('/api/creditos/:id/anular', authAdmin, mClientes, async (req, res) => {
+  app.post('/api/creditos/:id/anular', authAdmin, mSaldo, async (req, res) => {
     try {
       if (!req.admin || !req.admin.maestro)
         return res.status(403).json({ error: 'Solo el administrador maestro puede anular créditos.' });
@@ -388,7 +388,7 @@ module.exports = function registrarClientesBI({
   });
 
 
-  app.get('/api/clientes-deudas', authAdmin, mClientes, async (req, res) => {
+  app.get('/api/clientes-deudas', authAdmin, mCxc, async (req, res) => {
     try {
       const lista = await obtenerDeudas(req.query);
       res.json({
@@ -402,7 +402,7 @@ module.exports = function registrarClientesBI({
   });
 
 
-  app.get('/api/clientes-deudas-excel', authAdmin, mClientes, async (req, res) => {
+  app.get('/api/clientes-deudas-excel', authAdmin, mCxc, async (req, res) => {
     try {
       const lista = await obtenerDeudas(req.query);
       const ExcelJS = require('exceljs');
@@ -460,7 +460,7 @@ module.exports = function registrarClientesBI({
   });
 
 
-  app.post('/api/clientes-deudas-cobrar', authAdmin, mClientes, async (req, res) => {
+  app.post('/api/clientes-deudas-cobrar', authAdmin, mCxc, async (req, res) => {
     const { customer_ids } = req.body;
     if (!Array.isArray(customer_ids) || !customer_ids.length) {
       return res.status(400).json({ error: 'No se seleccionaron clientes.' });

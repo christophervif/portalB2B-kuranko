@@ -672,7 +672,9 @@ module.exports = function registrarSincronizacion({ app, authAdmin, requiereModu
       const [pend] = await prodPool.query(
         `SELECT pv.id, TRIM(pv.sku) AS sku, pv.product_type, pv.name AS nombre, pv.product_id,
                 pv.regular_price, pv.sale_price, p.description AS descripcion,
-                COALESCE(SUM(ls.quantity),0) AS stock
+                COALESCE(SUM(ls.quantity),0) AS stock,
+                (UPPER(COALESCE(pv.name, '')) LIKE '%MKP%'
+                 OR UPPER(COALESCE(p.name, '')) LIKE '%MKP%') AS es_mkp
            FROM product_variations pv
            JOIN products p ON p.id = pv.product_id
            LEFT JOIN location_stocks ls ON ls.product_variation_id = pv.id
@@ -684,9 +686,7 @@ module.exports = function registrarSincronizacion({ app, authAdmin, requiereModu
           --  · Productos normales: se exportan TODOS (con o sin stock).
           --  · Marketplace ("MKP" en el nombre de la variación o del padre):
           --    solo si tienen stock; sin stock se omiten.
-         HAVING (UPPER(COALESCE(pv.name, '')) NOT LIKE '%MKP%'
-                 AND UPPER(COALESCE(p.name, '')) NOT LIKE '%MKP%')
-                OR stock > 0
+         HAVING es_mkp = 0 OR stock > 0
           ORDER BY pv.name, pv.sku`);
 
       const prodIds = [...new Set(pend.map(r => r.product_id))];

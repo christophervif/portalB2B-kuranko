@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Saldo a favor — Kuranko</title>
+<title>Créditos — Kuranko</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <style>
@@ -221,6 +221,12 @@ tr:hover td{background:var(--hover)}
 <body>
 <div class="toast" id="toast"></div>
 <div class="card">
+      <div class="subtabs">
+        <button class="subtab active" id="st-cliente" onclick="credSubtab('cliente')">A favor de clientes</button>
+        <button class="subtab" id="st-empresa" onclick="credSubtab('empresa')">A favor de la empresa</button>
+      </div>
+
+      <div id="sub-cliente" class="subpanel active">
         <div class="dbcard">
           <h4>Clientes que tienen crédito (saldo a favor)</h4>
           <p class="card-note">Dinero que un cliente pagó pero quedó a su favor (venta cancelada que ya había recibido pago). Al cancelar, el ERP anula el pago, pero el dinero ya entró: por eso también salen esas ventas. Tú decides venta por venta cuáles quedaron a favor (no devolviste) y cuáles no. Cada crédito queda registrado con quién lo creó.</p>
@@ -237,6 +243,35 @@ tr:hover td{background:var(--hover)}
             <div id="cred-canceladas" style="margin-top:10px;max-height:40vh;overflow-y:auto"></div>
           </div>
         </div>
+      </div>
+
+      <div id="sub-empresa" class="subpanel">
+        <div class="dbcard">
+          <h4>Créditos a favor de la empresa</h4>
+          <p class="card-note">Dinero que queda a favor de la empresa y quieres tener anotado (por ejemplo, un saldo con un proveedor). Se registra a mano y se marca <b>saldado</b> cuando ya se usó o cobró. Cada registro queda con quién lo creó.</p>
+          <div style="background:var(--surface2);border-radius:12px;padding:14px;margin-bottom:14px">
+            <div class="filtros-fila" style="align-items:flex-end;gap:10px;flex-wrap:wrap">
+              <label style="font-size:12px;color:var(--muted)">Empresa beneficiaria<br>
+                <select id="ce-empresa" style="margin-top:4px">
+                  <option value="1">Diseños Corporativos SAC</option>
+                  <option value="2">Christopher Villasante F.</option>
+                </select></label>
+              <label style="font-size:12px;color:var(--muted);flex:1;min-width:180px">Contraparte (de quién)<br>
+                <input id="ce-contraparte" type="text" placeholder="Ej: Proveedor XYZ" style="margin-top:4px;width:100%;box-sizing:border-box"></label>
+              <label style="font-size:12px;color:var(--muted)">Monto (S/)<br>
+                <input id="ce-monto" type="number" step="0.01" min="0" placeholder="0.00" style="margin-top:4px;width:140px"></label>
+              <label style="font-size:12px;color:var(--muted)">Fecha<br>
+                <input id="ce-fecha" type="date" style="margin-top:4px"></label>
+            </div>
+            <label style="font-size:12px;color:var(--muted);display:block;margin-top:10px">Concepto / nota (opcional)<br>
+              <input id="ce-nota" type="text" placeholder="Ej: nota de crédito por devolución de mercadería" style="margin-top:4px;width:100%;box-sizing:border-box"></label>
+            <div style="margin-top:12px"><button class="btn" onclick="registrarCreditoEmpresa()">+ Registrar crédito a favor de la empresa</button></div>
+            <div id="ce-error" style="color:var(--fg-r);font-size:12px;margin-top:8px"></div>
+          </div>
+          <div id="ce-resumen" style="margin:8px 0;font-weight:600"></div>
+          <div id="ce-tabla" style="overflow-x:auto;max-height:55vh;overflow-y:auto"></div>
+        </div>
+      </div>
 </div>
 <script>
 
@@ -463,6 +498,81 @@ async function anularCredito(id){
     showToast('Crédito anulado.');
     cargarCreditos();
   }catch(e){showToast(e.message,true);}
+}
+
+// ══════════ Créditos a favor de la empresa ══════════
+const ceMoney=n=>'S/ '+Number(n||0).toLocaleString('es-PE',{minimumFractionDigits:2});
+let _ceTodos=[], _ceMostrarInactivos=false;
+async function cargarCreditosEmpresa(){
+  try{
+    const d=await apiCall('/api/creditos-empresa','GET');
+    _ceTodos=d.creditos||[];
+    pintarCreditosEmpresa();
+  }catch(e){document.getElementById('ce-resumen').textContent='';showToast(e.message,true);}
+}
+function pintarCreditosEmpresa(){
+  const cont=document.getElementById('ce-tabla');
+  const res=document.getElementById('ce-resumen');
+  const todos=_ceTodos;
+  const inactivos=todos.filter(c=>c.estado!=='disponible').length;
+  const disp=todos.filter(c=>c.estado==='disponible');
+  const totalDisp=disp.reduce((s,x)=>s+x.monto,0);
+  const toggle=inactivos>0?` · <a href="#" onclick="event.preventDefault();_ceMostrarInactivos=!_ceMostrarInactivos;pintarCreditosEmpresa();" style="color:var(--accent);text-decoration:underline">${_ceMostrarInactivos?'ocultar':'ver'} ${inactivos} saldado(s)/anulado(s)</a>`:'';
+  res.innerHTML=`${disp.length} crédito(s) disponible(s) · Total a favor de la empresa: <b>${ceMoney(totalDisp)}</b>${toggle}`;
+  const lista=_ceMostrarInactivos?todos:disp;
+  if(!lista.length){cont.innerHTML='<div class="muted">Sin créditos a favor de la empresa '+(_ceMostrarInactivos?'registrados':'disponibles')+'.</div>';return;}
+  const badge=e=>e==='anulado'?'<span class="badge-r" style="font-size:9px">anulado</span>':e==='saldado'?'<span class="badge-y" style="font-size:9px">saldado</span>':'<span class="badge-g" style="font-size:9px">disponible</span>';
+  cont.innerHTML='<table class="deudas-tbl"><thead><tr><th>Empresa</th><th>Contraparte</th><th>Fecha</th><th style="min-width:220px">Concepto / nota</th><th style="text-align:right">Monto</th><th>Estado</th><th>Registró</th><th></th>'+(ES_MAESTRO?'<th></th>':'')+'</tr></thead><tbody>'+
+    lista.map(c=>`<tr${c.estado!=='disponible'?' style="opacity:.6"':''}>
+      <td style="white-space:nowrap">${esc(c.empresa)}</td>
+      <td>${esc(c.contraparte)}</td>
+      <td style="white-space:nowrap">${c.fecha?new Date(c.fecha).toLocaleDateString('es-PE'):'—'}</td>
+      <td style="white-space:normal;font-size:12px;line-height:1.4">${esc(c.nota||'—')}${c.estado==='saldado'&&c.saldado_por?`<br><span class="muted" style="font-size:11px">Saldado por ${esc(c.saldado_por)}${c.saldado_en?' el '+new Date(c.saldado_en).toLocaleDateString('es-PE'):''}</span>`:''}${c.anulado&&c.anulado_por?`<br><span style="color:var(--fg-r);font-size:11px">Anulado por ${esc(c.anulado_por)}</span>`:''}</td>
+      <td style="text-align:right;font-weight:600${c.estado!=='disponible'?';text-decoration:line-through':''}">${ceMoney(c.monto)}</td>
+      <td>${badge(c.estado)}</td>
+      <td style="font-size:11px;color:var(--muted)">${esc(c.registrado_por||'—')}</td>
+      <td>${c.estado==='disponible'?`<button class="btn btn-sm" onclick="saldarCreditoEmpresa(${c.id},true)">Saldar</button>`:(c.estado==='saldado'?`<button class="btn btn-sm" onclick="saldarCreditoEmpresa(${c.id},false)">Reabrir</button>`:'')}</td>
+      ${ES_MAESTRO?`<td>${!c.anulado?`<button class="btn btn-sm danger" onclick="anularCreditoEmpresa(${c.id})">Anular</button>`:''}</td>`:''}
+    </tr>`).join('')+'</tbody></table>';
+}
+async function registrarCreditoEmpresa(){
+  const err=document.getElementById('ce-error');err.textContent='';
+  const empresa_id=document.getElementById('ce-empresa').value;
+  const contraparte=(document.getElementById('ce-contraparte').value||'').trim();
+  const monto=Number(document.getElementById('ce-monto').value);
+  const fecha=document.getElementById('ce-fecha').value||null;
+  const nota=(document.getElementById('ce-nota').value||'').trim();
+  if(!contraparte){err.textContent='Indica la contraparte (de quién es el crédito).';return;}
+  if(!(monto>0)){err.textContent='El monto debe ser mayor a cero.';return;}
+  try{
+    await apiCall('/api/creditos-empresa','POST',{empresa_id,contraparte,monto,fecha,nota});
+    showToast('Crédito a favor de la empresa registrado.');
+    document.getElementById('ce-contraparte').value='';
+    document.getElementById('ce-monto').value='';
+    document.getElementById('ce-nota').value='';
+    cargarCreditosEmpresa();
+  }catch(e){err.textContent=e.message;}
+}
+async function saldarCreditoEmpresa(id,saldar){
+  try{ await apiCall('/api/creditos-empresa/'+id+'/saldar','POST',{saldar}); showToast(saldar?'Marcado como saldado.':'Reabierto.'); cargarCreditosEmpresa(); }
+  catch(e){showToast(e.message,true);}
+}
+async function anularCreditoEmpresa(id){
+  if(!confirm('¿Anular este crédito a favor de la empresa?'))return;
+  try{ await apiCall('/api/creditos-empresa/'+id+'/anular','POST',{}); showToast('Crédito anulado.'); cargarCreditosEmpresa(); }
+  catch(e){showToast(e.message,true);}
+}
+// Subpestañas (a favor de clientes / a favor de la empresa)
+let _ceCargado=false;
+function credSubtab(which){
+  document.getElementById('st-cliente').classList.toggle('active',which==='cliente');
+  document.getElementById('st-empresa').classList.toggle('active',which==='empresa');
+  document.getElementById('sub-cliente').classList.toggle('active',which==='cliente');
+  document.getElementById('sub-empresa').classList.toggle('active',which==='empresa');
+  if(which==='empresa'){
+    const f=document.getElementById('ce-fecha'); if(f&&!f.value)f.value=new Date().toISOString().split('T')[0];
+    if(!_ceCargado){_ceCargado=true;cargarCreditosEmpresa();}
+  }
 }
 
 // ── Init ──

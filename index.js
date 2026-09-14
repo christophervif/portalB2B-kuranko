@@ -1,620 +1,339 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Portal de Clientes — Kuranko</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<style>
-:root{
-  --bg:#000726;--surface:#0a1238;--surface2:#060d2e;--surface3:#111b44;
-  --border:#1f2a55;--border2:#162043;--text:#eef1f8;--text2:#c2cae0;--muted:#7681a6;--muted2:#9aa4c4;
-  --accent:#FFB30D;--accent-text:#000726;--accent-h:#e6a00c;--hover:#152050;--white:#ffffff;
-  --bg-ok:#0f3d24;--fg-ok:#4ade80;--bg-warn:#3d2f08;--fg-warn:#FFB30D;--bg-r:#4a1414;--fg-r:#f87171;--bg-in:#13265e;--fg-in:#8ab0f5;
-  --cal-filter:invert(1);
-}
-[data-theme="light"]{
-  --bg:#f3f5fb;--surface:#ffffff;--surface2:#f9fafe;--surface3:#eef1f9;
-  --border:#dce2f0;--border2:#e8edf6;--text:#000726;--text2:#2a3661;--muted:#8b96b8;--muted2:#5a6690;
-  --accent:#FFB30D;--accent-text:#000726;--accent-h:#e6a00c;--hover:#eef1f9;--white:#000726;
-  --bg-ok:#dcfce7;--fg-ok:#15803d;--bg-warn:#fef3c7;--fg-warn:#a06a00;--bg-r:#fee2e2;--fg-r:#dc2626;--bg-in:#dbeafe;--fg-in:#1d4ed8;
-  --cal-filter:none;
-}
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;-webkit-text-size-adjust:100%;transition:background .2s,color .2s}
-.header{background:var(--surface);border-bottom:1px solid var(--border);padding:1rem 1.5rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
-.header h1{font-size:1rem;font-weight:600;color:var(--white)}
-.header .cli{font-size:12px;color:var(--muted2)}
-.btn{background:var(--accent);border:none;color:var(--accent-text);border-radius:8px;padding:8px 16px;font-size:13px;cursor:pointer;font-weight:600}
-.btn:hover{background:var(--accent-h)}.btn:active{transform:scale(.97)}
-.btn-sec{background:var(--surface3);border:1px solid var(--border);color:var(--text2)}.btn-sm{padding:6px 12px;font-size:12px}
-.btn-green{background:#15803d;color:#fff}.btn-green:hover{background:#166534}
-.wrap{max-width:1000px;margin:0 auto;padding:1.5rem}
-.login-box{max-width:380px;margin:4rem auto;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:2rem}
-.login-box .logo{font-size:1.4rem;font-weight:700;color:var(--accent);text-align:center;margin-bottom:.25rem;letter-spacing:.05em}
-.login-box .tag{font-size:13px;color:var(--muted);text-align:center;margin-bottom:1.5rem}
-.field{margin-bottom:12px}
-.field label{display:block;font-size:12px;color:var(--muted2);margin-bottom:4px}
-.field input,.field select{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px 12px;font-size:16px}
-.field input:focus,.field select:focus{outline:none;border-color:var(--accent)}
-.err{font-size:13px;color:#fca5a5;margin-top:8px;display:none}
-.hint{font-size:12px;color:var(--muted);margin-top:10px;text-align:center;line-height:1.5}
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:1.25rem}
-.kpi{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:1rem}
-.kpi.accent{border-color:var(--accent)}
-.kpi-label{font-size:11px;color:var(--muted);text-transform:uppercase;margin-bottom:6px}
-.kpi-val{font-size:1.3rem;font-weight:600;color:var(--white)}
-.tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-bottom:1.25rem;overflow-x:auto;-webkit-overflow-scrolling:touch}
-.tab{font-size:13px;padding:9px 16px;cursor:pointer;border:none;background:none;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;flex-shrink:0}
-.tab.active{color:var(--white);border-bottom-color:var(--accent)}
-.panel{display:none}.panel.active{display:block}
-.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.25rem;margin-bottom:1rem}
-.card-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:8px}
-.card h3{font-size:13px;font-weight:600}
-.filtros{display:grid;grid-template-columns:2fr 1.2fr auto auto;gap:8px;margin-bottom:1rem;align-items:end}
-.filtros input,.filtros select{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:9px 10px;font-size:14px;max-width:100%;width:100%;min-height:40px;-webkit-appearance:none;appearance:none}
-.filtros input[type="date"]{position:relative}
-.filtros input[type="date"]::-webkit-date-and-time-value{text-align:left;color:var(--text)}
-.filtros input[type="date"]::-webkit-calendar-picker-indicator{filter:var(--cal-filter);opacity:.6}
-.filtros input[type="date"]:not(.tiene-valor)::before{content:"dd/mm/aaaa";color:var(--muted);position:absolute;left:10px}
-.filtros input[type="date"]:focus::before{content:none}
-.filtro-fecha{display:flex;flex-direction:column;font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:600;gap:3px}
-.filtro-fecha input{font-size:14px;padding:8px;min-width:0;width:150px}
-@media(max-width:700px){.filtros{grid-template-columns:1fr 1fr}.filtro-fecha input{width:100%}}
-table{width:100%;border-collapse:collapse;font-size:13px}
-th{text-align:left;padding:8px;color:var(--muted2);font-weight:500;font-size:11px;border-bottom:1px solid var(--border);text-transform:uppercase}
-th.num,td.num{text-align:right;white-space:nowrap;padding-left:18px}
-td{padding:8px;border-bottom:1px solid var(--surface3);color:var(--text2)}
-tbody tr.clickable{cursor:pointer;transition:background .12s}
-tbody tr.clickable:hover td{background:var(--hover)}
-.det-row td{background:var(--surface2);padding:0}
-.det-box{padding:1.25rem 1.5rem;border-left:3px solid var(--accent)}
-.det-box table{margin-bottom:0.5rem}
-.det-box table th{padding:6px 10px;font-size:10px}
-.det-box table td{padding:7px 10px;line-height:1.4}
-.det-box table tbody tr:hover td{background:var(--hover)}
-.det-box .mov-item{padding:7px 0}
-.badge{font-size:11px;padding:3px 9px;border-radius:20px;font-weight:600}
-.badge-ok{background:var(--bg-ok);color:var(--fg-ok)}.badge-warn{background:var(--bg-warn);color:var(--fg-warn)}.badge-r{background:var(--bg-r);color:var(--fg-r)}
-.badge-in{background:var(--bg-in);color:var(--fg-in)}.badge-out{background:var(--bg-warn);color:var(--fg-warn)}
-.right{text-align:right}.muted{color:var(--muted)}
-.loading{text-align:center;padding:2rem;color:var(--muted)}
-.mov-pop{position:absolute;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:12px;color:var(--text2);box-shadow:0 4px 16px rgba(0,0,0,.3);z-index:300;line-height:1.7;max-width:220px}
-.toast{position:fixed;bottom:80px;right:20px;background:#14532d;color:#86efac;padding:12px 20px;border-radius:8px;font-size:13px;display:none;z-index:100;max-width:300px}
-.toast.err{background:#7f1d1d;color:#fca5a5}
-.modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:200;padding:1rem}
-.modal.show{display:flex}
-.modal-box{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:0;max-width:520px;width:100%;max-height:88vh;overflow-y:auto;position:relative}
-.modal-box h3{font-size:1rem;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;background:var(--surface);padding:1.25rem 1.5rem 0.85rem;margin:0;border-bottom:1px solid var(--border);z-index:2}
-.modal-body{padding:1.25rem 1.5rem}
-.modal-footer{position:sticky;bottom:0;background:var(--surface);padding:0.85rem 1.5rem 1.25rem;border-top:1px solid var(--border)}
-.modal-close{cursor:pointer;color:var(--muted);font-size:1.5rem;line-height:1;padding:0 4px}
-.wa-float{position:fixed;bottom:20px;right:20px;background:#25D366;width:56px;height:56px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,0,0,.4);cursor:pointer;z-index:90;text-decoration:none}
-.wa-float svg{width:30px;height:30px;fill:#fff}
-.stepper{display:flex;align-items:center;gap:10px}
-.stepper button{width:36px;height:36px;border-radius:8px;border:1px solid var(--border);background:var(--surface3);color:var(--text);cursor:pointer;font-size:20px;line-height:1;font-weight:600;display:flex;align-items:center;justify-content:center}
-.stepper button:hover{background:var(--accent);color:var(--accent-text);border-color:var(--accent)}
-.stepper button:active{background:var(--border)}
-.stepper span{min-width:30px;text-align:center;font-weight:600;font-size:15px}
-.mov-item{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--surface3);font-size:13px}
-.mov-item:last-child{border:none}
-@media(max-width:600px){
-  .wrap{padding:0.75rem}
-  .header{padding:0.85rem 1rem}
-  .header h1{font-size:0.95rem}
-  .kpis{grid-template-columns:1fr 1fr;gap:8px}
-  .kpi{padding:0.85rem}
-  .kpi-val{font-size:1.1rem}
-  .card{padding:1rem}
-  .card-head{flex-direction:column;align-items:stretch}
-  .card-head>div{display:flex;gap:6px;flex-wrap:wrap}
-  .card-head .btn{flex:1}
-  .filtros{flex-direction:column}
-  .filtros input,.filtros select{width:100%;min-width:0}
-  table.responsive thead{display:none}
-  table.responsive,table.responsive tbody,table.responsive tr,table.responsive td{display:block;width:100%}
-  table.responsive>tbody>tr:not(.det-row){background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;padding:6px 4px}
-  table.responsive>tbody>tr:not(.det-row)>td{border:none;padding:7px 12px;display:flex;justify-content:space-between;align-items:center;text-align:right;gap:12px}
-  table.responsive>tbody>tr:not(.det-row)>td::before{content:attr(data-label);color:var(--muted);font-size:11px;text-transform:uppercase;font-weight:600;text-align:left;flex-shrink:0}
-  .det-row,.det-row>td{display:block !important;padding:0;margin:0;background:none;border:none;width:100%}
-  .det-box{border-radius:10px;margin:-4px 0 8px;padding:0.85rem;background:var(--surface3)}
-  /* tablas internas del detalle: formato tarjeta también */
-  .det-box table tr{display:block;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:6px;padding:4px}
-  .det-box table thead{display:none}
-  .det-box table td{display:flex;justify-content:space-between;padding:5px 8px;text-align:right;gap:10px}
-  .det-box table td::before{content:attr(data-label);color:var(--muted);font-size:10px;text-transform:uppercase;font-weight:600;text-align:left}
-  .modal-box{padding:1.15rem}
-  .header>div:last-child{display:flex;gap:4px}
-  .header .btn-sm{padding:6px 9px}
-}
-</style>
-</head>
-<body>
+// ============================================================================
+// PORTAL B2B KURANKO — Backend (clientes + panel de administración)
+// Todo en la nube. Cada cliente ve SOLO sus datos. Admin protegido por login.
+// ============================================================================
+const express = require('express');
+const mysql = require('mysql2/promise');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const cors = require('cors');
+const path = require('path');
+// Funciones compartidas (antes duplicadas en este archivo)
+const { EMPRESAS_BI, fechaHoraLima, fechaLima, nombreTrazable, rango, cabeceraExcel } = require('./modulos/comunes');
 
-<div id="login-screen">
-  <div class="login-box" style="position:relative">
-    <button class="btn btn-sec btn-sm" id="theme-btn-login" onclick="toggleTema()" style="position:absolute;top:1rem;right:1rem" title="Cambiar tema">🌙</button>
-    <div class="logo">KURANKO</div>
-    <div class="tag">Portal de Clientes</div>
-    <div class="field"><label>Usuario (tu RUC)</label><input type="text" id="usuario" autocomplete="username" inputmode="numeric"></div>
-    <div class="field"><label>Contraseña</label><input type="password" id="password" autocomplete="current-password"></div>
-    <button class="btn" style="width:100%" onclick="login()">Ingresar</button>
-    <div class="err" id="login-err"></div>
-    <div class="hint">La primera vez, tu contraseña es tu mismo RUC.</div>
-  </div>
-</div>
-
-<div id="app-screen" style="display:none">
-  <div class="header">
-    <div><h1>Portal de Clientes Kuranko</h1><div class="cli" id="cli-nombre"></div></div>
-    <div>
-      <button class="btn btn-sec btn-sm" id="theme-btn" onclick="toggleTema()" title="Cambiar tema">🌙</button>
-      <button class="btn btn-sec btn-sm" onclick="abrirCambioPass()">Cambiar clave</button>
-      <button class="btn btn-sec btn-sm" onclick="logout()">Salir</button>
-    </div>
-  </div>
-  <div class="wrap">
-    <div class="kpis" id="kpis"></div>
-    <div class="tabs">
-      <button class="tab active" onclick="tab('compras',this)">Mis compras</button>
-      <button class="tab" onclick="tab('pagos',this)">Mis pagos</button>
-      <button class="tab" onclick="tab('stock',this)">Mi consignación</button>
-      <button class="tab" id="tab-transf-btn" onclick="tab('transf',this)">Transferencias</button>
-    </div>
-
-    <div id="tab-compras" class="panel active">
-      <div class="card">
-        <div class="card-head">
-          <h3>Compras registradas</h3>
-          <div style="display:flex;gap:6px">
-            <button class="btn btn-sec btn-sm" onclick="exportarExcel()">Excel</button>
-            <button class="btn btn-sec btn-sm" onclick="exportarPDF()">PDF</button>
-          </div>
-        </div>
-        <div class="filtros">
-          <input id="f-buscar" placeholder="Buscar por código..." oninput="renderVentas()">
-          <select id="f-estado" onchange="renderVentas()">
-            <option value="">Todos los estados</option>
-            <option value="paid">Pagadas</option>
-            <option value="confirmed">Confirmadas</option>
-            <option value="pending_payment">Pendientes</option>
-          </select>
-          <label class="filtro-fecha">Desde<input type="date" id="f-desde" onchange="this.classList.toggle('tiene-valor',!!this.value);renderVentas()"></label>
-          <label class="filtro-fecha">Hasta<input type="date" id="f-hasta" onchange="this.classList.toggle('tiene-valor',!!this.value);renderVentas()"></label>
-        </div>
-        <div id="ventas-tabla"><div class="loading">Cargando...</div></div>
-      </div>
-    </div>
-
-    <div id="tab-pagos" class="panel"><div class="card"><h3>Pagos realizados</h3><div id="pagos-tabla"><div class="loading">Cargando...</div></div></div></div>
-
-    <div id="tab-stock" class="panel">
-      <div class="card">
-        <div class="card-head">
-          <h3>Productos en consignación</h3>
-          <div style="display:flex;gap:6px">
-            <button class="btn btn-sec btn-sm" onclick="exportarConsignacion('excel')">Excel</button>
-            <button class="btn btn-sec btn-sm" onclick="exportarConsignacion('pdf')">PDF</button>
-            <button class="btn btn-green btn-sm" onclick="abrirReporte()">Reportar venta</button>
-          </div>
-        </div>
-        <p class="muted" style="font-size:11px;margin-bottom:10px">Columna <b>Mov.</b>: cambios de los últimos 60 días — <span style="color:#4ade80">●</span> entrada · <span style="color:#60a5fa">●</span> devolución · <span style="color:#fbbf24">●</span> venta. Toca los puntos para ver las fechas.</p>
-        <div id="stock-tabla"><div class="loading">Cargando...</div></div>
-      </div>
-    </div>
-
-    <div id="tab-transf" class="panel">
-      <div class="card">
-        <div class="card-head">
-          <h3>Transferencias de consignación</h3>
-          <div style="display:flex;gap:6px">
-            <button class="btn btn-sec btn-sm" onclick="exportarTransf('excel')">Excel</button>
-            <button class="btn btn-sec btn-sm" onclick="exportarTransf('pdf')">PDF</button>
-          </div>
-        </div>
-        <p class="muted" style="font-size:12px;margin-bottom:1rem">Mercadería entregada a tu local y devoluciones registradas, con su guía.</p>
-        <div id="transf-tabla"><div class="loading">Cargando...</div></div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<div class="modal" id="modal-reporte">
-  <div class="modal-box">
-    <h3>Reportar venta de consignación <span class="modal-close" onclick="cerrarModal('modal-reporte')">×</span></h3>
-    <div class="modal-body">
-      <p class="muted" style="font-size:12px;margin-bottom:1rem">Marca cuántas unidades vendiste. Al enviar se notifica a Kuranko para registrar la venta. No modifica tu inventario automáticamente.</p>
-      <div id="reporte-items"></div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-green" style="width:100%" onclick="enviarReporte()">Enviar reporte</button>
-    </div>
-  </div>
-</div>
-
-<div class="modal" id="modal-pass">
-  <div class="modal-box" style="max-width:380px">
-    <h3>Cambiar contraseña <span class="modal-close" onclick="cerrarModal('modal-pass')">×</span></h3>
-    <div class="modal-body">
-      <div class="field"><label>Contraseña actual</label><input type="password" id="pass-actual"></div>
-      <div class="field"><label>Nueva contraseña (mín. 6)</label><input type="password" id="pass-nueva"></div>
-      <div class="err" id="pass-err"></div>
-      <button class="btn" style="width:100%;margin-top:1rem" onclick="cambiarPass()">Guardar</button>
-    </div>
-  </div>
-</div>
-
-<a class="wa-float" id="wa-soporte" target="_blank" title="Soporte por WhatsApp">
-  <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 0 0-8.6 15l-1.3 4.7 4.8-1.3A10 10 0 1 0 12 2zm0 18a8 8 0 0 1-4.1-1.1l-.3-.2-2.9.8.8-2.8-.2-.3A8 8 0 1 1 12 20zm4.4-6c-.2-.1-1.4-.7-1.6-.8s-.4-.1-.5.1-.6.8-.8 1-.3.2-.5.1a6.5 6.5 0 0 1-1.9-1.2 7.2 7.2 0 0 1-1.3-1.7c-.1-.2 0-.4.1-.5l.4-.4.2-.4v-.4c0-.1-.5-1.3-.7-1.7s-.4-.4-.5-.4h-.5a1 1 0 0 0-.7.3 3 3 0 0 0-.9 2.2 5.2 5.2 0 0 0 1.1 2.7 11.8 11.8 0 0 0 4.6 4c.6.3 1.1.4 1.5.5a3.5 3.5 0 0 0 1.6.1c.5-.1 1.4-.6 1.6-1.1s.2-1 .1-1.1-.2-.2-.4-.3z"/></svg>
-</a>
-
-<div class="toast" id="toast"></div>
-
-<script>
-let TOKEN='',API='',ventasCache=[],stockCache=[],transfCache=[],detalleAbierto=null;
-const WA_SOPORTE='51949137526';
-
-// ── Tema día/noche ──
-function aplicarTema(t){
-  document.documentElement.setAttribute('data-theme',t);
-  localStorage.setItem('tema',t);
-  const ic=t==='light'?'☀️':'🌙';
-  ['theme-btn','theme-btn-login'].forEach(id=>{const b=document.getElementById(id);if(b)b.textContent=ic;});
-}
-function toggleTema(){
-  const actual=document.documentElement.getAttribute('data-theme')||'dark';
-  aplicarTema(actual==='light'?'dark':'light');
-}
-(function initTema(){
-  const guardado=localStorage.getItem('tema');
-  if(guardado){document.documentElement.setAttribute('data-theme',guardado);}
-  else{
-    const prefClaro=window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches;
-    document.documentElement.setAttribute('data-theme',prefClaro?'light':'dark');
+const app = express();
+// Compresión gzip: reduce MUCHO el egress de Railway (las páginas pesan cientos
+// de KB). Si el paquete no está instalado, sigue funcionando sin comprimir.
+try { const compression = require('compression'); app.use(compression()); }
+catch (e) { console.warn('[perf] compression no disponible (npm i compression):', e.message); }
+app.use(cors({ origin: '*' }));
+// Límite amplio: el módulo de Importaciones reenvía PDFs (base64) a la IA.
+app.use(express.json({ limit: '25mb' }));
+// Estáticos: el HTML SIEMPRE revalida (no-cache + etag) para no servir versiones
+// viejas tras un deploy; los demás recursos sí se cachean 1h. La compresión gzip
+// (arriba) es la que ahorra egress, no la caché.
+app.use(express.static(path.join(__dirname, 'public'), {
+  etag: true,
+  setHeaders: (res, filePath) => {
+    if (/\.html?$/i.test(filePath)) res.setHeader('Cache-Control', 'no-cache');
+    else res.setHeader('Cache-Control', 'public, max-age=3600');
   }
-})();
-const fmt=n=>new Intl.NumberFormat('es-PE',{style:'currency',currency:'PEN'}).format(n||0);
-const fmtFecha=s=>s?new Date(s).toLocaleDateString('es-PE'):'-';
-const ahoraStr=()=>new Date().toLocaleString('es-PE',{timeZone:'America/Lima'});
-const fechaArchivo=()=>new Date().toISOString().slice(0,10);
-const STATUS_NOM={paid:'Pagada',confirmed:'Confirmada',pending_payment:'Pend. pago'};
-const statusBadge=s=>s==='paid'?'badge-ok':s==='pending_payment'?'badge-r':'badge-warn';
+}));
 
-function showToast(m,e){const t=document.getElementById('toast');t.textContent=m;t.className='toast'+(e?' err':'');t.style.display='block';setTimeout(()=>t.style.display='none',3500);}
-async function apiCall(ep,method='GET',body){
-  const opt={method,headers:{'Authorization':'Bearer '+TOKEN}};
-  if(body){opt.headers['Content-Type']='application/json';opt.body=JSON.stringify(body);}
-  const r=await fetch(API+ep,opt);
-  if(r.status===401){logout();throw new Error('Sesión expirada');}
-  const d=await r.json();if(!r.ok)throw new Error(d.error||'Error');return d;
-}
-async function login(){
-  const u=document.getElementById('usuario').value.trim(),p=document.getElementById('password').value;
-  const e=document.getElementById('login-err');e.style.display='none';
-  try{
-    const r=await fetch(API+'/portal/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({usuario:u,password:p})});
-    const d=await r.json();if(!r.ok)throw new Error(d.error);
-    TOKEN=d.token;sessionStorage.setItem('clitoken',TOKEN);
-    window._ruc=u;
-    mostrarApp();
-  }catch(err){e.textContent=err.message;e.style.display='block';}
-}
-function logout(){TOKEN='';sessionStorage.removeItem('clitoken');document.getElementById('app-screen').style.display='none';document.getElementById('login-screen').style.display='block';}
-function tab(id,btn){document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));document.getElementById('tab-'+id).classList.add('active');btn.classList.add('active');}
+// ─── Conexiones (usan URLs públicas completas de Railway) ────────────────────
+// PROD_URL    = MYSQL_PUBLIC_URL de la base de producción (se fuerza readonly por usuario)
+// PORTAL_URL  = MYSQL_PUBLIC_URL de la base del portal
+const prodPool = mysql.createPool(process.env.PROD_URL + '?connectionLimit=5');
+const portalPool = mysql.createPool(process.env.PORTAL_URL + '?connectionLimit=5');
 
-async function mostrarApp(){
-  document.getElementById('login-screen').style.display='none';
-  document.getElementById('app-screen').style.display='block';
-  document.getElementById('wa-soporte').href=`https://wa.me/${WA_SOPORTE}?text=${encodeURIComponent('Hola Kuranko, tengo una consulta sobre mi portal.')}`;
-  aplicarTema(document.documentElement.getAttribute('data-theme')||'dark');
-  await Promise.all([cargarSaldo(),cargarVentas(),cargarPagos(),cargarStock(),cargarTransferencias()]);
+const JWT_SECRET = process.env.JWT_SECRET;
+const ADMIN_USER = process.env.ADMIN_USER;
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD; // contraseña admin (variable Railway, encriptada)
+const VENTAS_VALIDAS = "('paid','confirmed','pending_payment')";
+
+// ════════════════════════════════════════════════════════════════════════════
+// HELPERS
+// ════════════════════════════════════════════════════════════════════════════
+
+// Devuelve el correo de empresa registrado en el ERP, o null si no tiene.
+// Lee de producción en SOLO LECTURA. Si la columna en tu ERP no es
+// `parties.email`, cámbiala únicamente aquí (ej: email_address).
+
+// ════════════════════════════════════════════════════════════════════════════
+// AUTENTICACIÓN
+// ════════════════════════════════════════════════════════════════════════════
+
+// Cliente B2B: el customer_id/location_id viven en el token firmado (no manipulable)
+
+// Admin: token con rol admin
+function authAdmin(req, res, next) {
+  const h = req.headers['authorization'];
+  if (!h || !h.startsWith('Bearer ')) return res.status(401).json({ error: 'No autorizado' });
+  try {
+    const p = jwt.verify(h.split(' ')[1], JWT_SECRET);
+    if (p.rol !== 'admin') return res.status(403).json({ error: 'Acceso solo para administrador' });
+    req.admin = p;
+    next();
+  } catch (e) { return res.status(401).json({ error: 'Sesión inválida o expirada' }); }
 }
-async function cargarSaldo(){
-  try{
-    const s=await apiCall('/portal/saldo');
-    // Header: nombre + RUC + correo de empresa (con aviso si no está registrado)
-    const correoTxt = s.email_empresa
-      ? s.email_empresa
-      : '<span style="color:var(--fg-warn)">⚠ sin correo registrado</span>';
-    document.getElementById('cli-nombre').innerHTML =
-      `${s.nombre}<br><span style="font-size:11px">RUC: ${s.ruc||'-'} · ${correoTxt}</span>`;
-    window._nombreCliente=s.nombre;
-    window._ruc=s.ruc||window._ruc||'';
-    window._emailEmpresa=s.email_empresa||'';
-    document.getElementById('kpis').innerHTML=[
-      {l:'Total comprado',v:fmt(s.total_vendido),a:1},
-      {l:'Total pagado',v:fmt(s.total_pagado)},
-      {l:'Por pagar',v:fmt(s.por_cobrar),a:1},
-      {l:'N° de compras',v:s.num_ventas},
-    ].map(k=>`<div class="kpi ${k.a?'accent':''}"><div class="kpi-label">${k.l}</div><div class="kpi-val">${k.v}</div></div>`).join('');
-  }catch(e){showToast(e.message,true);}
+
+// Exige que el admin tenga acceso a un módulo concreto (el maestro siempre pasa)
+function requiereModulo(modulo) {
+  return function (req, res, next) {
+    const a = req.admin || {};
+    if (a.maestro) return next();
+    const mods = Array.isArray(a.modulos) ? a.modulos : [];
+    if (!mods.includes(modulo))
+      return res.status(403).json({ error: 'No tienes acceso a este módulo' });
+    next();
+  };
 }
-async function cargarVentas(){
-  try{ventasCache=await apiCall('/portal/ventas');renderVentas();}
-  catch(e){showToast(e.message,true);}
+
+// Exige ser admin maestro (para la gestión de accesos)
+function soloMaestro(req, res, next) {
+  if (!req.admin || !req.admin.maestro)
+    return res.status(403).json({ error: 'Solo el administrador maestro puede gestionar accesos' });
+  next();
 }
-function ventasFiltradas(){
-  const q=(document.getElementById('f-buscar').value||'').toLowerCase();
-  const est=document.getElementById('f-estado').value;
-  const desde=document.getElementById('f-desde').value;
-  const hasta=document.getElementById('f-hasta').value;
-  return ventasCache.filter(v=>{
-    if(q&&!(v.codigo||'').toLowerCase().includes(q))return false;
-    if(est&&v.status!==est)return false;
-    if(desde&&new Date(v.fecha)<new Date(desde))return false;
-    if(hasta&&new Date(v.fecha)>new Date(hasta+'T23:59:59'))return false;
-    return true;
+
+// ════════════════════════════════════════════════════════════════════════════
+// LOGIN CLIENTE
+// ════════════════════════════════════════════════════════════════════════════
+
+// ════════════════════════════════════════════════════════════════════════════
+// ENDPOINTS CLIENTE (solo sus datos)
+// ════════════════════════════════════════════════════════════════════════════
+
+
+
+
+// Detalle de una venta: productos + boletas/facturas (validando que sea del cliente)
+
+// Consignación enriquecida: disponible + precio regular + vendido histórico + indicadores recientes
+
+// Pestaña Transferencias: entregadas (04) y devueltas (03) con detalle de items
+
+// Detalle de items de una transferencia (validando que sea de la consignación del cliente)
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// LOGIN ADMIN
+// ════════════════════════════════════════════════════════════════════════════
+// Lista de módulos (pestañas) del admin. Debe coincidir con las pestañas del HTML.
+const MODULOS_ADMIN = ['clientes_gestion', 'sync', 'auditoria', 'resumen', 'rentabilidad', 'inventario', 'restock', 'clientes_bi', 'caja_bi', 'crm', 'reportes', 'pagos', 'importaciones', 'recepciones', 'seguimiento', 'conciliacion', 'cuentas_cobrar', 'saldo_favor'];
+
+// Usuarios admin secundarios definidos en variables de entorno (Railway).
+// Formato por usuario (numeradas del 2 en adelante):
+//   ADMIN2_USER, ADMIN2_PASSWORD, ADMIN2_MODULOS (módulos separados por coma)
+// Ejemplo: ADMIN2_MODULOS = usuarios,vincular,crear
+function leerAdminsSecundarios() {
+  const lista = [];
+  for (let i = 2; i <= 10; i++) {
+    const u = process.env[`ADMIN${i}_USER`];
+    const p = process.env[`ADMIN${i}_PASSWORD`];
+    if (!u || !p) continue;
+    const mods = (process.env[`ADMIN${i}_MODULOS`] || '')
+      .split(',').map(s => s.trim()).filter(m => MODULOS_ADMIN.includes(m));
+    lista.push({ usuario: u.trim(), password: p, modulos: mods });
+  }
+  return lista;
+}
+
+app.post('/admin/login', async (req, res) => {
+  const { usuario, password } = req.body;
+  if (!usuario || !password) return res.status(400).json({ error: 'Ingresa usuario y contraseña' });
+  try {
+    // 1) Admin maestro (acceso total + gestión de accesos)
+    if (usuario.trim() === ADMIN_USER && password === ADMIN_PASSWORD) {
+      const token = jwt.sign(
+        { rol: 'admin', usuario: ADMIN_USER, maestro: true, modulos: MODULOS_ADMIN },
+        JWT_SECRET, { expiresIn: '7d' });
+      return res.json({ token, maestro: true, modulos: MODULOS_ADMIN });
+    }
+    // 2) Admin secundario (definido en variables de Railway) — sin tocar la base de datos
+    const secundarios = leerAdminsSecundarios();
+    const match = secundarios.find(a => a.usuario === usuario.trim() && a.password === password);
+    if (match) {
+      const token = jwt.sign(
+        { rol: 'admin', usuario: match.usuario, maestro: false, modulos: match.modulos },
+        JWT_SECRET, { expiresIn: '7d' });
+      return res.json({ token, maestro: false, modulos: match.modulos });
+    }
+    return res.status(401).json({ error: 'Credenciales de administrador incorrectas' });
+  } catch (e) { res.status(500).json({ error: 'Error del servidor' }); }
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// ENDPOINTS ADMIN
+// ════════════════════════════════════════════════════════════════════════════
+
+// Lista de clientes empresa de producción (para elegir y vincular)
+// ── Módulo Accesos (gestión de usuarios) en modulos/accesos.js ──
+// Se carga más abajo, tras definir las piezas de login.
+
+// ─── Reporte de venta de consignación (NO toca la BD, solo notifica) ─────────
+
+// ─── Métodos de pago (el admin los edita, el cliente los ve) ─────────────────
+// Se guardan en la base del portal (no toca el ERP). Una sola fila de config.
+
+// Cliente: leer métodos de pago (solo lectura)
+
+// Admin: leer métodos de pago (para el formulario de edición)
+
+// Admin: guardar métodos de pago
+
+
+// ============================================================================
+const https = require('https');
+const VV = "('paid','confirmed','pending_payment')";
+
+// Arma "Producto — extra" evitando repetir el nombre cuando la variación ya lo contiene.
+// Ej: producto "Crafty Carbon RR 2026" + variación "Crafty Carbon RR 2026, Admiral Blue, M/L"
+//     → "Crafty Carbon RR 2026 — Admiral Blue, M/L"
+
+// Referencia a módulos que exponen funciones de arranque (se asigna dentro de la IIFE)
+let modSync = null;
+let modPortal = null;
+let modImportacion = null;
+let modRecepciones = null;
+let modSeguimiento = null;
+
+// Registro de endpoints del dashboard (inyectado directamente)
+(function(){
+
+  const mResumen = requiereModulo('resumen');
+  const mRent = requiereModulo('rentabilidad');
+  const mInv = requiereModulo('inventario');
+  const mRestock = requiereModulo('restock');
+
+  // ── EXPORTADOR DE INVENTARIO (Restock) ──
+  // Catálogo con stock, ventas, margen y rotación. Filtros: marca, categoría,
+  // subcategoría, solo con stock, solo con ventas, rango de margen.
+
+  // Llena los desplegables del exportador (marcas, categorías, subcategorías)
+  // sin cargar el catálogo completo. Se llama al abrir la pestaña.
+
+
+
+  const mClientes = requiereModulo('clientes_bi');
+  const mCxc = requiereModulo('cuentas_cobrar');   // Cuentas por cobrar (deudas), módulo aislado
+  const mSaldo = requiereModulo('saldo_favor');    // Saldo a favor (créditos), módulo aislado
+  const mConc = requiereModulo('conciliacion');    // Conciliación de pagos online, módulo aislado
+
+  // ── CRÉDITOS A FAVOR DEL CLIENTE (saldo a favor / anticipos) ──
+  // Se guardan en la base del PORTAL (no en el ERP de Renzo). Cada crédito nace
+  // de una venta cancelada que recibió pago (ese pago quedó a favor del cliente).
+
+  // Buscar ventas canceladas que recibieron pago (candidatas a generar crédito)
+
+  // Registrar un crédito a partir de una venta cancelada
+
+  // Listar créditos registrados (con su saldo disponible)
+
+  // Anular un crédito (solo el maestro, deja rastro de quién y cuándo)
+
+  const mCaja = requiereModulo('caja_bi');
+  const mCrm = requiereModulo('crm');
+
+  // ── Módulo CRM Kommo (separado en modulos/crm-kommo.js) ──
+  require('./modulos/crm-kommo')({ app, authAdmin, mCrm, prodPool, VV });
+
+  // ── Módulo Portal del cliente (B2B) ──
+  modPortal = require('./modulos/portal-cliente')({ app, authAdmin, requiereModulo, prodPool, portalPool, JWT_SECRET });
+
+  // ── Módulo Ventas-BI (KPIs, rentabilidad, top productos) ──
+  require('./modulos/ventas-bi')({ app, authAdmin, mResumen, mRent, mCaja, prodPool, VV });
+
+  // ── Módulo Inventario (capital parado, restock, promociones) ──
+  require('./modulos/inventario')({ app, authAdmin, mInv, mRestock, prodPool, VV });
+
+  // ── Módulo Promociones recomendadas ──
+  require('./modulos/promociones')({ app, authAdmin, mInv, prodPool, VV });
+
+  // ── Módulo Clientes-BI (retención/top/riesgo) + Cuentas por cobrar + Saldo a favor ──
+  // Deudas y créditos ahora son módulos aislados (mCxc / mSaldo); el resto sigue en clientes_bi.
+  require('./modulos/clientes-bi')({ app, authAdmin, mClientes, mResumen, mCxc, mSaldo, prodPool, portalPool, VV });
+
+  // ── Módulo Conciliación de pagos online (módulo aislado: conciliacion) ──
+  require('./modulos/conciliacion')({ app, authAdmin, mConc, prodPool, VV });
+
+  // ── Módulo Accesos (gestión de usuarios) ──
+  require('./modulos/accesos')({
+    app, authAdmin, requiereModulo, soloMaestro,
+    prodPool, portalPool, JWT_SECRET, MODULOS_ADMIN, leerAdminsSecundarios
   });
-}
-// Describe los filtros activos para indicarlos en las exportaciones
-function descripcionFiltros(){
-  const q=(document.getElementById('f-buscar').value||'').trim();
-  const est=document.getElementById('f-estado').value;
-  const desde=document.getElementById('f-desde').value;
-  const hasta=document.getElementById('f-hasta').value;
-  const partes=[];
-  if(q)partes.push('Código contiene "'+q+'"');
-  if(est)partes.push('Estado: '+(STATUS_NOM[est]||est));
-  if(desde)partes.push('Desde: '+fmtFecha(desde));
-  if(hasta)partes.push('Hasta: '+fmtFecha(hasta));
-  return partes;
-}
-function renderVentas(){
-  const v=ventasFiltradas();
-  const c=document.getElementById('ventas-tabla');
-  if(!v.length){c.innerHTML='<div class="muted">Sin compras que coincidan.</div>';return;}
-  c.innerHTML=`<table class="responsive"><thead><tr><th>Código</th><th>Fecha</th><th>Estado</th><th class="num">Total</th><th class="num">Pagado</th><th class="num">Saldo</th></tr></thead><tbody>`+
-    v.map(r=>`<tr class="clickable" onclick="toggleDetalle('${r.codigo}',this)">
-      <td data-label="Código">${r.codigo}</td>
-      <td data-label="Fecha">${fmtFecha(r.fecha)}</td>
-      <td data-label="Estado"><span class="badge ${statusBadge(r.status)}">${STATUS_NOM[r.status]||r.status}</span></td>
-      <td class="num" data-label="Total">${fmt(r.total)}</td>
-      <td class="num" data-label="Pagado">${fmt(r.pagado)}</td>
-      <td class="num" data-label="Saldo">${r.saldo>0?'<span style="color:#f87171">'+fmt(r.saldo)+'</span>':fmt(0)}</td>
-    </tr>`).join('')+`</tbody></table>`;
-}
 
-// Detalle desplegable hacia abajo (no modal)
-async function toggleDetalle(codigo,tr){
-  // si ya está abierto este, cerrarlo
-  const sig=tr.nextElementSibling;
-  if(sig&&sig.classList.contains('det-row')){sig.remove();detalleAbierto=null;return;}
-  // cerrar cualquier otro abierto
-  document.querySelectorAll('.det-row').forEach(e=>e.remove());
-  const fila=document.createElement('tr');
-  fila.className='det-row';
-  fila.innerHTML=`<td colspan="6"><div class="det-box"><div class="loading">Cargando...</div></div></td>`;
-  tr.after(fila);
-  try{
-    const d=await apiCall('/portal/venta/'+encodeURIComponent(codigo));
-    const box=fila.querySelector('.det-box');
-    let html=`<table style="margin-bottom:1rem"><thead><tr><th>Producto</th><th>SKU</th><th class="num">Cant.</th><th class="num">P.Unit</th><th class="num">Total</th></tr></thead><tbody>`+
-      d.items.map(i=>`<tr><td data-label="Producto">${i.variacion||i.producto}</td><td class="muted" data-label="SKU">${i.sku||'-'}</td><td class="num" data-label="Cant.">${i.quantity}</td><td class="num" data-label="P.Unit">${fmt(i.unit_price)}</td><td class="num" data-label="Total">${fmt(i.total)}</td></tr>`).join('')+`</tbody></table>`;
-    if(d.pagos&&d.pagos.length){
-      html+=`<div style="font-size:12px;color:var(--muted2);margin-bottom:6px;font-weight:600">PAGOS DE ESTA COMPRA</div>`+
-        d.pagos.map(p=>`<div class="mov-item"><span>${fmtFecha(p.fecha)} · ${p.metodo||'-'}</span><span>${fmt(p.monto)}</span></div>`).join('');
-    }
-    if(d.vouchers&&d.vouchers.length){
-      html+=`<div style="font-size:12px;color:var(--muted2);margin:10px 0 6px;font-weight:600">COMPROBANTES</div>`+
-        d.vouchers.map(v=>`<div class="mov-item"><span>${v.type==='invoice'?'Factura':v.type==='receipt'?'Boleta':v.type} ${v.serie}-${v.number}</span><span>${fmtFecha(v.emission_date)} · ${fmt(v.amount)}</span></div>`).join('');
-    }
-    const saldo=ventasCache.find(x=>x.codigo===codigo)?.saldo||0;
-    if(saldo>0){
-      const msg=`🚴 Portal Kuranko - Reporte de Pago%0A%0ACliente: ${window._nombreCliente}%0ARUC/DNI: ${window._ruc||''}%0ADocumento: ${codigo}%0AMonto Pendiente: ${fmt(saldo)}%0A%0A👉 Adjunto la captura de mi Yape/Transferencia.`;
-      html+=`<a class="btn btn-green" style="display:block;text-align:center;margin-top:1rem;text-decoration:none" href="https://wa.me/${WA_SOPORTE}?text=${msg}" target="_blank">Reportar pago por WhatsApp</a>`;
-    }
-    box.innerHTML=html;
-  }catch(e){fila.querySelector('.det-box').innerHTML='<div class="err" style="display:block">'+e.message+'</div>';}
-}
+  // ── Módulo Contabilidad (kardex + reporte de pagos) ──
+  require('./modulos/contabilidad')({ app, authAdmin, requiereModulo, prodPool, VV });
 
-async function cargarPagos(){
-  try{
-    const p=await apiCall('/portal/pagos');
-    const c=document.getElementById('pagos-tabla');
-    if(!p.length){c.innerHTML='<div class="muted">Sin pagos registrados.</div>';return;}
-    c.innerHTML=`<table class="responsive"><thead><tr><th>Fecha</th><th>Compra</th><th>Método</th><th class="num">Monto</th></tr></thead><tbody>`+
-      p.map(r=>`<tr><td data-label="Fecha">${fmtFecha(r.fecha)}</td><td data-label="Compra">${r.venta_codigo||'-'}</td><td data-label="Método">${r.metodo||'-'}</td><td class="num" data-label="Monto">${fmt(r.monto)}</td></tr>`).join('')+`</tbody></table>`;
-  }catch(e){showToast(e.message,true);}
-}
-async function cargarStock(){
-  try{
-    stockCache=await apiCall('/portal/consignacion');
-    const c=document.getElementById('stock-tabla');
-    if(!stockCache.length){c.innerHTML='<div class="muted">No tienes productos en consignación asignados, o aún no se ha vinculado tu punto. Consulta con Kuranko.</div>';return;}
-    c.innerHTML=`<table class="responsive"><thead><tr><th>Producto</th><th>SKU</th><th>Mov.</th><th class="num">Disponible</th><th class="num">Vendido hist.</th><th class="num">Precio</th></tr></thead><tbody>`+
-      stockCache.map((r,i)=>`<tr><td data-label="Producto">${r.variacion||r.producto}</td>
-        <td class="muted" data-label="SKU">${r.sku||'-'}</td>
-        <td data-label="Movimientos">${indicadores(r,i)}</td>
-        <td class="num" data-label="Disponible">${r.disponible}</td><td class="num" data-label="Vendido hist.">${r.vendido_hist}</td><td class="num" data-label="Precio">${r.precio?fmt(r.precio):'-'}</td></tr>`).join('')+`</tbody></table>`;
-  }catch(e){showToast(e.message,true);}
-}
-// Puntos de movimiento reciente (60d): verde=entrada, azul=devolución, amarillo=venta
-function indicadores(r,i){
-  const hace=f=>{const d=Math.floor((Date.now()-new Date(f))/86400000);return d===0?'hoy':d===1?'ayer':'hace '+d+' días';};
-  let puntos='',tips=[];
-  if(r.ult_entrada){puntos+='<span style="color:#4ade80">●</span>';tips.push('🟢 Entrada: '+hace(r.ult_entrada));}
-  if(r.ult_salida_transf){puntos+='<span style="color:#60a5fa">●</span>';tips.push('🔵 Devolución: '+hace(r.ult_salida_transf));}
-  if(r.ult_venta){puntos+='<span style="color:#fbbf24">●</span>';tips.push('🟡 Venta: '+hace(r.ult_venta));}
-  if(!puntos)return '<span class="muted" style="font-size:11px">—</span>';
-  window._movTips=window._movTips||{};
-  window._movTips[i]=tips.join('<br>');
-  return `<span class="mov-dot" onclick="mostrarMov(event,${i})" style="font-size:11px;letter-spacing:2px;cursor:pointer;padding:4px">${puntos}</span>`;
-}
-function mostrarMov(ev,i){
-  ev.stopPropagation();
-  const prev=document.getElementById('mov-pop');if(prev)prev.remove();
-  const pop=document.createElement('div');
-  pop.id='mov-pop';pop.className='mov-pop';
-  pop.innerHTML=window._movTips[i];
-  document.body.appendChild(pop);
-  const rect=ev.currentTarget.getBoundingClientRect();
-  pop.style.top=(rect.bottom+window.scrollY+6)+'px';
-  pop.style.left=Math.min(rect.left+window.scrollX,window.innerWidth-pop.offsetWidth-12)+'px';
-  setTimeout(()=>{document.addEventListener('click',cerrarMov,{once:true});},10);
-}
-function cerrarMov(){const p=document.getElementById('mov-pop');if(p)p.remove();}
-async function cargarTransferencias(){
-  try{
-    transfCache=await apiCall('/portal/transferencias');
-    const c=document.getElementById('transf-tabla');
-    if(!transfCache.length){c.innerHTML='<div class="muted">Sin transferencias registradas.</div>';return;}
-    c.innerHTML=`<table class="responsive"><thead><tr><th>Fecha</th><th>Tipo</th><th>Guía</th><th class="num">Unidades</th><th>Notas</th></tr></thead><tbody>`+
-      transfCache.map(t=>`<tr class="clickable" onclick="toggleTransf(${t.id},this)"><td data-label="Fecha">${fmtFecha(t.fecha)}</td>
-        <td data-label="Tipo"><span class="badge ${t.tipo==='04'?'badge-in':'badge-out'}">${t.direccion}</span></td>
-        <td data-label="Guía">${t.guia||'-'}</td><td class="num" data-label="Unidades">${t.total_unidades}</td>
-        <td data-label="Notas" class="muted">${t.notes||'-'}</td></tr>`).join('')+`</tbody></table>`;
-  }catch(e){showToast(e.message,true);}
-}
-async function toggleTransf(id,tr){
-  const sig=tr.nextElementSibling;
-  if(sig&&sig.classList.contains('det-row')){sig.remove();return;}
-  document.querySelectorAll('#transf-tabla .det-row').forEach(e=>e.remove());
-  const fila=document.createElement('tr');
-  fila.className='det-row';
-  fila.innerHTML=`<td colspan="5"><div class="det-box"><div class="loading">Cargando...</div></div></td>`;
-  tr.after(fila);
-  try{
-    const items=await apiCall('/portal/transferencia/'+id);
-    const box=fila.querySelector('.det-box');
-    if(!items.length){box.innerHTML='<div class="muted">Sin productos en esta transferencia.</div>';return;}
-    box.innerHTML=`<table><thead><tr><th>Producto</th><th>SKU</th><th class="num">Cantidad</th></tr></thead><tbody>`+
-      items.map(i=>`<tr><td data-label="Producto">${i.variacion||i.producto}</td><td class="muted" data-label="SKU">${i.sku||'-'}</td><td class="num" data-label="Cantidad">${i.quantity}</td></tr>`).join('')+`</tbody></table>`;
-  }catch(e){fila.querySelector('.det-box').innerHTML='<div class="err" style="display:block">'+e.message+'</div>';}
-}
+  // ── Módulo Importaciones (costeo / landed cost) ──
+  // Catálogo desde producción (Renzo, solo lectura); tasas/importaciones/memoria
+  // en la base del portal; IA (Gemini) con la clave protegida en el servidor.
+  modImportacion = require('./modulos/importacion')({ app, authAdmin, requiereModulo, prodPool, portalPool });
 
-// ── Reporte de consignación ──
-function abrirReporte(){
-  if(!stockCache.length){showToast('No tienes productos en consignación',true);return;}
-  document.getElementById('modal-reporte').classList.add('show');
-  document.getElementById('reporte-items').innerHTML=stockCache.map((s,i)=>`
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px;margin-bottom:8px;background:var(--surface3);border:1px solid var(--border);border-radius:10px">
-      <div style="font-size:13px;flex:1;min-width:0">${s.variacion||s.producto}<br><span class="muted" style="font-size:11px">${s.sku||''} · disp: ${s.disponible}</span></div>
-      <div class="stepper"><button onclick="paso(${i},-1)">−</button><span id="rep-${i}">0</span><button onclick="paso(${i},1)">+</button></div>
-    </div>`).join('');
-  window._reporte=stockCache.map(()=>0);
-}
-function paso(i,d){
-  const max=stockCache[i].disponible;
-  window._reporte[i]=Math.max(0,Math.min(max,window._reporte[i]+d));
-  document.getElementById('rep-'+i).textContent=window._reporte[i];
-}
-async function enviarReporte(){
-  const items=stockCache.map((s,i)=>({producto:s.variacion||s.producto,sku:s.sku,cantidad:window._reporte[i]})).filter(x=>x.cantidad>0);
-  if(!items.length){showToast('Marca al menos un producto',true);return;}
-  try{
-    const r=await apiCall('/portal/reportar-venta','POST',{items});
-    const lineas=items.map(i=>`▪ ${i.cantidad} und — ${i.producto} (SKU: ${i.sku||'s/c'})`).join('%0A');
-    const msg=`📦 *Portal Kuranko - Reporte de Venta Consignación*%0A%0A*Cliente:* ${window._nombreCliente}%0A*RUC/DNI:* ${window._ruc||''}%0A*Fecha:* ${ahoraStr()}%0A%0A*Productos vendidos:*%0A${lineas}`;
-    window.open(`https://wa.me/${WA_SOPORTE}?text=${msg}`,'_blank');
-    cerrarModal('modal-reporte');
-    showToast(r.correo_enviado?'Reporte enviado ✓':'Reporte enviado por WhatsApp ✓');
-  }catch(e){showToast(e.message,true);}
-}
+  // ── Módulo Recepción de mercadería (paso intermedio compra: almacén valida) ──
+  modRecepciones = require('./modulos/recepciones')({ app, authAdmin, requiereModulo, prodPool, portalPool });
 
-// ── Exportaciones ──
-function exportarExcel(){
-  const v=ventasFiltradas();
-  if(!v.length){showToast('Nada que exportar',true);return;}
-  const datos=v.map(r=>({Código:r.codigo,Fecha:fmtFecha(r.fecha),Estado:STATUS_NOM[r.status]||r.status,Total:+r.total,Pagado:+r.pagado,Saldo:+r.saldo}));
-  const ws=XLSX.utils.json_to_sheet(datos);
-  const filtros=descripcionFiltros();
-  const pie=[['Exportado: '+ahoraStr()]];
-  if(filtros.length){
-    pie.push(['⚠ Esta exportación tiene filtros aplicados (no es el total de compras):']);
-    filtros.forEach(f=>pie.push(['    • '+f]));
-  }else{
-    pie.push(['Sin filtros: incluye todas las compras.']);
-  }
-  XLSX.utils.sheet_add_aoa(ws,pie,{origin:-1});
-  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Compras');
-  XLSX.writeFile(wb,`Compras_${window._nombreCliente||'Kuranko'}_${fechaArchivo()}.xlsx`);
-}
-function exportarPDF(){
-  const v=ventasFiltradas();
-  if(!v.length){showToast('Nada que exportar',true);return;}
-  const {jsPDF}=window.jspdf;const doc=new jsPDF();
-  doc.setFontSize(14);doc.text('Estado de Cuenta - Kuranko',14,18);
-  doc.setFontSize(10);doc.text('Cliente: '+(window._nombreCliente||''),14,26);
-  doc.text('Exportado: '+ahoraStr(),14,32);
-  let y=40;
-  const filtros=descripcionFiltros();
-  if(filtros.length){
-    doc.setFontSize(9);doc.setTextColor(180,60,0);
-    doc.text('Filtros aplicados (no es el total de compras): '+filtros.join('  |  '),14,y);
-    doc.setTextColor(0,0,0);y+=8;
-  }
-  doc.setFontSize(9);
-  doc.text('Código',14,y);doc.text('Fecha',48,y);doc.text('Estado',76,y);doc.text('Total',116,y);doc.text('Pagado',144,y);doc.text('Saldo',176,y);
-  y+=2;doc.line(14,y,196,y);y+=6;
-  v.forEach(r=>{if(y>285){doc.addPage();y=20;}
-    doc.text(String(r.codigo),14,y);doc.text(fmtFecha(r.fecha),48,y);doc.text(STATUS_NOM[r.status]||r.status,76,y);
-    doc.text(fmt(r.total),116,y);doc.text(fmt(r.pagado),144,y);doc.text(fmt(r.saldo),176,y);y+=6;});
-  doc.save(`Compras_${window._nombreCliente||'Kuranko'}_${fechaArchivo()}.pdf`);
-}
-function exportarConsignacion(tipo){
-  if(!stockCache.length){showToast('Nada que exportar',true);return;}
-  if(tipo==='excel'){
-    const datos=stockCache.map(r=>({Producto:r.variacion||r.producto,SKU:r.sku,Disponible:r.disponible,'Vendido histórico':r.vendido_hist,'Precio regular':+r.precio||0}));
-    const ws=XLSX.utils.json_to_sheet(datos);
-    XLSX.utils.sheet_add_aoa(ws,[['Exportado: '+ahoraStr()]],{origin:-1});
-    const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Consignación');
-    XLSX.writeFile(wb,`Consignacion_${window._nombreCliente||'Kuranko'}_${fechaArchivo()}.xlsx`);
-  }else{
-    const {jsPDF}=window.jspdf;const doc=new jsPDF();
-    doc.setFontSize(14);doc.text('Inventario en Consignación - Kuranko',14,18);
-    doc.setFontSize(10);doc.text('Cliente: '+(window._nombreCliente||''),14,26);doc.text('Exportado: '+ahoraStr(),14,32);
-    let y=42;doc.setFontSize(9);
-    doc.text('Producto',14,y);doc.text('SKU',96,y);doc.text('Disp.',130,y);doc.text('Vend.',150,y);doc.text('Precio',172,y);
-    y+=2;doc.line(14,y,196,y);y+=6;
-    stockCache.forEach(r=>{if(y>285){doc.addPage();y=20;}
-      doc.text(String(r.variacion||r.producto).slice(0,45),14,y);doc.text(String(r.sku||'-'),96,y);
-      doc.text(String(r.disponible),130,y);doc.text(String(r.vendido_hist),150,y);doc.text(fmt(r.precio),172,y);y+=6;});
-    doc.save(`Consignacion_${window._nombreCliente||'Kuranko'}_${fechaArchivo()}.pdf`);
-  }
-}
-function exportarTransf(tipo){
-  if(!transfCache.length){showToast('Nada que exportar',true);return;}
-  if(tipo==='excel'){
-    const datos=transfCache.map(t=>({Fecha:fmtFecha(t.fecha),Tipo:t.direccion,Guía:t.guia,Unidades:t.total_unidades,Notas:t.notes}));
-    const ws=XLSX.utils.json_to_sheet(datos);
-    XLSX.utils.sheet_add_aoa(ws,[['Exportado: '+ahoraStr()]],{origin:-1});
-    const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Transferencias');
-    XLSX.writeFile(wb,`Transferencias_${window._nombreCliente||'Kuranko'}_${fechaArchivo()}.xlsx`);
-  }else{
-    const {jsPDF}=window.jspdf;const doc=new jsPDF();
-    doc.setFontSize(14);doc.text('Transferencias de Consignación - Kuranko',14,18);
-    doc.setFontSize(10);doc.text('Cliente: '+(window._nombreCliente||''),14,26);doc.text('Exportado: '+ahoraStr(),14,32);
-    let y=42;doc.setFontSize(9);
-    doc.text('Fecha',14,y);doc.text('Tipo',44,y);doc.text('Guía',80,y);doc.text('Unid.',140,y);
-    y+=2;doc.line(14,y,196,y);y+=6;
-    transfCache.forEach(t=>{if(y>285){doc.addPage();y=20;}
-      doc.text(fmtFecha(t.fecha),14,y);doc.text(t.direccion,44,y);doc.text(String(t.guia||'-'),80,y);doc.text(String(t.total_unidades),140,y);y+=6;});
-    doc.save(`Transferencias_${window._nombreCliente||'Kuranko'}_${fechaArchivo()}.pdf`);
-  }
-}
+  // ── Módulo Seguimiento (trackings de envíos + gestión de backorders) ──
+  //    El maestro sube facturas (IA lee y traduce), asigna tracking y gestiona
+  //    backorders; el supervisor con el módulo 'seguimiento' solo visualiza.
+  modSeguimiento = require('./modulos/seguimiento')({ app, authAdmin, requiereModulo, prodPool, portalPool });
 
-function abrirCambioPass(){document.getElementById('modal-pass').classList.add('show');}
-function cerrarModal(id){document.getElementById(id).classList.remove('show');}
-async function cambiarPass(){
-  const a=document.getElementById('pass-actual').value,n=document.getElementById('pass-nueva').value;
-  const e=document.getElementById('pass-err');e.style.display='none';
-  try{await apiCall('/portal/cambiar-password','POST',{password_actual:a,password_nueva:n});showToast('Contraseña actualizada ✓');cerrarModal('modal-pass');document.getElementById('pass-actual').value='';document.getElementById('pass-nueva').value='';}
-  catch(err){e.textContent=err.message;e.style.display='block';}
-}
+  // ── Módulo Sincronización + Auditoría ──
+  modSync = require('./modulos/sincronizacion')({ app, authAdmin, requiereModulo, prodPool, portalPool });
+  const rango = (desde, hasta, campo='s.created_at') =>
+    desde && hasta ? `AND ${campo} BETWEEN '${desde}' AND '${hasta} 23:59:59'` : '';
 
-API=window.location.origin;
-// Acceso "Ver como cliente" desde el admin: token en el hash de la URL
-if(location.hash.startsWith('#vercomo=')){
-  const t=decodeURIComponent(location.hash.slice(9));
-  sessionStorage.setItem('clitoken',t);
-  history.replaceState(null,'',location.pathname);  // limpia la URL al instante
-}
-const saved=sessionStorage.getItem('clitoken');
-if(saved){TOKEN=saved;mostrarApp();}
+  // ── RESUMEN / KPIs ──
 
-document.getElementById('password').addEventListener('keypress',e=>{if(e.key==='Enter')login();});
-aplicarTema(document.documentElement.getAttribute('data-theme')||'dark');
-</script>
-</body>
-</html>
+  // ── INVENTARIO ──
+  // ── CANDIDATOS A PROMOCIÓN ──
+  // Analiza stock y ventas para sugerir qué productos convendría promocionar.
+  // Criterios: estancado | sobrestock | margen_lento | lote_antiguo | casi_agotado
+
+
+  // ── ANÁLISIS DE CAPITAL INMOVILIZADO (Inventario) ──
+  // Solo stock, capital y rotación. NO incluye márgenes ni ganancias:
+  // esta pestaña la ve el supervisor y esos datos son de Rentabilidad.
+
+
+
+  // ── RESTOCK ──
+
+  // ── CLIENTES ──
+
+
+
+  // ── CLIENTES QUE DEBEN (cuentas por cobrar) ──
+
+
+
+  // Envío de correos de cobranza a deudores seleccionados (con CC a info@kuranko.pe)
+
+
+
+  // Pagos del sistema agrupados por empresa + código de método (para conciliar con el Sheet)
+
+
+  // ── PAGOS Y CAJA ──
+
+  app.get('/api/cierres-caja', authAdmin, mCaja, async (req, res) => {
+    const { desde, hasta } = req.query;
+    const f = desde && hasta ? `WHERE closure_date BETWEEN '${desde}' AND '${hasta}'`
+      : `WHERE closure_date >= DATE_SUB(NOW(), INTERVAL 30 DAY)`;
+    try {
+      const [rows] = await prodPool.query(`
+        SELECT id, closure_date, status, total_general, totals, notes
+        FROM cash_closures ${f} ORDER BY closure_date DESC LIMIT 30`);
+      res.json(rows);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+})();
+
+// ─── Health ──────────────────────────────────────────────────────────────────
+app.get('/health', (req, res) => res.json({ ok: true, servicio: 'portal-b2b' }));
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, async () => {
+  console.log(`Portal B2B en puerto ${PORT}`);
+  // Preparar tablas una vez al arrancar (evita que el primer login pague la espera)
+  try {
+    if (modPortal && modPortal.prepararTablas) await modPortal.prepararTablas();
+    if (modSync && modSync.prepararTablas) await modSync.prepararTablas();
+    if (modImportacion && modImportacion.prepararTablas) await modImportacion.prepararTablas();
+    if (modRecepciones && modRecepciones.prepararTablas) await modRecepciones.prepararTablas();
+    if (modSeguimiento && modSeguimiento.prepararTablas) await modSeguimiento.prepararTablas();
+    console.log('Tablas del portal listas.');
+  } catch (e) { console.error('No se pudieron preparar las tablas al arrancar:', e.message); }
+});

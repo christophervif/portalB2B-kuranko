@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Cuentas por cobrar — Kuranko</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<style>
+/* ── Recepción de mercadería ── */
+.rec-badge{display:inline-block;min-width:18px;padding:0 5px;margin-left:4px;border-radius:9px;background:#e11d48;color:#fff;font-size:11px;font-weight:800;line-height:18px;text-align:center;vertical-align:middle}
+.rec-card{background:var(--surface,#111a44);border:1px solid var(--border,#212b54);border-radius:12px;padding:14px;margin:10px 0;cursor:pointer}
+.rec-card:hover{background:var(--hover,#1a2450)}
+.rec-card .r-top{display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap}
+.rec-chip{font-size:11px;font-weight:800;padding:3px 9px;border-radius:20px;white-space:nowrap}
+.rec-chip.pend{background:var(--bg-warn,#3d3315);color:var(--fg-warn,#ffcb52)}
+.rec-chip.bor{background:#1e335e;color:#8fb8ff}
+.rec-chip.val{background:var(--bg-ok,#163a29);color:var(--fg-ok,#6ee59a)}
+.rec-chip.dif{background:var(--bg-r,#3f1c20);color:var(--fg-r,#f79a9a)}
+.rec-item{background:var(--surface,#111a44);border:1px solid var(--border,#212b54);border-radius:12px;padding:12px;margin:10px 0}
+.rec-item.ok{border-left:4px solid #22c55e}
+.rec-item.diff{border-left:4px solid #ef4444}
+.rec-item .ri-desc{font-weight:700;font-size:14px;margin-bottom:2px}
+.rec-item .ri-cod{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--muted,#8a93b4)}
+.rec-field{margin-top:8px}
+.rec-field label{display:block;font-size:12px;font-weight:700;color:var(--text2,#c6cee2);margin-bottom:3px}
+.rec-input{width:100%;padding:9px;border:1px solid var(--border,#cbd5e1);border-radius:8px;background:var(--surface2,#0e1640);color:var(--text,#eef1f8);font-size:14px;box-sizing:border-box}
+.rec-cuadra{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.rec-cuadra button{flex:1;min-width:90px;padding:9px;border-radius:8px;border:1px solid var(--border,#cbd5e1);background:var(--surface2,#0e1640);color:var(--text2,#c6cee2);font-weight:700;font-size:13px;cursor:pointer}
+.rec-cuadra button.on-si{background:#14532d;border-color:#22c55e;color:#bbf7d0}
+.rec-cuadra button.on-no{background:#4c1d24;border-color:#ef4444;color:#fecaca}
+.rec-sug{margin-top:6px;position:relative}
+.rec-sug-list{position:absolute;left:0;right:0;z-index:20;background:var(--surface,#111a44);border:1px solid var(--border,#212b54);border-radius:8px;max-height:220px;overflow:auto;display:none}
+.rec-sug-list div{padding:8px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border,#212b54)}
+.rec-sug-list div:hover{background:var(--hover,#1a2450)}
+.rec-sug-list .rs-sku{font-family:ui-monospace,Menlo,monospace;font-weight:700}
+@media(max-width:640px){#tab-recepciones .card{padding:12px}}
+</style>
+<style>
+:root{
+  --bg:#0a1030;--surface:#111a44;--surface2:#0e1640;--surface3:#18224e;
+  --border:#212b54;--text:#eef1f8;--text2:#c6cee2;--muted:#8a93b4;--muted2:#a2abca;
+  --accent:#FFB30D;--accent-text:#000726;--accent-h:#e6a00c;--hover:#1a2450;--white:#ffffff;
+  --bg-ok:#163a29;--fg-ok:#6ee59a;--bg-warn:#3d3315;--fg-warn:#ffcb52;--bg-r:#3f1c20;--fg-r:#f79a9a;
+  --radius:18px;--radius-sm:12px;--radius-lg:22px;
+  --shadow:0 4px 20px rgba(0,0,0,.16);--shadow-sm:0 2px 8px rgba(0,0,0,.10);
+}
+[data-theme="light"]{
+  --bg:#f6f8fd;--surface:#ffffff;--surface2:#fbfcff;--surface3:#f2f5fb;
+  --border:#eaeff8;--text:#1a2140;--text2:#4a5680;--muted:#9aa3c0;--muted2:#727e9f;
+  --accent:#FFB30D;--accent-text:#000726;--accent-h:#e6a00c;--hover:#f6f8fd;--white:#1a2140;
+  --bg-ok:#e8f8ef;--fg-ok:#1f9c56;--bg-warn:#fdf5db;--fg-warn:#9a6b00;--bg-r:#fdeded;--fg-r:#dc4b4b;
+  --radius:18px;--radius-sm:12px;--radius-lg:22px;
+  --shadow:0 4px 24px rgba(30,45,90,.05);--shadow-sm:0 2px 10px rgba(30,45,90,.04);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;transition:background .2s,color .2s}
+.header{background:var(--surface);border-bottom:1px solid var(--border);padding:1rem 1.5rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
+.header h1{font-size:1rem;font-weight:600;color:var(--white)}
+.header .sub{font-size:12px;color:var(--muted)}
+.btn{background:var(--accent);border:none;color:var(--accent-text);border-radius:var(--radius-sm);padding:10px 20px;font-size:13px;cursor:pointer;font-weight:600;transition:background .15s,transform .1s,box-shadow .15s;box-shadow:var(--shadow-sm)}
+.btn:hover{background:var(--accent-h);box-shadow:var(--shadow)}.btn:active{transform:scale(.97)}
+.btn-sec{background:var(--surface3);border:1px solid var(--border);color:var(--text2);box-shadow:none}
+.btn-sm{padding:6px 14px;font-size:12px;border-radius:10px}
+.btn-danger{background:var(--bg-r);color:var(--fg-r);box-shadow:none}.btn-ok{background:var(--bg-ok);color:var(--fg-ok);box-shadow:none}
+.wrap{max-width:1100px;margin:0 auto;padding:1.5rem}
+.login-box{max-width:380px;margin:5rem auto;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:2.25rem;position:relative;box-shadow:var(--shadow)}
+.login-box h2{font-size:1.1rem;margin-bottom:.5rem;color:var(--white)}
+.login-box p{font-size:13px;color:var(--muted);margin-bottom:1.5rem}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:12px;color:var(--muted2);margin-bottom:4px}
+.field input,.field select{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:11px 13px;font-size:16px;transition:border-color .15s}
+.field input:focus,.field select:focus{outline:none;border-color:var(--accent)}
+.err{font-size:13px;color:var(--fg-r);margin-top:8px;display:none}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-bottom:1.5rem;overflow-x:auto}
+.tab{font-size:13px;padding:10px 17px;cursor:pointer;border:none;background:none;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;flex-shrink:0;transition:color .15s}
+.tab:hover{color:var(--text2)}
+.tab.active{color:var(--white);border-bottom-color:var(--accent)}
+.panel{display:none}.panel.active{display:block}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.75rem;margin-bottom:1.35rem;box-shadow:var(--shadow-sm)}
+.card h3{font-size:14px;font-weight:600;margin-bottom:6px;color:var(--white)}
+.card .desc{font-size:12px;color:var(--muted);margin-bottom:1.15rem;line-height:1.6}
+.vincular-row{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end}
+@media(max-width:640px){.vincular-row{grid-template-columns:1fr}.vincular-row .btn{width:100%}}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:8px;color:var(--muted2);font-weight:500;font-size:11px;border-bottom:1px solid var(--border);text-transform:uppercase}
+td{padding:8px;border-bottom:1px solid var(--border);color:var(--text2)}
+tr:hover td{background:var(--hover)}
+.badge{font-size:11px;padding:3px 10px;border-radius:20px;font-weight:600}
+.badge-on{background:var(--bg-ok);color:var(--fg-ok)}.badge-off{background:var(--bg-r);color:var(--fg-r)}
+.badge-warn{background:var(--bg-warn);color:var(--fg-warn)}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--bg-ok);color:var(--fg-ok);padding:13px 20px;border-radius:var(--radius-sm);font-size:13px;display:none;z-index:100;border:1px solid var(--border);max-width:320px;box-shadow:var(--shadow)}
+.toast.err{background:var(--bg-r);color:var(--fg-r)}
+.search{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:10px 13px;font-size:14px;margin-bottom:10px}
+.muted{color:var(--muted);font-size:12px}
+.loading{text-align:center;padding:2rem;color:var(--muted)}
+.combo{position:relative}
+.combo-list{position:absolute;top:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-top:none;border-radius:0 0 8px 8px;max-height:240px;overflow-y:auto;z-index:50;display:none}
+.combo-list.show{display:block}
+.combo-item{padding:9px 12px;font-size:13px;cursor:pointer;border-bottom:1px solid var(--border)}
+.combo-item:hover,.combo-item.sel{background:var(--hover)}
+.combo-item .ruc{color:var(--muted);font-size:11px}
+@media(max-width:600px){
+  .wrap{padding:1rem}
+  table.cardmode thead{display:none}
+  table.cardmode,table.cardmode tbody,table.cardmode tr,table.cardmode td{display:block;width:100%}
+  table.cardmode tbody tr{background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;padding:6px}
+  table.cardmode td{border:none;padding:6px 10px;display:flex;justify-content:space-between;align-items:center;gap:10px;text-align:right}
+  table.cardmode td::before{content:attr(data-label);color:var(--muted);font-size:11px;text-transform:uppercase;font-weight:600;text-align:left}
+  table.cardmode td[data-label="Acciones"]{flex-wrap:wrap;justify-content:flex-end}
+}
+.modulos-check{display:flex;flex-wrap:wrap;gap:10px 20px;margin:8px 0}
+.chk{display:inline-flex;align-items:center;gap:7px;font-size:13px;cursor:pointer;white-space:nowrap}
+.chk input{cursor:pointer;margin:0;flex:none}
+.acc-row{border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:12px}
+.acc-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.pill{display:inline-block;background:var(--accent);color:var(--accent-text);border-radius:12px;padding:3px 10px;font-size:12px;margin:2px}
+.cod{background:rgba(0,0,0,.25);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-family:monospace;font-size:13px;margin:8px 0;line-height:1.7}
+.cod-inline{font-family:monospace;background:rgba(0,0,0,.2);padding:2px 6px;border-radius:5px}
+.estado-box{border-radius:8px;padding:10px 14px;font-size:13px;line-height:1.5}
+.estado-box.activo{background:#fef3c7;color:#92400e;border:1px solid #fcd34d}
+.estado-box.inactivo{background:rgba(22,163,74,.12);color:#16a34a;border:1px solid rgba(22,163,74,.3)}
+.tabla{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}
+.tabla th{background:var(--surface3);color:var(--white);padding:8px 10px;text-align:left;white-space:nowrap}
+.tabla td{padding:7px 10px;border-bottom:1px solid var(--border)}
+.tabla tr:hover{background:rgba(0,0,0,.03)}
+.subtabs{display:flex;gap:6px;border-bottom:1px solid var(--border);margin-bottom:14px}
+.subtab{background:none;border:none;color:var(--muted);padding:8px 14px;font-size:14px;cursor:pointer;border-bottom:2px solid transparent;font-weight:600}
+.subtab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.subpanel{display:none}
+.subpanel.active{display:block}
+.filtros-fila{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.filtros-fila select,.filtros-fila input{flex:1;min-width:180px;padding:9px 12px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--surface2);color:inherit;font-size:13px;transition:border-color .15s}
+.filtros-fila select:focus,.filtros-fila input:focus{outline:none;border-color:var(--accent)}
+.dbcard{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:1.15rem;margin-bottom:1.15rem;box-shadow:var(--shadow-sm)}
+.dbcard h4{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:1rem}
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:1.25rem}
+.kpi{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:1.1rem}
+.kpi-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
+.kpi-val{font-size:1.3rem;font-weight:600;color:var(--white)}
+.kpi-sub{font-size:11px;color:var(--accent);margin-top:3px}
+.kpi.accent{border-color:var(--accent)}
+.card-note{font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem}
+.deudas-tbl{width:100%;border-collapse:collapse;font-size:13px;min-width:640px}
+.deudas-tbl th{background:var(--surface3);color:var(--muted2);padding:10px 12px;text-align:left;white-space:nowrap;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.03em}
+.deudas-tbl td{padding:11px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+.deudas-tbl tr.deu-main{cursor:pointer;transition:background .12s}
+.deudas-tbl tr.deu-main:hover td{background:var(--hover)}
+.deudas-tbl tr.deu-venta{cursor:pointer}
+.deudas-tbl tr.deu-venta:hover td{background:var(--surface3)}
+.deu-arrow{display:inline-block;transition:transform .15s;color:var(--muted);font-size:11px}
+.ct-ico{cursor:pointer;font-size:15px;margin:0 3px;opacity:.85;transition:opacity .12s}
+.ct-ico:hover{opacity:1}
+#deu-tabla{overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-sm)}
+.deudas-tbl thead th:first-child{border-top-left-radius:var(--radius)}
+.deudas-tbl thead th:last-child{border-top-right-radius:var(--radius)}
+@media(max-width:700px){.two-col{grid-template-columns:1fr}}
+.dtable{width:100%;border-collapse:collapse;font-size:13px}
+.dtable th{text-align:left;padding:7px 8px;color:var(--muted);font-weight:600;font-size:11px;border-bottom:1px solid var(--border);cursor:pointer;user-select:none;white-space:nowrap}
+.dtable th:hover{color:var(--white)}
+.dtable th.sortable::after{content:' ⇅';color:var(--muted);font-size:10px}
+.dtable th.sort-asc::after{content:' ↑';color:var(--accent)}
+.dtable th.sort-desc::after{content:' ↓';color:var(--accent)}
+.dtable td{padding:8px;border-bottom:1px solid var(--border)}
+.dtable tr:last-child td{border:none}
+.dtable tr:hover td{background:var(--hover)}
+.badge{font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600}
+.badge-g{background:var(--bg-ok);color:var(--fg-ok);padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600}.badge-y{background:var(--bg-warn);color:var(--fg-warn);padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600}.badge-r{background:var(--bg-r);color:var(--fg-r);padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600}
+.badge-alto{background:#3C3489;color:#CECBF6}.badge-medio{background:#633806;color:#FAC775}.badge-bajo{background:#444441;color:#D3D1C7}
+.empresa-card{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:1rem;margin-bottom:10px}
+.empresa-name{font-size:14px;font-weight:600;margin-bottom:10px}
+.empresa-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.estat{background:var(--surface3);border-radius:8px;padding:8px}
+.estat-label{font-size:11px;color:var(--muted);margin-bottom:3px}.estat-val{font-size:15px;font-weight:600}
+.ret-bar{background:var(--surface3);border-radius:20px;height:8px;overflow:hidden;margin-top:6px}
+.ret-fill{height:100%;border-radius:20px;background:var(--accent)}
+.legend{display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+.legend span{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.db-aviso{border-radius:6px;padding:10px 14px;margin-bottom:8px;font-size:13px;line-height:1.5}
+.db-aviso-y{background:rgba(186,117,23,.12);border-left:3px solid #BA7517}
+.db-aviso-r{background:rgba(226,75,74,.12);border-left:3px solid #E24B4A}
+@media(max-width:700px){
+  table.responsive thead{display:none}
+  table.responsive,table.responsive tbody,table.responsive tr,table.responsive td{display:block;width:100%}
+  table.responsive tr{background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;padding:6px 4px}
+  table.responsive td{border:none !important;padding:7px 12px;display:flex;justify-content:space-between;align-items:center;text-align:right;gap:12px}
+  table.responsive td::before{content:attr(data-label);color:var(--muted);font-size:11px;text-transform:uppercase;font-weight:600;text-align:left;flex-shrink:0}
+  table.responsive td[data-label=""]::before,table.responsive td:not([data-label])::before{content:none}
+  table.responsive{min-width:0 !important}
+  .kpi-grid{grid-template-columns:1fr 1fr}
+  .two-col{grid-template-columns:1fr}
+  .filtros-fila{flex-direction:column;align-items:stretch}
+  .filtros-fila input,.filtros-fila select,.filtros-fila .btn{width:100%}
+  .filtros-fila label{width:100%}
+  .filtros-fila label input{margin-top:2px}
+  /* Tablas nuevas (deudas, conciliación): mantener encabezado, scroll horizontal cómodo */
+  .deudas-tbl{font-size:12px;min-width:560px}
+  .deudas-tbl thead th{padding:8px 8px;font-size:10px}
+  .deudas-tbl td{padding:9px 8px}
+  #deu-tabla,#conc-tabla{-webkit-overflow-scrolling:touch}
+  .dbcard{padding:12px}
+  .card{padding:1.15rem}
+}
+/* ── Launcher de apps (pantalla inicial tipo escritorio) ── */
+#launcher{padding:8px 0 24px}
+.launcher-saludo{font-size:15px;color:var(--text-soft,#8ea0d0);margin-bottom:20px}
+.launcher-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:16px;max-width:760px}
+.app-card{border:1px solid var(--border);border-radius:18px;padding:24px 14px;text-align:center;background:var(--surface);cursor:pointer;transition:transform .12s,box-shadow .15s,background .15s;box-shadow:var(--shadow-sm)}
+.app-card:hover{transform:translateY(-3px);box-shadow:0 8px 24px rgba(0,0,0,.18);background:var(--surface3)}
+.app-card:active{transform:translateY(-1px)}
+.app-card .ico{font-size:34px;line-height:1;margin-bottom:10px;display:block}
+.app-card .nom{font-size:13px;font-weight:600;color:var(--text)}
+.btn-inicio{background:var(--surface3);color:var(--text);border:1px solid var(--border)}
+</style>
+<style>
+  body{padding:16px}
+  @media(max-width:640px){body{padding:10px}}
+</style>
+</head>
+<body>
+<div class="toast" id="toast"></div>
+<div class="card">
+        <div class="dbcard">
+          <h4>Clientes que deben (cuentas por cobrar)</h4>
+          <p class="card-note">Ventas confirmadas o pendientes de pago con saldo. La deuda "a pedido" se separa en su propia columna.</p>
+          <div class="filtros-fila" style="align-items:center;gap:8px;flex-wrap:wrap">
+            <select id="deu-empresa"><option value="">Todas las empresas</option></select>
+            <select id="deu-pedido">
+              <option value="ocultar" selected>Ocultar a pedido</option>
+              <option value="todos">Ver todos</option>
+              <option value="solo">Solo a pedido</option>
+            </select>
+            <button class="btn" onclick="cargarDeudas()">Ver deudas</button>
+            <button class="btn" onclick="descargarDeudasExcel()">Excel</button>
+            <button class="btn" onclick="descargarDeudasPDF()">PDF</button>
+            <button class="btn btn-ok" onclick="enviarCobranza()">✉ Enviar cobranza a seleccionados</button>
+          </div>
+          <div id="deu-resumen" style="margin:8px 0;font-weight:600"></div>
+          <div id="deu-tabla" style="overflow-x:auto;max-height:60vh;overflow-y:auto"></div>
+        </div>
+</div>
+<script>
+
+// Tema: hereda el que el usuario dejó en el panel principal
+(function(){try{const g=localStorage.getItem('tema_admin');if(g)document.documentElement.setAttribute('data-theme',g);else{const c=window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches;document.documentElement.setAttribute('data-theme',c?'light':'dark');}}catch(e){}})();
+// ── Bootstrap compartido (mini-app en iframe; comparte token y origen con admin.html) ──
+let TOKEN='';try{TOKEN=localStorage.getItem('admtoken')||'';}catch(e){}
+let ES_MAESTRO=false;try{ES_MAESTRO=localStorage.getItem('admmaestro')==='1';}catch(e){}
+const API='';
+const MEM_VERSION=7;
+function esc(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function showToast(m,e){const t=document.getElementById('toast');if(!t)return;t.textContent=m;t.className='toast'+(e?' err':'');t.style.display='block';setTimeout(()=>t.style.display='none',3500);}
+async function apiCall(ep,method='GET',body){
+  const opt={method,headers:{'Authorization':'Bearer '+TOKEN}};
+  if(body){opt.headers['Content-Type']='application/json';opt.body=JSON.stringify(body);}
+  const r=await fetch(API+ep,opt);
+  if(r.status===401||r.status===403){throw new Error('Sesión del portal expirada — vuelve a entrar al panel.');}
+  const d=await r.json();if(!r.ok)throw new Error(d.error||'Error');return d;
+}
+function nombreArchivo(base, ext, periodo){
+  const d=new Date();const p=n=>String(n).padStart(2,'0');
+  const stamp=`${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
+  const suf=periodo?('-'+periodo):'';
+  return `${base}-${stamp}${suf}.${ext}`;
+}
+
+// ══════════ Clientes que deben (cuentas por cobrar) ══════════
+function deuParams(){
+  const p=new URLSearchParams();
+  const emp=document.getElementById('deu-empresa').value; if(emp)p.set('empresa',emp);
+  const ped=document.getElementById('deu-pedido').value; if(ped&&ped!=='todos')p.set('a_pedido',ped);
+  return p;
+}
+const deuFmt=n=>n==null?'—':'S/ '+Number(n).toLocaleString('es-PE',{minimumFractionDigits:2});
+function pintarDeudas(d, horaTexto){
+  document.getElementById('deu-resumen').textContent=
+    `${d.total} clientes deben · Total: ${deuFmt(d.suma_total)} (normal ${deuFmt(d.suma_normal)} · a pedido ${deuFmt(d.suma_pedido)}) · ${horaTexto}`;
+  const cont=document.getElementById('deu-tabla');
+  if(!d.clientes.length){cont.innerHTML='<div class="muted">No hay clientes con deuda para ese filtro.</div>';return;}
+  const fFecha=v=>v?new Date(v).toLocaleDateString('es-PE'):'—';
+  let html='<table class="deudas-tbl"><thead><tr>'+
+    '<th style="width:30px"><input type="checkbox" id="deu-check-all" onclick="deuToggleAll(this)"></th>'+
+    '<th style="width:22px"></th><th>Cliente</th><th>RUC/Doc</th><th style="text-align:center">Contacto</th>'+
+    '<th style="text-align:right">Deuda total</th><th style="text-align:center">Ventas</th><th style="text-align:center">Cobrar</th></tr></thead><tbody>';
+  d.clientes.forEach((x,i)=>{
+    // Contacto: solo aviso con copiar al clic y tooltip
+    let contacto='';
+    if(x.email)contacto+=`<span class="ct-ico" title="${esc(x.email)} (clic para copiar)" onclick="event.stopPropagation();copiarDato('${esc(x.email)}','Correo')">✉</span>`;
+    if(x.phone)contacto+=`<span class="ct-ico" title="${esc(x.phone)} (clic para copiar)" onclick="event.stopPropagation();copiarDato('${esc(x.phone)}','Teléfono')">📱</span>`;
+    if(!x.email&&!x.phone)contacto='<span class="badge-r" style="font-size:9px">sin contacto</span>';
+    // Cobrar: ambos íconos, activos solo si hay ese medio
+    const btnMail=x.email
+      ?`<button class="btn btn-sm" style="padding:3px 9px" title="Enviar correo" onclick="event.stopPropagation();enviarCobranzaUno(${i})">✉</button>`
+      :`<button class="btn btn-sm" style="padding:3px 9px;opacity:.35;cursor:not-allowed" title="Sin correo" disabled>✉</button>`;
+    const btnWa=x.phone
+      ?`<button class="btn btn-sm btn-ok" style="padding:3px 9px" title="Enviar WhatsApp" onclick="event.stopPropagation();waCobranza(${i})">📱</button>`
+      :`<button class="btn btn-sm" style="padding:3px 9px;opacity:.35;cursor:not-allowed" title="Sin teléfono" disabled>📱</button>`;
+    const pedidoTag=x.deuda_pedido>0?` <span class="badge-y" style="font-size:9px">a pedido ${deuFmt(x.deuda_pedido)}</span>`:'';
+    html+=`<tr class="deu-main" onclick="deuToggle(${i})">
+      <td onclick="event.stopPropagation()">${x.email?`<input type="checkbox" class="deu-check" data-ids="${(x.customer_ids||[x.customer_id]).join(',')}">`:''}</td>
+      <td><span id="deu-arrow-${i}" class="deu-arrow">▶</span></td>
+      <td><b>${esc(x.cliente)}</b>${pedidoTag}</td>
+      <td>${esc(x.ruc)||'—'}</td>
+      <td style="text-align:center;white-space:nowrap">${contacto}</td>
+      <td style="text-align:right;font-weight:700">${deuFmt(x.deuda_total)}</td>
+      <td style="text-align:center">${x.num_ventas}</td>
+      <td style="text-align:center;white-space:nowrap">${btnMail} ${btnWa}</td>
+    </tr>`;
+    // Detalle nivel 1: ventas (cada una expandible a productos)
+    const ventasRows=(x.ventas||[]).map((v,j)=>{
+      const prods=(v.productos||[]).map(pr=>`<tr>
+        <td style="padding:3px 10px 3px 24px">${esc(pr.producto)}${pr.variacion&&pr.variacion!==pr.producto?' — '+esc(pr.variacion):''}</td>
+        <td style="padding:3px 10px">${esc(pr.sku)}</td>
+        <td style="padding:3px 10px;text-align:right">${pr.cantidad}</td>
+        <td style="padding:3px 10px;text-align:right">${deuFmt(pr.precio)}</td>
+      </tr>`).join('')||'<tr><td colspan="5" style="padding:3px 24px;color:var(--muted)">Sin productos registrados</td></tr>';
+      return `<tr class="deu-venta" onclick="deuToggleVenta(${i},${j})">
+          <td style="padding:5px 10px"><span id="deu-varrow-${i}-${j}" class="deu-arrow" style="font-size:9px">▶</span> ${esc(v.codigo)}</td>
+          <td style="padding:5px 10px">${fFecha(v.fecha)}</td>
+          <td style="padding:5px 10px">${v.ultimo_pago_venta?fFecha(v.ultimo_pago_venta):'<span style="color:var(--muted)">sin abonos</span>'}</td>
+          <td style="padding:5px 10px">${esc(v.comprobante)}${v.a_pedido?' <span class="badge-y" style="font-size:9px">a pedido</span>':''}</td>
+          <td style="padding:5px 10px;text-align:right;font-weight:600">${deuFmt(v.deuda)}</td>
+        </tr>
+        <tr id="deu-prod-${i}-${j}" style="display:none"><td colspan="5" style="padding:0">
+          <table style="width:100%;font-size:11px;border-collapse:collapse;background:var(--surface3)">
+            <thead><tr style="color:var(--muted)"><th style="padding:3px 10px 3px 24px;text-align:left">Producto</th><th style="padding:3px 10px;text-align:left">SKU</th><th style="padding:3px 10px;text-align:right">Cant.</th><th style="padding:3px 10px;text-align:right">Precio</th></tr></thead>
+            <tbody>${prods}</tbody>
+          </table>
+        </td></tr>`;
+    }).join('');
+    html+=`<tr id="deu-det-${i}" style="display:none"><td colspan="8" style="background:var(--surface2);padding:8px 14px">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Ventas con saldo (clic en cada una para ver productos) · Venta más antigua: ${fFecha(x.venta_mas_antigua)} · Último pago: ${fFecha(x.ultimo_pago)}</div>
+      <table style="width:100%;font-size:12px;border-collapse:collapse">
+        <thead><tr style="color:var(--muted);text-align:left">
+          <th style="padding:4px 10px">Venta</th><th style="padding:4px 10px">Fecha</th><th style="padding:4px 10px">Último abono</th><th style="padding:4px 10px">Comprobante</th><th style="padding:4px 10px;text-align:right">Saldo</th>
+        </tr></thead><tbody>${ventasRows}</tbody>
+      </table>
+    </td></tr>`;
+  });
+  html+='</tbody></table>';
+  cont.innerHTML=html;
+  window._deudasActuales=d.clientes;
+}
+function deuToggle(i){
+  const det=document.getElementById('deu-det-'+i);
+  const arr=document.getElementById('deu-arrow-'+i);
+  if(!det)return;
+  const abierto=det.style.display!=='none';
+  det.style.display=abierto?'none':'table-row';
+  if(arr)arr.style.transform=abierto?'rotate(0deg)':'rotate(90deg)';
+}
+function deuToggleVenta(i,j){
+  event.stopPropagation();
+  const det=document.getElementById('deu-prod-'+i+'-'+j);
+  const arr=document.getElementById('deu-varrow-'+i+'-'+j);
+  if(!det)return;
+  const abierto=det.style.display!=='none';
+  det.style.display=abierto?'none':'table-row';
+  if(arr)arr.style.transform=abierto?'rotate(0deg)':'rotate(90deg)';
+}
+function restaurarDeudas(){
+  try{
+    const raw=localStorage.getItem('kuranko_ultima_deudas');
+    if(!raw)return;
+    const g=JSON.parse(raw);
+    if(g.v!==MEM_VERSION){localStorage.removeItem('kuranko_ultima_deudas');return;}
+    pintarDeudas(g.d, g.hora+' (guardada)');
+  }catch(e){}
+}
+async function cargarDeudas(){
+  const res=document.getElementById('deu-resumen');
+  res.textContent='Cargando deudas...';
+  try{
+    const d=await apiCall('/api/clientes-deudas?'+deuParams().toString(),'GET');
+    const hora=new Date().toLocaleString('es-PE');
+    pintarDeudas(d, hora);
+    try{ localStorage.setItem('kuranko_ultima_deudas', JSON.stringify({v:MEM_VERSION,d,hora})); }catch(e){}
+  }catch(e){res.textContent='';showToast(e.message,true);}
+}
+async function descargarDeudasExcel(){
+  try{
+    const r=await fetch(API+'/api/clientes-deudas-excel?'+deuParams().toString(),{headers:{'Authorization':'Bearer '+TOKEN}});
+    if(!r.ok)throw new Error('No se pudo generar el Excel');
+    const blob=await r.blob();
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');a.href=url;a.download=nombreArchivo('clientes-deudas','xlsx');a.click();
+    URL.revokeObjectURL(url);
+  }catch(e){showToast(e.message,true);}
+}
+async function descargarDeudasPDF(){
+  try{
+    const d=await apiCall('/api/clientes-deudas?'+deuParams().toString(),'GET');
+    if(!d.clientes.length){showToast('No hay deudas para ese filtro',true);return;}
+    const cols=['Cliente','RUC/Doc','Venta','Fecha','Último abono','Comprobante','Saldo','A pedido'];
+    const filas=[];
+    d.clientes.forEach(x=>{
+      (x.ventas||[]).forEach(v=>{
+        filas.push([
+          x.cliente, x.ruc, v.codigo,
+          v.fecha?new Date(v.fecha).toLocaleDateString('es-PE'):'—',
+          v.ultimo_pago_venta?new Date(v.ultimo_pago_venta).toLocaleDateString('es-PE'):'—',
+          v.comprobante||'—',
+          Number(v.deuda).toLocaleString('es-PE',{minimumFractionDigits:2}),
+          v.a_pedido?'Sí':''
+        ]);
+      });
+    });
+    const ft=`Total: S/ ${d.suma_total.toLocaleString('es-PE',{minimumFractionDigits:2})} · ${d.total} clientes · ${filas.length} ventas`;
+    exportarPDF(nombreArchivo('clientes-deudas','pdf'),'Clientes que deben (detalle por venta)',cols,filas,ft);
+  }catch(e){showToast(e.message,true);}
+}
+function deuToggleAll(master){
+  document.querySelectorAll('.deu-check').forEach(ch=>ch.checked=master.checked);
+}
+function copiarDato(texto,tipo){
+  navigator.clipboard.writeText(texto).then(()=>{
+    showToast(tipo+' copiado: '+texto);
+  }).catch(()=>{
+    showToast('No se pudo copiar',true);
+  });
+}
+function waCobranza(indice){
+  const x=(window._deudasActuales||[])[indice];
+  if(!x||!x.phone){showToast('Este cliente no tiene teléfono',true);return;}
+  // Normalizar número: quitar todo lo que no sea dígito; si tiene 9 dígitos, anteponer 51 (Perú)
+  let num=(''+x.phone).replace(/\D/g,'');
+  if(num.length===9)num='51'+num;
+  const monto='S/ '+Number(x.deuda_total).toLocaleString('es-PE',{minimumFractionDigits:2});
+  const fFecha=d=>d?new Date(d).toLocaleDateString('es-PE'):'—';
+  const detalle=(x.ventas||[]).map(v=>{
+    const m='S/ '+Number(v.deuda).toLocaleString('es-PE',{minimumFractionDigits:2});
+    return `• ${v.codigo} (${fFecha(v.fecha)}) — ${v.comprobante}${v.a_pedido?' (a pedido)':''} — ${m}`;
+  }).join('\n')||'—';
+  const msg=`Hola ${x.cliente} 👋, le saludamos de *Kuranko*.\n\n`+
+    `Le escribimos para recordarle de manera amable que tiene un saldo pendiente de *${monto}* por ${x.num_ventas} compra(s) registrada(s).\n\n`+
+    `*Detalle:*\n${detalle}\n\n`+
+    `Cuando pueda, agradeceríamos mucho coordinar el pago. Si ya lo realizó, por favor háganoslo saber para actualizar su estado. 🙏\n\n`+
+    `_(También le enviamos esta información por correo electrónico.)_\n\n`+
+    `¡Gracias por su preferencia!`;
+  const url='https://wa.me/'+num+'?text='+encodeURIComponent(msg);
+  window.open(url,'_blank');
+}
+async function enviarCobranza(){
+  const checks=[...document.querySelectorAll('.deu-check:checked')];
+  if(!checks.length){showToast('Selecciona al menos un cliente con correo',true);return;}
+  let ids=[];
+  checks.forEach(c=>{ (c.dataset.ids||'').split(',').forEach(x=>{if(x)ids.push(Number(x));}); });
+  const nombres=checks.map(c=>{
+    const tr=c.closest('tr');
+    return '• '+tr.querySelector('td:nth-child(3) b').textContent.trim();
+  }).join('\n');
+  if(!confirm(`Se enviará un recordatorio formal de pago pendiente a ${checks.length} cliente(s), con copia a info@kuranko.pe:\n\n${nombres}\n\n¿Confirmas el envío?`))return;
+  await ejecutarEnvio(ids);
+}
+async function enviarCobranzaUno(indice){
+  const x=(window._deudasActuales||[])[indice];
+  if(!x||!x.email){showToast('Este cliente no tiene correo',true);return;}
+  if(!confirm(`Enviar recordatorio de pago a ${x.cliente} (${x.email}), con copia a info@kuranko.pe. ¿Confirmas?`))return;
+  await ejecutarEnvio(x.customer_ids||[x.customer_id]);
+}
+async function ejecutarEnvio(ids){
+  const res=document.getElementById('deu-resumen');
+  const prev=res.textContent;
+  res.textContent='Enviando correos...';
+  try{
+    const r=await apiCall('/api/clientes-deudas-cobrar','POST',{customer_ids:ids});
+    res.textContent=prev;
+    showToast(`Correos enviados: ${r.enviados} de ${r.total}`, r.enviados<r.total);
+  }catch(e){res.textContent=prev;showToast(e.message,true);}
+}
+
+// ── Init ──
+(async function(){
+  // Poblar el filtro de empresas (si el usuario tiene permiso de reportes; si no, queda "Todas las empresas")
+  try{
+    const f=await apiCall('/admin/reporte-pagos/filtros','GET');
+    const sel=document.getElementById('deu-empresa');
+    if(sel)sel.innerHTML='<option value="">Todas las empresas</option>'+f.empresas.map(e=>`<option value="${e.id}">${esc(e.nombre)}</option>`).join('');
+  }catch(e){}
+  if(typeof restaurarDeudas==='function')restaurarDeudas();
+})();
+</script>
+</body>
+</html>

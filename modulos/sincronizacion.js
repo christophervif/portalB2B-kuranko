@@ -679,11 +679,14 @@ module.exports = function registrarSincronizacion({ app, authAdmin, requiereModu
           WHERE pv.woocommerce_id IS NULL
             AND pv.product_type IN ('variation','simple')
             AND pv.deleted_at IS NULL
-            -- Se exportan TODOS (con o sin stock), salvo los de marketplace:
-            -- excluimos si "MKP" aparece en cualquier parte del nombre (variación o padre).
-            AND UPPER(COALESCE(pv.name, '')) NOT LIKE '%MKP%'
-            AND UPPER(COALESCE(p.name, '')) NOT LIKE '%MKP%'
-          GROUP BY pv.id, pv.sku, pv.product_type, pv.name, pv.product_id, pv.regular_price, pv.sale_price, p.description
+          GROUP BY pv.id, pv.sku, pv.product_type, pv.name, pv.product_id, pv.regular_price, pv.sale_price, p.description, p.name
+          -- Regla de exportación:
+          --  · Productos normales: se exportan TODOS (con o sin stock).
+          --  · Marketplace ("MKP" en el nombre de la variación o del padre):
+          --    solo si tienen stock; sin stock se omiten.
+         HAVING (UPPER(COALESCE(pv.name, '')) NOT LIKE '%MKP%'
+                 AND UPPER(COALESCE(p.name, '')) NOT LIKE '%MKP%')
+                OR stock > 0
           ORDER BY pv.name, pv.sku`);
 
       const prodIds = [...new Set(pend.map(r => r.product_id))];

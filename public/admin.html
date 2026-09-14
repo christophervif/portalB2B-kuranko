@@ -248,6 +248,7 @@ tr:hover td{background:var(--hover)}
     <div class="tabs" id="tabs-bar" style="display:none">
       <button class="tab active" onclick="tab('clientes_gestion',this)">Gestión de clientes</button>
       <button class="tab" data-modulos="resumen,caja_bi,rentabilidad" onclick="tab('ventas_ingresos',this)">Ventas e ingresos</button>
+      <button class="tab" data-modulos="resumen" onclick="tab('conciliacion',this)">Conciliación</button>
       <button class="tab" onclick="tab('clientes_bi',this)">Clientes BI</button>
       <button class="tab" onclick="tab('inventario',this)">Inventario</button>
       <button class="tab" data-modulos="inventario" onclick="tab('promociones',this)">Promociones</button>
@@ -404,6 +405,11 @@ tr:hover td{background:var(--hover)}
           <div style="position:relative" id="ch-prod-wrap"><canvas id="ch-prod"></canvas></div></div>
         <div class="dbcard"><h4>Rentabilidad por marca</h4>
           <div style="overflow-x:auto"><table class="dtable" id="tbl-marcas"></table></div></div>
+      </div>
+    </div>
+
+    <div id="tab-conciliacion" class="panel">
+      <div class="card">
         <div class="dbcard">
           <h4>Conciliación de pagos online</h4>
           <p class="card-note">Ingresos registrados en el Google Sheet (Izipay, Mercado Pago) verificados contra lo que tiene el sistema. Filtra por fecha de voucher.</p>
@@ -915,7 +921,8 @@ function aplicarPermisos(){
 const APP_ICONOS={
   clientes_gestion:'👤', ventas_ingresos:'📊', clientes_bi:'👥',
   inventario:'📦', restock:'🔁', reportes:'💰', auditoria:'🔍',
-  crm:'📣', sistemas:'⚙️', promociones:'🏷️', importaciones:'🚢', recepciones:'📥', seguimiento:'🚚'
+  crm:'📣', sistemas:'⚙️', promociones:'🏷️', importaciones:'🚢', recepciones:'📥', seguimiento:'🚚',
+  conciliacion:'🧾'
 };
 
 // Genera las tarjetas del launcher a partir de las pestañas visibles (respeta permisos)
@@ -992,6 +999,10 @@ function cargarDatosTab(id){
     if(!dbCargadas['resumen'])dbCargarModulo('resumen');
     if(!dbCargadas['caja_bi'])dbCargarModulo('caja_bi');
     if(!dbCargadas['rentabilidad'])dbCargarModulo('rentabilidad');
+  }
+  else if(id==='conciliacion'){
+    // Pestaña independiente: solo prepara la fecha (hoy). Los datos del Google Sheet
+    // + sistema se traen solo al pulsar Cargar/Hoy/Ayer, así que no consume nada al abrir.
     concInitDia();
   }
   else if(id==='sync'){cargarEstadoActualizacion();}

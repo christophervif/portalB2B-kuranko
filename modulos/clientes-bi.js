@@ -352,6 +352,118 @@ module.exports = function registrarClientesBI({
   });
 
 
+  // ═══════════════════════════════════════════════════════════════════════
+  //  CRÉDITOS A FAVOR DE LA EMPRESA (anotados a mano)
+  //  Dinero que queda a favor de la empresa (p.ej. con un proveedor). Se anota
+  //  manualmente y se marca "saldado" de un golpe. Vive en la base del PORTAL.
+  // ═══════════════════════════════════════════════════════════════════════
+  const CONC_EMP = { 1: 'Diseños Corporativos SAC', 2: 'Christopher Villasante F.' };
+
+  async function asegurarTablaCreditosEmpresa() {
+    await portalPool.query(`
+      CREATE TABLE IF NOT EXISTS creditos_empresa (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        empresa_id INT,
+        contraparte VARCHAR(255),
+        monto DECIMAL(12,2) NOT NULL,
+        fecha DATE,
+        nota VARCHAR(500),
+        estado VARCHAR(20) DEFAULT 'disponible',
+        saldado_por VARCHAR(100),
+        saldado_en DATETIME NULL,
+        registrado_por VARCHAR(100),
+        creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+        anulado TINYINT(1) DEFAULT 0,
+        anulado_por VARCHAR(100),
+        anulado_en DATETIME NULL
+      )`);
+  }
+
+  // Listar créditos a favor de la empresa
+  app.get('/api/creditos-empresa', authAdmin, mSaldo, async (req, res) => {
+    try {
+      await asegurarTablaCreditosEmpresa();
+      const [rows] = await portalPool.query(
+        `SELECT * FROM creditos_empresa ORDER BY anulado ASC, estado ASC, creado_en DESC`);
+      const lista = rows.map(c => {
+        const anulado = c.anulado === 1;
+        const saldado = c.estado === 'saldado';
+        return {
+          id: c.id,
+          empresa_id: c.empresa_id,
+          empresa: CONC_EMP[c.empresa_id] || (c.empresa_id ? ('Empresa ' + c.empresa_id) : '—'),
+          contraparte: c.contraparte || '—',
+          monto: Number(c.monto),
+          fecha: c.fecha,
+          nota: c.nota || '',
+          estado: anulado ? 'anulado' : (saldado ? 'saldado' : 'disponible'),
+          anulado, saldado,
+          saldado_por: c.saldado_por || null, saldado_en: c.saldado_en || null,
+          anulado_por: c.anulado_por || null, anulado_en: c.anulado_en || null,
+          registrado_por: c.registrado_por, creado_en: c.creado_en
+        };
+      });
+      // El total disponible NO cuenta ni saldados ni anulados
+      const totalDisponible = lista
+        .filter(x => x.estado === 'disponible')
+        .reduce((s, x) => s + x.monto, 0);
+      const disponibles = lista.filter(x => x.estado === 'disponible').length;
+      res.json({ total: lista.length, disponibles, total_disponible: totalDisponible, creditos: lista });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Registrar un crédito a favor de la empresa
+  app.post('/api/creditos-empresa', authAdmin, mSaldo, async (req, res) => {
+    try {
+      await asegurarTablaCreditosEmpresa();
+      const b = req.body || {};
+      const empresa_id = Number(b.empresa_id);
+      if (!CONC_EMP[empresa_id]) return res.status(400).json({ error: 'Elige la empresa beneficiaria.' });
+      const monto = Number(b.monto);
+      if (!(monto > 0)) return res.status(400).json({ error: 'El monto debe ser mayor a cero.' });
+      const contraparte = (b.contraparte || '').trim();
+      if (!contraparte) return res.status(400).json({ error: 'Indica la contraparte (de quién es el crédito).' });
+      await portalPool.query(
+        `INSERT INTO creditos_empresa (empresa_id, contraparte, monto, fecha, nota, registrado_por)
+         VALUES (?,?,?,?,?,?)`,
+        [empresa_id, contraparte, monto,
+         b.fecha || new Date().toISOString().slice(0, 10),
+         (b.nota || '').trim() || null,
+         (req.admin && req.admin.usuario) || 'admin']);
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Saldar / reabrir un crédito a favor de la empresa (marcar como usado de un golpe)
+  app.post('/api/creditos-empresa/:id/saldar', authAdmin, mSaldo, async (req, res) => {
+    try {
+      const saldar = req.body && req.body.saldar === false ? false : true;
+      if (saldar) {
+        await portalPool.query(
+          `UPDATE creditos_empresa SET estado='saldado', saldado_por=?, saldado_en=NOW() WHERE id=? AND anulado=0`,
+          [(req.admin && req.admin.usuario) || 'admin', req.params.id]);
+      } else {
+        await portalPool.query(
+          `UPDATE creditos_empresa SET estado='disponible', saldado_por=NULL, saldado_en=NULL WHERE id=? AND anulado=0`,
+          [req.params.id]);
+      }
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Anular un crédito a favor de la empresa (solo maestro)
+  app.post('/api/creditos-empresa/:id/anular', authAdmin, mSaldo, async (req, res) => {
+    try {
+      if (!req.admin || !req.admin.maestro)
+        return res.status(403).json({ error: 'Solo el administrador maestro puede anular créditos.' });
+      await portalPool.query(
+        `UPDATE creditos_empresa SET anulado=1, anulado_por=?, anulado_en=NOW() WHERE id=?`,
+        [req.admin.usuario, req.params.id]);
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+
   app.get('/api/retencion', authAdmin, mClientes, async (req, res) => {
     try {
       const [rows] = await prodPool.query(`

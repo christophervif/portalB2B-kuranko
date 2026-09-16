@@ -126,6 +126,8 @@ module.exports = function registrarSincronizacion({ app, authAdmin, requiereModu
           if (motivo === 'SKU no coincide') obs = `El SKU en la web es "${r.sku_woo}" pero en el ERP es "${r.sku_erp}" (el ID apunta a otro producto; no se actualizó)`;
           else if (motivo === 'ID no existe en la web') obs = `El WooCommerce ID ${r.woocommerce_id} (puesto a mano en el sistema) no existe en la web (no se actualizó)`;
           else if (motivo === 'No existe en el ERP') obs = `El SKU "${r.sku_erp}" no existe en el ERP (revisa la cola de SKUs)`;
+          else if (motivo === 'Imagen del ERP no accesible' || motivo === 'Error al subir imagen')
+            obs = `${motivo} — SKU "${r.sku_erp}", WooCommerce ID ${r.woocommerce_id}${r.sku_woo ? ` (${r.sku_woo})` : ''}. La imagen del ERP no se pudo subir a la web.`;
           else obs = `${motivo} — SKU "${r.sku_erp}", WooCommerce ID ${r.woocommerce_id} (no se actualizó)`;
           return { tipo: motivo, sku: r.sku_erp, wc: r.woocommerce_id, nombre: '', obs };
         });

@@ -154,7 +154,7 @@ module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, p
         const cant = Number(s.cantidad || 0), res = Number(s.reservado || 0);
         const esConsig = s.tipo === 'consignment';
         const disp = Math.max(0, cant - res);
-        if (esConsig) e.consignacion += cant; else e.disponible += disp;
+        if (esConsig) e.consignacion += disp; else e.disponible += disp;
         e.almacenes.push({ almacen: s.almacen || ('Almacén ' + s.loc_id), cantidad: cant, reservado: res, disponible: disp, consignacion: esConsig });
       });
 
@@ -178,7 +178,9 @@ module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, p
           precio_regular: Number(p.regular_price || 0),
           precio_oferta: oferta,
           precio_normal: oferta != null ? oferta : Number(p.regular_price || 0),
-          stock: st.disponible, stock_consignacion: st.consignacion, almacenes: st.almacenes,
+          // stock = en almacenes/tiendas propias (se entrega ya); consignación = en tiendas de clientes
+          stock: st.disponible, stock_consignacion: st.consignacion, stock_total: st.disponible + st.consignacion,
+          almacenes: st.almacenes,
           empresas: (empMap[p.vid] || []).sort((a, b) => b.unidades - a.unidades),
           _sku: compacto(p.sku), _pal: tokens(nombre + ' ' + (p.producto || '')), _comp: compacto(nombre)
         };
@@ -224,11 +226,11 @@ module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, p
       const cat = await catalogo(req.query.fresh === '1');
       const res_ = [];
       for (const it of cat) {
-        if (soloStock && it.stock <= 0) continue;
+        if (soloStock && it.stock_total <= 0) continue;
         const s = puntuar(q, it);
-        if (s >= 30) res_.push([s + (it.stock > 0 ? 3 : 0), it]);
+        if (s >= 30) res_.push([s + (it.stock > 0 ? 3 : it.stock_total > 0 ? 1 : 0), it]);
       }
-      res_.sort((a, b) => b[0] - a[0] || b[1].stock - a[1].stock);
+      res_.sort((a, b) => b[0] - a[0] || b[1].stock_total - a[1].stock_total);
       res.json({ items: res_.slice(0, 30).map(([s, it]) => ({ ...publico(it), puntaje: Math.round(s) })),
         total: res_.length, actualizado: new Date(_catAt).toISOString() });
     } catch (e) { console.error('[cotizador] buscar', e.message); res.status(500).json({ error: 'No se pudo buscar: ' + e.message }); }

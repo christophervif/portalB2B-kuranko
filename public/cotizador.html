@@ -163,9 +163,13 @@ async function buscar(){
   }catch(e){cont.innerHTML='<div class="vacio">'+esc(e.message)+'</div>';}
 }
 function chipStock(x){
-  if(x.stock>0)return '<span class="chip ok">'+x.stock+' disp.</span>';
-  if(x.stock_consignacion>0)return '<span class="chip warn">solo en consignación</span>';
-  return '<span class="chip bad">sin stock</span>';
+  const tot=x.stock_total!=null?x.stock_total:x.stock+(x.stock_consignacion||0);
+  if(tot<=0)return '<span class="chip bad">sin stock</span>';
+  let h='';
+  if(x.stock>0)h+='<span class="chip ok">'+x.stock+' en almacén</span>';
+  if(x.stock_consignacion>0)h+=(h?' ':'')+'<span class="chip warn">'+x.stock_consignacion+' en consignación</span>';
+  if(x.stock>0&&x.stock_consignacion>0)h+=' <span class="chip emp">'+tot+' total</span>';
+  return h;
 }
 function empresasTxt(x){return x.empresas&&x.empresas.length?x.empresas.map(e=>e.empresa).join(' · '):'—';}
 function pintarRes(){
@@ -207,9 +211,15 @@ async function cargarPrecio(){
 function pintarDetalle(){
   const x=ACTUAL.item,box=document.getElementById('detalle');
   box.style.display='';
+  const propios=(x.almacenes||[]).filter(a=>!a.consignacion),consig=(x.almacenes||[]).filter(a=>a.consignacion);
+  const fila=a=>`<tr><td>${esc(a.almacen)}</td><td class="n">${a.cantidad}</td><td class="n">${a.reservado||0}</td><td class="n"><b>${a.disponible}</b></td></tr>`;
+  const sub=(t,arr)=>`<tr><td colspan="3" style="font-weight:600;color:var(--white)">${t}</td><td class="n" style="font-weight:700;color:var(--white)">${arr.reduce((s,a)=>s+a.disponible,0)}</td></tr>`;
   const alm=x.almacenes&&x.almacenes.length
-    ? '<table><thead><tr><th>Almacén</th><th class="n">Disponible</th><th class="n">Reservado</th></tr></thead><tbody>'+
-      x.almacenes.map(a=>`<tr${a.consignacion?' style="opacity:.6"':''}><td>${esc(a.almacen)}${a.consignacion?' <span class="chip warn">consignación</span>':''}</td><td class="n">${a.consignacion?'—':a.disponible}</td><td class="n">${a.reservado||0}</td></tr>`).join('')+'</tbody></table>'
+    ? '<table><thead><tr><th>Almacén</th><th class="n">Cantidad</th><th class="n">Reservado</th><th class="n">Disponible</th></tr></thead><tbody>'+
+      (propios.length?sub('Almacenes propios · se entrega ya',propios)+propios.map(fila).join(''):'')+
+      (consig.length?sub('En consignación · hay que pedirlo a la tienda',consig)+consig.map(fila).join(''):'')+
+      `<tr><td colspan="3" style="font-weight:700;color:var(--white);border-top:2px solid var(--border)">Stock total</td><td class="n" style="font-weight:700;color:var(--white);border-top:2px solid var(--border)">${x.stock_total!=null?x.stock_total:x.stock}</td></tr>`+
+      '</tbody></table>'
     : '<div class="desc">Sin unidades en almacenes.</div>';
   const emp=x.empresas&&x.empresas.length?x.empresas.map(e=>`<span class="chip emp">${esc(e.empresa)} · ${e.unidades} u.</span>`).join(' '):'<span class="chip emp">Sin lotes con stock</span>';
   box.innerHTML=`
@@ -264,7 +274,7 @@ function agregarActual(){
   const ya=CARRITO.find(l=>l.vid===x.vid);
   if(ya){ya.cantidad+=ACTUAL.cantidad;recalcularLinea(ya);}
   else CARRITO.push({vid:x.vid,sku:x.sku,nombre:x.nombre,cantidad:ACTUAL.cantidad,precio_normal:x.precio_normal,
-    precio:x.precio_normal,precio_minimo:p.precio_minimo??null,stock:x.stock});
+    precio:x.precio_normal,precio_minimo:p.precio_minimo??null,stock:x.stock,stock_consig:x.stock_consignacion||0});
   guardarCarrito();pintarCarrito();showToast('Agregado a la cotización');
   $q.select();
 }
@@ -298,7 +308,7 @@ function pintarCarrito(){
       <div class="ctr">Cant. <input class="q" type="number" min="1" value="${l.cantidad}" oninput="editarLinea(${i},'cantidad',this.value)"/>
         Precio u. <input id="lp-${i}" type="number" min="0" step="1" value="${l.precio}" oninput="editarLinea(${i},'precio',this.value)"/>
         <button class="btn btn-sec btn-sm" onclick="usarMin(${i})" ${l.precio_minimo==null?'disabled':''}>Usar mínimo</button>
-        ${l.stock!=null&&l.cantidad>l.stock?'<span class="chip warn">stock '+l.stock+'</span>':''}</div>
+        ${l.stock!=null&&l.cantidad>l.stock?'<span class="chip warn">'+l.stock+' en almacén'+(l.stock_consig?' + '+l.stock_consig+' en consignación':'')+'</span>':''}</div>
       <div id="la-${i}" class="aviso bad" style="display:none">Precio por debajo del mínimo permitido.</div>
     </div>`).join('');
   marcarBajos();pintarTotales();

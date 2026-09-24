@@ -15,6 +15,78 @@ const { EMPRESAS_BI, nombreProdVar } = require('./comunes');
 
 // precio mínimo = costo / 0.9  → el costo representa el 90% del precio (margen 10% sobre precio)
 const FACTOR_MINIMO = 0.9;
+
+// ── Precio SUGERIDO (venta a ciclista final, B2C) ────────────────────────────
+// Sigue la práctica del sector ciclismo:
+//  · Bicicletas: manda el AÑO MODELO (en el nombre, ej. "... 2025"), no los días en almacén.
+//  · Componentes, ropa/cascos y consumibles: se rebajan por antigüedad, cada uno a su ritmo.
+// Los % son de descuento sobre el precio normal; 'min' = precio mínimo. Nunca baja del mínimo.
+// Se pueden cambiar sin tocar código con la variable de Railway COTIZADOR_REGLAS (JSON con la
+// misma forma que REGLAS_BASE; solo hace falta poner lo que cambia).
+const REGLAS_BASE = {
+  // años de diferencia con el año vigente → % ; el año anterior tiene % de ene–jun y de jul–dic
+  bicicleta: { vigente: 0, anterior: [10, 20], dos_anios: 30, mas: 'min' },
+  // bicis sin año modelo en el nombre, componentes, ropa y consumibles: [hasta N meses, %] y 'despues'
+  bicicleta_sin_anio: { tramos: [[12, 0], [24, 15], [36, 30]], despues: 'min' },
+  componente: { tramos: [[18, 0], [30, 10], [48, 20]], despues: 'min' },
+  ropa: { tramos: [[12, 0], [18, 15], [24, 30]], despues: 'min' },
+  consumible: { tramos: [[12, 0], [24, 10]], despues: 25 }
+};
+let REGLAS = REGLAS_BASE;
+try {
+  if (process.env.COTIZADOR_REGLAS) REGLAS = { ...REGLAS_BASE, ...JSON.parse(process.env.COTIZADOR_REGLAS) };
+} catch (e) { console.warn('[cotizador] COTIZADOR_REGLAS no es JSON válido, se usan las reglas base:', e.message); }
+
+const NOMBRE_TIPO = { bicicleta: 'Bicicleta', componente: 'Componente / accesorio', ropa: 'Ropa, cascos y calzado', consumible: 'Consumible' };
+
+// Clasifica el producto por sus categorías del ERP (y el nombre, si no tiene categoría).
+function tipoProducto(categorias, nombre) {
+  const cats = normalizar(categorias);
+  const nom = normalizar(nombre);
+  const esRepuesto = /repuesto|componente|accesorio|parte|pieza|herramienta/.test(cats);
+  if (!esRepuesto && (/(^| )(bicicletas?|bicis?|e ?bikes?|bikes?)( |$)/.test(cats) || /^(bicicleta|bici|e ?bike)( |$)/.test(nom)))
+    return 'bicicleta';
+  const txt = cats + ' ' + nom;
+  if (/(^| )(ropa|indumentaria|vestimenta|jersey|jerseys|polo|polos|short|shorts|culotte?s?|casaca|casacas|chaleco|guantes?|cascos?|zapatillas?|calzado|lentes|gafas|medias|calcetines|bibs?)( |$)/.test(txt))
+    return 'ropa';
+  if (/(^| )(llantas?|neumaticos?|cubiertas?|camaras?|tubeless|sellante|lubricantes?|grasa|aceite|pastillas?|zapatas?|cinta|limpiador|limpieza|cadenas?|cables?|fundas?)( |$)/.test(txt))
+    return 'consumible';
+  return 'componente';
+}
+
+// Año modelo en el nombre: "2025", "MY25", "MY 2025". Devuelve null si no hay.
+function anioModelo(nombre) {
+  const t = normalizar(nombre), tope = new Date().getFullYear() + 1;
+  let anio = null;
+  (t.match(/(^| )(20[12]\d)( |$)/g) || []).forEach(m => { const y = +m.trim(); if (y <= tope && (!anio || y > anio)) anio = y; });
+  const my = t.match(/(^| )my ?(20)?(\d{2})( |$)/);
+  if (!anio && my) anio = 2000 + Number(my[3]);
+  return anio;
+}
+
+const pctTramos = (regla, meses) => {
+  for (const [hasta, pct] of regla.tramos) if (meses < hasta) return pct;
+  return regla.despues;
+};
+const textoMeses = m => m < 12 ? `${Math.floor(m)} meses` : `${(m / 12).toFixed(1).replace('.0', '')} años`;
+
+// Devuelve { pct (número o 'min'), motivo }
+function reglaSugerido(tipo, anio, edadDias) {
+  const meses = (edadDias || 0) / 30.44;
+  if (tipo === 'bicicleta' && anio) {
+    const hoy = new Date(), dif = hoy.getFullYear() - anio, r = REGLAS.bicicleta;
+    if (dif <= 0) return { pct: r.vigente, motivo: `año modelo ${anio} (vigente)` };
+    if (dif === 1) {
+      const pct = Array.isArray(r.anterior) ? r.anterior[hoy.getMonth() < 6 ? 0 : 1] : r.anterior;
+      return { pct, motivo: `año modelo ${anio} (año anterior)` };
+    }
+    if (dif === 2) return { pct: r.dos_anios, motivo: `año modelo ${anio} (hace 2 años)` };
+    return { pct: r.mas, motivo: `año modelo ${anio} (hace ${dif} años)` };
+  }
+  const regla = tipo === 'bicicleta' ? REGLAS.bicicleta_sin_anio : (REGLAS[tipo] || REGLAS.componente);
+  return { pct: pctTramos(regla, meses), motivo: `stock de ${textoMeses(meses)}${tipo === 'bicicleta' ? ' (sin año modelo en el nombre)' : ''}` };
+}
+
 const CAT_TTL = 5 * 60 * 1000; // el catálogo con stock se refresca cada 5 min
 
 // Ubicaciones propias que no son almacén/tienda de venta directa: se agrupan como "Otros"
@@ -171,22 +243,45 @@ module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, p
           disponible: disp, grupo, consignacion: grupo === 'consignacion' });
       });
 
-      // Empresa dueña: según lotes con existencia (stock_batches.company_id)
+      // Empresa dueña y antigüedad: según lotes con existencia (stock_batches)
       const [emp] = await prodPool.query(`
-        SELECT product_variation_id AS vid, company_id, SUM(quantity) AS unidades
+        SELECT product_variation_id AS vid, company_id, SUM(quantity) AS unidades,
+          MIN(entry_date) AS mas_antiguo, MAX(entry_date) AS mas_nuevo
         FROM stock_batches WHERE quantity > 0 GROUP BY product_variation_id, company_id`);
-      const empMap = {};
-      emp.forEach(r => (empMap[r.vid] = empMap[r.vid] || []).push({
-        empresa: EMPRESAS_BI[r.company_id] || (r.company_id ? `Empresa ${r.company_id}` : 'Sin empresa'),
-        unidades: Number(r.unidades)
-      }));
+      const empMap = {}, antMap = {};
+      const f10 = d => d ? (d instanceof Date ? d.toISOString() : String(d)).slice(0, 10) : null;
+      emp.forEach(r => {
+        (empMap[r.vid] = empMap[r.vid] || []).push({
+          empresa: EMPRESAS_BI[r.company_id] || (r.company_id ? `Empresa ${r.company_id}` : 'Sin empresa'),
+          unidades: Number(r.unidades)
+        });
+        const a = antMap[r.vid] = antMap[r.vid] || { antiguo: null, nuevo: null };
+        const ant = f10(r.mas_antiguo), nue = f10(r.mas_nuevo);
+        if (ant && (!a.antiguo || ant < a.antiguo)) a.antiguo = ant;
+        if (nue && (!a.nuevo || nue > a.nuevo)) a.nuevo = nue;
+      });
+
+      // Categorías por producto (para clasificar bicicleta / componente / ropa / consumible)
+      const catMap = {};
+      try {
+        const [cats] = await prodPool.query(`
+          SELECT ppc.product_id AS pid, c.name AS cat, padre.name AS padre
+          FROM product_product_category ppc
+          JOIN product_categories c ON c.id = ppc.product_category_id
+          LEFT JOIN product_categories padre ON padre.id = c.parent_id`);
+        cats.forEach(r => { (catMap[r.pid] = catMap[r.pid] || []).push([r.padre, r.cat].filter(Boolean).join(' ')); });
+      } catch (e) { console.warn('[cotizador] no se pudieron leer categorías:', e.message); }
 
       _cat = prods.map(p => {
         const nombre = nombreProdVar(p.producto, p.variacion);
         const st = stMap[p.vid] || { disponible: 0, consignacion: 0, otros: 0, almacenes: [] };
         st.almacenes.sort((a, b) => b.disponible - a.disponible || b.cantidad - a.cantidad);
         const oferta = p.sale_price != null && Number(p.sale_price) > 0 ? Number(p.sale_price) : null;
+        const categorias = (catMap[p.pid] || []).join(' | ');
+        const tipo = tipoProducto(categorias, p.producto || nombre);
         return {
+          categoria: categorias || null, tipo, tipo_nombre: NOMBRE_TIPO[tipo],
+          anio_modelo: tipo === 'bicicleta' ? anioModelo(nombre + ' ' + (p.producto || '')) : null,
           vid: p.vid, pid: p.pid, sku: p.sku || '', nombre,
           precio_regular: Number(p.regular_price || 0),
           precio_oferta: oferta,
@@ -197,6 +292,9 @@ module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, p
           stock_total: st.disponible + st.consignacion + st.otros,
           almacenes: st.almacenes,
           empresas: (empMap[p.vid] || []).sort((a, b) => b.unidades - a.unidades),
+          // antigüedad del stock: fecha de ingreso del lote más antiguo y del más reciente con existencia
+          lote_mas_antiguo: (antMap[p.vid] || {}).antiguo || null,
+          lote_mas_nuevo: (antMap[p.vid] || {}).nuevo || null,
           _sku: compacto(p.sku), _pal: tokens(nombre + ' ' + (p.producto || '')), _comp: compacto(nombre)
         };
       });
@@ -213,7 +311,8 @@ module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, p
       SELECT id, quantity, cost_price, entry_date, company_id
       FROM stock_batches WHERE product_variation_id = ? AND quantity > 0
       ORDER BY entry_date ASC, id ASC`, [vid]);
-    let faltan = cantidad, costoTotal = 0, tomadas = 0, sinCosto = false;
+    let faltan = cantidad, costoTotal = 0, tomadas = 0, sinCosto = false, diasTotal = 0;
+    const hoy = Date.now();
     const usados = [];
     for (const l of lotes) {
       if (faltan <= 0) break;
@@ -221,6 +320,7 @@ module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, p
       const c = Number(l.cost_price || 0);
       if (!(c > 0)) sinCosto = true;
       costoTotal += q * c; tomadas += q; faltan -= q;
+      if (l.entry_date) diasTotal += q * Math.max(0, Math.floor((hoy - new Date(l.entry_date).getTime()) / 864e5));
       usados.push({ lote: l.id, fecha: l.entry_date, unidades: q, costo: c,
         empresa: EMPRESAS_BI[l.company_id] || (l.company_id ? `Empresa ${l.company_id}` : '—') });
     }
@@ -229,6 +329,7 @@ module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, p
     const minimo = costoProm > 0 && !sinCosto ? Math.ceil(costoProm / FACTOR_MINIMO) : null;
     return { cantidad_pedida: cantidad, unidades_con_costo: tomadas, insuficiente: tomadas < cantidad,
       sin_costo: sinCosto || tomadas === 0, costo_prom: costoProm, precio_minimo: minimo,
+      edad_dias: tomadas > 0 ? Math.round(diasTotal / tomadas) : null,
       lote_mas_antiguo: lotes.length ? lotes[0].entry_date : null, lotes: usados };
   }
 
@@ -260,10 +361,25 @@ module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, p
       const cat = await catalogo();
       const it = cat.find(x => x.vid === vid);
       const r = await precioMinimo(vid, cantidad);
+      // Precio sugerido (B2C) según tipo de producto y año modelo / antigüedad de las unidades a vender
+      let sug = null;
+      const normal = it ? it.precio_normal : null;
+      if (normal > 0 && it) {
+        const rg = reglaSugerido(it.tipo, it.anio_modelo, r.edad_dias);
+        let precio = normal, nota = null;
+        if (r.precio_minimo == null) nota = 'sin costo registrado: se mantiene el precio normal';
+        else if (r.precio_minimo >= normal) nota = 'el mínimo supera al precio normal';
+        else if (rg.pct === 'min') precio = r.precio_minimo;
+        else precio = Math.max(r.precio_minimo, Math.round(normal * (1 - Number(rg.pct || 0) / 100)));
+        sug = { precio, tipo: it.tipo, tipo_nombre: it.tipo_nombre, regla_pct: rg.pct, motivo: rg.motivo, nota,
+          topado_en_minimo: r.precio_minimo != null && precio === r.precio_minimo && rg.pct !== 'min',
+          descuento_pct: Math.round((1 - precio / normal) * 1000) / 10 };
+      }
       const out = {
         vid, cantidad, factor: FACTOR_MINIMO,
         precio_normal: it ? it.precio_normal : null,
         precio_minimo: r.precio_minimo,
+        precio_sugerido: sug ? sug.precio : null, sugerido: sug, edad_dias: r.edad_dias,
         insuficiente: r.insuficiente, unidades_con_costo: r.unidades_con_costo,
         sin_costo: r.sin_costo, lote_mas_antiguo: r.lote_mas_antiguo,
         descuento_max_pct: it && it.precio_normal > 0 && r.precio_minimo
@@ -281,4 +397,4 @@ module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, p
   return { _test: { normalizar, tokens, puntuar, distancia, catalogo, precioMinimo } };
 };
 // Exponer utilidades puras para pruebas
-module.exports._puros = { normalizar, tokens, puntuar, compacto };
+module.exports._puros = { normalizar, tokens, puntuar, compacto, tipoProducto, anioModelo, reglaSugerido };

@@ -227,7 +227,7 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, m
           LEFT JOIN sales s ON s.id = sp.sale_id
           LEFT JOIN bank_accounts ba ON ba.id = sp.bank_account_id
           WHERE sp.voided_at IS NULL AND ${entre('sp.paid_at')} ${fEmp(empresa, EMP_INGRESO)}
-          GROUP BY periodo, company_id`),
+          GROUP BY periodo, ${EMP_INGRESO}`),
         prodPool.query(`
           SELECT ${pV} AS periodo, s.company_id,
             COALESCE(SUM(${GANANCIA_NORMAL}),0) AS margen,

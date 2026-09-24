@@ -168,7 +168,8 @@ function chipStock(x){
   let h='';
   if(x.stock>0)h+='<span class="chip ok">'+x.stock+' en almacén</span>';
   if(x.stock_consignacion>0)h+=(h?' ':'')+'<span class="chip warn">'+x.stock_consignacion+' en consignación</span>';
-  if(x.stock>0&&x.stock_consignacion>0)h+=' <span class="chip emp">'+tot+' total</span>';
+  if(x.stock_otros>0)h+=(h?' ':'')+'<span class="chip emp">'+x.stock_otros+' en otros</span>';
+  if([x.stock,x.stock_consignacion,x.stock_otros].filter(n=>n>0).length>1)h+=' <span class="chip emp">'+tot+' total</span>';
   return h;
 }
 function empresasTxt(x){return x.empresas&&x.empresas.length?x.empresas.map(e=>e.empresa).join(' · '):'—';}
@@ -211,13 +212,15 @@ async function cargarPrecio(){
 function pintarDetalle(){
   const x=ACTUAL.item,box=document.getElementById('detalle');
   box.style.display='';
-  const propios=(x.almacenes||[]).filter(a=>!a.consignacion),consig=(x.almacenes||[]).filter(a=>a.consignacion);
+  const grp=a=>a.grupo||(a.consignacion?'consignacion':'propio');
+  const propios=(x.almacenes||[]).filter(a=>grp(a)==='propio'),consig=(x.almacenes||[]).filter(a=>grp(a)==='consignacion'),otros=(x.almacenes||[]).filter(a=>grp(a)==='otros');
   const fila=a=>`<tr><td>${esc(a.almacen)}</td><td class="n">${a.cantidad}</td><td class="n">${a.reservado||0}</td><td class="n"><b>${a.disponible}</b></td></tr>`;
   const sub=(t,arr)=>`<tr><td colspan="3" style="font-weight:600;color:var(--white)">${t}</td><td class="n" style="font-weight:700;color:var(--white)">${arr.reduce((s,a)=>s+a.disponible,0)}</td></tr>`;
   const alm=x.almacenes&&x.almacenes.length
     ? '<table><thead><tr><th>Almacén</th><th class="n">Cantidad</th><th class="n">Reservado</th><th class="n">Disponible</th></tr></thead><tbody>'+
       (propios.length?sub('Almacenes propios · se entrega ya',propios)+propios.map(fila).join(''):'')+
       (consig.length?sub('En consignación · hay que pedirlo a la tienda',consig)+consig.map(fila).join(''):'')+
+      (otros.length?sub('Otros · cuarentena, exhibición, embajador…',otros)+otros.map(fila).join(''):'')+
       `<tr><td colspan="3" style="font-weight:700;color:var(--white);border-top:2px solid var(--border)">Stock total</td><td class="n" style="font-weight:700;color:var(--white);border-top:2px solid var(--border)">${x.stock_total!=null?x.stock_total:x.stock}</td></tr>`+
       '</tbody></table>'
     : '<div class="desc">Sin unidades en almacenes.</div>';

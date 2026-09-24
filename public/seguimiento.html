@@ -46,9 +46,12 @@ td.n,th.n{text-align:right}
 .env-body{padding:10px 12px;display:none}
 .env.open .env-body{display:block}
 .grp{border:1px solid var(--border);border-radius:10px;margin-bottom:12px;overflow:hidden}
-.grp-h{padding:10px 12px;background:var(--card2);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.grp-h{padding:10px 12px;background:var(--card2);display:flex;gap:10px;align-items:center;flex-wrap:wrap;cursor:pointer;user-select:none}
 .grp-h b{font-size:14px}
 .grp-body{padding:8px 12px}
+.grp-caret{display:inline-block;transition:transform .15s;color:var(--muted);font-size:12px}
+.grp.collapsed .grp-caret{transform:rotate(-90deg)}
+.grp.collapsed .grp-body{display:none}
 .saleinfo{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:2px}
 .saleinfo b{color:var(--txt)}
 .hint{font-size:12px;color:var(--muted);margin:6px 0}
@@ -158,6 +161,8 @@ td.n,th.n{text-align:right}
     <div class="row" style="align-items:center">
       <button id="btnSync" class="ghost" onclick="sincronizarBo()">↻ Actualizar desde el sistema</button>
       <button class="ghost" onclick="abrirGrupo()">+ Nuevo grupo</button>
+      <button class="ghost sm" onclick="contraerTodo(true)" title="Plegar todos los grupos">⊟ Contraer todo</button>
+      <button class="ghost sm" onclick="contraerTodo(false)" title="Desplegar todos los grupos">⊞ Expandir todo</button>
       <label class="sm" style="display:flex;gap:5px;align-items:center;cursor:pointer"><input type="checkbox" id="boVerArch" onchange="cargarBackorders()"> Ver archivados</label>
       <span id="boMsg" class="muted sm"></span>
     </div>
@@ -509,17 +514,35 @@ function bloqueGrupo(g,items){
   const titulo=g?esc(g.nombre||'(grupo sin nombre)'):'Sin grupo';
   // Editar grupo: ambos (el supervisor también puede agrupar). Eliminar: solo el maestro.
   const accG = g ? `<div class="row" style="margin-left:auto">
-      <button class="ghost sm" onclick="abrirGrupo('${g.id}')">Editar grupo</button>
-      ${ES_MAESTRO?`<button class="danger sm" onclick="borrarGrupo('${g.id}')">Eliminar</button>`:''}
+      <button class="ghost sm" onclick="event.stopPropagation();abrirGrupo('${g.id}')">Editar grupo</button>
+      ${ES_MAESTRO?`<button class="danger sm" onclick="event.stopPropagation();borrarGrupo('${g.id}')">Eliminar</button>`:''}
     </div>` : '';
   const rows=items.map(b=>filaBo(b)).join('');
   const body = items.length ? `<div class="tw"><table><thead><tr>
       <th style="width:34px">✓</th><th>SKU</th><th>Producto</th><th>Cliente</th><th>Venta</th><th>Fecha</th><th class="n">Cant</th><th>Nota</th><th>Grupo</th>
     </tr></thead><tbody>${rows}</tbody></table></div>`
     : '<div class="muted sm">Sin ítems en este grupo.</div>';
-  return `<div class="grp"><div class="grp-h"><b>${g?'📁 ':''}${titulo}</b>
+  const key = g ? g.id : '__sin__';
+  const col = COLAPSADOS.has(key) ? ' collapsed' : '';
+  return `<div class="grp${col}"><div class="grp-h" onclick="toggleGrupo('${key}',this)">
+      <span class="grp-caret">▾</span><b>${g?'📁 ':''}${titulo}</b>
       <span class="muted sm">${items.length} ítems · ${porComprar} por comprar</span>${accG}</div>
     <div class="grp-body">${info}${body}</div></div>`;
+}
+// Grupos plegados (se recuerda en el navegador)
+let COLAPSADOS=new Set();
+try{const _r=localStorage.getItem('seg_bo_colapsados');if(_r)COLAPSADOS=new Set(JSON.parse(_r));}catch(e){}
+function guardarColapsados(){try{localStorage.setItem('seg_bo_colapsados',JSON.stringify([...COLAPSADOS]));}catch(e){}}
+function toggleGrupo(key,headerEl){
+  const grp=headerEl.closest('.grp');if(!grp)return;
+  const col=grp.classList.toggle('collapsed');
+  if(col)COLAPSADOS.add(key);else COLAPSADOS.delete(key);
+  guardarColapsados();
+}
+function contraerTodo(v){
+  const keys=GRUPOS.map(g=>g.id).concat(['__sin__']);
+  if(v)keys.forEach(k=>COLAPSADOS.add(k));else COLAPSADOS.clear();
+  guardarColapsados();pintarBackorders();
 }
 function filaBo(b){
   // Marcar comprado, poner nota y agrupar: lo pueden hacer AMBOS (maestro y supervisor). Eliminar: nadie desde aquí.

@@ -172,6 +172,30 @@ tr:hover td{background:var(--hover)}
 .badge-g{background:var(--bg-ok);color:var(--fg-ok);padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600}.badge-y{background:var(--bg-warn);color:var(--fg-warn);padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600}.badge-r{background:var(--bg-r);color:var(--fg-r);padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600}
 .badge-alto{background:#3C3489;color:#CECBF6}.badge-medio{background:#633806;color:#FAC775}.badge-bajo{background:#444441;color:#D3D1C7}
 .empresa-card{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:1rem;margin-bottom:10px}
+/* ── Ventas e ingresos: selector de empresa, controles del gráfico, tabla mes a mes ── */
+.vi-barra{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;margin-bottom:14px}
+.seg{display:inline-flex;background:var(--surface3);border:1px solid var(--border);border-radius:10px;padding:3px;gap:2px;flex-wrap:wrap}
+.seg button{background:none;border:none;color:var(--muted2);font-size:13px;font-weight:600;padding:7px 12px;border-radius:7px;cursor:pointer;white-space:nowrap}
+.seg button:hover{color:var(--text)}
+.seg button.on{background:var(--accent);color:var(--accent-text)}
+.seg.sm button{font-size:12px;padding:5px 10px}
+.vi-emp-lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+.vi-ctrl{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin-bottom:10px}
+.vi-ctrl span{font-size:12px;color:var(--muted)}
+.vi-presets{display:flex;gap:6px;flex-wrap:wrap}
+.mm-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius-sm)}
+.mm{border-collapse:collapse;font-size:12.5px;min-width:100%}
+.mm th,.mm td{padding:7px 10px;border-bottom:1px solid var(--border);text-align:right;white-space:nowrap}
+.mm thead th{background:var(--surface3);color:var(--muted2);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.03em}
+.mm th:first-child,.mm td:first-child{position:sticky;left:0;background:var(--surface2);text-align:left;z-index:1}
+.mm thead th:first-child{background:var(--surface3)}
+.mm tr.mm-grupo td{background:var(--surface3);font-weight:700;color:var(--text);text-align:left;font-size:12px;letter-spacing:.02em}
+.mm tr.mm-grupo td:first-child{background:var(--surface3)}
+.mm td .dv{display:block;font-size:10.5px;font-weight:600;margin-top:1px}
+.mm td .dv.up{color:var(--fg-ok)}.mm td .dv.dn{color:var(--fg-r)}.mm td .dv.eq{color:var(--muted)}
+.mm td.cero{color:var(--muted)}
+.mm tr:hover td{background:var(--hover)}
+.cob-ok{color:var(--fg-ok)}.cob-warn{color:var(--fg-warn)}.cob-bad{color:var(--fg-r)}
 .empresa-name{font-size:14px;font-weight:600;margin-bottom:10px}
 .empresa-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .estat{background:var(--surface3);border-radius:8px;padding:8px}
@@ -377,20 +401,55 @@ tr:hover td{background:var(--hover)}
 
     <div id="tab-ventas_ingresos" class="panel">
       <div class="card">
+        <div class="vi-barra">
+          <span class="vi-emp-lbl">Empresa</span>
+          <div class="seg" id="vi-empresas"><button class="on" data-emp="" onclick="viSetEmpresa('',this)">Todas</button></div>
+        </div>
         <div class="filtros-fila" style="align-items:center">
           <label style="font-size:13px">Mes: <input type="month" class="db-mes" onchange="dbAplicarMes(this)"></label>
           <label style="font-size:13px">Desde: <input type="date" class="db-desde"></label>
           <label style="font-size:13px">Hasta: <input type="date" class="db-hasta"></label>
           <button class="btn" onclick="dbCargarActual()">Actualizar</button>
         </div>
-        <div id="kpis-grid" class="kpi-grid"></div>
-        <div class="dbcard"><h4>Ventas e ingresos por día</h4>
-          <p class="card-note">Las <b>ventas</b> y el <b>margen</b> (ganancia FIFO) se separan por la empresa que gestiona la venta; los <b>ingresos</b>, por la empresa dueña de la cuenta donde entró el pago. Clic en la leyenda para mostrar u ocultar cada línea.</p>
-          <div style="position:relative;height:320px"><canvas id="ch-dias"></canvas></div>
-          <div style="font-size:11px;color:var(--muted);margin-top:6px">Arrastra para desplazarte · rueda del mouse o pellizca para acercar · doble clic para restablecer el zoom</div>
+        <div class="vi-presets" style="margin:-4px 0 14px">
+          <button class="btn btn-sec btn-sm" onclick="viPreset('30d')">Últimos 30 días</button>
+          <button class="btn btn-sec btn-sm" onclick="viPreset('90d')">Últimos 90 días</button>
+          <button class="btn btn-sec btn-sm" onclick="viPreset('anio')">Este año</button>
+          <button class="btn btn-sec btn-sm" onclick="viPreset('12m')">Últimos 12 meses</button>
         </div>
+        <div id="kpis-grid" class="kpi-grid"></div>
+
+        <div class="dbcard"><h4 id="vi-graf-titulo">Evolución</h4>
+          <div class="vi-ctrl">
+            <span>Ver por</span>
+            <div class="seg sm" id="vi-agrupar">
+              <button data-v="dia" class="on" onclick="viSetAgrupar('dia')">Día</button>
+              <button data-v="semana" onclick="viSetAgrupar('semana')">Semana</button>
+              <button data-v="mes" onclick="viSetAgrupar('mes')">Mes</button>
+            </div>
+            <span>Métrica</span>
+            <div class="seg sm" id="vi-metrica">
+              <button data-v="ventas" class="on" onclick="viSetMetrica('ventas')">Ventas S/</button>
+              <button data-v="ingresos" onclick="viSetMetrica('ingresos')">Ingresos S/</button>
+              <button data-v="num_ventas" onclick="viSetMetrica('num_ventas')">N° ventas</button>
+              <button data-v="ticket" onclick="viSetMetrica('ticket')">Ticket prom.</button>
+              <button data-v="margen" onclick="viSetMetrica('margen')">Margen S/</button>
+              <button data-v="compras" onclick="viSetMetrica('compras')">Compras S/</button>
+            </div>
+          </div>
+          <p class="card-note" id="vi-graf-nota"></p>
+          <div style="position:relative;height:320px"><canvas id="ch-dias"></canvas></div>
+          <div id="vi-zoom-hint" style="font-size:11px;color:var(--muted);margin-top:6px">Arrastra para desplazarte · rueda del mouse o pellizca para acercar · doble clic para restablecer el zoom</div>
+        </div>
+
+        <div class="dbcard"><h4 id="mm-titulo">Mes a mes por empresa</h4>
+          <p class="card-note"><b>Ventas</b>, <b>N° de ventas</b>, <b>ticket</b> y <b>margen</b> van por la empresa que gestiona la venta; <b>ingresos</b> por la empresa dueña de la cuenta donde entró el pago; <b>compras</b> son las entradas de stock tipo compra o importación, valorizadas al costo del lote. Debajo de cada cifra: variación contra el mes anterior.</p>
+          <div class="mm-wrap"><table class="mm" id="tbl-mm"></table></div>
+          <div id="mm-nota" style="font-size:11px;color:var(--muted);margin-top:8px"></div>
+        </div>
+
         <div class="two-col">
-          <div class="dbcard"><h4>Por empresa</h4><div id="empresas-box"></div></div>
+          <div class="dbcard" id="vi-card-empresas"><h4>Por empresa</h4><div id="empresas-box"></div></div>
           <div class="dbcard"><h4>B2B vs B2C</h4><div style="position:relative;height:220px"><canvas id="ch-tipo"></canvas></div></div>
         </div>
         <div class="two-col">
@@ -399,12 +458,17 @@ tr:hover td{background:var(--hover)}
         </div>
         <div class="dbcard" style="border-top:2px solid var(--accent);padding-top:14px">
           <h4>Rentabilidad</h4>
-          <p class="card-note">Ganancia real por método FIFO: precio de venta menos costo del lote. Solo cuenta las líneas con costo conocido.</p>
+          <p class="card-note">Ganancia real por método FIFO: precio de venta menos costo del lote. Solo cuenta las líneas con costo conocido; la <b>cobertura</b> indica qué parte de lo vendido tiene costo conocido (si es baja, el margen es menos confiable).</p>
         </div>
         <div id="rent-kpis" class="kpi-grid"></div>
         <div id="rent-avisos"></div>
+        <div class="dbcard"><h4>Rentabilidad por canal (B2B vs B2C)</h4>
+          <div style="overflow-x:auto"><table class="dtable" id="tbl-canal"></table></div></div>
         <div class="dbcard"><h4>Top 15 productos por ganancia FIFO</h4>
           <div style="position:relative" id="ch-prod-wrap"><canvas id="ch-prod"></canvas></div></div>
+        <div class="dbcard"><h4>Productos con margen bajo o negativo</h4>
+          <p class="card-note">Productos con al menos S/100 vendidos y costo conocido, del peor margen al mejor. En rojo, los que se vendieron por debajo del costo.</p>
+          <div style="overflow-x:auto"><table class="dtable" id="tbl-margen-bajo"></table></div></div>
         <div class="dbcard"><h4>Rentabilidad por marca</h4>
           <div style="overflow-x:auto"><table class="dtable" id="tbl-marcas"></table></div></div>
       </div>
@@ -2441,99 +2505,286 @@ function dbCargarActual(){
   dbCargarModulo(id);
 }
 
+// ══════════ VENTAS E INGRESOS: filtro por empresa, gráfico agrupado y mes a mes ══════════
+let viEmpresa='', viAgrupar='dia', viMetrica='ventas', viEmpresas=[], viSerie=null;
+// Colores fijos por empresa (legibles en tema claro y oscuro); 0 = total
+const VI_COL={1:'#6C63D9',2:'#14A37F',0:'#FFB30D'};
+const VI_MESES=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+const VI_METRICAS={
+  ventas:{t:'Ventas',din:1,nota:'Valor vendido, por la empresa que gestiona la venta (fecha de venta).'},
+  ingresos:{t:'Ingresos',din:1,nota:'Dinero cobrado, por la empresa dueña de la cuenta donde entró el pago (fecha de pago).'},
+  num_ventas:{t:'N° de ventas',din:0,nota:'Cantidad de ventas, por la empresa que gestiona la venta.'},
+  ticket:{t:'Ticket promedio',din:1,nota:'Ventas ÷ N° de ventas del período.'},
+  margen:{t:'Margen FIFO',din:1,nota:'Ganancia FIFO (precio − costo del lote). Solo líneas con costo conocido.'},
+  compras:{t:'Compras',din:1,nota:'Entradas de stock tipo compra o importación, valorizadas al costo del lote, por la empresa dueña del lote.'}
+};
+const viNomEmp=id=>{const e=viEmpresas.find(x=>x.id===+id);return e?e.nombre:(+id?'Empresa '+id:'Sin empresa');};
+const viCorto=id=>viNomEmp(id).split(' ')[0];
+const viIso=d=>{const z=new Date(d.getTime()-d.getTimezoneOffset()*6e4);return z.toISOString().slice(0,10);};
+function viRango(){
+  const c=document.getElementById('tab-ventas_ingresos');
+  const d=c.querySelector('.db-desde').value, h=c.querySelector('.db-hasta').value;
+  return {desde:d,hasta:h};
+}
+function viQS(extra){
+  const q=new URLSearchParams(); const {desde,hasta}=viRango();
+  if(desde&&hasta){q.set('desde',desde);q.set('hasta',hasta);}
+  if(viEmpresa)q.set('empresa',viEmpresa);
+  Object.entries(extra||{}).forEach(([k,v])=>q.set(k,v));
+  return '?'+q.toString();
+}
+const viApi=(ep,extra)=>apiCall(ep+viQS(extra),'GET');
+
+// Botones de empresa (se arman una vez con la lista del servidor)
+async function viInitEmpresas(){
+  if(viEmpresas.length)return;
+  try{viEmpresas=await apiCall('/api/empresas-bi','GET');}catch(e){viEmpresas=[{id:1,nombre:'Diseños Corporativos SAC'},{id:2,nombre:'Christopher Villasante F.'}];}
+  const box=document.getElementById('vi-empresas'); if(!box)return;
+  box.innerHTML=`<button class="${viEmpresa?'':'on'}" data-emp="" onclick="viSetEmpresa('',this)">Todas</button>`+
+    viEmpresas.map(e=>`<button class="${+viEmpresa===e.id?'on':''}" data-emp="${e.id}" onclick="viSetEmpresa('${e.id}',this)">${e.nombre}</button>`).join('');
+}
+function viSetEmpresa(id,btn){
+  viEmpresa=id;
+  document.querySelectorAll('#vi-empresas button').forEach(b=>b.classList.toggle('on',b===btn));
+  dbCargarActual();
+}
+function viMarcar(boxId,v){document.querySelectorAll('#'+boxId+' button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));}
+function viDiasRango(){const {desde,hasta}=viRango();if(!desde||!hasta)return 0;return (new Date(hasta)-new Date(desde))/864e5+1;}
+function viSetAgrupar(v){
+  viAgrupar=v; viMarcar('vi-agrupar',v);
+  // Agrupar por mes/semana un rango corto deja 1-2 barras: se amplía el rango solo
+  if(v==='mes'&&viDiasRango()<60){showToast('Vista por mes: rango ampliado a los últimos 12 meses');viPreset('12m');return;}
+  if(v==='semana'&&viDiasRango()<28){showToast('Vista por semana: rango ampliado a los últimos 90 días');viPreset('90d');return;}
+  viCargarSerie().catch(e=>showToast('Gráfico: '+e.message,true));
+}
+function viSetMetrica(v){viMetrica=v;viMarcar('vi-metrica',v);viDibujar();}
+function viPreset(cual){
+  const c=document.getElementById('tab-ventas_ingresos');
+  const hoy=new Date(); let d=new Date(hoy);
+  if(cual==='30d')d=new Date(hoy.getTime()-29*864e5);
+  else if(cual==='90d')d=new Date(hoy.getTime()-89*864e5);
+  else if(cual==='anio')d=new Date(hoy.getFullYear(),0,1);
+  else if(cual==='12m')d=new Date(hoy.getFullYear(),hoy.getMonth()-11,1);
+  c.querySelector('.db-desde').value=viIso(d);
+  c.querySelector('.db-hasta').value=viIso(hoy);
+  const m=c.querySelector('.db-mes'); if(m)m.value='';
+  dbCargarActual();
+}
+
+// Lista completa de períodos del rango (para que los huecos salgan en cero)
+function viPeriodos(desde,hasta,agrupar){
+  const out=[]; if(!desde||!hasta)return out;
+  const [a1,m1,d1]=desde.split('-').map(Number),[a2,m2,d2]=hasta.split('-').map(Number);
+  if(agrupar==='mes'){
+    for(let a=a1,m=m1;a<a2||(a===a2&&m<=m2);){out.push(`${a}-${String(m).padStart(2,'0')}`);m++;if(m>12){m=1;a++;}}
+    return out;
+  }
+  let d=new Date(a1,m1-1,d1); const fin=new Date(a2,m2-1,d2);
+  if(agrupar==='semana'){const wd=(d.getDay()+6)%7;d.setDate(d.getDate()-wd);}
+  while(d<=fin){out.push(viIso(d));d.setDate(d.getDate()+(agrupar==='semana'?7:1));}
+  return out;
+}
+function viEtiqueta(p,agrupar,larga){
+  if(agrupar==='mes'){const [a,m]=p.split('-');return VI_MESES[+m-1]+' '+(larga?a:a.slice(2));}
+  const [a,m,d]=p.split('-');
+  if(agrupar==='semana')return (larga?'Semana del ':'Sem ')+d+'/'+m+(larga?'/'+a:'');
+  return larga?d+'/'+m+'/'+a:d+'/'+m;
+}
+// Agrega las filas del servidor en {periodo: {cid: {...}}}
+function viIndexar(filas){
+  const idx={};
+  filas.forEach(r=>{(idx[r.periodo]=idx[r.periodo]||{})[r.company_id]=r;});
+  return idx;
+}
+const VI_VACIO={ventas:0,num_ventas:0,ingresos:0,margen:0,base_margen:0,ingreso_items:0,compras:0};
+// Suma varias filas (para el total o para una empresa)
+function viSumar(celdas){
+  const t={...VI_VACIO}; celdas.forEach(c=>{if(c)Object.keys(VI_VACIO).forEach(k=>t[k]+=+c[k]||0);}); return t;
+}
+function viValor(c,m){
+  if(!c)return 0;
+  if(m==='ticket')return c.num_ventas>0?c.ventas/c.num_ventas:0;
+  if(m==='margen_pct')return c.base_margen>0?c.margen/c.base_margen*100:null;
+  if(m==='cobertura')return c.ingreso_items>0?c.base_margen/c.ingreso_items*100:null;
+  return +c[m]||0;
+}
+// Celda de una empresa o del total (cid='T') en un período
+function viCelda(idx,p,cid){
+  const fila=idx[p]||{};
+  if(cid==='T')return viSumar(Object.values(fila));
+  return fila[cid]||{...VI_VACIO};
+}
+function viGruposVisibles(){
+  // Una empresa elegida → solo ella. Todas → cada empresa + total.
+  return viEmpresa?[+viEmpresa]:[...viEmpresas.map(e=>e.id),'T'];
+}
+
+async function viCargarSerie(){
+  const {desde,hasta}=viRango(); if(!desde||!hasta)return;
+  viSerie=await viApi('/api/bi-serie',{agrupar:viAgrupar});
+  viSerie.periodos=viPeriodos(desde,hasta,viAgrupar);
+  viDibujar();
+}
+function viDibujar(){
+  if(!viSerie)return;
+  const m=viMetrica, meta=VI_METRICAS[m], ag=viSerie.agrupar, per=viSerie.periodos, idx=viIndexar(viSerie.filas);
+  const fmt=v=>meta.din?dbFmt(v):dbFmtN(Math.round(v));
+  document.getElementById('vi-graf-titulo').textContent=meta.t+' por '+({dia:'día',semana:'semana',mes:'mes'}[ag])+(viEmpresa?' — '+viNomEmp(viEmpresa):'');
+  document.getElementById('vi-graf-nota').textContent=meta.nota;
+  document.getElementById('vi-zoom-hint').style.display=ag==='dia'?'':'none';
+  const esLinea=ag==='dia';
+  const grupos=viGruposVisibles();
+  const datasets=grupos.map(cid=>{
+    const col=cid==='T'?VI_COL[0]:(VI_COL[cid]||'#8b93b8');
+    const data=per.map(p=>viValor(viCelda(idx,p,cid),m));
+    if(cid==='T')return {type:'line',label:'Total',data,borderColor:col,backgroundColor:'transparent',borderWidth:2,borderDash:[5,4],pointRadius:esLinea?0:3,pointHoverRadius:5,tension:.3,order:0};
+    return esLinea
+      ?{type:'line',label:viNomEmp(cid),data,borderColor:col,backgroundColor:col+'22',fill:grupos.length===1,tension:.3,pointRadius:2,pointHoverRadius:5,borderWidth:2,order:1}
+      :{type:'bar',label:viNomEmp(cid),data,backgroundColor:col,borderRadius:4,maxBarThickness:38,order:1};
+  });
+  dbMkChart('ch-dias',esLinea?'line':'bar',{labels:per.map(p=>viEtiqueta(p,ag,false)),datasets},{
+    interaction:{mode:'index',intersect:false},
+    scales:{
+      x:{ticks:{color:'#94a3b8',font:{size:10},maxRotation:0,autoSkip:true,maxTicksLimit:16},grid:{color:'rgba(148,163,184,.08)'}},
+      y:{beginAtZero:true,ticks:{color:'#94a3b8',font:{size:10},callback:v=>meta.din?'S/'+dbFmtN(v):dbFmtN(v)},grid:{color:'rgba(148,163,184,.08)'}}
+    },
+    plugins:{
+      legend:{display:datasets.length>1,position:'bottom',labels:{color:'#94a3b8',font:{size:11},padding:10,boxWidth:14}},
+      tooltip:{callbacks:{title:it=>viEtiqueta(per[it[0].dataIndex],ag,true),label:c=>c.dataset.label+': '+fmt(c.raw)}},
+      zoom:esLinea?{pan:{enabled:true,mode:'x'},zoom:{wheel:{enabled:true},pinch:{enabled:true},mode:'x'},limits:{x:{minRange:3}}}:{pan:{enabled:false},zoom:{wheel:{enabled:false},pinch:{enabled:false}}}
+    }
+  });
+  const cv=document.getElementById('ch-dias');
+  if(cv&&!cv._dblSet){cv.addEventListener('dblclick',()=>{const ch=dbCharts['ch-dias'];if(ch&&ch.resetZoom)ch.resetZoom();});cv._dblSet=true;}
+}
+
+// Tabla "Mes a mes": 12 meses hasta el mes de la fecha "Hasta"
+async function viMesAMes(){
+  const {hasta}=viRango(); if(!hasta)return;
+  const [a,mm]=hasta.split('-').map(Number);
+  const ini=new Date(a,mm-12,1);
+  const desde=viIso(ini);
+  const r=await viApi('/api/bi-serie',{agrupar:'mes',desde,hasta});
+  const meses=viPeriodos(desde,hasta,'mes'), idx=viIndexar(r.filas);
+  const hoy=new Date(), mesActual=`${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}`;
+  document.getElementById('mm-titulo').textContent='Mes a mes'+(viEmpresa?' — '+viNomEmp(viEmpresa):' por empresa')+' · '+viEtiqueta(meses[0],'mes',true)+' a '+viEtiqueta(meses[meses.length-1],'mes',true);
+  const filasMet=[
+    {k:'ventas',t:'Ventas',f:dbFmt,d:'pct'},
+    {k:'ingresos',t:'Ingresos',f:dbFmt,d:'pct'},
+    {k:'num_ventas',t:'N° ventas',f:dbFmtN,d:'pct'},
+    {k:'ticket',t:'Ticket prom.',f:dbFmt,d:'pct'},
+    {k:'margen_pct',t:'Margen %',f:v=>v==null?'—':v.toFixed(1)+'%',d:'pp'},
+    {k:'cobertura',t:'Cobertura costo',f:v=>v==null?'—':`<span class="${v>=90?'cob-ok':v>=70?'cob-warn':'cob-bad'}">${v.toFixed(0)}%</span>`,d:null},
+    {k:'compras',t:'Compras',f:dbFmt,d:'pct'},
+  ];
+  const delta=(act,ant,tipo)=>{
+    if(!tipo||act==null||ant==null)return '';
+    if(tipo==='pp'){const x=act-ant;const c=Math.abs(x)<0.05?'eq':x>0?'up':'dn';return `<span class="dv ${c}">${x>0?'+':''}${x.toFixed(1)} pp</span>`;}
+    if(!ant)return act?'<span class="dv eq">nuevo</span>':'';
+    const x=(act-ant)/Math.abs(ant)*100;const c=Math.abs(x)<0.5?'eq':x>0?'up':'dn';
+    return `<span class="dv ${c}">${x>0?'▲':x<0?'▼':''} ${Math.abs(x).toFixed(0)}%</span>`;
+  };
+  const cab='<thead><tr><th>Métrica</th>'+meses.map(p=>`<th>${viEtiqueta(p,'mes',false)}${p===mesActual?' <span title="Mes en curso">·</span>':''}</th>`).join('')+'<th>Total 12m</th></tr></thead>';
+  let cuerpo='<tbody>';
+  viGruposVisibles().forEach(cid=>{
+    const nom=cid==='T'?'Total (todas)':viNomEmp(cid);
+    const col=cid==='T'?VI_COL[0]:VI_COL[cid];
+    cuerpo+=`<tr class="mm-grupo"><td colspan="${meses.length+2}"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${col};margin-right:7px"></span>${nom}</td></tr>`;
+    const celdas=meses.map(p=>viCelda(idx,p,cid));
+    const tot=viSumar(celdas);
+    filasMet.forEach(fm=>{
+      cuerpo+=`<tr><td>${fm.t}</td>`+celdas.map((c,i)=>{
+        const v=viValor(c,fm.k), ant=i>0?viValor(celdas[i-1],fm.k):null;
+        const cero=(v===0||v==null);
+        return `<td class="${cero?'cero':''}">${fm.f(v)}${i>0?delta(v,ant,fm.d):''}</td>`;
+      }).join('')+`<td style="font-weight:700">${fm.f(viValor(tot,fm.k))}</td></tr>`;
+    });
+  });
+  document.getElementById('tbl-mm').innerHTML=cab+cuerpo+'</tbody>';
+  const NOM_COD={'16':'saldo inicial','05':'devolución recibida','11':'transferencia','21':'entrada de producción','28':'ajuste','99':'otros'};
+  const otras=(r.otras_entradas||[]);
+  document.getElementById('mm-nota').innerHTML=
+    `Compras = entradas con código SUNAT ${r.codigos_compra.join(' y ')} (compra e importación). `+
+    (otras.length?'Otras entradas de stock en este período que <b>no</b> se cuentan como compra: '+otras.map(o=>`código ${o.codigo}${NOM_COD[o.codigo]?' ('+NOM_COD[o.codigo]+')':''} ${dbFmt(o.total)}`).join(' · ')+'.':'')+
+    (meses.includes(mesActual)?' El último mes está en curso.':'');
+}
+
 async function dbResumen(){
-  const k=await dbApi('/api/kpis');
+  await viInitEmpresas();
+  const [k]=await Promise.all([viApi('/api/kpis'),viCargarSerie()]);
+  // Totales del rango a partir de la serie (compras e ingresos con su propia regla de empresa)
+  const tot=viSumar((viSerie&&viSerie.filas)||[]);
   document.getElementById('kpis-grid').innerHTML=[
     {l:'Valor de ventas',v:dbFmt(k.valor_ventas),s:dbFmtN(k.num_ventas)+' ventas',a:1},
-    {l:'Dinero recaudado',v:dbFmt(k.dinero_recaudado),s:'en caja',a:1},
-    {l:'Por cobrar',v:dbFmt(k.por_cobrar),s:'pendiente'},
+    {l:'Ingresos',v:dbFmt(tot.ingresos),s:'cobrado en el período',a:1},
+    {l:'Por cobrar',v:dbFmt(k.por_cobrar),s:'de estas ventas'},
     {l:'Ticket promedio',v:dbFmt(k.ticket_promedio),s:'por venta'},
+    {l:'Compras',v:dbFmt(tot.compras),s:'compra e importación'},
     {l:'Clientes únicos',v:dbFmtN(k.clientes_unicos),s:'en el período'},
     {l:'Canceladas',v:dbFmtN(k.canceladas),s:'anuladas'},
   ].map(x=>`<div class="kpi ${x.a?'accent':''}"><div class="kpi-label">${x.l}</div><div class="kpi-val">${x.v}</div><div class="kpi-sub">${x.s}</div></div>`).join('');
-  // Ventas por día (por empresa) + ingresos cobrados (por dueño de la cuenta)
-  const [dias,ingresos,margen]=await Promise.all([dbApi('/api/ventas-por-dia'),dbApi('/api/ingresos-por-dia'),dbApi('/api/margen-por-dia')]);
-  const soloDia=v=>String(v).slice(0,10);
-  const fechas=[...new Set([...dias.map(r=>soloDia(r.fecha)),...ingresos.map(r=>soloDia(r.fecha)),...margen.map(r=>soloDia(r.fecha))])].sort();
-  const serieVenta=cid=>fechas.map(f=>{const r=dias.find(x=>soloDia(x.fecha)===f&&x.company_id===cid);return r?+r.total:0;});
-  const serieIng=cid=>fechas.map(f=>{const r=ingresos.find(x=>soloDia(x.fecha)===f&&x.company_id===cid);return r?+r.total:0;});
-  const v1=serieVenta(1), v2=serieVenta(2);
-  const i1=serieIng(1), i2=serieIng(2);
-  const serieMg=cid=>fechas.map(f=>{const r=margen.find(x=>soloDia(x.fecha)===f&&x.company_id===cid);return r?+r.total:0;});
-  const m1=serieMg(1), m2=serieMg(2);
-  const mT=fechas.map(f=>margen.filter(x=>soloDia(x.fecha)===f).reduce((a,x)=>a+(+x.total),0));
-  // Totales (suman todo lo del día, incluidos los que no tienen empresa asignada)
-  const vT=fechas.map(f=>dias.filter(x=>soloDia(x.fecha)===f).reduce((a,x)=>a+(+x.total),0));
-  const iT=fechas.map(f=>ingresos.filter(x=>soloDia(x.fecha)===f).reduce((a,x)=>a+(+x.total),0));
-  const etiq=fechas.map(f=>{const p=f.split('-');return p[2]+'/'+p[1];});
-  dbMkChart('ch-dias','line',{labels:etiq,datasets:[
-    {label:'Ventas Diseños',data:v1,borderColor:'#534AB7',backgroundColor:'rgba(83,74,183,.12)',fill:true,tension:.35,pointRadius:2,pointHoverRadius:5,order:4},
-    {label:'Ventas Christopher',data:v2,borderColor:'#0F6E56',backgroundColor:'rgba(15,110,86,.12)',fill:true,tension:.35,pointRadius:2,pointHoverRadius:5,borderDash:[4,3],order:5},
-    {label:'Ventas TOTAL',data:vT,borderColor:'#8b93b8',backgroundColor:'transparent',fill:false,tension:.35,pointRadius:0,pointHoverRadius:5,borderWidth:2,borderDash:[2,2],order:3,hidden:true},
-    {label:'Ingresos Diseños',data:i1,borderColor:'#FFB30D',backgroundColor:'transparent',fill:false,tension:.35,pointRadius:2,pointHoverRadius:5,borderWidth:2,order:2,hidden:true},
-    {label:'Ingresos Christopher',data:i2,borderColor:'#D85A30',backgroundColor:'transparent',fill:false,tension:.35,pointRadius:2,pointHoverRadius:5,borderWidth:2,borderDash:[4,3],order:2,hidden:true},
-    {label:'Ingresos TOTAL',data:iT,borderColor:'#FFB30D',backgroundColor:'rgba(255,179,13,.06)',fill:false,tension:.35,pointRadius:3,pointHoverRadius:6,borderWidth:2.5,order:1},
-    {label:'Margen Diseños',data:m1,borderColor:'#3FB6C9',backgroundColor:'transparent',fill:false,tension:.35,pointRadius:2,pointHoverRadius:5,borderWidth:2,order:2,hidden:true},
-    {label:'Margen Christopher',data:m2,borderColor:'#B65CC9',backgroundColor:'transparent',fill:false,tension:.35,pointRadius:2,pointHoverRadius:5,borderWidth:2,borderDash:[4,3],order:2,hidden:true},
-    {label:'Margen TOTAL',data:mT,borderColor:'#4ADE80',backgroundColor:'transparent',fill:false,tension:.35,pointRadius:2,pointHoverRadius:5,borderWidth:2.5,borderDash:[6,3],order:1,hidden:true}
-  ]},{
-    interaction:{mode:'index',intersect:false},
-    scales:{
-      x:{ticks:{color:'#94a3b8',font:{size:10},maxRotation:0,autoSkip:true,maxTicksLimit:14},grid:{color:'rgba(255,255,255,.06)'}},
-      y:{ticks:{color:'#94a3b8',font:{size:10},callback:v=>'S/'+dbFmtN(v)},grid:{color:'rgba(255,255,255,.06)'}}
-    },
-    plugins:{
-      legend:{display:true,position:'bottom',labels:{color:'#94a3b8',font:{size:10},padding:8,boxWidth:14,usePointStyle:false}},
-      tooltip:{callbacks:{
-        title:items=>{const i=items[0].dataIndex;return fechas[i];},
-        label:c=>c.dataset.label+': '+dbFmt(c.raw)
-      }},
-      zoom:{
-        pan:{enabled:true,mode:'x'},
-        zoom:{wheel:{enabled:true},pinch:{enabled:true},mode:'x'},
-        limits:{x:{minRange:3}}
-      }
-    }
-  });
-  // Doble clic para restablecer el zoom
-  const cvDias=document.getElementById('ch-dias');
-  if(cvDias&&!cvDias._dblSet){
-    cvDias.addEventListener('dblclick',()=>{const ch=dbCharts&&dbCharts['ch-dias'];if(ch&&ch.resetZoom)ch.resetZoom();});
-    cvDias._dblSet=true;
+  // Por empresa: solo tiene sentido con "Todas"
+  const cardEmp=document.getElementById('vi-card-empresas');
+  cardEmp.style.display=viEmpresa?'none':'';
+  // Con una sola empresa, "B2B vs B2C" ocupa todo el ancho de la fila
+  cardEmp.parentElement.style.gridTemplateColumns=viEmpresa?'1fr':'';
+  if(!viEmpresa){
+    const porEmp={};(viSerie.filas||[]).forEach(r=>{(porEmp[r.company_id]=porEmp[r.company_id]||[]).push(r);});
+    document.getElementById('empresas-box').innerHTML=viEmpresas.map(e=>{
+      const t=viSumar(porEmp[e.id]||[]);const mg=viValor(t,'margen_pct');
+      return `<div class="empresa-card"><div class="empresa-name"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${VI_COL[e.id]||'#8b93b8'};margin-right:7px"></span>${e.nombre}</div>
+      <div class="empresa-grid">
+        <div class="estat"><div class="estat-label">Ventas</div><div class="estat-val">${dbFmt(t.ventas)}</div></div>
+        <div class="estat"><div class="estat-label">Ingresos</div><div class="estat-val">${dbFmt(t.ingresos)}</div></div>
+        <div class="estat"><div class="estat-label">N° ventas</div><div class="estat-val">${dbFmtN(t.num_ventas)}</div></div>
+        <div class="estat"><div class="estat-label">Ticket prom.</div><div class="estat-val">${dbFmt(viValor(t,'ticket'))}</div></div>
+        <div class="estat"><div class="estat-label">Margen</div><div class="estat-val">${mg==null?'—':mg.toFixed(1)+'%'}</div></div>
+        <div class="estat"><div class="estat-label">Compras</div><div class="estat-val">${dbFmt(t.compras)}</div></div>
+      </div></div>`;}).join('');
   }
-  const emp=await dbApi('/api/kpis-empresas');
-  document.getElementById('empresas-box').innerHTML=emp.map(r=>`
-    <div class="empresa-card"><div class="empresa-name">${r.empresa}</div>
-    <div class="empresa-grid">
-      <div class="estat"><div class="estat-label">Ventas</div><div class="estat-val">${dbFmt(r.valor_ventas)}</div></div>
-      <div class="estat"><div class="estat-label">N° pedidos</div><div class="estat-val">${dbFmtN(r.num_ventas)}</div></div>
-      <div class="estat"><div class="estat-label">Ticket prom.</div><div class="estat-val">${dbFmt(r.ticket_promedio)}</div></div>
-    </div></div>`).join('');
-  const tipo=await dbApi('/api/tipo-cliente');
-  dbMkChart('ch-tipo','doughnut',{labels:tipo.map(t=>t.tipo),datasets:[{data:tipo.map(t=>+t.total),backgroundColor:['#534AB7','#0F6E56'],borderWidth:0}]},
+  const [tipo]=await Promise.all([viApi('/api/tipo-cliente'),viMesAMes()]);
+  dbMkChart('ch-tipo','doughnut',{labels:tipo.map(t=>t.tipo),datasets:[{data:tipo.map(t=>+t.total),backgroundColor:['#6C63D9','#14A37F'],borderWidth:0}]},
     {plugins:{legend:{position:'bottom',labels:{color:'#94a3b8',font:{size:12},padding:14}},tooltip:{callbacks:{label:c=>dbFmt(c.raw)}}}});
 }
 
 async function dbRentabilidad(){
-  const r=await dbApi('/api/rentabilidad');
+  await viInitEmpresas();
+  const r=await viApi('/api/rentabilidad');
+  const cob=r.cobertura==null?null:+r.cobertura;
   document.getElementById('rent-kpis').innerHTML=[
     {l:'Ingreso confiable',v:dbFmt(r.ingreso_confiable),s:'con costo conocido',a:1},
     {l:'Costo FIFO',v:dbFmt(r.costo),s:'costo real'},
     {l:'Ganancia neta',v:dbFmt(r.ganancia),s:'FIFO confiable',a:1},
     {l:'Margen promedio',v:r.margen_promedio+'%',s:'sobre confiable'},
     {l:'Ganancia pendiente',v:dbFmt(r.ingreso_pendiente),s:dbFmtN(r.lineas_pedido)+' líneas a pedido'},
+    {l:'Cobertura de costo',v:cob==null?'—':`<span class="${cob>=90?'cob-ok':cob>=70?'cob-warn':'cob-bad'}">${cob.toFixed(0)}%</span>`,s:'de lo vendido tiene costo'},
   ].map(x=>`<div class="kpi ${x.a?'accent':''}"><div class="kpi-label">${x.l}</div><div class="kpi-val">${x.v}</div><div class="kpi-sub">${x.s}</div></div>`).join('');
   let avisos='';
   if(+r.ingreso_pendiente>0)avisos+=`<div class="db-aviso db-aviso-y">⏸️ <b>${dbFmt(r.ingreso_pendiente)}</b> en ${dbFmtN(r.lineas_pedido)} ventas <b>"a pedido"</b>: el producto aún no llega a Perú, su costo se conocerá al ingresarlo. La venta y el dinero sí cuentan; la ganancia queda pendiente.</div>`;
   if(+r.lineas_falla>0)avisos+=`<div class="db-aviso db-aviso-r">⚠️ <b>${dbFmtN(r.lineas_falla)} ventas con costo no vinculado</b> (falla de migración): tienen ingreso de stock pero no se enlazó a la venta. Excluidas del cálculo de ganancia — conviene revisarlas.</div>`;
+  if(cob!=null&&cob<70)avisos+=`<div class="db-aviso db-aviso-r">⚠️ Solo el <b>${cob.toFixed(0)}%</b> de lo vendido tiene costo conocido: el margen de este período se calcula sobre una parte pequeña de las ventas y puede no ser representativo.</div>`;
   document.getElementById('rent-avisos').innerHTML=avisos;
-  const prod=await dbApi('/api/top-productos');
+  const [canal,bajo]=await Promise.all([viApi('/api/rentabilidad-canal'),viApi('/api/margen-bajo')]);
+  document.getElementById('tbl-canal').innerHTML='<thead><tr><th>Canal</th><th>Ventas</th><th>Ingreso</th><th>Ticket prom.</th><th>Ganancia FIFO</th><th>Margen %</th><th>Cobertura</th></tr></thead><tbody>'+
+    (canal.length?canal.map(c=>`<tr><td>${c.tipo}</td><td>${dbFmtN(c.ventas)}</td><td>${dbFmt(c.ingreso)}</td><td>${dbFmt(c.ticket)}</td><td>${dbFmt(c.ganancia)}</td><td style="font-weight:700">${c.margen==null?'—':c.margen+'%'}</td><td>${c.cobertura==null?'—':`<span class="${+c.cobertura>=90?'cob-ok':+c.cobertura>=70?'cob-warn':'cob-bad'}">${(+c.cobertura).toFixed(0)}%</span>`}</td></tr>`).join('')
+      :'<tr><td colspan="7" style="text-align:center;color:var(--muted)">Sin ventas en el período</td></tr>')+'</tbody>';
+  dbSortTable('tbl-margen-bajo',bajo,[
+    {k:'producto',t:'Producto',fmt:(v,r)=>`${v}${r.variacion&&r.variacion!==v?' <span style="color:var(--muted)">('+r.variacion+')</span>':''}`},
+    {k:'sku',t:'SKU',fmt:v=>`<span style="color:var(--muted);font-size:11px">${v||'-'}</span>`},
+    {k:'unidades',t:'Unid.',fmt:dbFmtN,num:1},
+    {k:'ingreso',t:'Ingreso',fmt:dbFmt,num:1},
+    {k:'costo',t:'Costo',fmt:dbFmt,num:1},
+    {k:'ganancia',t:'Ganancia',fmt:v=>`<span class="${+v<0?'cob-bad':''}">${dbFmt(v)}</span>`,num:1},
+    {k:'margen',t:'Margen %',fmt:v=>`<span class="badge ${+v<0?'badge-r':+v<10?'badge-y':'badge-g'}">${v}%</span>`,num:1}
+  ],'margen');
+  if(dbTableState['tbl-margen-bajo'].dir!=='asc'&&dbTableState['tbl-margen-bajo'].sortKey==='margen'){dbTableState['tbl-margen-bajo'].dir='asc';dbRenderTable('tbl-margen-bajo');}
+  const prod=await viApi('/api/top-productos');
   document.getElementById('ch-prod-wrap').style.height=Math.max(300,prod.length*38+40)+'px';
   dbMkChart('ch-prod','bar',{labels:prod.map(p=>p.producto+(p.variacion&&p.variacion!==p.producto?' ('+p.variacion+')':'')),
     datasets:[{label:'Ganancia',data:prod.map(p=>+p.ganancia),backgroundColor:prod.map(p=>p.estado==='a_pedido'?'#BA7517':p.estado==='sin_costo'?'#E24B4A':'#534AB7'),borderRadius:4}]},
     {indexAxis:'y',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>{const p=prod[c.dataIndex];const et=p.estado==='a_pedido'?' (a pedido)':p.estado==='sin_costo'?' (sin costo)':'';return 'Ganancia: '+dbFmt(c.raw)+' | '+dbFmtN(p.unidades)+' u.'+et;}}}},
      scales:{x:{ticks:{color:'#94a3b8',font:{size:10},callback:v=>'S/'+dbFmtN(v)},grid:{color:'rgba(255,255,255,.06)'}},y:{ticks:{color:'#94a3b8',font:{size:11}},grid:{display:false}}}});
-  const marcas=await dbApi('/api/marcas');
+  const marcas=await viApi('/api/marcas');
   dbSortTable('tbl-marcas',marcas,[
     {k:'marca',t:'Marca',fmt:v=>v},
     {k:'ventas',t:'Ventas',fmt:dbFmtN,num:1},
@@ -2720,7 +2971,7 @@ function pintarConciliacion(filas){
 }
 
 async function dbCaja(){
-  const pagos=await dbApi('/api/metodos-pago-bi');
+  const pagos=await viApi('/api/metodos-pago-bi');
   const cols=['#534AB7','#0F6E56','#D85A30','#BA7517','#D4537E','#378ADD','#E24B4A','#9333ea'];
   dbMkChart('ch-pagos','doughnut',{labels:pagos.map(p=>p.metodo||'Sin nombre'),datasets:[{data:pagos.map(p=>+p.total),backgroundColor:cols,borderWidth:0}]},
     {plugins:{legend:{position:'bottom',labels:{color:'#94a3b8',font:{size:11},padding:10}},tooltip:{callbacks:{label:c=>dbFmt(c.raw)}}}});

@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Cotizador — Kuranko</title>
+<style>
+:root{
+  --bg:#0a1030;--surface:#111a44;--surface2:#0e1640;--surface3:#18224e;
+  --border:#212b54;--text:#eef1f8;--text2:#c6cee2;--muted:#8a93b4;--muted2:#a2abca;
+  --accent:#FFB30D;--accent-text:#000726;--accent-h:#e6a00c;--hover:#1a2450;--white:#ffffff;
+  --bg-ok:#163a29;--fg-ok:#6ee59a;--bg-warn:#3d3315;--fg-warn:#ffcb52;--bg-r:#3f1c20;--fg-r:#f79a9a;
+  --radius:18px;--radius-sm:12px;
+  --shadow-sm:0 2px 8px rgba(0,0,0,.10);
+}
+[data-theme="light"]{
+  --bg:#f6f8fd;--surface:#ffffff;--surface2:#fbfcff;--surface3:#f2f5fb;
+  --border:#e3e9f5;--text:#1a2140;--text2:#4a5680;--muted:#9aa3c0;--muted2:#727e9f;
+  --hover:#f2f5fb;--white:#1a2140;
+  --bg-ok:#e8f8ef;--fg-ok:#1f9c56;--bg-warn:#fdf5db;--fg-warn:#9a6b00;--bg-r:#fdeded;--fg-r:#dc4b4b;
+  --shadow-sm:0 2px 10px rgba(30,45,90,.04);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px}
+.wrap{max-width:1180px;margin:0 auto;padding:1.25rem}
+.grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:16px;align-items:start}
+@media(max-width:900px){.grid{grid-template-columns:1fr}}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.1rem;box-shadow:var(--shadow-sm);margin-bottom:16px}
+.card h3{font-size:14px;font-weight:600;color:var(--white);margin-bottom:4px}
+.desc{font-size:12px;color:var(--muted);line-height:1.5}
+.buscador{display:flex;gap:8px;align-items:center;margin-top:10px}
+.buscador input{flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:13px 14px;font-size:16px}
+.buscador input:focus{outline:none;border-color:var(--accent)}
+.chk{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);cursor:pointer;white-space:nowrap;margin-top:8px}
+.btn{background:var(--accent);border:none;color:var(--accent-text);border-radius:var(--radius-sm);padding:10px 16px;font-size:13px;cursor:pointer;font-weight:600}
+.btn:hover{background:var(--accent-h)}
+.btn-sec{background:var(--surface3);border:1px solid var(--border);color:var(--text2)}
+.btn-sm{padding:6px 11px;font-size:12px;border-radius:9px}
+.res-list{margin-top:10px;max-height:62vh;overflow:auto}
+.res{display:flex;justify-content:space-between;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:12px;margin-bottom:6px;cursor:pointer;background:var(--surface2)}
+.res:hover,.res.sel{border-color:var(--accent);background:var(--hover)}
+.res .nom{font-weight:600;color:var(--white);line-height:1.35}
+.res .meta{font-size:11px;color:var(--muted);margin-top:3px}
+.res .der{text-align:right;white-space:nowrap}
+.res .precio{font-weight:700;color:var(--white)}
+.sku{font-family:ui-monospace,Menlo,monospace}
+.chip{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;white-space:nowrap}
+.ok{background:var(--bg-ok);color:var(--fg-ok)}.warn{background:var(--bg-warn);color:var(--fg-warn)}.bad{background:var(--bg-r);color:var(--fg-r)}
+.emp{background:var(--surface3);color:var(--text2);border:1px solid var(--border)}
+.vacio{color:var(--muted);text-align:center;padding:1.5rem;font-size:13px}
+.det-nom{font-size:16px;font-weight:700;color:var(--white);line-height:1.35}
+.cant{display:flex;align-items:center;gap:6px;margin:12px 0}
+.cant button{width:38px;height:38px;border-radius:10px;border:1px solid var(--border);background:var(--surface3);color:var(--text);font-size:18px;cursor:pointer}
+.cant input{width:70px;text-align:center;padding:9px;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:16px}
+.precios{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.pbox{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:12px}
+.pbox .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.pbox .val{font-size:1.45rem;font-weight:700;color:var(--white);margin-top:4px}
+.pbox .sub{font-size:12px;color:var(--muted2);margin-top:2px}
+.pbox.min{border-color:var(--accent)}
+.pbox.min .val{color:var(--accent)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:6px;color:var(--muted2);font-weight:500;font-size:11px;border-bottom:1px solid var(--border);text-transform:uppercase}
+td{padding:6px;border-bottom:1px solid var(--border);color:var(--text2)}
+td.n,th.n{text-align:right}
+.aviso{font-size:12px;border-radius:10px;padding:8px 10px;margin-top:10px}
+.linea{border:1px solid var(--border);border-radius:12px;padding:10px;margin-bottom:8px;background:var(--surface2)}
+.linea .top{display:flex;justify-content:space-between;gap:8px}
+.linea .nm{font-weight:600;color:var(--white);font-size:13px}
+.linea .ctr{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;font-size:12px;color:var(--muted2)}
+.linea input{width:92px;padding:7px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:14px}
+.linea input.q{width:60px}
+.linea input.bajo{border-color:var(--fg-r);color:var(--fg-r)}
+.x{background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;line-height:1}
+.tot{display:flex;justify-content:space-between;font-size:13px;padding:4px 0;color:var(--text2)}
+.tot b{color:var(--white)}
+.tot.grande{font-size:16px;border-top:1px solid var(--border);padding-top:8px;margin-top:4px}
+textarea{width:100%;min-height:60px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:8px;font-family:inherit;font-size:13px;margin-top:8px}
+.fila{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--bg-ok);color:var(--fg-ok);padding:12px 18px;border-radius:12px;font-size:13px;display:none;z-index:100;border:1px solid var(--border);max-width:320px}
+.toast.err{background:var(--bg-r);color:var(--fg-r)}
+</style>
+</head>
+<body>
+<div class="toast" id="toast"></div>
+<div class="wrap">
+  <div class="grid">
+    <!-- Columna izquierda: buscador + detalle -->
+    <div>
+      <div class="card">
+        <h3>Cotizador rápido</h3>
+        <div class="desc">Busca por nombre o SKU, como sea que lo escribas: con errores, en otro orden, sin tildes o en español (azul, llanta, casete…).</div>
+        <div class="buscador">
+          <input id="q" type="search" autocomplete="off" placeholder="Ej: crafti carbon azul M, maxis ardent 29, SHM-XT…" autofocus/>
+        </div>
+        <label class="chk"><input type="checkbox" id="solo-stock" checked/> Solo con stock</label>
+        <div id="resultados" class="res-list"><div class="vacio">Escribe al menos 2 letras para buscar.</div></div>
+      </div>
+      <div class="card" id="detalle" style="display:none"></div>
+    </div>
+
+    <!-- Columna derecha: cotización -->
+    <div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <h3>Cotización</h3>
+          <button class="btn btn-sec btn-sm" onclick="vaciarCarrito()">Vaciar</button>
+        </div>
+        <div class="desc">Agrega productos, ajusta cantidad y precio ofrecido. El texto para el cliente no incluye precios mínimos.</div>
+        <div style="margin-top:10px">
+          <input id="cliente" placeholder="Nombre del cliente (opcional)" style="width:100%;padding:9px;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:14px"/>
+        </div>
+        <div id="carrito" style="margin-top:10px"></div>
+        <div id="totales"></div>
+        <textarea id="nota" placeholder="Nota para el cliente (opcional): delivery, validez, forma de pago…"></textarea>
+        <div class="fila">
+          <button class="btn" onclick="copiarWhatsApp()">Copiar para WhatsApp</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Tema: hereda el del panel principal
+(function(){try{const g=localStorage.getItem('tema_admin');if(g)document.documentElement.setAttribute('data-theme',g);else{const c=window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches;document.documentElement.setAttribute('data-theme',c?'light':'dark');}}catch(e){}})();
+// Mini-app en iframe: comparte token y origen con admin.html
+let TOKEN='';try{TOKEN=localStorage.getItem('admtoken')||'';}catch(e){}
+let ES_MAESTRO=false;try{ES_MAESTRO=localStorage.getItem('admmaestro')==='1';}catch(e){}
+function esc(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function showToast(m,e){const t=document.getElementById('toast');t.textContent=m;t.className='toast'+(e?' err':'');t.style.display='block';clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',3000);}
+async function apiCall(ep){
+  const r=await fetch(ep,{headers:{'Authorization':'Bearer '+TOKEN}});
+  if(r.status===401)throw new Error('Sesión del portal expirada — vuelve a entrar al panel.');
+  const d=await r.json();if(!r.ok)throw new Error(d.error||'Error');return d;
+}
+const S=n=>n==null?'—':'S/ '+Number(n).toLocaleString('es-PE',{minimumFractionDigits:2,maximumFractionDigits:2});
+// entry_date es fecha de ingreso: se muestra tal cual (d/m/aaaa) sin correr la zona horaria
+const fecha=d=>{if(!d)return '—';const m=String(d).match(/^(\d{4})-(\d{2})-(\d{2})/);return m?`${+m[3]}/${+m[2]}/${m[1]}`:new Date(d).toLocaleDateString('es-PE',{timeZone:'America/Lima'});};
+const diasDesde=d=>d?Math.floor((Date.now()-new Date(d).getTime())/864e5):null;
+
+// ══════════ Búsqueda ══════════
+let RES=[],SEL=-1,ACTUAL=null,_tBus=null,_seqBus=0;
+const $q=document.getElementById('q');
+$q.addEventListener('input',()=>{clearTimeout(_tBus);_tBus=setTimeout(buscar,220);});
+document.getElementById('solo-stock').addEventListener('change',buscar);
+$q.addEventListener('keydown',e=>{
+  if(e.key==='ArrowDown'){e.preventDefault();SEL=Math.min(RES.length-1,SEL+1);pintarRes();}
+  else if(e.key==='ArrowUp'){e.preventDefault();SEL=Math.max(0,SEL-1);pintarRes();}
+  else if(e.key==='Enter'){e.preventDefault();if(RES[SEL<0?0:SEL])elegir(SEL<0?0:SEL);}
+});
+
+async function buscar(){
+  const q=$q.value.trim();
+  const cont=document.getElementById('resultados');
+  if(q.length<2){RES=[];cont.innerHTML='<div class="vacio">Escribe al menos 2 letras para buscar.</div>';return;}
+  const seq=++_seqBus;
+  const solo=document.getElementById('solo-stock').checked?'1':'0';
+  try{
+    const d=await apiCall('/api/cotizador/buscar?q='+encodeURIComponent(q)+'&solo_stock='+solo);
+    if(seq!==_seqBus)return; // llegó una búsqueda más nueva
+    RES=d.items;SEL=RES.length?0:-1;pintarRes();
+  }catch(e){cont.innerHTML='<div class="vacio">'+esc(e.message)+'</div>';}
+}
+function chipStock(x){
+  if(x.stock>0)return '<span class="chip ok">'+x.stock+' disp.</span>';
+  if(x.stock_consignacion>0)return '<span class="chip warn">solo en consignación</span>';
+  return '<span class="chip bad">sin stock</span>';
+}
+function empresasTxt(x){return x.empresas&&x.empresas.length?x.empresas.map(e=>e.empresa).join(' · '):'—';}
+function pintarRes(){
+  const cont=document.getElementById('resultados');
+  if(!RES.length){cont.innerHTML='<div class="vacio">Sin coincidencias. Prueba con menos palabras o desmarca "Solo con stock".</div>';return;}
+  cont.innerHTML=RES.map((x,i)=>`<div class="res${i===SEL?' sel':''}" onclick="elegir(${i})">
+      <div><div class="nom">${esc(x.nombre)}</div>
+        <div class="meta"><span class="sku">${esc(x.sku||'sin SKU')}</span> · ${esc(empresasTxt(x))}</div></div>
+      <div class="der"><div class="precio">${S(x.precio_normal)}</div><div style="margin-top:4px">${chipStock(x)}</div></div>
+    </div>`).join('');
+  const s=cont.querySelector('.res.sel');if(s)s.scrollIntoView({block:'nearest'});
+}
+
+// ══════════ Detalle del producto + precio mínimo ══════════
+let _seqPre=0,_tCant=null;
+function elegir(i){
+  SEL=i;pintarRes();ACTUAL={item:RES[i],cantidad:1,precio:null};
+  pintarDetalle();cargarPrecio();
+}
+function cambiarCant(delta,abs){
+  if(!ACTUAL)return;
+  let n=abs!=null?parseInt(abs,10):ACTUAL.cantidad+delta;
+  if(!(n>=1))n=1;if(n>999)n=999;
+  ACTUAL.cantidad=n;
+  const inp=document.getElementById('det-cant');if(inp&&String(inp.value)!==String(n))inp.value=n;
+  clearTimeout(_tCant);_tCant=setTimeout(cargarPrecio,250);
+}
+async function cargarPrecio(){
+  if(!ACTUAL)return;
+  const seq=++_seqPre;
+  document.getElementById('det-precios').style.opacity=.5;
+  try{
+    const p=await apiCall(`/api/cotizador/precio?vid=${ACTUAL.item.vid}&cantidad=${ACTUAL.cantidad}`);
+    if(seq!==_seqPre)return;
+    ACTUAL.precio=p;pintarPrecios();
+  }catch(e){showToast(e.message,true);}
+  finally{const el=document.getElementById('det-precios');if(el)el.style.opacity=1;}
+}
+function pintarDetalle(){
+  const x=ACTUAL.item,box=document.getElementById('detalle');
+  box.style.display='';
+  const alm=x.almacenes&&x.almacenes.length
+    ? '<table><thead><tr><th>Almacén</th><th class="n">Disponible</th><th class="n">Reservado</th></tr></thead><tbody>'+
+      x.almacenes.map(a=>`<tr${a.consignacion?' style="opacity:.6"':''}><td>${esc(a.almacen)}${a.consignacion?' <span class="chip warn">consignación</span>':''}</td><td class="n">${a.consignacion?'—':a.disponible}</td><td class="n">${a.reservado||0}</td></tr>`).join('')+'</tbody></table>'
+    : '<div class="desc">Sin unidades en almacenes.</div>';
+  const emp=x.empresas&&x.empresas.length?x.empresas.map(e=>`<span class="chip emp">${esc(e.empresa)} · ${e.unidades} u.</span>`).join(' '):'<span class="chip emp">Sin lotes con stock</span>';
+  box.innerHTML=`
+    <div class="det-nom">${esc(x.nombre)}</div>
+    <div class="desc" style="margin-top:3px"><span class="sku">${esc(x.sku||'sin SKU')}</span> · ${chipStock(x)}</div>
+    <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">${emp}</div>
+    <div class="cant">
+      <span class="desc" style="margin-right:4px">Cantidad</span>
+      <button onclick="cambiarCant(-1)">−</button>
+      <input id="det-cant" type="number" min="1" max="999" value="${ACTUAL.cantidad}" oninput="cambiarCant(0,this.value)"/>
+      <button onclick="cambiarCant(1)">+</button>
+    </div>
+    <div id="det-precios"></div>
+    <div class="fila"><button class="btn" onclick="agregarActual()">+ Agregar a cotización</button></div>
+    <h3 style="margin-top:16px">Stock por almacén</h3>
+    <div style="margin-top:6px">${alm}</div>`;
+  pintarPrecios();
+}
+function pintarPrecios(){
+  const el=document.getElementById('det-precios');if(!el||!ACTUAL)return;
+  const x=ACTUAL.item,p=ACTUAL.precio,n=ACTUAL.cantidad;
+  if(!p){el.innerHTML='<div class="desc">Calculando precio mínimo…</div>';return;}
+  const minTxt=p.precio_minimo!=null?S(p.precio_minimo):'—';
+  const antig=diasDesde(p.lote_mas_antiguo);
+  let avisos='';
+  if(p.sin_costo)avisos+='<div class="aviso bad">No hay costo registrado para estas unidades: no se puede calcular el precio mínimo. Consulta antes de dar descuento.</div>';
+  if(p.insuficiente&&!p.sin_costo)avisos+=`<div class="aviso warn">Solo hay ${p.unidades_con_costo} unidad(es) en lotes; el mínimo se calculó con esas.</div>`;
+  if(p.precio_minimo!=null&&x.precio_normal>0&&p.precio_minimo>x.precio_normal)avisos+='<div class="aviso bad">El precio mínimo supera al precio normal: el precio de sistema está por debajo del costo. Avisa a administración.</div>';
+  let costo='';
+  if(ES_MAESTRO&&p.costo_prom!=null){
+    costo=`<div class="aviso" style="background:var(--surface3);color:var(--text2)"><b>Solo admin:</b> costo prom. ${S(p.costo_prom)} (factor ${p.factor})`+
+      (p.lotes&&p.lotes.length?'<br>'+p.lotes.map(l=>`Lote ${l.lote} · ${fecha(l.fecha)} · ${l.unidades} u × ${S(l.costo)} · ${esc(l.empresa)}`).join('<br>'):'')+'</div>';
+  }
+  el.innerHTML=`
+    <div class="precios">
+      <div class="pbox"><div class="lbl">Precio normal (sistema)</div><div class="val">${S(x.precio_normal)}</div>
+        <div class="sub">${x.precio_oferta!=null&&x.precio_oferta<x.precio_regular?'Oferta · regular '+S(x.precio_regular):'por unidad'}${n>1?' · total '+S(x.precio_normal*n):''}</div></div>
+      <div class="pbox min"><div class="lbl">Precio mínimo${n>1?' ('+n+' u.)':''}</div><div class="val">${minTxt}</div>
+        <div class="sub">${p.precio_minimo!=null?'por unidad'+(n>1?' · total '+S(p.precio_minimo*n):''):''}${p.descuento_max_pct!=null?' · desc. máx. '+p.descuento_max_pct+'%':''}</div></div>
+    </div>
+    <div class="desc" style="margin-top:6px">Mínimo según ${n>1?'las '+n+' unidades más antiguas':'la unidad más antigua'}${antig!=null?' · lote más antiguo: '+fecha(p.lote_mas_antiguo)+' ('+antig+' días)':''}.</div>
+    ${avisos}${costo}`;
+}
+
+// ══════════ Carrito de cotización ══════════
+let CARRITO=[];
+try{CARRITO=JSON.parse(localStorage.getItem('cotizador_carrito')||'[]')||[];}catch(e){CARRITO=[];}
+function guardarCarrito(){try{localStorage.setItem('cotizador_carrito',JSON.stringify(CARRITO));}catch(e){}}
+function agregarActual(){
+  if(!ACTUAL)return;
+  const x=ACTUAL.item,p=ACTUAL.precio||{};
+  const ya=CARRITO.find(l=>l.vid===x.vid);
+  if(ya){ya.cantidad+=ACTUAL.cantidad;recalcularLinea(ya);}
+  else CARRITO.push({vid:x.vid,sku:x.sku,nombre:x.nombre,cantidad:ACTUAL.cantidad,precio_normal:x.precio_normal,
+    precio:x.precio_normal,precio_minimo:p.precio_minimo??null,stock:x.stock});
+  guardarCarrito();pintarCarrito();showToast('Agregado a la cotización');
+  $q.select();
+}
+async function recalcularLinea(l){
+  try{
+    const p=await apiCall(`/api/cotizador/precio?vid=${l.vid}&cantidad=${l.cantidad}`);
+    l.precio_minimo=p.precio_minimo;guardarCarrito();pintarCarrito();
+  }catch(e){showToast(e.message,true);}
+}
+function editarLinea(i,campo,valor){
+  const l=CARRITO[i];if(!l)return;
+  if(campo==='cantidad'){const n=parseInt(valor,10);if(!(n>=1))return;l.cantidad=Math.min(999,n);clearTimeout(l._t);l._t=setTimeout(()=>recalcularLinea(l),300);}
+  else if(campo==='precio'){const v=parseFloat(valor);if(!(v>=0))return;l.precio=v;}
+  guardarCarrito();pintarTotales();marcarBajos();
+}
+function quitarLinea(i){CARRITO.splice(i,1);guardarCarrito();pintarCarrito();}
+function vaciarCarrito(){if(!CARRITO.length)return;CARRITO=[];guardarCarrito();pintarCarrito();}
+function marcarBajos(){
+  CARRITO.forEach((l,i)=>{
+    const inp=document.getElementById('lp-'+i);const bajo=l.precio_minimo!=null&&l.precio<l.precio_minimo;
+    if(inp)inp.classList.toggle('bajo',bajo);
+    const av=document.getElementById('la-'+i);if(av)av.style.display=bajo?'':'none';
+  });
+}
+function pintarCarrito(){
+  const c=document.getElementById('carrito');
+  if(!CARRITO.length){c.innerHTML='<div class="vacio">Aún no agregas productos.</div>';pintarTotales();return;}
+  c.innerHTML=CARRITO.map((l,i)=>`<div class="linea">
+      <div class="top"><div><div class="nm">${esc(l.nombre)}</div><div class="desc"><span class="sku">${esc(l.sku||'')}</span> · normal ${S(l.precio_normal)} · mín. ${S(l.precio_minimo)}</div></div>
+        <button class="x" title="Quitar" onclick="quitarLinea(${i})">×</button></div>
+      <div class="ctr">Cant. <input class="q" type="number" min="1" value="${l.cantidad}" oninput="editarLinea(${i},'cantidad',this.value)"/>
+        Precio u. <input id="lp-${i}" type="number" min="0" step="1" value="${l.precio}" oninput="editarLinea(${i},'precio',this.value)"/>
+        <button class="btn btn-sec btn-sm" onclick="usarMin(${i})" ${l.precio_minimo==null?'disabled':''}>Usar mínimo</button>
+        ${l.stock!=null&&l.cantidad>l.stock?'<span class="chip warn">stock '+l.stock+'</span>':''}</div>
+      <div id="la-${i}" class="aviso bad" style="display:none">Precio por debajo del mínimo permitido.</div>
+    </div>`).join('');
+  marcarBajos();pintarTotales();
+}
+function usarMin(i){const l=CARRITO[i];if(l&&l.precio_minimo!=null){l.precio=l.precio_minimo;guardarCarrito();pintarCarrito();}}
+function pintarTotales(){
+  const t=document.getElementById('totales');
+  if(!CARRITO.length){t.innerHTML='';return;}
+  const normal=CARRITO.reduce((s,l)=>s+l.precio_normal*l.cantidad,0);
+  const ofrecido=CARRITO.reduce((s,l)=>s+l.precio*l.cantidad,0);
+  const minimo=CARRITO.reduce((s,l)=>s+(l.precio_minimo??l.precio)*l.cantidad,0);
+  const desc=normal>0?Math.round((1-ofrecido/normal)*1000)/10:0;
+  const margen=ofrecido-minimo;
+  t.innerHTML=`
+    <div class="tot"><span>Total a precio normal</span><span>${S(normal)}</span></div>
+    <div class="tot"><span>Total mínimo permitido</span><span>${S(minimo)}</span></div>
+    <div class="tot"><span>Espacio para negociar</span><span style="color:${margen<0?'var(--fg-r)':'var(--fg-ok)'}">${S(margen)}</span></div>
+    <div class="tot grande"><span>Total ofrecido${desc>0?' (−'+desc+'%)':''}</span><b>${S(ofrecido)}</b></div>`;
+}
+async function copiarWhatsApp(){
+  if(!CARRITO.length){showToast('La cotización está vacía',true);return;}
+  const cli=document.getElementById('cliente').value.trim();
+  const nota=document.getElementById('nota').value.trim();
+  const total=CARRITO.reduce((s,l)=>s+l.precio*l.cantidad,0);
+  const lineas=CARRITO.map(l=>`• ${l.cantidad} × ${l.nombre}${l.sku?' ('+l.sku+')':''}\n   ${S(l.precio)} c/u = *${S(l.precio*l.cantidad)}*`);
+  const txt=`*Cotización Kuranko*${cli?'\nCliente: '+cli:''}\nFecha: ${new Date().toLocaleDateString('es-PE',{timeZone:'America/Lima'})}\n\n${lineas.join('\n')}\n\n*Total: ${S(total)}*${nota?'\n\n'+nota:''}`;
+  try{await navigator.clipboard.writeText(txt);showToast('Copiado. Pégalo en WhatsApp.');}
+  catch(e){const ta=document.createElement('textarea');ta.value=txt;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');showToast('Copiado. Pégalo en WhatsApp.');}catch(_){showToast('No se pudo copiar',true);}ta.remove();}
+}
+pintarCarrito();
+if(!TOKEN)document.getElementById('resultados').innerHTML='<div class="vacio">Entra al panel de administración para usar el cotizador.</div>';
+</script>
+</body>
+</html>

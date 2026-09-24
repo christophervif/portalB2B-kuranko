@@ -658,7 +658,10 @@ module.exports = function registrarClientesBI({
 
 
   app.get('/api/tipo-cliente', authAdmin, mResumen, async (req, res) => {
-    const { desde, hasta } = req.query; const f = rango(desde, hasta);
+    const { desde, hasta, empresa } = req.query;
+    // Filtro opcional por empresa (panel Ventas e ingresos); solo ids conocidos
+    const emp = EMPRESAS_BI[parseInt(empresa, 10)] ? `AND s.company_id = ${parseInt(empresa, 10)}` : '';
+    const f = rango(desde, hasta) + ' ' + emp;
     try {
       const [rows] = await prodPool.query(`
         SELECT p.is_company, COUNT(DISTINCT p.id) AS clientes, COUNT(s.id) AS ventas, COALESCE(SUM(s.total),0) AS total

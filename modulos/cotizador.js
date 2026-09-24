@@ -17,6 +17,13 @@ const { EMPRESAS_BI, nombreProdVar } = require('./comunes');
 const FACTOR_MINIMO = 0.9;
 const CAT_TTL = 5 * 60 * 1000; // el catálogo con stock se refresca cada 5 min
 
+// Ubicaciones propias que no son almacén/tienda de venta directa: se agrupan como "Otros"
+// (se muestran y suman en su propio grupo, pero no cuentan como "se entrega ya").
+// Se comparan por nombre, sin tildes ni mayúsculas. Se puede cambiar sin tocar código con la
+// variable de Railway COTIZADOR_OTROS (nombres separados por coma).
+const OTROS = (process.env.COTIZADOR_OTROS || process.env.COTIZADOR_NO_VENDIBLES || 'CUARENTENA,EN EXHIBICION,EMBAJADOR')
+  .split(',').map(x => x.trim()).filter(Boolean);
+
 // ── Normalización y búsqueda difusa ─────────────────────────────────────────
 // "Bicícleta  Crafty-Carbon RR" → "bicicleta crafty carbon rr"
 function normalizar(t) {
@@ -148,14 +155,20 @@ module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, p
           ls.quantity AS cantidad, ls.reserved_quantity AS reservado
         FROM location_stocks ls JOIN locations l ON l.id = ls.location_id
         WHERE ls.quantity > 0`);
+      const otrosSet = new Set(OTROS.map(normalizar));
       const stMap = {};
       stock.forEach(s => {
-        const e = stMap[s.vid] = stMap[s.vid] || { disponible: 0, consignacion: 0, almacenes: [] };
+        const e = stMap[s.vid] = stMap[s.vid] || { disponible: 0, consignacion: 0, otros: 0, almacenes: [] };
         const cant = Number(s.cantidad || 0), res = Number(s.reservado || 0);
-        const esConsig = s.tipo === 'consignment';
         const disp = Math.max(0, cant - res);
-        if (esConsig) e.consignacion += disp; else e.disponible += disp;
-        e.almacenes.push({ almacen: s.almacen || ('Almacén ' + s.loc_id), cantidad: cant, reservado: res, disponible: disp, consignacion: esConsig });
+        // grupo: 'consignacion' por tipo del ERP; 'otros' por nombre (cuarentena, exhibición…); resto 'propio'
+        const grupo = s.tipo === 'consignment' ? 'consignacion'
+          : otrosSet.has(normalizar(s.almacen)) ? 'otros' : 'propio';
+        if (grupo === 'consignacion') e.consignacion += disp;
+        else if (grupo === 'otros') e.otros += disp;
+        else e.disponible += disp;
+        e.almacenes.push({ almacen: s.almacen || ('Almacén ' + s.loc_id), cantidad: cant, reservado: res,
+          disponible: disp, grupo, consignacion: grupo === 'consignacion' });
       });
 
       // Empresa dueña: según lotes con existencia (stock_batches.company_id)
@@ -170,16 +183,18 @@ module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, p
 
       _cat = prods.map(p => {
         const nombre = nombreProdVar(p.producto, p.variacion);
-        const st = stMap[p.vid] || { disponible: 0, consignacion: 0, almacenes: [] };
-        st.almacenes.sort((a, b) => a.consignacion - b.consignacion || b.disponible - a.disponible);
+        const st = stMap[p.vid] || { disponible: 0, consignacion: 0, otros: 0, almacenes: [] };
+        st.almacenes.sort((a, b) => b.disponible - a.disponible || b.cantidad - a.cantidad);
         const oferta = p.sale_price != null && Number(p.sale_price) > 0 ? Number(p.sale_price) : null;
         return {
           vid: p.vid, pid: p.pid, sku: p.sku || '', nombre,
           precio_regular: Number(p.regular_price || 0),
           precio_oferta: oferta,
           precio_normal: oferta != null ? oferta : Number(p.regular_price || 0),
-          // stock = en almacenes/tiendas propias (se entrega ya); consignación = en tiendas de clientes
-          stock: st.disponible, stock_consignacion: st.consignacion, stock_total: st.disponible + st.consignacion,
+          // stock = en almacenes/tiendas propias (se entrega ya); consignación = en tiendas de clientes;
+          // otros = cuarentena, exhibición, embajador… stock_total cuadra con el ERP.
+          stock: st.disponible, stock_consignacion: st.consignacion, stock_otros: st.otros,
+          stock_total: st.disponible + st.consignacion + st.otros,
           almacenes: st.almacenes,
           empresas: (empMap[p.vid] || []).sort((a, b) => b.unidades - a.unidades),
           _sku: compacto(p.sku), _pal: tokens(nombre + ' ' + (p.producto || '')), _comp: compacto(nombre)

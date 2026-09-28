@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
+<script src="/tema.js"></script>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Importaciones — Kuranko</title>
@@ -44,6 +45,64 @@
   .flex2{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:680px){.flex2{grid-template-columns:1fr}}
   .hide{display:none!important}
   #tab-calc{display:flex;flex-direction:column}
+
+  /* ── Tema oscuro (sincronizado con el panel admin vía /tema.js) ──
+     La página se diseñó en claro con colores fijos; aquí se re-mapean a la paleta
+     oscura del panel. Incluye los estilos en línea más usados (atributo style). */
+  html[data-theme="dark"]{color-scheme:dark}
+  html[data-theme="dark"] body{background:#0a1030;color:#eef1f8}
+  html[data-theme="dark"] .card{background:#111a44;border-color:#212b54}
+  html[data-theme="dark"] .card h2,html[data-theme="dark"] .kpi b{color:#9cc3ff}
+  html[data-theme="dark"] label,html[data-theme="dark"] .hint,html[data-theme="dark"] .nm{color:#8a93b4}
+  html[data-theme="dark"] input,html[data-theme="dark"] select,html[data-theme="dark"] textarea{background:#0e1640;color:#eef1f8;border-color:#2a3566}
+  html[data-theme="dark"] input:focus,html[data-theme="dark"] select:focus,html[data-theme="dark"] textarea:focus{border-color:#FFB30D}
+  html[data-theme="dark"] .tw{border-color:#212b54}
+  html[data-theme="dark"] th,html[data-theme="dark"] td{border-bottom-color:#212b54}
+  html[data-theme="dark"] th{background:#18224e}
+  html[data-theme="dark"] .btn-sm{background:#18224e;color:#c6cee2;border-color:#2a3566}
+  html[data-theme="dark"] .btn-del{background:#3f1c20;color:#f79a9a;border-color:#7a3238}
+  html[data-theme="dark"] .b-exact{background:#163a29;color:#6ee59a}
+  html[data-theme="dark"] .b-alta{background:#15254f;color:#8fb8ff}
+  html[data-theme="dark"] .b-rev{background:#3d3315;color:#ffcb52}
+  html[data-theme="dark"] .b-no{background:#3f1c20;color:#f79a9a}
+  html[data-theme="dark"] .res{background:#163a29;border-color:#2c6b48}
+  html[data-theme="dark"] .unit{color:#6ee59a}
+  html[data-theme="dark"] .note{background:#0e1640;color:#c6cee2}
+  html[data-theme="dark"] .kpi{background:#15254f;border-color:#2f4f8f;color:#c6cee2}
+  /* fondos en línea (primero el genérico #fff; los tonos específicos van después y ganan) */
+  html[data-theme="dark"] [style*="background:#fff"],html[data-theme="dark"] [style*="background:#f8fafc"],
+  html[data-theme="dark"] [style*="background:#f1f5f9"],html[data-theme="dark"] [style*="background:#eef2f7"]{background:#0e1640!important}
+  html[data-theme="dark"] [style*="background:#e2e8f0"],html[data-theme="dark"] [style*="rgb(226, 232, 240)"]{background:#18224e!important;color:#8a93b4!important}
+  html[data-theme="dark"] [style*="background:#fff7ed"],html[data-theme="dark"] [style*="background:#fffbeb"],
+  html[data-theme="dark"] [style*="background:#fef3c7"],html[data-theme="dark"] [style*="background:#fffdf5"]{background:#3d3315!important}
+  html[data-theme="dark"] [style*="background:#f0fdf4"],html[data-theme="dark"] [style*="background:#dcfce7"]{background:#163a29!important}
+  html[data-theme="dark"] [style*="background:#fee2e2"]{background:#3f1c20!important}
+  html[data-theme="dark"] [style*="background:#faf5ff"],html[data-theme="dark"] [style*="background:#ede9fe"],
+  html[data-theme="dark"] [style*="background:rgba(124,58,237"]{background:#2a1f4d!important}
+  html[data-theme="dark"] [style*="background:#eff6ff"],html[data-theme="dark"] [style*="background:#f0f6ff"],
+  html[data-theme="dark"] [style*="background:#f8fbff"],html[data-theme="dark"] [style*="background:#dbeafe"]{background:#15254f!important}
+  html[data-theme="dark"] [style*="background:#ecfeff"],html[data-theme="dark"] [style*="background:#cffafe"]{background:#0f3440!important}
+  /* bordes en línea */
+  html[data-theme="dark"] [style*="solid #cbd5e1"],html[data-theme="dark"] [style*="solid #e2e8f0"],
+  html[data-theme="dark"] [style*="solid #eef2f7"],html[data-theme="dark"] [style*="solid #ccc"]{border-color:#212b54!important}
+  html[data-theme="dark"] [style*="#fde68a"],html[data-theme="dark"] [style*="#fdba74"],html[data-theme="dark"] [style*="#fcd34d"],
+  html[data-theme="dark"] [style*="border-color:#f59e0b"]{border-color:#8a6a1a!important}
+  html[data-theme="dark"] [style*="solid #bbf7d0"]{border-color:#2c6b48!important}
+  html[data-theme="dark"] [style*="#fca5a5"],html[data-theme="dark"] [style*="#f3b0b0"]{border-color:#7a3238!important}
+  html[data-theme="dark"] [style*="#c4b5fd"],html[data-theme="dark"] [style*="solid #e9d5ff"]{border-color:#5b4a9a!important}
+  html[data-theme="dark"] [style*="solid #bfdbfe"]{border-color:#2f4f8f!important}
+  /* textos en línea */
+  html[data-theme="dark"] [style*="color:#1e3a5f"]{color:#9cc3ff!important}
+  html[data-theme="dark"] [style*="color:#64748b"],html[data-theme="dark"] [style*="color:#94a3b8"]{color:#8a93b4!important}
+  html[data-theme="dark"] [style*="color:#475569"],html[data-theme="dark"] [style*="color:#555"],html[data-theme="dark"] [style*="color:#334155"]{color:#c6cee2!important}
+  html[data-theme="dark"] [style*="color:#111726"],html[data-theme="dark"] [style*="color:#111;"],html[data-theme="dark"] [style*="color:#111\""]{color:#eef1f8!important}
+  html[data-theme="dark"] [style*="color:#b91c1c"],html[data-theme="dark"] [style*="color:#991b1b"]{color:#f79a9a!important}
+  html[data-theme="dark"] [style*="color:#6d28d9"]{color:#c4b5fd!important}
+  html[data-theme="dark"] [style*="color:#b45309"],html[data-theme="dark"] [style*="color:#92400e"],
+  html[data-theme="dark"] [style*="color:#9a3412"],html[data-theme="dark"] [style*="color:#854d0e"]{color:#ffcb52!important}
+  html[data-theme="dark"] [style*="color:#1e40af"],html[data-theme="dark"] [style*="color:#1d4ed8"]{color:#8fb8ff!important}
+  html[data-theme="dark"] [style*="color:#0e7490"]{color:#67e8f9!important}
+  html[data-theme="dark"] [style*="color:#15803d"],html[data-theme="dark"] [style*="color:#166534"]{color:#6ee59a!important}
 </style>
 </head>
 <body>

@@ -272,6 +272,20 @@ module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, p
         cats.forEach(r => { (catMap[r.pid] = catMap[r.pid] || []).push([r.padre, r.cat].filter(Boolean).join(' ')); });
       } catch (e) { console.warn('[cotizador] no se pudieron leer categorías:', e.message); }
 
+      // Imagen de referencia: la de la variación si tiene; si no, la del producto padre
+      // (product_images.path es la URL completa; primaria primero, luego sort_order).
+      const imgVar = {}, imgProd = {};
+      try {
+        const [imgs] = await prodPool.query(`
+          SELECT product_id, product_variation_id, path FROM product_images
+          WHERE deleted_at IS NULL AND path IS NOT NULL AND path <> ''
+          ORDER BY is_primary DESC, sort_order ASC, id ASC`);
+        imgs.forEach(im => {
+          if (im.product_variation_id != null) { if (!imgVar[im.product_variation_id]) imgVar[im.product_variation_id] = im.path; }
+          else if (im.product_id != null && !imgProd[im.product_id]) imgProd[im.product_id] = im.path;
+        });
+      } catch (e) { console.warn('[cotizador] no se pudieron leer imágenes:', e.message); }
+
       _cat = prods.map(p => {
         const nombre = nombreProdVar(p.producto, p.variacion);
         const st = stMap[p.vid] || { disponible: 0, consignacion: 0, otros: 0, almacenes: [] };
@@ -280,6 +294,7 @@ module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, p
         const categorias = (catMap[p.pid] || []).join(' | ');
         const tipo = tipoProducto(categorias, p.producto || nombre);
         return {
+          imagen: imgVar[p.vid] || imgProd[p.pid] || null,
           categoria: categorias || null, tipo, tipo_nombre: NOMBRE_TIPO[tipo],
           anio_modelo: tipo === 'bicicleta' ? anioModelo(nombre + ' ' + (p.producto || '')) : null,
           vid: p.vid, pid: p.pid, sku: p.sku || '', nombre,

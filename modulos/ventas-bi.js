@@ -26,14 +26,148 @@ const periodoSQL = (campo, agrupar) =>
 const CODIGOS_COMPRA = ['02', '18'];
 const REF_ENTRADA = 'App\\Models\\StockEntry';
 
-module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, mCaja, prodPool, VV }) {
+// Período (misma regla que periodoSQL) para una fecha 'YYYY-MM-DD' en JS,
+// usado al agrupar las filas del histórico del Excel.
+function periodoJS(f, agrupar) {
+  if (agrupar === 'mes') return f.slice(0, 7);
+  if (agrupar === 'semana') {
+    const d = new Date(f + 'T00:00:00Z'); const wd = (d.getUTCDay() + 6) % 7;
+    d.setUTCDate(d.getUTCDate() - wd); return d.toISOString().slice(0, 10);
+  }
+  return f;
+}
+const sumarDia = (f, n) => { const d = new Date(f + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+
+module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, mCaja, prodPool, portalPool, VV }) {
+
+  // ══ HISTÓRICO DEL EXCEL (antes de que existiera el sistema) ══
+  // Se guarda en la base del PORTAL (no en el ERP ni en el repositorio): una sola
+  // fila con el JSON que genera scripts/excel-a-historico.py y la fecha de corte.
+  // Antes del corte, el panel usa el Excel; desde el corte, el sistema. Así las
+  // ventas antiguas que se migraron al sistema no se cuentan dos veces.
+  let _hist = null, _histAt = 0; const HIST_TTL = 10 * 60 * 1000;
+  async function tablaHist() {
+    await portalPool.query(`
+      CREATE TABLE IF NOT EXISTS bi_historico (
+        id TINYINT UNSIGNED PRIMARY KEY,
+        data MEDIUMTEXT NOT NULL,
+        corte DATE NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )`);
+  }
+  async function leerHist(forzar) {
+    if (!portalPool) return null;
+    if (!forzar && _hist !== null && Date.now() - _histAt < HIST_TTL) return _hist;
+    await tablaHist();
+    const [[r]] = await portalPool.query(`SELECT data, corte, updated_at FROM bi_historico WHERE id = 1`);
+    if (!r) { _hist = false; _histAt = Date.now(); return _hist; }
+    const d = typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
+    const corte = r.corte ? (r.corte instanceof Date ? r.corte.toISOString().slice(0, 10) : String(r.corte).slice(0, 10)) : null;
+    const cols = d.columnas;
+    const filas = d.filas.map(a => Object.fromEntries(cols.map((c, i) => [c, a[i]])));
+    _hist = { origen: d.origen, generado: d.generado, desde: d.desde, hasta: d.hasta, corte, filas, actualizado: r.updated_at };
+    _histAt = Date.now();
+    return _hist;
+  }
+  const soloMaestro = (req, res, next) => (req.admin && req.admin.maestro) ? next()
+    : res.status(403).json({ error: 'Solo el administrador maestro puede cambiar el histórico' });
+
+  app.get('/api/historico', authAdmin, mResumen, async (req, res) => {
+    try {
+      const h = await leerHist(true);
+      if (!h) return res.json({ cargado: false });
+      res.json({ cargado: true, origen: h.origen, generado: h.generado, desde: h.desde, hasta: h.hasta,
+        corte: h.corte, dias: new Set(h.filas.map(f => f.fecha)).size, actualizado: h.actualizado });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Sube (o reemplaza) el histórico. Cuerpo = JSON de scripts/excel-a-historico.py
+  app.post('/api/historico', authAdmin, soloMaestro, async (req, res) => {
+    try {
+      const d = req.body || {};
+      const cols = ['fecha', 'company_id', 'ventas', 'num_ventas', 'ingresos', 'margen', 'base_margen', 'ingreso_items', 'compras'];
+      if (!Array.isArray(d.columnas) || cols.some((c, i) => d.columnas[i] !== c) || !Array.isArray(d.filas) || !d.filas.length)
+        return res.status(400).json({ error: 'El archivo no tiene el formato esperado (genéralo con scripts/excel-a-historico.py)' });
+      const malas = d.filas.filter(f => !Array.isArray(f) || !esFecha(f[0]) || ![0, 1, 2].includes(+f[1]) || f.slice(2).some(v => !isFinite(+v)));
+      if (malas.length) return res.status(400).json({ error: `${malas.length} filas inválidas en el archivo` });
+      const limpio = { origen: String(d.origen || '').slice(0, 120), generado: String(d.generado || '').slice(0, 40),
+        desde: d.filas[0][0], hasta: d.filas[d.filas.length - 1][0], columnas: cols,
+        filas: d.filas.map(f => [f[0], +f[1], ...f.slice(2).map(Number)]) };
+      await tablaHist();
+      // Corte por defecto: el día siguiente al último registro del Excel
+      const corteDef = sumarDia(limpio.hasta, 1);
+      await portalPool.query(`
+        INSERT INTO bi_historico (id, data, corte) VALUES (1, ?, ?)
+        ON DUPLICATE KEY UPDATE data = VALUES(data), corte = COALESCE(corte, VALUES(corte))`,
+        [JSON.stringify(limpio), corteDef]);
+      const h = await leerHist(true);
+      res.json({ ok: true, desde: h.desde, hasta: h.hasta, corte: h.corte, filas: h.filas.length });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.put('/api/historico/corte', authAdmin, soloMaestro, async (req, res) => {
+    try {
+      const { corte } = req.body || {};
+      if (!esFecha(corte)) return res.status(400).json({ error: 'Fecha de corte inválida' });
+      await tablaHist();
+      const [r] = await portalPool.query(`UPDATE bi_historico SET corte = ? WHERE id = 1`, [corte]);
+      if (!r.affectedRows) return res.status(404).json({ error: 'Primero carga el histórico' });
+      await leerHist(true);
+      res.json({ ok: true, corte });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.delete('/api/historico', authAdmin, soloMaestro, async (req, res) => {
+    try { await tablaHist(); await portalPool.query(`DELETE FROM bi_historico WHERE id = 1`); _hist = false; _histAt = Date.now(); res.json({ ok: true }); }
+    catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Comparación mes a mes Excel vs sistema (sin aplicar el corte) para decidir
+  // desde cuándo manda el sistema. Sugiere el corte: el primer mes a partir del
+  // cual el sistema ya registra al menos el 90% de lo que dice el Excel en todos
+  // los meses siguientes; si no hay, el día después del último registro del Excel.
+  app.get('/api/historico/comparacion', authAdmin, mResumen, async (req, res) => {
+    try {
+      const h = await leerHist(true);
+      if (!h) return res.json({ cargado: false });
+      const [sis] = await prodPool.query(`
+        SELECT DATE_FORMAT(s.created_at, '%Y-%m') AS mes, COUNT(*) AS num_ventas, COALESCE(SUM(s.total),0) AS ventas,
+          MIN(DATE_FORMAT(s.created_at, '%Y-%m-%d')) AS primera
+        FROM sales s WHERE s.deleted_at IS NULL AND s.status IN ${VV}
+          AND s.created_at < DATE_ADD(?, INTERVAL 2 MONTH)
+        GROUP BY mes ORDER BY mes`, [h.hasta]);
+      const exc = {};
+      h.filas.forEach(f => { const m = f.fecha.slice(0, 7); const e = exc[m] = exc[m] || { ventas: 0, num_ventas: 0 };
+        e.ventas += f.ventas; e.num_ventas += f.num_ventas; });
+      const sisM = Object.fromEntries(sis.map(r => [r.mes, { ventas: +r.ventas, num_ventas: +r.num_ventas, primera: r.primera }]));
+      const meses = [...new Set([...Object.keys(sisM), ...Object.keys(exc).filter(m => sisM[m] || m >= h.hasta.slice(0, 7))])].sort();
+      // Solo meses donde hay algo del sistema o el tramo final del Excel
+      const filas = meses.map(m => ({ mes: m, excel: exc[m] || { ventas: 0, num_ventas: 0 }, sistema: sisM[m] || { ventas: 0, num_ventas: 0 } }));
+      let sugerido = sumarDia(h.hasta, 1);
+      for (let i = 0; i < filas.length; i++) {
+        const resto = filas.slice(i);
+        const ok = resto.every(f => f.excel.ventas <= 0 || f.sistema.ventas >= 0.9 * f.excel.ventas);
+        if (ok && filas[i].sistema.ventas > 0) { sugerido = filas[i].mes + '-01'; break; }
+      }
+      if (sugerido > sumarDia(h.hasta, 1)) sugerido = sumarDia(h.hasta, 1);
+      const primeraSis = sis.length ? sis[0].primera : null;
+      res.json({ cargado: true, corte: h.corte, sugerido, excel_desde: h.desde, excel_hasta: h.hasta, primera_venta_sistema: primeraSis, filas });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
 
   app.get('/api/empresas-bi', authAdmin, (req, res) =>
     res.json(Object.entries(EMPRESAS_BI).map(([id, nombre]) => ({ id: +id, nombre }))));
 
   app.get('/api/kpis', authAdmin, mResumen, async (req, res) => {
-    const { desde, hasta, empresa } = req.query; const f = rango(desde, hasta) + ' ' + fEmp(empresa);
+    const { desde, hasta, empresa } = req.query;
     try {
+      // Con histórico: estos KPIs (por cobrar, clientes, canceladas) son solo del
+      // sistema y arrancan en la fecha de corte, para no mezclar ventas migradas.
+      const hist = await leerHist().catch(() => null);
+      const corte = hist && hist.corte;
+      const dSis = corte && esFecha(desde) && corte > desde ? corte : desde;
+      const f = (dSis && hasta && dSis > hasta ? 'AND 1 = 0' : rango(dSis, hasta)) + ' ' + fEmp(empresa);
       const [[ventas]] = await prodPool.query(`
         SELECT COUNT(*) AS num_ventas, COALESCE(SUM(total),0) AS valor_ventas,
                COALESCE(AVG(total),0) AS ticket_promedio, COUNT(DISTINCT customer_id) AS clientes_unicos
@@ -45,7 +179,8 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, m
       const [[canc]] = await prodPool.query(`
         SELECT COUNT(*) AS canceladas FROM sales s WHERE s.deleted_at IS NULL AND s.status='cancelled' ${f}`);
       const valorVentas = parseFloat(ventas.valor_ventas), recaud = parseFloat(recaudado.dinero_recaudado);
-      res.json({ ...ventas, ...recaudado, ...canc, por_cobrar: Math.max(0, valorVentas - recaud) });
+      res.json({ ...ventas, ...recaudado, ...canc, por_cobrar: Math.max(0, valorVentas - recaud),
+        solo_sistema_desde: dSis !== desde ? dSis : null });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
@@ -212,8 +347,12 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, m
     const { desde, hasta, empresa } = req.query;
     const agrupar = ['dia', 'semana', 'mes'].includes(req.query.agrupar) ? req.query.agrupar : 'dia';
     if (!esFecha(desde) || !esFecha(hasta)) return res.status(400).json({ error: 'Rango de fechas inválido' });
-    const entre = (campo) => `${campo} BETWEEN '${desde}' AND '${hasta} 23:59:59'`;
     try {
+      // Con histórico cargado: antes del corte manda el Excel, desde el corte el sistema
+      const hist = await leerHist().catch(() => null);
+      const corte = hist && hist.corte;
+      const dSis = corte && corte > desde ? corte : desde;
+      const entre = (campo) => dSis > hasta ? '1 = 0' : `${campo} BETWEEN '${dSis}' AND '${hasta} 23:59:59'`;
       const pV = periodoSQL('s.created_at', agrupar);
       const [[ventas], [ingresos], [margen], [compras], [otrasEntradas]] = await Promise.all([
         prodPool.query(`
@@ -275,8 +414,22 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, m
       ingresos.forEach(r => { fila(r.periodo, r.company_id).ingresos += +r.ingresos; });
       margen.forEach(r => { const f = fila(r.periodo, r.company_id); f.margen += +r.margen; f.base_margen += +r.base_margen; f.ingreso_items += +r.ingreso_items; });
       compras.forEach(r => { fila(r.periodo, r.company_id).compras += +r.compras; });
+      // Histórico del Excel (solo días anteriores al corte y dentro del rango)
+      let usaExcel = false;
+      if (hist && corte && desde < corte) {
+        const emp = empresaId(empresa);
+        const CAMPOS = ['ventas', 'num_ventas', 'ingresos', 'margen', 'base_margen', 'ingreso_items', 'compras'];
+        hist.filas.forEach(h => {
+          if (h.fecha < desde || h.fecha > hasta || h.fecha >= corte) return;
+          if (emp && h.company_id !== emp) return;
+          usaExcel = true;
+          const f = fila(periodoJS(h.fecha, agrupar), h.company_id);
+          CAMPOS.forEach(c => { f[c] += +h[c] || 0; });
+        });
+      }
       const filas = [...mapa.values()].sort((a, b) => a.periodo.localeCompare(b.periodo) || a.company_id - b.company_id);
       res.json({ agrupar, filas, codigos_compra: CODIGOS_COMPRA,
+        historico: hist ? { corte, usado: usaExcel, desde: hist.desde } : null,
         otras_entradas: otrasEntradas.map(r => ({ codigo: r.codigo, total: +r.total })) });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });

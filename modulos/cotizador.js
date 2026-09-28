@@ -11,7 +11,7 @@
 //  Solo lectura sobre producción.
 // ═══════════════════════════════════════════════════════════════════════════
 
-const { EMPRESAS_BI, nombreProdVar } = require('./comunes');
+const { EMPRESAS_BI } = require('./comunes');
 
 // precio mínimo = costo / 0.9  → el costo representa el 90% del precio (margen 10% sobre precio)
 const FACTOR_MINIMO = 0.9;
@@ -287,7 +287,9 @@ module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, p
       } catch (e) { console.warn('[cotizador] no se pudieron leer imágenes:', e.message); }
 
       _cat = prods.map(p => {
-        const nombre = nombreProdVar(p.producto, p.variacion);
+        // Se muestra solo el nombre del hijo (variación/simple), que en el ERP ya es el nombre completo.
+        // El del padre se usa solo si el hijo no tiene nombre. Para buscar se usan los dos.
+        const nombre = (p.variacion || '').trim() || (p.producto || '').trim() || '—';
         const st = stMap[p.vid] || { disponible: 0, consignacion: 0, otros: 0, almacenes: [] };
         st.almacenes.sort((a, b) => b.disponible - a.disponible || b.cantidad - a.cantidad);
         const oferta = p.sale_price != null && Number(p.sale_price) > 0 ? Number(p.sale_price) : null;

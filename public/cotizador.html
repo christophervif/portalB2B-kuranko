@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
+<script src="/tema.js"></script>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Cotizador — Kuranko</title>
@@ -135,8 +136,6 @@ textarea{width:100%;min-height:60px;background:var(--bg);border:1px solid var(--
 </div>
 
 <script>
-// Tema: hereda el del panel principal
-(function(){try{const g=localStorage.getItem('tema_admin');if(g)document.documentElement.setAttribute('data-theme',g);else{const c=window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches;document.documentElement.setAttribute('data-theme',c?'light':'dark');}}catch(e){}})();
 // Mini-app en iframe: comparte token y origen con admin.html
 let TOKEN='';try{TOKEN=localStorage.getItem('admtoken')||'';}catch(e){}
 let ES_MAESTRO=false;try{ES_MAESTRO=localStorage.getItem('admmaestro')==='1';}catch(e){}

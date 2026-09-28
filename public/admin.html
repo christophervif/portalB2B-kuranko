@@ -272,7 +272,6 @@ tr:hover td{background:var(--hover)}
     <div class="tabs" id="tabs-bar" style="display:none">
       <button class="tab active" onclick="tab('clientes_gestion',this)">Gestión de clientes</button>
       <button class="tab" data-modulos="resumen,caja_bi,rentabilidad" onclick="tab('ventas_ingresos',this)">Ventas e ingresos</button>
-      <button class="tab" onclick="tab('cotizador',this)">Cotizador</button>
       <button class="tab" data-modulos="conciliacion" onclick="tab('conciliacion',this)">Conciliación</button>
       <button class="tab" onclick="tab('clientes_bi',this)">Clientes BI</button>
       <button class="tab" data-modulos="cuentas_cobrar" onclick="tab('cuentas_cobrar',this)">Cuentas por cobrar</button>
@@ -417,6 +416,7 @@ tr:hover td{background:var(--hover)}
           <button class="btn btn-sec btn-sm" onclick="viPreset('90d')">Últimos 90 días</button>
           <button class="btn btn-sec btn-sm" onclick="viPreset('anio')">Este año</button>
           <button class="btn btn-sec btn-sm" onclick="viPreset('12m')">Últimos 12 meses</button>
+          <button class="btn btn-sec btn-sm" onclick="viPreset('todo')" id="vi-preset-todo" style="display:none">Todo el histórico</button>
         </div>
         <div id="kpis-grid" class="kpi-grid"></div>
 
@@ -448,6 +448,22 @@ tr:hover td{background:var(--hover)}
           <div class="mm-wrap"><table class="mm" id="tbl-mm"></table></div>
           <div id="mm-nota" style="font-size:11px;color:var(--muted);margin-top:8px"></div>
         </div>
+
+        <details class="dbcard" id="hist-card">
+          <summary style="cursor:pointer;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Histórico del Excel <span id="hist-estado-mini" style="text-transform:none;letter-spacing:0;font-weight:500"></span></summary>
+          <div style="margin-top:12px">
+            <p class="card-note">Ventas, ingresos y compras del Excel que usabas antes del sistema. <b>Antes de la fecha de corte</b> el panel usa el Excel; <b>desde el corte</b>, el sistema. Así las ventas que se migraron al sistema no se cuentan dos veces. Rentabilidad, productos, marcas, métodos de pago y B2B/B2C siguen saliendo solo del sistema.</p>
+            <div id="hist-estado" style="font-size:13px;margin-bottom:10px"></div>
+            <div id="hist-maestro" class="filtros-fila" style="align-items:center;display:none">
+              <label style="font-size:13px">Fecha de corte: <input type="date" id="hist-corte" style="min-width:150px"></label>
+              <button class="btn btn-sm" onclick="histGuardarCorte()">Guardar corte</button>
+              <button class="btn btn-sec btn-sm" id="hist-usar-sug" style="display:none" onclick="histUsarSugerido()">Usar sugerido</button>
+              <label class="btn btn-sec btn-sm" style="cursor:pointer;flex:0 0 auto;min-width:0">Cargar archivo… <input type="file" accept=".json,application/json" style="display:none" onchange="histSubir(this)"></label>
+              <button class="btn btn-danger btn-sm" id="hist-borrar" style="display:none" onclick="histBorrar()">Quitar histórico</button>
+            </div>
+            <div id="hist-comp"></div>
+          </div>
+        </details>
 
         <div class="two-col">
           <div class="dbcard" id="vi-card-empresas"><h4>Por empresa</h4><div id="empresas-box"></div></div>
@@ -793,13 +809,6 @@ tr:hover td{background:var(--hover)}
       </div>
     </div>
 
-    <div id="tab-cotizador" class="panel">
-      <div class="card" style="padding:0;overflow:hidden">
-        <iframe id="cot-frame" title="Cotizador rápido"
-          style="width:100%;height:calc(100vh - 150px);min-height:560px;border:0;display:block"></iframe>
-      </div>
-    </div>
-
     <div id="tab-saldo_favor" class="panel">
       <div class="card" style="padding:0;overflow:hidden">
         <iframe id="saldo-frame" title="Créditos"
@@ -888,11 +897,7 @@ let ES_MAESTRO=false,MIS_MODULOS=[];
 const sel={'vinc-usuario':null,'vinc-location':null,'crear-cliente':null,'crear-location':null};
 
 // Tema
-function aplicarTema(t){document.documentElement.setAttribute('data-theme',t);localStorage.setItem('tema_admin',t);avisarTemaIframes(t);const ic=t==='light'?'☀️':'🌙';['theme-btn','theme-btn-login'].forEach(id=>{const b=document.getElementById(id);if(b)b.textContent=ic;});}
-// Sincroniza el tema con las mini-apps en iframe (cotizador, CxC, créditos, seguimiento, importaciones)
-function avisarTemaIframes(t){document.querySelectorAll('iframe').forEach(f=>{try{if(f.contentWindow)f.contentWindow.postMessage({tipo:'tema',tema:t},location.origin);}catch(e){}});}
-// Si el tema se cambia desde otra pestaña del panel, esta también se actualiza (y sus iframes)
-window.addEventListener('storage',e=>{if(e.key==='tema_admin'&&(e.newValue==='light'||e.newValue==='dark'))aplicarTema(e.newValue);});
+function aplicarTema(t){document.documentElement.setAttribute('data-theme',t);localStorage.setItem('tema_admin',t);const ic=t==='light'?'☀️':'🌙';['theme-btn','theme-btn-login'].forEach(id=>{const b=document.getElementById(id);if(b)b.textContent=ic;});}
 function toggleTema(){const a=document.documentElement.getAttribute('data-theme')||'dark';aplicarTema(a==='light'?'dark':'light');}
 (function(){const g=localStorage.getItem('tema_admin');if(g)document.documentElement.setAttribute('data-theme',g);else{const c=window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches;document.documentElement.setAttribute('data-theme',c?'light':'dark');}})();
 
@@ -979,7 +984,7 @@ const APP_ICONOS={
   clientes_gestion:'👤', ventas_ingresos:'📊', clientes_bi:'👥',
   inventario:'📦', restock:'🔁', reportes:'💰', auditoria:'🔍',
   crm:'📣', sistemas:'⚙️', promociones:'🏷️', importaciones:'🚢', recepciones:'📥', seguimiento:'🚚',
-  conciliacion:'🧾', cuentas_cobrar:'💸', saldo_favor:'💵', cotizador:'🧮'
+  conciliacion:'🧾', cuentas_cobrar:'💸', saldo_favor:'💵'
 };
 
 // Genera las tarjetas del launcher a partir de las pestañas visibles (respeta permisos)
@@ -1087,11 +1092,6 @@ function cargarDatosTab(id){
     // App de cuentas por cobrar (deudas) en iframe; comparte token/origen. Carga perezosa.
     const fr=document.getElementById('cxc-frame');
     if(fr&&!fr.src){fr.src='/cuentas-por-cobrar.html?v='+Date.now();}
-  }
-  else if(id==='cotizador'){
-    // Cotizador rápido en iframe; comparte token/origen. Carga perezosa.
-    const fr=document.getElementById('cot-frame');
-    if(fr&&!fr.src){fr.src='/cotizador.html?v='+Date.now();}
   }
   else if(id==='saldo_favor'){
     // App de saldo a favor (créditos) en iframe; comparte token/origen. Carga perezosa.
@@ -2525,7 +2525,7 @@ function dbCargarActual(){
 // ══════════ VENTAS E INGRESOS: filtro por empresa, gráfico agrupado y mes a mes ══════════
 let viEmpresa='', viAgrupar='dia', viMetrica='ventas', viEmpresas=[], viSerie=null;
 // Colores fijos por empresa (legibles en tema claro y oscuro); 0 = total
-const VI_COL={1:'#6C63D9',2:'#14A37F',0:'#FFB30D'};
+const VI_COL={1:'#6C63D9',2:'#14A37F',0:'#8b93b8'}, VI_COL_T='#FFB30D';
 const VI_MESES=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
 const VI_METRICAS={
   ventas:{t:'Ventas',din:1,nota:'Valor vendido, por la empresa que gestiona la venta (fecha de venta).'},
@@ -2535,7 +2535,7 @@ const VI_METRICAS={
   margen:{t:'Margen FIFO',din:1,nota:'Ganancia FIFO (precio − costo del lote). Solo líneas con costo conocido.'},
   compras:{t:'Compras',din:1,nota:'Entradas de stock tipo compra o importación, valorizadas al costo del lote, por la empresa dueña del lote.'}
 };
-const viNomEmp=id=>{const e=viEmpresas.find(x=>x.id===+id);return e?e.nombre:(+id?'Empresa '+id:'Sin empresa');};
+const viNomEmp=id=>{const e=viEmpresas.find(x=>x.id===+id);return e?e.nombre:(+id?'Empresa '+id:'Sin asignar');};
 const viCorto=id=>viNomEmp(id).split(' ')[0];
 const viIso=d=>{const z=new Date(d.getTime()-d.getTimezoneOffset()*6e4);return z.toISOString().slice(0,10);};
 function viRango(){
@@ -2582,6 +2582,7 @@ function viPreset(cual){
   else if(cual==='90d')d=new Date(hoy.getTime()-89*864e5);
   else if(cual==='anio')d=new Date(hoy.getFullYear(),0,1);
   else if(cual==='12m')d=new Date(hoy.getFullYear(),hoy.getMonth()-11,1);
+  else if(cual==='todo'&&viHist)d=new Date(viHist.excel_desde+'T00:00:00');
   c.querySelector('.db-desde').value=viIso(d);
   c.querySelector('.db-hasta').value=viIso(hoy);
   const m=c.querySelector('.db-mes'); if(m)m.value='';
@@ -2631,10 +2632,14 @@ function viCelda(idx,p,cid){
   if(cid==='T')return viSumar(Object.values(fila));
   return fila[cid]||{...VI_VACIO};
 }
-function viGruposVisibles(){
-  // Una empresa elegida → solo ella. Todas → cada empresa + total.
-  return viEmpresa?[+viEmpresa]:[...viEmpresas.map(e=>e.id),'T'];
+function viGruposVisibles(filas){
+  // Una empresa elegida → solo ella. Todas → cada empresa (+ "Sin asignar" si hay
+  // ventas del Excel sin forma de pago) + total.
+  if(viEmpresa)return [+viEmpresa];
+  const sinAsig=(filas||[]).some(r=>r.company_id===0&&(+r.ventas||+r.compras||+r.ingresos));
+  return [...viEmpresas.map(e=>e.id),...(sinAsig?[0]:[]),'T'];
 }
+const viFechaTxt=f=>f?f.split('-').reverse().join('/'):'';
 
 async function viCargarSerie(){
   const {desde,hasta}=viRango(); if(!desde||!hasta)return;
@@ -2647,12 +2652,13 @@ function viDibujar(){
   const m=viMetrica, meta=VI_METRICAS[m], ag=viSerie.agrupar, per=viSerie.periodos, idx=viIndexar(viSerie.filas);
   const fmt=v=>meta.din?dbFmt(v):dbFmtN(Math.round(v));
   document.getElementById('vi-graf-titulo').textContent=meta.t+' por '+({dia:'día',semana:'semana',mes:'mes'}[ag])+(viEmpresa?' — '+viNomEmp(viEmpresa):'');
-  document.getElementById('vi-graf-nota').textContent=meta.nota;
+  const hi=viSerie.historico;
+  document.getElementById('vi-graf-nota').textContent=meta.nota+(hi&&hi.usado?` Antes del ${viFechaTxt(hi.corte)} los datos vienen del Excel histórico (por la cuenta de la forma de pago).`:'');
   document.getElementById('vi-zoom-hint').style.display=ag==='dia'?'':'none';
   const esLinea=ag==='dia';
-  const grupos=viGruposVisibles();
+  const grupos=viGruposVisibles(viSerie.filas);
   const datasets=grupos.map(cid=>{
-    const col=cid==='T'?VI_COL[0]:(VI_COL[cid]||'#8b93b8');
+    const col=cid==='T'?VI_COL_T:(VI_COL[cid]||'#8b93b8');
     const data=per.map(p=>viValor(viCelda(idx,p,cid),m));
     if(cid==='T')return {type:'line',label:'Total',data,borderColor:col,backgroundColor:'transparent',borderWidth:2,borderDash:[5,4],pointRadius:esLinea?0:3,pointHoverRadius:5,tension:.3,order:0};
     return esLinea
@@ -2675,11 +2681,14 @@ function viDibujar(){
   if(cv&&!cv._dblSet){cv.addEventListener('dblclick',()=>{const ch=dbCharts['ch-dias'];if(ch&&ch.resetZoom)ch.resetZoom();});cv._dblSet=true;}
 }
 
-// Tabla "Mes a mes": 12 meses hasta el mes de la fecha "Hasta"
+// Tabla "Mes a mes": 12 meses hasta el mes de la fecha "Hasta"; si el rango
+// elegido es más largo, lo cubre completo (máximo 36 meses)
 async function viMesAMes(){
-  const {hasta}=viRango(); if(!hasta)return;
+  const {desde:dRango,hasta}=viRango(); if(!hasta)return;
   const [a,mm]=hasta.split('-').map(Number);
-  const ini=new Date(a,mm-12,1);
+  let ini=new Date(a,mm-12,1);
+  if(dRango){const [da,dm]=dRango.split('-').map(Number);const ir=new Date(da,dm-1,1);const tope=new Date(a,mm-36,1);
+    if(ir<ini)ini=ir<tope?tope:ir;}
   const desde=viIso(ini);
   const r=await viApi('/api/bi-serie',{agrupar:'mes',desde,hasta});
   const meses=viPeriodos(desde,hasta,'mes'), idx=viIndexar(r.filas);
@@ -2703,9 +2712,9 @@ async function viMesAMes(){
   };
   const cab='<thead><tr><th>Métrica</th>'+meses.map(p=>`<th>${viEtiqueta(p,'mes',false)}${p===mesActual?' <span title="Mes en curso">·</span>':''}</th>`).join('')+'<th>Total 12m</th></tr></thead>';
   let cuerpo='<tbody>';
-  viGruposVisibles().forEach(cid=>{
+  viGruposVisibles(r.filas).forEach(cid=>{
     const nom=cid==='T'?'Total (todas)':viNomEmp(cid);
-    const col=cid==='T'?VI_COL[0]:VI_COL[cid];
+    const col=cid==='T'?VI_COL_T:(VI_COL[cid]||'#8b93b8');
     cuerpo+=`<tr class="mm-grupo"><td colspan="${meses.length+2}"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${col};margin-right:7px"></span>${nom}</td></tr>`;
     const celdas=meses.map(p=>viCelda(idx,p,cid));
     const tot=viSumar(celdas);
@@ -2726,19 +2735,79 @@ async function viMesAMes(){
     (meses.includes(mesActual)?' El último mes está en curso.':'');
 }
 
+
+// ── Histórico del Excel: estado, comparación con el sistema y fecha de corte ──
+let viHist=null, viHistSug=null;
+async function histCargar(){
+  const est=document.getElementById('hist-estado'), mini=document.getElementById('hist-estado-mini');
+  const panelM=document.getElementById('hist-maestro'); panelM.style.display=ES_MAESTRO?'':'none';
+  try{
+    const c=await apiCall('/api/historico/comparacion','GET');
+    viHist=c.cargado?c:null;
+    document.getElementById('vi-preset-todo').style.display=viHist?'':'none';
+    document.getElementById('hist-borrar').style.display=viHist?'':'none';
+    if(!c.cargado){
+      mini.textContent='· no cargado';
+      est.innerHTML=ES_MAESTRO?'Aún no hay histórico. Carga el archivo <b>historico-excel.json</b> con el botón "Cargar archivo…".':'Aún no hay histórico cargado (lo carga el administrador maestro).';
+      document.getElementById('hist-comp').innerHTML='';document.getElementById('hist-usar-sug').style.display='none';
+      return;
+    }
+    viHistSug=c.sugerido;
+    mini.textContent=`· Excel del ${viFechaTxt(c.excel_desde)} al ${viFechaTxt(c.excel_hasta)} · corte ${viFechaTxt(c.corte)}`;
+    document.getElementById('hist-corte').value=c.corte||'';
+    document.getElementById('hist-usar-sug').style.display=(c.sugerido&&c.sugerido!==c.corte)?'':'none';
+    est.innerHTML=`Excel cargado: <b>${viFechaTxt(c.excel_desde)}</b> a <b>${viFechaTxt(c.excel_hasta)}</b>. `+
+      `Primera venta registrada en el sistema: <b>${c.primera_venta_sistema?viFechaTxt(c.primera_venta_sistema):'—'}</b>. `+
+      `Corte actual: <b>${viFechaTxt(c.corte)}</b>`+(c.sugerido&&c.sugerido!==c.corte?` · corte sugerido según la comparación: <b>${viFechaTxt(c.sugerido)}</b>`:' (coincide con el sugerido)')+'.';
+    const filas=c.filas||[];
+    if(!filas.length){document.getElementById('hist-comp').innerHTML='';return;}
+    document.getElementById('hist-comp').innerHTML=
+      '<p class="card-note" style="margin-top:6px">Meses donde el sistema ya tiene ventas, comparados con el Excel. Si el sistema tiene bastante menos que el Excel, ese mes todavía se registraba en el Excel (o solo se migró una parte); si tiene lo mismo o más, ya manda el sistema. <b>Fuente usada</b> indica qué toma el panel con el corte actual.</p>'+
+      '<div class="mm-wrap"><table class="mm"><thead><tr><th>Mes</th><th>Ventas Excel</th><th>Ventas sistema</th><th>Sistema / Excel</th><th>N° Excel</th><th>N° sistema</th><th style="text-align:left">Fuente usada</th></tr></thead><tbody>'+
+      filas.map(f=>{
+        const ex=f.excel.ventas, si=f.sistema.ventas, ratio=ex>0?si/ex*100:null;
+        const cls=ratio==null?'':ratio>=90?'cob-ok':ratio>=50?'cob-warn':'cob-bad';
+        const ini=f.mes+'-01', fin=viIso(new Date(+f.mes.slice(0,4),+f.mes.slice(5,7),0));
+        const fuente=!c.corte?'Sistema':fin<c.corte?'Excel':ini>=c.corte?'Sistema':'Excel hasta el '+viFechaTxt(viIso(new Date(new Date(c.corte+'T00:00:00').getTime()-864e5)))+', luego sistema';
+        return `<tr><td>${viEtiqueta(f.mes,'mes',true)}</td><td>${dbFmt(ex)}</td><td>${dbFmt(si)}</td><td class="${cls}">${ratio==null?'solo sistema':ratio.toFixed(0)+'%'}</td><td>${dbFmtN(f.excel.num_ventas)}</td><td>${dbFmtN(f.sistema.num_ventas)}</td><td style="text-align:left">${fuente}</td></tr>`;
+      }).join('')+'</tbody></table></div>';
+  }catch(e){est.textContent='Histórico: '+e.message;}
+}
+async function histGuardarCorte(){
+  const v=document.getElementById('hist-corte').value; if(!v)return showToast('Elige una fecha de corte',true);
+  try{await apiCall('/api/historico/corte','PUT',{corte:v});showToast('Corte guardado: '+viFechaTxt(v));await histCargar();dbCargarActual();}
+  catch(e){showToast(e.message,true);}
+}
+function histUsarSugerido(){if(viHistSug){document.getElementById('hist-corte').value=viHistSug;histGuardarCorte();}}
+async function histSubir(inp){
+  const f=inp.files&&inp.files[0]; inp.value=''; if(!f)return;
+  try{
+    const d=JSON.parse(await f.text());
+    const r=await apiCall('/api/historico','POST',d);
+    showToast(`Histórico cargado: ${viFechaTxt(r.desde)} a ${viFechaTxt(r.hasta)}`);
+    await histCargar(); dbCargarActual();
+  }catch(e){showToast('No se pudo cargar: '+e.message,true);}
+}
+async function histBorrar(){
+  if(!confirm('¿Quitar el histórico del Excel? El panel volverá a usar solo el sistema.'))return;
+  try{await apiCall('/api/historico','DELETE');showToast('Histórico quitado');await histCargar();dbCargarActual();}
+  catch(e){showToast(e.message,true);}
+}
+
 async function dbResumen(){
   await viInitEmpresas();
+  if(!window._histCargado){window._histCargado=1;histCargar();}
   const [k]=await Promise.all([viApi('/api/kpis'),viCargarSerie()]);
   // Totales del rango a partir de la serie (compras e ingresos con su propia regla de empresa)
   const tot=viSumar((viSerie&&viSerie.filas)||[]);
   document.getElementById('kpis-grid').innerHTML=[
-    {l:'Valor de ventas',v:dbFmt(k.valor_ventas),s:dbFmtN(k.num_ventas)+' ventas',a:1},
+    {l:'Valor de ventas',v:dbFmt(tot.ventas),s:dbFmtN(tot.num_ventas)+' ventas',a:1},
     {l:'Ingresos',v:dbFmt(tot.ingresos),s:'cobrado en el período',a:1},
-    {l:'Por cobrar',v:dbFmt(k.por_cobrar),s:'de estas ventas'},
-    {l:'Ticket promedio',v:dbFmt(k.ticket_promedio),s:'por venta'},
+    {l:'Por cobrar',v:dbFmt(k.por_cobrar),s:k.solo_sistema_desde?'sistema, desde '+viFechaTxt(k.solo_sistema_desde):'de estas ventas'},
+    {l:'Ticket promedio',v:dbFmt(viValor(tot,'ticket')),s:'por venta'},
     {l:'Compras',v:dbFmt(tot.compras),s:'compra e importación'},
-    {l:'Clientes únicos',v:dbFmtN(k.clientes_unicos),s:'en el período'},
-    {l:'Canceladas',v:dbFmtN(k.canceladas),s:'anuladas'},
+    {l:'Clientes únicos',v:dbFmtN(k.clientes_unicos),s:k.solo_sistema_desde?'sistema, desde '+viFechaTxt(k.solo_sistema_desde):'en el período'},
+    {l:'Canceladas',v:dbFmtN(k.canceladas),s:k.solo_sistema_desde?'sistema, desde '+viFechaTxt(k.solo_sistema_desde):'anuladas'},
   ].map(x=>`<div class="kpi ${x.a?'accent':''}"><div class="kpi-label">${x.l}</div><div class="kpi-val">${x.v}</div><div class="kpi-sub">${x.s}</div></div>`).join('');
   // Por empresa: solo tiene sentido con "Todas"
   const cardEmp=document.getElementById('vi-card-empresas');
@@ -3047,7 +3116,7 @@ async function cargarEstadoActualizacion(){
   }catch(e){ if(box)box.style.display='none'; }
 }
 // Nombres legibles de los módulos
-const NOMBRE_MODULO={clientes_gestion:'Gestión de clientes',sync:'Sincronización web (en Sistemas)',auditoria:'Auditoría de catálogo',resumen:'Resumen de ventas (en Ventas e ingresos)',rentabilidad:'Rentabilidad (en Ventas e ingresos)',inventario:'Inventario',restock:'Restock',clientes_bi:'Clientes BI',caja_bi:'Ingresos y caja (en Ventas e ingresos)',crm:'CRM Kommo',reportes:'Contabilidad',pagos:'Métodos de pago (en Sistemas)',importaciones:'Importaciones',recepciones:'Recepciones',seguimiento:'Seguimiento (trackings y backorders)',conciliacion:'Conciliación de pagos online',cuentas_cobrar:'Cuentas por cobrar',saldo_favor:'Créditos',cotizador:'Cotizador rápido'};
+const NOMBRE_MODULO={clientes_gestion:'Gestión de clientes',sync:'Sincronización web (en Sistemas)',auditoria:'Auditoría de catálogo',resumen:'Resumen de ventas (en Ventas e ingresos)',rentabilidad:'Rentabilidad (en Ventas e ingresos)',inventario:'Inventario',restock:'Restock',clientes_bi:'Clientes BI',caja_bi:'Ingresos y caja (en Ventas e ingresos)',crm:'CRM Kommo',reportes:'Contabilidad',pagos:'Métodos de pago (en Sistemas)',importaciones:'Importaciones',recepciones:'Recepciones',seguimiento:'Seguimiento (trackings y backorders)',conciliacion:'Conciliación de pagos online',cuentas_cobrar:'Cuentas por cobrar',saldo_favor:'Créditos'};
 let accesosCache={modulos_disponibles:[],usuarios:[]};
 async function cargarAccesos(){
   try{

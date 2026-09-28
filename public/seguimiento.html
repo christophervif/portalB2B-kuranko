@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="es">
 <head>
+<script src="/tema.js"></script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Seguimiento — Trackings y Backorders</title>
@@ -190,8 +191,6 @@ async function api(path,method='GET',body){
 let TOAST_T=null;
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(TOAST_T);TOAST_T=setTimeout(()=>t.classList.remove('show'),2200);}
 
-/* tema heredado del panel admin (mismo origen) */
-(function(){try{const g=localStorage.getItem('tema_admin');if(g)document.documentElement.setAttribute('data-theme',g);}catch(e){}})();
 
 /* rol: leído del JWT (solo para la UI; el servidor es quien manda de verdad) */
 let ES_MAESTRO=false, USUARIO='';

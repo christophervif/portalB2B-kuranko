@@ -888,7 +888,11 @@ let ES_MAESTRO=false,MIS_MODULOS=[];
 const sel={'vinc-usuario':null,'vinc-location':null,'crear-cliente':null,'crear-location':null};
 
 // Tema
-function aplicarTema(t){document.documentElement.setAttribute('data-theme',t);localStorage.setItem('tema_admin',t);const ic=t==='light'?'☀️':'🌙';['theme-btn','theme-btn-login'].forEach(id=>{const b=document.getElementById(id);if(b)b.textContent=ic;});}
+function aplicarTema(t){document.documentElement.setAttribute('data-theme',t);localStorage.setItem('tema_admin',t);avisarTemaIframes(t);const ic=t==='light'?'☀️':'🌙';['theme-btn','theme-btn-login'].forEach(id=>{const b=document.getElementById(id);if(b)b.textContent=ic;});}
+// Sincroniza el tema con las mini-apps en iframe (cotizador, CxC, créditos, seguimiento, importaciones)
+function avisarTemaIframes(t){document.querySelectorAll('iframe').forEach(f=>{try{if(f.contentWindow)f.contentWindow.postMessage({tipo:'tema',tema:t},location.origin);}catch(e){}});}
+// Si el tema se cambia desde otra pestaña del panel, esta también se actualiza (y sus iframes)
+window.addEventListener('storage',e=>{if(e.key==='tema_admin'&&(e.newValue==='light'||e.newValue==='dark'))aplicarTema(e.newValue);});
 function toggleTema(){const a=document.documentElement.getAttribute('data-theme')||'dark';aplicarTema(a==='light'?'dark':'light');}
 (function(){const g=localStorage.getItem('tema_admin');if(g)document.documentElement.setAttribute('data-theme',g);else{const c=window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches;document.documentElement.setAttribute('data-theme',c?'light':'dark');}})();
 

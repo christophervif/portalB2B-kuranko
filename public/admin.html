@@ -657,38 +657,9 @@ tr:hover td{background:var(--hover)}
     </div>
 
     <div id="tab-restock" class="panel">
-      <div class="card">
-        <h4>Productos a restockear</h4>
-        <p class="card-note">Ciclo de resurtido 26 días (21 lead time + 5 buffer). Ordenado por ganancia acumulada. Clic en un encabezado para reordenar.</p>
-        <div class="legend">
-          <span><span class="badge badge-alto">Alto</span> &gt; S/ 1,000</span>
-          <span><span class="badge badge-medio">Medio</span> S/ 300–1,000</span>
-          <span><span class="badge badge-bajo">Bajo</span> &lt; S/ 300</span>
-        </div>
-        <button class="btn" onclick="dbCargarActual()" style="margin-bottom:12px">Actualizar</button>
-        <div style="overflow-x:auto"><table class="dtable" id="tbl-restock" style="min-width:880px"></table></div>
-      </div>
-
-      <div class="card">
-        <h4>Exportar inventario</h4>
-        <p class="card-note">Catálogo completo con ventas, margen y rotación. Filtra y descárgalo en Excel o PDF.</p>
-        <div class="filtros-fila" style="align-items:center;gap:8px;flex-wrap:wrap">
-          <select id="inv-ex-marca"><option value="">Todas las marcas</option></select>
-          <select id="inv-ex-cat"><option value="">Todas las categorías</option></select>
-          <select id="inv-ex-subcat"><option value="">Todas las subcategorías</option></select>
-          <input id="inv-ex-mgmin" type="number" placeholder="Margen mín. %" style="width:120px">
-          <input id="inv-ex-mgmax" type="number" placeholder="Margen máx. %" style="width:120px">
-        </div>
-        <div class="filtros-fila" style="align-items:center;gap:14px;flex-wrap:wrap">
-          <label style="font-size:13px"><input type="checkbox" id="inv-ex-stock"> Solo con stock</label>
-          <label style="font-size:13px"><input type="checkbox" id="inv-ex-ventas"> Solo con ventas</label>
-          <input id="inv-ex-buscar" type="text" placeholder="Buscar SKU o nombre..." oninput="invExFiltrarTexto()" style="flex:1;min-width:180px">
-          <button class="btn" onclick="cargarInvExport()">Ver</button>
-          <button class="btn" onclick="invExportExcel()">Excel</button>
-          <button class="btn" onclick="invExportPDF()">PDF</button>
-        </div>
-        <div id="inv-ex-resumen" style="margin:8px 0;font-size:13px;color:var(--muted)"></div>
-        <div id="inv-ex-tabla" style="overflow-x:auto;max-height:60vh;overflow-y:auto"></div>
+      <div class="card" style="padding:0;overflow:hidden">
+        <iframe id="restock-frame" title="Restock"
+          style="width:100%;height:calc(100vh - 150px);min-height:560px;border:0;display:block"></iframe>
       </div>
     </div>
 
@@ -1081,7 +1052,7 @@ function cargarDatosTab(id){
   }
   else if(id==='sync'){cargarEstadoActualizacion();}
   else if(id==='auditoria'){if(!auditoriaCache)cargarAuditoriaGuardada();}
-  else if(['resumen','rentabilidad','inventario','restock','clientes_bi','caja_bi','crm'].includes(id)){
+  else if(['resumen','rentabilidad','inventario','clientes_bi','caja_bi','crm'].includes(id)){
     dbInitFechas('tab-'+id);
     if(!dbCargadas[id])dbCargarModulo(id);
   }
@@ -1109,6 +1080,11 @@ function cargarDatosTab(id){
     // Cotizador rápido en iframe; comparte token/origen. Carga perezosa.
     const fr=document.getElementById('cot-frame');
     if(fr&&!fr.src){fr.src='/cotizador.html?v='+Date.now();}
+  }
+  else if(id==='restock'){
+    // Restock + exportador de inventario en iframe (public/restock.html); comparte token/origen.
+    const fr=document.getElementById('restock-frame');
+    if(fr&&!fr.src){fr.src='/restock.html?v='+Date.now();}
   }
   else if(id==='saldo_favor'){
     // App de saldo a favor (créditos) en iframe; comparte token/origen. Carga perezosa.
@@ -1850,119 +1826,7 @@ async function cargarInvAnalisis(){
   }
 }
 
-// ══════════ Exportar inventario (Restock) ══════════
-function invExParams(){
-  const p=new URLSearchParams();
-  const g=(id)=>document.getElementById(id).value.trim();
-  if(g('inv-ex-marca'))p.set('marca',g('inv-ex-marca'));
-  if(g('inv-ex-cat'))p.set('categoria',g('inv-ex-cat'));
-  if(g('inv-ex-subcat'))p.set('subcategoria',g('inv-ex-subcat'));
-  if(g('inv-ex-mgmin'))p.set('margen_min',g('inv-ex-mgmin'));
-  if(g('inv-ex-mgmax'))p.set('margen_max',g('inv-ex-mgmax'));
-  if(document.getElementById('inv-ex-stock').checked)p.set('solo_stock','1');
-  if(document.getElementById('inv-ex-ventas').checked)p.set('solo_ventas','1');
-  return p;
-}
-let invExFiltrosListos=false;
-// Llena los desplegables (marca, categoría, subcategoría) al abrir la pestaña
-async function cargarInvExFiltros(){
-  if(invExFiltrosListos)return;
-  try{
-    const d=await apiCall('/api/inventario-export-filtros','GET');
-    const llenar=(id,lista,etiqueta)=>{
-      const sel=document.getElementById(id); if(!sel)return;
-      const act=sel.value;
-      sel.innerHTML=`<option value="">${etiqueta}</option>`+
-        (lista||[]).map(x=>`<option value="${esc(x)}"${x===act?' selected':''}>${esc(x)}</option>`).join('');
-    };
-    llenar('inv-ex-marca',d.marcas,'Todas las marcas');
-    llenar('inv-ex-cat',d.categorias,'Todas las categorías');
-    llenar('inv-ex-subcat',d.subcategorias,'Todas las subcategorías');
-    invExFiltrosListos=true;
-  }catch(e){/* si falla, los desplegables quedan vacíos y se llenan al dar Ver */}
-}
-function pintarInvExport(d,horaTexto){
-  const res=document.getElementById('inv-ex-resumen');
-  const cont=document.getElementById('inv-ex-tabla');
-  res.innerHTML=`<b>${d.total}</b> producto(s)`+(d.items.length>500?' · mostrando 500 en pantalla (Excel/PDF traen todo)':'')+(horaTexto?` · Última corrida: ${horaTexto}`:'');
-  if(!d.items.length){cont.innerHTML='<div class="muted">Sin productos con esos filtros.</div>';return;}
-  const money=n=>n==null?'—':'S/ '+Number(n).toLocaleString('es-PE',{minimumFractionDigits:2});
-  window._invExItems=d.items;
-  cont.innerHTML='<table class="deudas-tbl" id="inv-ex-tbl"><thead><tr>'+
-    '<th>SKU</th><th>Producto</th><th>Marca</th><th>Categoría</th><th style="text-align:right">Stock</th><th style="text-align:right">Costo prom.</th><th style="text-align:right">Precio</th><th style="text-align:right">Margen</th><th style="text-align:right">Vend. 90d</th><th style="text-align:right">Vend. hist.</th><th style="text-align:right">Venta hist.</th><th style="text-align:right">Días s/venta</th></tr></thead><tbody>'+
-    d.items.slice(0,500).map(x=>`<tr data-txt="${esc((x.sku+' '+x.producto).toLowerCase())}">
-      <td>${esc(x.sku)}</td><td>${esc(x.producto)}</td><td>${esc(x.marca)}</td><td>${esc(x.categoria)}</td>
-      <td style="text-align:right">${x.stock}</td>
-      <td style="text-align:right">${money(x.costo_prom)}</td>
-      <td style="text-align:right">${money(x.precio_venta)}</td>
-      <td style="text-align:right">${x.margen_pct!=null?x.margen_pct+'%':'—'}</td>
-      <td style="text-align:right">${x.und_90d}</td>
-      <td style="text-align:right">${x.und_hist}</td>
-      <td style="text-align:right">${money(x.venta_hist)}</td>
-      <td style="text-align:right">${x.dias_sin_venta!=null?x.dias_sin_venta:'<span class="badge-r" style="font-size:9px">nunca</span>'}</td>
-    </tr>`).join('')+'</tbody></table>';
-  invExFiltrarTexto();
-}
-function restaurarInvEx(){
-  try{
-    const raw=localStorage.getItem('kuranko_ultima_invex');
-    if(!raw)return;
-    const g=JSON.parse(raw);
-    if(g.v!==MEM_VERSION){localStorage.removeItem('kuranko_ultima_invex');return;}
-    pintarInvExport(g.d, g.hora+' (guardada)');
-  }catch(e){/* nada */}
-}
-async function cargarInvExport(){
-  const res=document.getElementById('inv-ex-resumen');
-  document.getElementById('inv-ex-tabla').innerHTML='';
-  res.textContent='Cargando inventario...';
-  try{
-    const d=await apiCall('/api/inventario-export?'+invExParams().toString(),'GET');
-    const hora=new Date().toLocaleString('es-PE');
-    pintarInvExport(d,hora);
-    // Memoria: SIEMPRE se reemplaza la corrida anterior (una sola guardada)
-    try{ localStorage.setItem('kuranko_ultima_invex', JSON.stringify({v:MEM_VERSION,d,hora})); }catch(e){/* cuota llena */}
-  }catch(e){res.textContent='';showToast(e.message,true);}
-}
-function invExFiltrarTexto(){
-  const q=(document.getElementById('inv-ex-buscar').value||'').toLowerCase().trim();
-  document.querySelectorAll('#inv-ex-tbl tbody tr').forEach(tr=>{
-    tr.style.display=(!q||tr.dataset.txt.includes(q))?'':'none';
-  });
-}
-async function invExportExcel(){
-  try{
-    const r=await fetch(API+'/api/inventario-export-excel?'+invExParams().toString(),{headers:{'Authorization':'Bearer '+TOKEN}});
-    if(!r.ok)throw new Error('No se pudo generar el Excel');
-    const blob=await r.blob();
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement('a');a.href=url;a.download=nombreArchivo('inventario','xlsx');a.click();
-    URL.revokeObjectURL(url);
-  }catch(e){showToast(e.message,true);}
-}
-async function invExportPDF(){
-  try{
-    const d=await apiCall('/api/inventario-export?'+invExParams().toString(),'GET');
-    if(!d.items.length){showToast('Sin productos para exportar',true);return;}
-    const {jsPDF}=window.jspdf;
-    const doc=new jsPDF({orientation:'landscape',unit:'pt',format:'a4'});
-    doc.setFontSize(14);doc.text('Inventario con ventas y margen',40,40);
-    doc.setFontSize(9);doc.setTextColor(120);
-    doc.text(`${d.total} productos · Generado: ${new Date().toLocaleString('es-PE')}`,40,56);
-    const cols=['SKU','Producto','Marca','Cat.','Stock','Costo','Precio','Mg%','90d','Hist.','Venta hist.','Días'];
-    const filas=d.items.map(x=>[
-      x.sku, x.producto, x.marca, x.categoria, x.stock,
-      x.costo_prom!=null?x.costo_prom.toLocaleString('es-PE',{minimumFractionDigits:2}):'—',
-      x.precio_venta!=null?x.precio_venta.toLocaleString('es-PE',{minimumFractionDigits:2}):'—',
-      x.margen_pct!=null?x.margen_pct+'%':'—', x.und_90d, x.und_hist,
-      x.venta_hist!=null?x.venta_hist.toLocaleString('es-PE',{minimumFractionDigits:2}):'—',
-      x.dias_sin_venta!=null?x.dias_sin_venta:'nunca'
-    ]);
-    doc.autoTable({startY:66,head:[cols],body:filas,styles:{fontSize:7,cellPadding:2},
-      headStyles:{fillColor:[0,7,38]},columnStyles:{1:{cellWidth:150}},margin:{left:40,right:40}});
-    doc.save(nombreArchivo('inventario','pdf'));
-  }catch(e){showToast(e.message,true);}
-}
+// Restock y Exportar inventario → public/restock.html + public/restock.js (iframe)
 
 function promoCambioCriterio(){
   const c=document.getElementById('promo-criterio').value;
@@ -2507,7 +2371,6 @@ async function dbCargarModulo(id){
     if(id==='resumen')await dbResumen();
     else if(id==='rentabilidad')await dbRentabilidad();
     else if(id==='inventario')await dbInventario();
-    else if(id==='restock'){await dbRestock();cargarInvExFiltros();if(!window._invExItems)restaurarInvEx();}
     else if(id==='clientes_bi')await dbClientes();
     else if(id==='caja_bi')await dbCaja();
     else if(id==='crm')await dbCRM();
@@ -2916,26 +2779,6 @@ async function dbInventario(){
     {k:'disponibles',t:'Disponibles',fmt:dbFmtN,num:1},
     {k:'skus',t:'SKUs',fmt:dbFmtN,num:1}
   ],'unidades');
-}
-
-async function dbRestock(){
-  const rows=await dbApi('/api/restock');
-  const impBadge=v=>v==='Alto'?'badge-alto':v==='Medio'?'badge-medio':'badge-bajo';
-  const marca=(r)=>{let m='';
-    if(+r.lineas_pedido>0)m+=` <span class="badge badge-medio" title="Ventas a pedido: ganancia pendiente">a pedido</span>`;
-    if(+r.lineas_falla>0)m+=` <span class="badge badge-r" title="Ventas con costo no vinculado">⚠</span>`;
-    return m;};
-  dbSortTable('tbl-restock',rows,[
-    {k:'producto',t:'Producto',fmt:(v,r)=>`${v}${r.variacion&&r.variacion!==v?' <span style="color:var(--muted)">('+r.variacion+')</span>':''}${marca(r)}`},
-    {k:'sku',t:'SKU',fmt:v=>`<span style="color:var(--muted);font-size:11px">${v||'-'}</span>`},
-    {k:'importancia',t:'Import.',fmt:v=>`<span class="badge ${impBadge(v)}">${v}</span>`},
-    {k:'stock_disponible',t:'Stock',fmt:(v,r)=>`<span class="badge ${v<=r.punto_reorden/2?'badge-r':'badge-y'}">${dbFmtN(v)}</span>`,num:1},
-    {k:'punto_reorden',t:'Pto.reorden',fmt:v=>dbFmtN(Math.round(v)),num:1},
-    {k:'vendido_90d',t:'Vend.90d',fmt:dbFmtN,num:1},
-    {k:'unidades_hist',t:'Vend.total',fmt:dbFmtN,num:1},
-    {k:'margen_pct',t:'Margen%',fmt:v=>v+'%',num:1},
-    {k:'ganancia_hist',t:'Ganancia',fmt:dbFmt,num:1}
-  ],'ganancia_hist');
 }
 
 async function dbClientes(){

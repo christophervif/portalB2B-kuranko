@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<script src="/tema.js"></script>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Restock — Kuranko</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<style>
+:root{
+  --bg:#0a1030;--surface:#111a44;--surface2:#0e1640;--surface3:#18224e;
+  --border:#212b54;--text:#eef1f8;--text2:#c6cee2;--muted:#8a93b4;--muted2:#a2abca;
+  --accent:#FFB30D;--accent-text:#000726;--accent-h:#e6a00c;--hover:#1a2450;--white:#ffffff;
+  --bg-ok:#163a29;--fg-ok:#6ee59a;--bg-warn:#3d3315;--fg-warn:#ffcb52;--bg-r:#3f1c20;--fg-r:#f79a9a;
+  --bg-v:#2a2766;--fg-v:#cecbf6;
+  --radius:18px;--radius-sm:12px;
+  --shadow-sm:0 2px 8px rgba(0,0,0,.10);
+}
+[data-theme="light"]{
+  --bg:#f6f8fd;--surface:#ffffff;--surface2:#fbfcff;--surface3:#f2f5fb;
+  --border:#e3e9f5;--text:#1a2140;--text2:#4a5680;--muted:#9aa3c0;--muted2:#727e9f;
+  --hover:#f2f5fb;--white:#1a2140;
+  --bg-ok:#e8f8ef;--fg-ok:#1f9c56;--bg-warn:#fdf5db;--fg-warn:#9a6b00;--bg-r:#fdeded;--fg-r:#dc4b4b;
+  --bg-v:#eeedfc;--fg-v:#4b43b8;
+  --shadow-sm:0 2px 10px rgba(30,45,90,.04);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{overflow-x:hidden}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px}
+.wrap{max-width:1240px;margin:0 auto;padding:1.25rem}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.1rem;box-shadow:var(--shadow-sm);margin-bottom:16px}
+.card h3{font-size:15px;font-weight:600;color:var(--white);margin-bottom:4px}
+.desc{font-size:12px;color:var(--muted);line-height:1.55}
+.fila{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px}
+.campo{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--muted2)}
+.campo input,.campo select,.fila>select,.fila>input{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:8px 10px;font-size:13px}
+.campo input[type=number]{width:84px}
+input:focus,select:focus{outline:none;border-color:var(--accent)}
+.chk{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);cursor:pointer;white-space:nowrap;padding-bottom:8px}
+.btn{background:var(--accent);border:none;color:var(--accent-text);border-radius:var(--radius-sm);padding:9px 16px;font-size:13px;cursor:pointer;font-weight:600}
+.btn:hover{background:var(--accent-h)}
+.btn:disabled{opacity:.6;cursor:wait}
+.btn-sec{background:var(--surface3);border:1px solid var(--border);color:var(--text2)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:14px}
+.kpi{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:12px;cursor:default}
+.kpi.clic{cursor:pointer}.kpi.clic:hover{border-color:var(--accent)}
+.kpi .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.kpi .v{font-size:1.4rem;font-weight:700;color:var(--white);margin-top:4px}
+.kpi .s{font-size:11px;color:var(--muted2);margin-top:2px}
+.kpi.r .v{color:var(--fg-r)}.kpi.w .v{color:var(--fg-warn)}.kpi.a .v{color:var(--accent)}
+.aviso{font-size:12px;border-radius:10px;padding:8px 10px;margin-top:10px;background:var(--bg-warn);color:var(--fg-warn)}
+.tabla-wrap{overflow:auto;max-height:68vh;margin-top:10px;border:1px solid var(--border);border-radius:12px}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{position:sticky;top:0;background:var(--surface3);text-align:left;padding:8px;color:var(--muted2);font-weight:600;font-size:11px;border-bottom:1px solid var(--border);white-space:nowrap;cursor:pointer;user-select:none;z-index:1}
+th:hover{color:var(--white)}
+th.n,td.n{text-align:right}
+td.n{white-space:nowrap}
+#tbl-restock td:first-child{min-width:220px}
+#inv-ex-tbl td:nth-child(2){min-width:200px}
+th.asc::after{content:' ↑';color:var(--accent)}th.desc::after{content:' ↓';color:var(--accent)}
+td{padding:8px;border-bottom:1px solid var(--border);color:var(--text2);vertical-align:top}
+tr:hover td{background:var(--hover)}
+td .nom{color:var(--white);font-weight:500;line-height:1.35}
+td .sku{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--muted)}
+td.sug{font-weight:700;color:var(--white);font-size:14px}
+.chip{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:20px;white-space:nowrap}
+.c-r{background:var(--bg-r);color:var(--fg-r)}.c-w{background:var(--bg-warn);color:var(--fg-warn)}.c-ok{background:var(--bg-ok);color:var(--fg-ok)}
+.c-v{background:var(--bg-v);color:var(--fg-v)}.c-g{background:var(--surface3);color:var(--text2);border:1px solid var(--border)}
+.sub{font-size:10.5px;color:var(--muted);margin-top:2px;white-space:nowrap}
+.vacio{color:var(--muted);text-align:center;padding:1.5rem;font-size:13px}
+.leyenda{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font-size:11.5px;color:var(--muted)}
+.leyenda span{display:inline-flex;gap:6px;align-items:center}
+details.ayuda{margin-top:10px;font-size:12px;color:var(--text2)}
+details.ayuda summary{cursor:pointer;color:var(--muted2)}
+details.ayuda ul{margin:6px 0 0 18px;line-height:1.6}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--bg-ok);color:var(--fg-ok);padding:12px 18px;border-radius:12px;font-size:13px;display:none;z-index:100;border:1px solid var(--border);max-width:320px}
+.toast.err{background:var(--bg-r);color:var(--fg-r)}
+@media(max-width:640px){.wrap{padding:.75rem}.card{padding:.9rem}.campo input[type=number]{width:70px}}
+</style>
+</head>
+<body>
+<div class="toast" id="toast"></div>
+<div class="wrap">
+
+  <!-- ══════════ RESTOCK ══════════ -->
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
+      <div>
+        <h3>Productos a reponer</h3>
+        <div class="desc" id="rs-desc">Productos con venta reciente cuyo stock (más lo que viene en camino) ya no alcanza para cubrir el tiempo de reposición.</div>
+      </div>
+      <div class="desc" id="rs-hora"></div>
+    </div>
+
+    <div class="fila">
+      <label class="campo" title="Días que tarda un pedido desde que se hace hasta que llega">Lead time (días)<input type="number" id="p-lead" min="1" max="365" value="21"></label>
+      <label class="campo" title="Días extra de seguridad por demoras o picos de venta">Buffer (días)<input type="number" id="p-buffer" min="0" max="180" value="5"></label>
+      <label class="campo" title="Cuántos días de venta quieres cubrir con el pedido, además del ciclo de reposición">Cobertura pedido (días)<input type="number" id="p-cobertura" min="0" max="365" value="30"></label>
+      <label class="campo" title="Periodo de ventas que se usa para calcular el ritmo de venta">Ritmo de venta según
+        <select id="p-ventana">
+          <option value="30">últimos 30 días</option>
+          <option value="60">últimos 60 días</option>
+          <option value="90" selected>últimos 90 días</option>
+          <option value="180">últimos 180 días</option>
+          <option value="365">últimos 12 meses</option>
+        </select>
+      </label>
+      <label class="chk" title="Por defecto el stock en consignación no cuenta: está en el cliente"><input type="checkbox" id="p-consig"> Contar consignación</label>
+      <button class="btn" id="btn-calc" onclick="cargarRestock()">Calcular</button>
+    </div>
+
+    <div class="kpis" id="rs-kpis"></div>
+    <div id="rs-aviso"></div>
+
+    <div class="fila">
+      <input id="f-buscar" type="search" placeholder="Buscar SKU o nombre…" oninput="pintarRestock()" style="flex:1;min-width:180px">
+      <select id="f-marca" onchange="pintarRestock()"><option value="">Todas las marcas</option></select>
+      <select id="f-urg" onchange="pintarRestock()">
+        <option value="">Toda urgencia</option><option>Agotado</option><option>Crítico</option><option>Reponer</option>
+      </select>
+      <select id="f-imp" onchange="pintarRestock()">
+        <option value="">Toda importancia</option><option>Alto</option><option>Medio</option><option>Bajo</option>
+      </select>
+      <label class="chk"><input type="checkbox" id="f-pedido" onchange="pintarRestock()"> Ocultar los que se venden sobre todo a pedido</label>
+      <button class="btn btn-sec" onclick="restockExcel()">Excel</button>
+      <button class="btn btn-sec" onclick="restockPDF()">PDF</button>
+    </div>
+    <div class="desc" id="rs-conteo" style="margin-top:8px"></div>
+    <div class="tabla-wrap"><table id="tbl-restock"></table></div>
+
+    <div class="leyenda">
+      <span><span class="chip c-r">Agotado</span> sin stock propio hoy</span>
+      <span><span class="chip c-w">Crítico</span> se agota antes de que llegue un pedido hecho hoy</span>
+      <span><span class="chip c-g">Reponer</span> bajo el punto de reorden</span>
+      <span><span class="chip c-v">Alto</span> ganancia hist. &gt; S/ 1,000 · Medio S/ 300–1,000 · Bajo &lt; S/ 300</span>
+    </div>
+    <details class="ayuda">
+      <summary>¿Cómo se calcula?</summary>
+      <ul>
+        <li><b>Venta/día</b> = unidades vendidas en el periodo elegido ÷ días del periodo.</li>
+        <li><b>Posición</b> = stock propio (almacenes y tiendas, sin consignación ni cuarentena/exhibición) + en tránsito libre − backorders sin cubrir.</li>
+        <li><b>Punto de reorden</b> = venta/día × (lead time + buffer). Aparece en la lista si la posición es menor o igual.</li>
+        <li><b>Sugerido pedir</b> = venta/día × (lead + buffer + cobertura) − posición, redondeado hacia arriba.</li>
+        <li><b>En tránsito</b> y <b>backorders</b> vienen del módulo Seguimiento (envíos "en tránsito" y backorders sin comprar). Solo se cuentan las unidades del envío que no están asignadas a un backorder.</li>
+        <li><b>Inversión</b> = sugerido × último costo de compra conocido (referencial).</li>
+      </ul>
+    </details>
+  </div>
+
+  <!-- ══════════ EXPORTAR INVENTARIO ══════════ -->
+  <div class="card">
+    <h3>Exportar inventario</h3>
+    <div class="desc">Catálogo completo con ventas, margen y rotación. Filtra y descárgalo en Excel o PDF.</div>
+    <div class="fila">
+      <select id="inv-ex-marca"><option value="">Todas las marcas</option></select>
+      <select id="inv-ex-cat"><option value="">Todas las categorías</option></select>
+      <select id="inv-ex-subcat"><option value="">Todas las subcategorías</option></select>
+      <input id="inv-ex-mgmin" type="number" placeholder="Margen mín. %" style="width:120px">
+      <input id="inv-ex-mgmax" type="number" placeholder="Margen máx. %" style="width:120px">
+    </div>
+    <div class="fila" style="align-items:center">
+      <label class="chk" style="padding:0"><input type="checkbox" id="inv-ex-stock"> Solo con stock</label>
+      <label class="chk" style="padding:0"><input type="checkbox" id="inv-ex-ventas"> Solo con ventas</label>
+      <input id="inv-ex-buscar" type="search" placeholder="Buscar SKU o nombre…" oninput="pintarInvExTabla()" style="flex:1;min-width:180px">
+      <button class="btn" onclick="cargarInvExport()">Ver</button>
+      <button class="btn btn-sec" onclick="invExportExcel()">Excel</button>
+      <button class="btn btn-sec" onclick="invExportPDF()">PDF</button>
+    </div>
+    <div class="desc" id="inv-ex-resumen" style="margin-top:8px"></div>
+    <div class="tabla-wrap" id="inv-ex-wrap" style="display:none"><table id="inv-ex-tbl"></table></div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+//  Restock — frontend (mini-app en iframe dentro de admin.html)
+//  Comparte token y origen con el panel (localStorage 'admtoken').
+//  Backend: modulos/restock.js  (/api/restock, /api/restock-excel,
+//           /api/inventario-export*, /api/inventario-export-filtros)
+// ═══════════════════════════════════════════════════════════════════════════
+let TOKEN = ''; try { TOKEN = localStorage.getItem('admtoken') || ''; } catch (e) {}
+
+const $ = id => document.getElementById(id);
+function esc(t) { return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function showToast(m, e) { const t = $('toast'); t.textContent = m; t.className = 'toast' + (e ? ' err' : ''); t.style.display = 'block'; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', 3500); }
+async function apiCall(ep) {
+  const r = await fetch(ep, { headers: { 'Authorization': 'Bearer ' + TOKEN } });
+  if (r.status === 401) throw new Error('Sesión del portal expirada — vuelve a entrar al panel.');
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || 'Error');
+  return d;
+}
+async function descargar(ep, nombre) {
+  const r = await fetch(ep, { headers: { 'Authorization': 'Bearer ' + TOKEN } });
+  if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || 'No se pudo generar el archivo'); }
+  const blob = await r.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = nombre; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function nombreArchivo(base, ext) {
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  return `${base}-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.${ext}`;
+}
+const N = (n, dec = 0) => n == null ? '—' : Number(n).toLocaleString('es-PE', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+const S = n => n == null ? '—' : 'S/ ' + N(n, 2);
+const MAX_FILAS = 500; // filas pintadas en pantalla (Excel/PDF traen todo)
+
+// ══════════════════════════ RESTOCK ══════════════════════════
+const PKEY = 'restock_params';
+let RS = null;                               // última respuesta de /api/restock
+let rsSort = { k: null, dir: 'asc' };        // null = orden del servidor (urgencia → importancia → ganancia)
+
+function leerParams() {
+  return {
+    lead: $('p-lead').value, buffer: $('p-buffer').value, cobertura: $('p-cobertura').value,
+    ventana: $('p-ventana').value, incluir_consig: $('p-consig').checked ? '1' : ''
+  };
+}
+function paramsQS(extra) {
+  const p = new URLSearchParams();
+  Object.entries({ ...leerParams(), ...(extra || {}) }).forEach(([k, v]) => { if (v !== '' && v != null) p.set(k, v); });
+  return p.toString();
+}
+function restaurarParams() {
+  try {
+    const g = JSON.parse(localStorage.getItem(PKEY) || 'null'); if (!g) return;
+    if (g.lead) $('p-lead').value = g.lead;
+    if (g.buffer !== undefined && g.buffer !== '') $('p-buffer').value = g.buffer;
+    if (g.cobertura !== undefined && g.cobertura !== '') $('p-cobertura').value = g.cobertura;
+    if (g.ventana) $('p-ventana').value = g.ventana;
+    $('p-consig').checked = g.incluir_consig === '1';
+  } catch (e) {}
+}
+
+async function cargarRestock() {
+  const btn = $('btn-calc'); btn.disabled = true; btn.textContent = 'Calculando…';
+  $('rs-conteo').textContent = 'Analizando stock y ventas…';
+  try {
+    RS = await apiCall('/api/restock?' + paramsQS());
+    try { localStorage.setItem(PKEY, JSON.stringify(leerParams())); } catch (e) {}
+    // Reflejar lo que el servidor realmente usó (valores fuera de rango se ajustan)
+    const p = RS.parametros;
+    $('p-lead').value = p.lead; $('p-buffer').value = p.buffer; $('p-cobertura').value = p.cobertura; $('p-ventana').value = p.ventana;
+    $('rs-hora').textContent = 'Actualizado: ' + new Date().toLocaleString('es-PE');
+    $('rs-desc').textContent = `Ciclo de reposición ${p.lead + p.buffer} días (${p.lead} lead time + ${p.buffer} buffer) · ritmo de venta de los últimos ${p.ventana} días · pedido para cubrir ${p.cobertura} días más.`;
+    const selM = $('f-marca'), act = selM.value;
+    selM.innerHTML = '<option value="">Todas las marcas</option>' + RS.marcas.map(m => `<option${m === act ? ' selected' : ''}>${esc(m)}</option>`).join('');
+    pintarKpis();
+    pintarRestock();
+  } catch (e) {
+    $('rs-conteo').textContent = '';
+    showToast(e.message, true);
+  } finally { btn.disabled = false; btn.textContent = 'Calcular'; }
+}
+
+function pintarKpis() {
+  const r = RS.resumen;
+  const k = [
+    { l: 'A reponer', v: N(r.total), s: 'productos bajo el punto de reorden', c: 'a', f: '' },
+    { l: 'Agotados', v: N(r.agotados), s: 'sin stock propio hoy', c: 'r', f: 'Agotado' },
+    { l: 'Críticos', v: N(r.criticos), s: 'no llegan al próximo pedido', c: 'w', f: 'Crítico' },
+    { l: 'Unidades sugeridas', v: N(r.unidades_sugeridas), s: 'para el pedido completo', c: '' },
+    { l: 'Inversión estimada', v: S(r.inversion), s: r.sin_costo ? `${r.sin_costo} sin costo conocido` : 'a último costo de compra', c: '' }
+  ];
+  $('rs-kpis').innerHTML = k.map(x => `<div class="kpi ${x.c}${x.f !== undefined ? ' clic' : ''}" ${x.f !== undefined ? `onclick="filtrarUrg('${x.f}')" title="Filtrar"` : ''}>
+    <div class="l">${x.l}</div><div class="v">${x.v}</div><div class="s">${esc(x.s)}</div></div>`).join('');
+  $('rs-aviso').innerHTML = RS.seguimiento ? '' :
+    '<div class="aviso">No se pudo leer el módulo Seguimiento: el cálculo no descuenta mercadería en tránsito ni suma backorders pendientes.</div>';
+}
+function filtrarUrg(u) { $('f-urg').value = u; pintarRestock(); }
+
+function filasFiltradas() {
+  if (!RS) return [];
+  const q = ($('f-buscar').value || '').toLowerCase().trim();
+  const marca = $('f-marca').value, urg = $('f-urg').value, imp = $('f-imp').value, sinPedido = $('f-pedido').checked;
+  let rows = RS.items.filter(x =>
+    (!q || (x.sku + ' ' + x.producto).toLowerCase().includes(q)) &&
+    (!marca || x.marca === marca) && (!urg || x.urgencia === urg) && (!imp || x.importancia === imp) &&
+    (!sinPedido || x.pct_a_pedido < 50));
+  if (rsSort.k) {
+    const { k, dir } = rsSort, m = dir === 'asc' ? 1 : -1;
+    rows = rows.slice().sort((a, b) => {
+      const x = a[k], y = b[k];
+      if (typeof x === 'number' || typeof y === 'number') return ((x == null ? -Infinity : x) - (y == null ? -Infinity : y)) * m;
+      return String(x || '').localeCompare(String(y || '')) * m;
+    });
+  }
+  return rows;
+}
+
+const COLS_RS = [
+  { k: 'producto', t: 'Producto' },
+  { k: 'urgencia', t: 'Urgencia' },
+  { k: 'importancia', t: 'Import.' },
+  { k: 'stock_propio', t: 'Stock', n: 1 },
+  { k: 'en_transito', t: 'En camino', n: 1 },
+  { k: 'bo_pendiente', t: 'Backorder', n: 1 },
+  { k: 'ventas_dia', t: 'Venta/día', n: 1 },
+  { k: 'punto_reorden', t: 'Pto. reorden', n: 1 },
+  { k: 'dias_cobertura', t: 'Días cob.', n: 1 },
+  { k: 'sugerido', t: 'Pedir', n: 1 },
+  { k: 'inversion', t: 'Inversión', n: 1 },
+  { k: 'margen_pct', t: 'Margen', n: 1 },
+  { k: 'ganancia_hist', t: 'Ganancia hist.', n: 1 }
+];
+function ordenarRS(k) {
+  if (rsSort.k === k) rsSort.dir = rsSort.dir === 'asc' ? 'desc' : 'asc';
+  else { rsSort.k = k; rsSort.dir = COLS_RS.find(c => c.k === k).n ? 'desc' : 'asc'; }
+  pintarRestock();
+}
+
+function pintarRestock() {
+  const t = $('tbl-restock');
+  if (!RS) { t.innerHTML = ''; return; }
+  const rows = filasFiltradas();
+  const p = RS.parametros;
+  const inv = rows.reduce((s, x) => s + x.inversion, 0), und = rows.reduce((s, x) => s + x.sugerido, 0);
+  $('rs-conteo').innerHTML = `<b>${rows.length}</b> de ${RS.items.length} producto(s) · pedir <b>${N(und)}</b> und · inversión <b>${S(inv)}</b>` +
+    (rows.length > MAX_FILAS ? ` · mostrando ${MAX_FILAS} en pantalla (Excel/PDF traen todo)` : '');
+  const chU = { 'Agotado': 'c-r', 'Crítico': 'c-w', 'Reponer': 'c-g' };
+  const chI = { 'Alto': 'c-v', 'Medio': 'c-w', 'Bajo': 'c-g' };
+  const head = '<thead><tr>' + COLS_RS.map(c => {
+    const cls = [c.n ? 'n' : '', rsSort.k === c.k ? rsSort.dir : ''].join(' ').trim();
+    return `<th class="${cls}" onclick="ordenarRS('${c.k}')">${c.t}</th>`;
+  }).join('') + '</tr></thead>';
+  if (!rows.length) {
+    t.innerHTML = head + `<tbody><tr><td colspan="${COLS_RS.length}" class="vacio">${RS.items.length ? 'Sin productos con esos filtros.' : '¡Nada que reponer con estos parámetros!'}</td></tr></tbody>`;
+    return;
+  }
+  t.innerHTML = head + '<tbody>' + rows.slice(0, MAX_FILAS).map(x => {
+    let marcas = '';
+    if (x.pct_a_pedido >= 50) marcas += ` <span class="chip c-w" title="${x.pct_a_pedido}% de lo vendido en el periodo fue a pedido (sin stock): quizá no convenga stockearlo">a pedido ${x.pct_a_pedido}%</span>`;
+    if (x.lineas_falla > 0) marcas += ` <span class="chip c-r" title="Tiene ventas sin lote/costo vinculado: la ganancia y el margen pueden estar subestimados">⚠ costo</span>`;
+    const extraStock = [
+      x.consignacion ? `${N(x.consignacion)} consig.` : '',
+      x.no_vendible ? `${N(x.no_vendible)} no vend.` : ''
+    ].filter(Boolean).join(' · ');
+    const diasCls = x.dias_cobertura == null ? '' : x.dias_cobertura < p.lead ? 'c-r' : 'c-w';
+    return `<tr>
+      <td><div class="nom">${esc(x.producto)}${marcas}</div><div class="sku">${esc(x.sku || '—')}</div></td>
+      <td><span class="chip ${chU[x.urgencia]}">${x.urgencia}</span></td>
+      <td><span class="chip ${chI[x.importancia]}">${x.importancia}</span></td>
+      <td class="n">${N(x.stock_propio)}${extraStock ? `<div class="sub">${extraStock}</div>` : ''}</td>
+      <td class="n">${x.en_transito ? N(x.en_transito) : '—'}</td>
+      <td class="n">${x.bo_pendiente ? `<span class="chip c-r" title="Unidades vendidas a pedido que aún no se compran">${N(x.bo_pendiente)}</span>` : '—'}</td>
+      <td class="n">${N(x.ventas_dia, 2)}<div class="sub">${N(x.vendido_ventana)} en ${p.ventana}d</div></td>
+      <td class="n">${N(x.punto_reorden, 1)}</td>
+      <td class="n">${x.dias_cobertura == null ? '—' : `<span class="chip ${diasCls}">${N(x.dias_cobertura, 0)} d</span>`}</td>
+      <td class="n sug">${N(x.sugerido)}</td>
+      <td class="n">${x.costo_ult ? S(x.inversion) : '<span class="sub" title="Sin lote de compra registrado">sin costo</span>'}</td>
+      <td class="n">${x.margen_pct == null ? '—' : N(x.margen_pct, 1) + '%'}</td>
+      <td class="n">${S(x.ganancia_hist)}</td>
+    </tr>`;
+  }).join('') + '</tbody>';
+}
+
+async function restockExcel() {
+  try {
+    const extra = { marca: $('f-marca').value, urgencia: $('f-urg').value, importancia: $('f-imp').value };
+    await descargar('/api/restock-excel?' + paramsQS(extra), nombreArchivo('restock', 'xlsx'));
+  } catch (e) { showToast(e.message, true); }
+}
+function restockPDF() {
+  if (!RS) { showToast('Primero calcula el restock', true); return; }
+  const rows = filasFiltradas();
+  if (!rows.length) { showToast('Sin productos para exportar', true); return; }
+  const p = RS.parametros;
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+  doc.setFontSize(14); doc.text('Restock — productos a reponer', 40, 40);
+  doc.setFontSize(9); doc.setTextColor(120);
+  doc.text(`${rows.length} productos · lead ${p.lead}d + buffer ${p.buffer}d · cobertura ${p.cobertura}d · ventas ${p.ventana}d · Generado: ${new Date().toLocaleString('es-PE')}`, 40, 56);
+  doc.autoTable({
+    startY: 66,
+    head: [['Urgencia', 'Imp.', 'SKU', 'Producto', 'Stock', 'Camino', 'BO', 'Vta/día', 'Pto.reord.', 'Días cob.', 'Pedir', 'Inversión']],
+    body: rows.map(x => [x.urgencia, x.importancia, x.sku, x.producto, x.stock_propio, x.en_transito || '', x.bo_pendiente || '',
+      N(x.ventas_dia, 2), N(x.punto_reorden, 1), x.dias_cobertura == null ? '—' : N(x.dias_cobertura, 0), x.sugerido, x.costo_ult ? N(x.inversion, 2) : '—']),
+    styles: { fontSize: 7, cellPadding: 2 }, headStyles: { fillColor: [0, 7, 38] },
+    columnStyles: { 3: { cellWidth: 200 } }, margin: { left: 40, right: 40 }
+  });
+  doc.save(nombreArchivo('restock', 'pdf'));
+}
+
+// ══════════════════════════ EXPORTAR INVENTARIO ══════════════════════════
+const INV_KEY = 'kuranko_ultima_invex_v2';
+let INV = null;
+
+function invExParams() {
+  const p = new URLSearchParams();
+  const g = id => $(id).value.trim();
+  if (g('inv-ex-marca')) p.set('marca', g('inv-ex-marca'));
+  if (g('inv-ex-cat')) p.set('categoria', g('inv-ex-cat'));
+  if (g('inv-ex-subcat')) p.set('subcategoria', g('inv-ex-subcat'));
+  if (g('inv-ex-mgmin')) p.set('margen_min', g('inv-ex-mgmin'));
+  if (g('inv-ex-mgmax')) p.set('margen_max', g('inv-ex-mgmax'));
+  if ($('inv-ex-stock').checked) p.set('solo_stock', '1');
+  if ($('inv-ex-ventas').checked) p.set('solo_ventas', '1');
+  return p.toString();
+}
+async function cargarInvExFiltros() {
+  try {
+    const d = await apiCall('/api/inventario-export-filtros');
+    const llenar = (id, lista, etiqueta) => {
+      const sel = $(id), act = sel.value;
+      sel.innerHTML = `<option value="">${etiqueta}</option>` +
+        (lista || []).map(x => `<option value="${esc(x)}"${x === act ? ' selected' : ''}>${esc(x)}</option>`).join('');
+    };
+    llenar('inv-ex-marca', d.marcas, 'Todas las marcas');
+    llenar('inv-ex-cat', d.categorias, 'Todas las categorías');
+    llenar('inv-ex-subcat', d.subcategorias, 'Todas las subcategorías');
+  } catch (e) { /* si falla, los desplegables quedan vacíos */ }
+}
+function pintarInvExport(d, horaTexto) {
+  INV = { d, hora: horaTexto };
+  pintarInvExTabla();
+}
+// La búsqueda filtra sobre TODOS los productos (no solo los 500 pintados)
+function pintarInvExTabla() {
+  if (!INV) return;
+  const { d, hora } = INV;
+  const q = ($('inv-ex-buscar').value || '').toLowerCase().trim();
+  const rows = q ? d.items.filter(x => ((x.sku || '') + ' ' + x.producto).toLowerCase().includes(q)) : d.items;
+  $('inv-ex-resumen').innerHTML = `<b>${d.total}</b> producto(s)` + (q ? ` · ${rows.length} coinciden con la búsqueda` : '') +
+    (rows.length > MAX_FILAS ? ` · mostrando ${MAX_FILAS} en pantalla (Excel/PDF traen todo)` : '') + (hora ? ` · Última corrida: ${esc(hora)}` : '');
+  const wrap = $('inv-ex-wrap');
+  if (!rows.length) { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  $('inv-ex-tbl').innerHTML = '<thead><tr><th>SKU</th><th>Producto</th><th>Marca</th><th>Categoría</th><th class="n">Stock</th><th class="n">Costo prom.</th><th class="n">Precio</th><th class="n">Margen</th><th class="n">Vend. 90d</th><th class="n">Vend. hist.</th><th class="n">Venta hist.</th><th class="n">Días s/venta</th></tr></thead><tbody>' +
+    rows.slice(0, MAX_FILAS).map(x => `<tr>
+      <td class="sku">${esc(x.sku)}</td><td>${esc(x.producto)}</td><td>${esc(x.marca)}</td><td>${esc(x.categoria)}</td>
+      <td class="n">${N(x.stock)}</td><td class="n">${x.costo_prom ? S(x.costo_prom) : '—'}</td><td class="n">${S(x.precio_venta)}</td>
+      <td class="n">${x.margen_pct != null ? x.margen_pct + '%' : '—'}</td>
+      <td class="n">${N(x.und_90d)}</td><td class="n">${N(x.und_hist)}</td><td class="n">${S(x.venta_hist)}</td>
+      <td class="n">${x.dias_sin_venta != null ? x.dias_sin_venta : '<span class="chip c-r">nunca</span>'}</td>
+    </tr>`).join('') + '</tbody>';
+}
+function restaurarInvEx() {
+  try {
+    const raw = localStorage.getItem(INV_KEY); if (!raw) return;
+    const g = JSON.parse(raw);
+    pintarInvExport(g.d, g.hora + ' (guardada)');
+  } catch (e) {}
+}
+async function cargarInvExport() {
+  $('inv-ex-resumen').textContent = 'Cargando inventario…';
+  $('inv-ex-wrap').style.display = 'none';
+  try {
+    const d = await apiCall('/api/inventario-export?' + invExParams());
+    const hora = new Date().toLocaleString('es-PE');
+    pintarInvExport(d, hora);
+    // Una sola corrida guardada (se reemplaza siempre)
+    try { localStorage.setItem(INV_KEY, JSON.stringify({ d, hora })); } catch (e) { /* cuota llena */ }
+  } catch (e) { $('inv-ex-resumen').textContent = ''; showToast(e.message, true); }
+}
+async function invExportExcel() {
+  try { await descargar('/api/inventario-export-excel?' + invExParams(), nombreArchivo('inventario', 'xlsx')); }
+  catch (e) { showToast(e.message, true); }
+}
+async function invExportPDF() {
+  try {
+    const d = await apiCall('/api/inventario-export?' + invExParams());
+    if (!d.items.length) { showToast('Sin productos para exportar', true); return; }
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+    doc.setFontSize(14); doc.text('Inventario con ventas y margen', 40, 40);
+    doc.setFontSize(9); doc.setTextColor(120);
+    doc.text(`${d.total} productos · Generado: ${new Date().toLocaleString('es-PE')}`, 40, 56);
+    const f2 = v => v != null ? Number(v).toLocaleString('es-PE', { minimumFractionDigits: 2 }) : '—';
+    doc.autoTable({
+      startY: 66,
+      head: [['SKU', 'Producto', 'Marca', 'Cat.', 'Stock', 'Costo', 'Precio', 'Mg%', '90d', 'Hist.', 'Venta hist.', 'Días']],
+      body: d.items.map(x => [x.sku, x.producto, x.marca, x.categoria, x.stock, x.costo_prom ? f2(x.costo_prom) : '—', f2(x.precio_venta),
+        x.margen_pct != null ? x.margen_pct + '%' : '—', x.und_90d, x.und_hist, f2(x.venta_hist), x.dias_sin_venta != null ? x.dias_sin_venta : 'nunca']),
+      styles: { fontSize: 7, cellPadding: 2 }, headStyles: { fillColor: [0, 7, 38] },
+      columnStyles: { 1: { cellWidth: 150 } }, margin: { left: 40, right: 40 }
+    });
+    doc.save(nombreArchivo('inventario', 'pdf'));
+  } catch (e) { showToast(e.message, true); }
+}
+
+// ══════════════════════════ Arranque ══════════════════════════
+try { localStorage.removeItem('kuranko_ultima_invex'); } catch (e) {} // formato viejo (admin.html)
+restaurarParams();
+if (!TOKEN) {
+  $('rs-conteo').textContent = 'Entra al panel de administración para usar Restock.';
+} else {
+  cargarRestock();
+  cargarInvExFiltros();
+  restaurarInvEx();
+}
+</script>
+</body>
+</html>

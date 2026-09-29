@@ -196,13 +196,6 @@ let modSeguimiento = null;
   const mInv = requiereModulo('inventario');
   const mRestock = requiereModulo('restock');
 
-  // ── EXPORTADOR DE INVENTARIO (Restock) ──
-  // Catálogo con stock, ventas, margen y rotación. Filtros: marca, categoría,
-  // subcategoría, solo con stock, solo con ventas, rango de margen.
-
-  // Llena los desplegables del exportador (marcas, categorías, subcategorías)
-  // sin cargar el catálogo completo. Se llama al abrir la pestaña.
-
 
 
   const mClientes = requiereModulo('clientes_bi');
@@ -234,8 +227,12 @@ let modSeguimiento = null;
   // ── Módulo Ventas-BI (KPIs, rentabilidad, top productos) ──
   require('./modulos/ventas-bi')({ app, authAdmin, mResumen, mRent, mCaja, prodPool, portalPool, VV });
 
-  // ── Módulo Inventario (capital parado, restock, promociones) ──
-  require('./modulos/inventario')({ app, authAdmin, mInv, mRestock, prodPool, VV });
+  // ── Módulo Inventario (capital parado, resumen, stock por sucursal) ──
+  require('./modulos/inventario')({ app, authAdmin, mInv, prodPool, VV });
+
+  // ── Módulo Restock (qué reponer y cuánto) + exportador de inventario ──
+  //    Frontend propio en public/restock.html (iframe dentro del panel).
+  require('./modulos/restock')({ app, authAdmin, mRestock, prodPool, portalPool, VV });
 
   // ── Módulo Promociones recomendadas ──
   require('./modulos/promociones')({ app, authAdmin, mInv, prodPool, VV });
@@ -290,8 +287,6 @@ let modSeguimiento = null;
   // esta pestaña la ve el supervisor y esos datos son de Rentabilidad.
 
 
-
-  // ── RESTOCK ──
 
   // ── CLIENTES ──
 

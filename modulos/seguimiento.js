@@ -136,7 +136,8 @@ module.exports = function registrarSeguimiento({
   // Backorders EN VIVO del ERP (SOLO LECTURA). Se usa para traerlos y para sincronizar.
   async function erpBackorders() {
     const [rows] = await prodPool.query(`
-      SELECT si.id AS sale_item_id, TRIM(pv.sku) AS sku, p.name AS producto,
+      SELECT si.id AS sale_item_id, TRIM(pv.sku) AS sku,
+             COALESCE(NULLIF(TRIM(pv.name),''), p.name) AS producto,
              s.code AS venta, s.created_at AS fecha, si.quantity AS cantidad,
              COALESCE(NULLIF(TRIM(cli.business_name),''),
                       NULLIF(TRIM(CONCAT_WS(' ', cli.first_name, cli.last_name)),''), '—') AS cliente
@@ -446,7 +447,10 @@ module.exports = function registrarSeguimiento({
       }
 
       const lineas = await erpBackorders();
-      // Inserta en UNA sola consulta (INSERT IGNORE múltiple) en vez de una por fila.
+      // Inserta en UNA sola consulta. Para los que ya existen, REFRESCA solo los
+      // campos descriptivos del ERP (sku, nombre del HIJO, cliente, venta, fecha)
+      // — así los backorders viejos también muestran el nombre correcto — sin tocar
+      // la gestión (grupo, nota, comprado, cobertura, archivado).
       let insertados = 0;
       if (lineas.length) {
         const valores = lineas.map(l => [
@@ -455,7 +459,9 @@ module.exports = function registrarSeguimiento({
           (l.fecha && /^\d{4}-\d{2}-\d{2}/.test(String(l.fecha))) ? String(l.fecha).slice(0,10) : null, 'erp'
         ]);
         const [r] = await portalPool.query(
-          `INSERT IGNORE INTO seg_bo_items (id, sku, nombre, cliente, venta, cantidad, fecha, origen) VALUES ?`, [valores]);
+          `INSERT INTO seg_bo_items (id, sku, nombre, cliente, venta, cantidad, fecha, origen) VALUES ?
+           ON DUPLICATE KEY UPDATE sku=VALUES(sku), nombre=VALUES(nombre), cliente=VALUES(cliente),
+             venta=VALUES(venta), cantidad=VALUES(cantidad), fecha=VALUES(fecha)`, [valores]);
         insertados = (r && r.affectedRows) || 0;
       }
 

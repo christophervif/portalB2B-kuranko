@@ -1,7 +1,6 @@
 <!doctype html>
 <html lang="es">
 <head>
-<script src="/tema.js"></script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Seguimiento — Trackings y Backorders</title>
@@ -191,6 +190,8 @@ async function api(path,method='GET',body){
 let TOAST_T=null;
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(TOAST_T);TOAST_T=setTimeout(()=>t.classList.remove('show'),2200);}
 
+/* tema heredado del panel admin (mismo origen) */
+(function(){try{const g=localStorage.getItem('tema_admin');if(g)document.documentElement.setAttribute('data-theme',g);}catch(e){}})();
 
 /* rol: leído del JWT (solo para la UI; el servidor es quien manda de verdad) */
 let ES_MAESTRO=false, USUARIO='';
@@ -355,6 +356,17 @@ function pintarEnvios(){
 }
 
 /* leer factura con IA */
+// Extrae un mensaje LEGIBLE del error de la IA (Gemini a veces devuelve {error:{message}}).
+function extraerErrorIA(raw,status){
+  try{
+    const j=JSON.parse(raw);
+    let e=(j&&j.error!==undefined)?j.error:j;
+    if(e&&typeof e==='object')e=e.message||e.status||e.error||JSON.stringify(e);
+    if(!e&&j&&j.promptFeedback)e='La IA bloqueó el documento ('+(j.promptFeedback.blockReason||'sin razón')+')';
+    e=e?String(e):'';
+    return e||('Error de IA '+status);
+  }catch(_){ return raw?String(raw).slice(0,400):('Error de IA '+status); }
+}
 async function leerFactura(){
   const f=$('pdf').files[0];
   if(!f){toast('Elige el PDF de la factura');return;}
@@ -365,9 +377,14 @@ async function leerFactura(){
     const prompt='De esta factura de proveedor devuelve ÚNICAMENTE un objeto JSON (sin texto adicional ni markdown) con la forma {"proveedor": string, "invoice": string, "date": string, "items": [{"item","desc","desc_es","marca","qty"}]}. proveedor = nombre/razón social del EMISOR/vendedor; invoice = número de factura tal como aparece; date = fecha AAAA-MM-DD si aparece; items = SOLO líneas de PRODUCTO: item = código o número de parte del proveedor como string ("" si no hay); desc = descripción del producto TAL CUAL en la factura (idioma original), COMPLETA sin acortar; desc_es = esa MISMA descripción traducida al ESPAÑOL de repuestos de bicicleta de forma ÍNTEGRA — traduce TODAS las palabras y conserva TODOS los datos (medidas, colores, lados, tallas, códigos), no resumas ni omitas nada (ej: brake→freno, rotor/disc→disco, pads→pastillas, lever→palanca, adapter→adaptador, hose→manguera, bleed kit→kit de purga, spacer→espaciador, front→delantero, rear→trasero); marca = la MARCA/fabricante del producto si se identifica ("" si no); qty = cantidad como número. Excluye envío, flete, handling, impuestos, subtotales, totales, descuentos sueltos y cualquier fila que no sea un producto.';
     const resp=await fetch('/api/seguimiento/ia',{method:'POST',headers:H(true),body:JSON.stringify({model,prompt,pdf_base64:b64})});
     const raw=await resp.text();
-    if(!resp.ok){let er='';try{er=JSON.parse(raw).error||'';}catch(e){}throw new Error(er||('IA error '+resp.status));}
+    if(!resp.ok){throw new Error(extraerErrorIA(raw,resp.status));}
     let g;try{g=JSON.parse(raw);}catch(e){throw new Error('Respuesta de IA no válida');}
-    let txt='';try{txt=g.candidates[0].content.parts.map(p=>p.text||'').join('');}catch(e){txt=raw;}
+    let txt='';
+    if(g&&g.candidates&&g.candidates[0]&&g.candidates[0].content&&Array.isArray(g.candidates[0].content.parts)){
+      txt=g.candidates[0].content.parts.map(p=>p.text||'').join('');
+    }else{
+      throw new Error(extraerErrorIA(raw,resp.status)); // 200 sin contenido: bloqueado o error de la IA
+    }
     let obj;try{obj=JSON.parse(txt);}catch(e){const m=txt.match(/[\[{][\s\S]*[\]}]/);obj=m?JSON.parse(m[0]):null;}
     if(!obj)throw new Error('No se pudo interpretar la factura');
     const arr=Array.isArray(obj)?obj:(obj.items||[]);
@@ -396,6 +413,7 @@ function recalc(i){const m=editItems[i];const r=matchLinea(m);m.sku=r.sku;m.nomb
 function renderItems(){
   $('itemsBody').innerHTML=editItems.map((m,i)=>{
     const cb=CONF_BADGE[m.confianza]||CONF_BADGE.no;
+    m.es_backorder=autoBo(m.sku); // recalcula SIEMPRE según el SKU actual (también al elegirlo a mano)
     return `<tr>
       <td>${i+1}</td>
       <td>${esc(m.codigo||'—')}</td>

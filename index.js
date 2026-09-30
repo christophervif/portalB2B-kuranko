@@ -110,7 +110,7 @@ function soloMaestro(req, res, next) {
 // LOGIN ADMIN
 // ════════════════════════════════════════════════════════════════════════════
 // Lista de módulos (pestañas) del admin. Debe coincidir con las pestañas del HTML.
-const MODULOS_ADMIN = ['clientes_gestion', 'sync', 'auditoria', 'resumen', 'rentabilidad', 'inventario', 'restock', 'clientes_bi', 'caja_bi', 'crm', 'reportes', 'pagos', 'importaciones', 'recepciones', 'seguimiento', 'conciliacion', 'cuentas_cobrar', 'saldo_favor', 'cotizador'];
+const MODULOS_ADMIN = ['clientes_gestion', 'sync', 'auditoria', 'resumen', 'rentabilidad', 'inventario', 'restock', 'clientes_bi', 'caja_bi', 'crm', 'reportes', 'pagos', 'importaciones', 'recepciones', 'seguimiento', 'conciliacion', 'cuentas_cobrar', 'saldo_favor', 'cotizador', 'precio_importado'];
 
 // Usuarios admin secundarios definidos en variables de entorno (Railway).
 // Formato por usuario (numeradas del 2 en adelante):
@@ -268,6 +268,9 @@ let modSeguimiento = null;
 
   // ── Módulo Cotizador rápido (vendedores: buscador + precio mínimo FIFO) ──
   require('./modulos/cotizador')({ app, authAdmin, requiereModulo, prodPool });
+
+  // Precio importado: calculadora de pedidos especiales a tiendas online (reemplaza la hoja de Google)
+  require('./modulos/precio-importado')({ app, authAdmin, requiereModulo });
 
   // ── Módulo Sincronización + Auditoría ──
   modSync = require('./modulos/sincronizacion')({ app, authAdmin, requiereModulo, prodPool, portalPool });

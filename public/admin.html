@@ -273,6 +273,7 @@ tr:hover td{background:var(--hover)}
       <button class="tab active" onclick="tab('clientes_gestion',this)">Gestión de clientes</button>
       <button class="tab" data-modulos="resumen,caja_bi,rentabilidad" onclick="tab('ventas_ingresos',this)">Ventas e ingresos</button>
       <button class="tab" onclick="tab('cotizador',this)">Cotizador</button>
+      <button class="tab" onclick="tab('precio_importado',this)">Precio importado</button>
       <button class="tab" data-modulos="conciliacion" onclick="tab('conciliacion',this)">Conciliación</button>
       <button class="tab" onclick="tab('clientes_bi',this)">Clientes BI</button>
       <button class="tab" data-modulos="cuentas_cobrar" onclick="tab('cuentas_cobrar',this)">Cuentas por cobrar</button>
@@ -788,6 +789,13 @@ tr:hover td{background:var(--hover)}
       </div>
     </div>
 
+    <div id="tab-precio_importado" class="panel">
+      <div class="card" style="padding:0;overflow:hidden">
+        <iframe id="pimp-frame" title="Precio importado"
+          style="width:100%;height:calc(100vh - 150px);min-height:560px;border:0;display:block"></iframe>
+      </div>
+    </div>
+
     <div id="tab-saldo_favor" class="panel">
       <div class="card" style="padding:0;overflow:hidden">
         <iframe id="saldo-frame" title="Créditos"
@@ -967,7 +975,7 @@ const APP_ICONOS={
   clientes_gestion:'👤', ventas_ingresos:'📊', clientes_bi:'👥',
   inventario:'📦', restock:'🔁', reportes:'💰', auditoria:'🔍',
   crm:'📣', sistemas:'⚙️', promociones:'🏷️', importaciones:'🚢', recepciones:'📥', seguimiento:'🚚',
-  conciliacion:'🧾', cuentas_cobrar:'💸', saldo_favor:'💵', cotizador:'🧮'
+  conciliacion:'🧾', cuentas_cobrar:'💸', saldo_favor:'💵', cotizador:'🧮', precio_importado:'🌍'
 };
 
 // Genera las tarjetas del launcher a partir de las pestañas visibles (respeta permisos)
@@ -1080,6 +1088,11 @@ function cargarDatosTab(id){
     // Cotizador rápido en iframe; comparte token/origen. Carga perezosa.
     const fr=document.getElementById('cot-frame');
     if(fr&&!fr.src){fr.src='/cotizador.html?v='+Date.now();}
+  }
+  else if(id==='precio_importado'){
+    // Calculadora de precio para pedidos especiales importados (public/precio-importado.html)
+    const fr=document.getElementById('pimp-frame');
+    if(fr&&!fr.src){fr.src='/precio-importado.html?v='+Date.now();}
   }
   else if(id==='restock'){
     // Restock + exportador de inventario en iframe (public/restock.html); comparte token/origen.
@@ -2976,7 +2989,7 @@ async function cargarEstadoActualizacion(){
   }catch(e){ if(box)box.style.display='none'; }
 }
 // Nombres legibles de los módulos
-const NOMBRE_MODULO={clientes_gestion:'Gestión de clientes',sync:'Sincronización web (en Sistemas)',auditoria:'Auditoría de catálogo',resumen:'Resumen de ventas (en Ventas e ingresos)',rentabilidad:'Rentabilidad (en Ventas e ingresos)',inventario:'Inventario',restock:'Restock',clientes_bi:'Clientes BI',caja_bi:'Ingresos y caja (en Ventas e ingresos)',crm:'CRM Kommo',reportes:'Contabilidad',pagos:'Métodos de pago (en Sistemas)',importaciones:'Importaciones',recepciones:'Recepciones',seguimiento:'Seguimiento (trackings y backorders)',conciliacion:'Conciliación de pagos online',cuentas_cobrar:'Cuentas por cobrar',saldo_favor:'Créditos',cotizador:'Cotizador rápido'};
+const NOMBRE_MODULO={clientes_gestion:'Gestión de clientes',sync:'Sincronización web (en Sistemas)',auditoria:'Auditoría de catálogo',resumen:'Resumen de ventas (en Ventas e ingresos)',rentabilidad:'Rentabilidad (en Ventas e ingresos)',inventario:'Inventario',restock:'Restock',clientes_bi:'Clientes BI',caja_bi:'Ingresos y caja (en Ventas e ingresos)',crm:'CRM Kommo',reportes:'Contabilidad',pagos:'Métodos de pago (en Sistemas)',importaciones:'Importaciones',recepciones:'Recepciones',seguimiento:'Seguimiento (trackings y backorders)',conciliacion:'Conciliación de pagos online',cuentas_cobrar:'Cuentas por cobrar',saldo_favor:'Créditos',cotizador:'Cotizador rápido',precio_importado:'Precio importado (pedidos especiales)'};
 let accesosCache={modulos_disponibles:[],usuarios:[]};
 async function cargarAccesos(){
   try{

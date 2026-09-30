@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<script src="/tema.js"></script>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Precio importado — Kuranko</title>
+<style>
+:root{
+  --bg:#0a1030;--surface:#111a44;--surface2:#0e1640;--surface3:#18224e;
+  --border:#212b54;--text:#eef1f8;--text2:#c6cee2;--muted:#8a93b4;--muted2:#a2abca;
+  --accent:#FFB30D;--accent-text:#000726;--accent-h:#e6a00c;--hover:#1a2450;--white:#ffffff;
+  --bg-ok:#163a29;--fg-ok:#6ee59a;--bg-warn:#3d3315;--fg-warn:#ffcb52;--bg-r:#3f1c20;--fg-r:#f79a9a;
+  --radius:18px;--radius-sm:12px;--shadow-sm:0 2px 8px rgba(0,0,0,.10);
+}
+[data-theme="light"]{
+  --bg:#f6f8fd;--surface:#ffffff;--surface2:#fbfcff;--surface3:#f2f5fb;
+  --border:#e3e9f5;--text:#1a2140;--text2:#4a5680;--muted:#9aa3c0;--muted2:#727e9f;
+  --hover:#f2f5fb;--white:#1a2140;
+  --bg-ok:#e8f8ef;--fg-ok:#1f9c56;--bg-warn:#fdf5db;--fg-warn:#9a6b00;--bg-r:#fdeded;--fg-r:#dc4b4b;
+  --shadow-sm:0 2px 10px rgba(30,45,90,.04);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{overflow-x:hidden}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px}
+.wrap{max-width:1180px;margin:0 auto;padding:1.25rem}
+.top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.top h2{font-size:18px;color:var(--white)}
+.top .sub{font-size:12px;color:var(--muted);margin-top:2px}
+.tc{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.tc label{display:flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:4px 6px 4px 12px;font-size:12px;color:var(--text2);font-weight:600}
+.tc input{width:74px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:999px;padding:5px 8px;font-size:13px;text-align:right}
+.tc .src{font-size:11px;color:var(--muted)}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
+.grid>div{min-width:0}
+@media(max-width:900px){.grid{grid-template-columns:1fr}}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.1rem;box-shadow:var(--shadow-sm);margin-bottom:16px}
+.card h3{font-size:14px;font-weight:600;color:var(--white);margin-bottom:4px}
+.desc{font-size:12px;color:var(--muted);line-height:1.5}
+.pegar{display:flex;gap:8px;margin-top:10px}
+.pegar input{flex:1;min-width:0;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:13px 14px;font-size:16px}
+.pegar input:focus,.campo input:focus,.campo select:focus{outline:none;border-color:var(--accent)}
+.btn{background:var(--accent);border:none;color:var(--accent-text);border-radius:var(--radius-sm);padding:10px 16px;font-size:13px;cursor:pointer;font-weight:600;white-space:nowrap}
+.btn:hover{background:var(--accent-h)}
+.btn-sec{background:var(--surface3);border:1px solid var(--border);color:var(--text2)}
+.btn-sec:hover{background:var(--hover)}
+.btn-sm{padding:6px 11px;font-size:12px;border-radius:9px}
+.aviso{font-size:12px;margin-top:8px;padding:8px 10px;border-radius:10px;display:none}
+.aviso.ok{background:var(--bg-ok);color:var(--fg-ok)}.aviso.warn{background:var(--bg-warn);color:var(--fg-warn)}.aviso.bad{background:var(--bg-r);color:var(--fg-r)}
+.tiendas{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}
+.tienda{background:var(--surface2);border:1px solid var(--border);color:var(--text2);border-radius:999px;padding:7px 12px;font-size:12px;font-weight:600;cursor:pointer}
+.tienda small{color:var(--muted);font-weight:500;margin-left:4px}
+.tienda.on{border-color:var(--accent);background:var(--hover);color:var(--white)}
+.campos{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:14px}
+@media(max-width:520px){.campos{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.campo label{display:block;font-size:11px;color:var(--muted);font-weight:600;margin-bottom:4px}
+.campo input,.campo select{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:10px;font-size:15px}
+.campo .ayuda{font-size:11px;color:var(--muted);margin-top:3px}
+.campo.ancho{grid-column:1/-1}
+.prod{display:flex;gap:10px;align-items:center;margin-top:12px}
+.prod img{width:56px;height:56px;border-radius:10px;background:#fff;object-fit:contain;border:1px solid var(--border);flex:none}
+.prod a{color:var(--text2);font-size:12px;word-break:break-all}
+.costo{display:flex;justify-content:space-between;align-items:flex-end;gap:10px;flex-wrap:wrap}
+.costo .big{font-size:30px;font-weight:800;color:var(--white);line-height:1.1}
+.costo .lbl{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.chip{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;white-space:nowrap}
+.ok{background:var(--bg-ok);color:var(--fg-ok)}.warn{background:var(--bg-warn);color:var(--fg-warn)}.bad{background:var(--bg-r);color:var(--fg-r)}
+.detalle{font-size:12px;color:var(--muted2);margin-top:8px;line-height:1.55;font-family:ui-monospace,Menlo,monospace;word-break:break-word}
+.props{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:14px}
+@media(max-width:560px){.props{grid-template-columns:1fr}}
+.prop{background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:12px;cursor:pointer;position:relative}
+.prop:hover{border-color:var(--muted)}
+.prop.on{border-color:var(--accent);background:var(--hover)}
+.prop .t{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.03em}
+.prop .p{font-size:22px;font-weight:800;color:var(--white);margin-top:4px}
+.prop .g{font-size:12px;color:var(--fg-ok);margin-top:2px;font-weight:600}
+.prop .x{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.45}
+.manual{display:flex;gap:10px;align-items:flex-end;margin-top:14px;flex-wrap:wrap}
+.manual .campo{flex:1;min-width:140px}
+.manual .res{font-size:13px;font-weight:700;padding-bottom:10px}
+.acciones{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.tw{overflow-x:auto;margin-top:10px}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th,td{padding:8px;border-bottom:1px solid var(--border);text-align:left;vertical-align:middle}
+th{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.03em;white-space:nowrap}
+td.n,th.n{text-align:right;white-space:nowrap}
+td .nom{color:var(--white);font-weight:600;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:block}
+td a{color:var(--text2)}
+tr.mejor td{background:var(--bg-ok)}
+.del{background:none;border:none;color:var(--muted);cursor:pointer;font-size:15px}
+.del:hover{color:var(--fg-r)}
+.vacio{color:var(--muted);font-size:12px;padding:12px 0}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--accent);color:var(--accent-text);padding:9px 16px;border-radius:999px;font-weight:700;font-size:13px;display:none;z-index:50}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div>
+      <h2>🌍 Precio importado</h2>
+      <div class="sub">Costo y precio de venta de un pedido especial a una tienda online.</div>
+    </div>
+    <div class="tc">
+      <label>USD <input id="tc-usd" type="number" step="0.0001" inputmode="decimal"></label>
+      <label>EUR <input id="tc-eur" type="number" step="0.0001" inputmode="decimal"></label>
+      <span class="src" id="tc-src">cargando tipo de cambio…</span>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div>
+      <div class="card">
+        <h3>1 · Producto</h3>
+        <div class="desc">Pega el link del producto (reconoce la tienda y trata de leer el precio) o escribe el precio directo.</div>
+        <div class="pegar">
+          <input id="entrada" placeholder="https://r2-bike.com/…   o   584.03" autocomplete="off">
+          <button class="btn" id="btn-leer">Leer</button>
+        </div>
+        <div class="aviso" id="aviso"></div>
+        <div class="prod" id="prod" style="display:none"></div>
+
+        <div class="tiendas" id="tiendas"></div>
+
+        <div class="campos">
+          <div class="campo">
+            <label>Precio en tienda (<span id="lbl-mon">USD</span>)</label>
+            <input id="precio" type="number" step="0.01" inputmode="decimal" placeholder="0.00">
+          </div>
+          <div class="campo">
+            <label>Envío (<span id="lbl-mon2">USD</span>)</label>
+            <input id="envio" type="number" step="0.01" inputmode="decimal">
+            <div class="ayuda" id="envio-ayuda"></div>
+          </div>
+          <div class="campo">
+            <label>Moneda</label>
+            <select id="moneda"><option>USD</option><option>EUR</option><option>PEN</option></select>
+          </div>
+          <div class="campo ancho">
+            <label>Costo real en soles (opcional)</label>
+            <input id="costo-manual" type="number" step="0.01" inputmode="decimal" placeholder="Si ya sabes cuánto te costó puesto en Lima, con envío e impuestos">
+            <div class="ayuda">Si lo llenas, se ignoran precio y envío.</div>
+          </div>
+          <div class="campo ancho">
+            <label>Nombre (para la lista)</label>
+            <input id="nombre" placeholder="Ej. Fox 32 Taper-Cast 2025">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <div class="costo">
+          <div>
+            <div class="lbl">Costo puesto en Lima</div>
+            <div class="big" id="costo">S/ 0.00</div>
+          </div>
+          <div id="regimen"></div>
+        </div>
+        <div class="detalle" id="detalle"></div>
+
+        <div class="props" id="props"></div>
+
+        <div class="manual">
+          <div class="campo">
+            <label>Precio que vas a ofrecer (S/)</label>
+            <input id="ofrecido" type="number" step="1" inputmode="decimal" placeholder="Opcional">
+          </div>
+          <div class="res" id="ofrecido-res"></div>
+        </div>
+
+        <div class="acciones">
+          <button class="btn" id="btn-guardar">＋ Agregar a la lista</button>
+          <button class="btn btn-sec" id="btn-copiar">Copiar resumen</button>
+          <button class="btn btn-sec" id="btn-nuevo">Nuevo</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+      <div>
+        <h3>Lista para comparar</h3>
+        <div class="desc">Guarda varias tiendas o productos y compáralos. En verde, el costo más bajo. Se guarda en este navegador.</div>
+      </div>
+      <button class="btn btn-sec btn-sm" id="btn-limpiar">Vaciar lista</button>
+    </div>
+    <div class="tw" id="lista"></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ── Estado ──────────────────────────────────────────────────────────────────
+let TOKEN='';try{TOKEN=localStorage.getItem('admtoken')||'';}catch(e){}
+let R=null;            // reglas del servidor
+let TC={USD:0,EUR:0};  // tipo de cambio con recargo (editable)
+let TIENDA=null;       // id de tienda elegida (null = otra)
+let ELEGIDO='etiqueta';
+let IMAGEN=null,URL_ACT='';
+let LISTA=[];try{LISTA=JSON.parse(localStorage.getItem('precio_imp_lista')||'[]')||[];}catch(e){LISTA=[];}
+
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const sol=n=>'S/ '+(+n||0).toLocaleString('es-PE',{minimumFractionDigits:2,maximumFractionDigits:2});
+const sol0=n=>'S/ '+(+n||0).toLocaleString('es-PE',{minimumFractionDigits:0,maximumFractionDigits:2});
+const SIM={USD:'$',EUR:'€',PEN:'S/ '};
+const mon=(n,m)=>(SIM[m]||'')+(+n||0).toLocaleString('es-PE',{minimumFractionDigits:2,maximumFractionDigits:2});
+const pct=n=>isFinite(n)?(n*100).toFixed(0)+'%':'—';
+const num=id=>{const v=parseFloat(String($(id).value).replace(',','.'));return isFinite(v)?v:null;};
+function toast(m){const t=$('toast');t.textContent=m;t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',1800);}
+function guardarLista(){try{localStorage.setItem('precio_imp_lista',JSON.stringify(LISTA));}catch(e){}}
+
+async function api(ep,opt={}){
+  opt.headers={...(opt.headers||{}),'Authorization':'Bearer '+TOKEN};
+  if(opt.body){opt.headers['Content-Type']='application/json';opt.body=JSON.stringify(opt.body);}
+  const r=await fetch(ep,opt);
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok)throw new Error(d.error||('Error '+r.status));
+  return d;
+}
+
+// ── Cálculo (mismas fórmulas que la hoja de Google) ─────────────────────────
+const fx=m=>m==='USD'?TC.USD:m==='EUR'?TC.EUR:1;
+const redondeoArriba=(x,dec)=>{const f=Math.pow(10,dec);return Math.ceil(x*f-1e-9)/f;};
+function pctTramo(c,cfg){for(const [hasta,p] of cfg.tramos){if(c<=hasta)return p;}return cfg.resto;}
+
+function calcularCosto(){
+  const manual=num('costo-manual');
+  if(manual!=null&&manual>0)return{costo:manual,regimen:'manual',detalle:'Costo real ingresado a mano.'};
+  const precio=num('precio')||0, m=$('moneda').value;
+  const envio=num('envio')!=null?num('envio'):envioDefecto();
+  if(!precio)return{costo:0,regimen:null,detalle:''};
+  // Umbral de compra sin impuestos, en la moneda de la tienda (hoja: A = 200 USD convertido)
+  const A=R.umbral_usd*TC.USD/fx(m);
+  const t=fx(m), tTxt=m==='PEN'?'':` × TC ${t}`;
+  if(precio<A){
+    const c=precio/(A*R.factor_llenado)*(A+envio)*t;
+    return{costo:c,regimen:'bajo',
+      detalle:`Bajo el límite de ${mon(A,m)} (≈ $${R.umbral_usd}): sin impuestos, envío prorrateado.<br>`+
+      `${precio} ÷ (${A.toFixed(2)} × ${R.factor_llenado}) × (${A.toFixed(2)} + ${envio})${tTxt} = ${sol(c)}`};
+  }
+  const c=(precio+envio)*R.factor_impuestos*t;
+  return{costo:c,regimen:'sobre',
+    detalle:`Sobre el límite de ${mon(A,m)}: paga impuestos (× ${R.factor_impuestos}).<br>`+
+    `(${precio} + ${envio}) × ${R.factor_impuestos}${tTxt} = ${sol(c)}`};
+}
+
+function propuestas(c){
+  const P=R.precios;
+  // Etiqueta: costo + % por tramo; si pasa de S/ 40 redondea a la decena, si no al sol.
+  const pe=pctTramo(c,P.etiqueta), ve=c*(100+pe)/100;
+  const etiqueta=ve>40?redondeoArriba(ve,-1):redondeoArriba(ve,0);
+  // Margen objetivo: costo ÷ (1 − margen) × IGV
+  let pm=P.margen.resto;for(const [hasta,p] of P.margen.tramos){if(c<hasta){pm=p;break;}}
+  const margen=redondeoArriba(c/(1-pm/100)*R.igv,0);
+  // Alto: igual que etiqueta con % mayores
+  const pa=pctTramo(c,P.alto), va=c*(100+pa)/100;
+  const alto=va>40?redondeoArriba(va,-1):redondeoArriba(va,0);
+  return[
+    {id:'etiqueta',t:'Etiqueta',p:etiqueta,min:etiqueta*P.etiqueta.minimo,x:`Costo +${pe}%`},
+    {id:'margen',t:'Margen + IGV',p:margen,x:`Margen ${pm}% + IGV`},
+    {id:'alto',t:'Alto',p:alto,x:`Costo +${pa}%`}
+  ];
+}
+
+function envioDefecto(){
+  const t=R&&R.tiendas.find(x=>x.id===TIENDA);
+  if(!t)return 0;
+  const m=$('moneda').value;
+  return m===t.moneda?t.envio:+(t.envio*fx(t.moneda)/fx(m)).toFixed(2);
+}
+
+// ── Pintar ──────────────────────────────────────────────────────────────────
+function pintarTiendas(){
+  $('tiendas').innerHTML=R.tiendas.map(t=>`<button class="tienda${t.id===TIENDA?' on':''}" data-t="${esc(t.id)}">${esc(t.nombre)}<small>${esc(t.moneda)}</small></button>`).join('')+
+    `<button class="tienda${TIENDA===null?' on':''}" data-t="">Otra</button>`;
+  $('tiendas').querySelectorAll('.tienda').forEach(b=>b.onclick=()=>elegirTienda(b.dataset.t||null,true));
+}
+function elegirTienda(id,limpiarEnvio){
+  TIENDA=id;
+  const t=R.tiendas.find(x=>x.id===id);
+  if(t)$('moneda').value=t.moneda;
+  if(limpiarEnvio)$('envio').value='';
+  pintarTiendas();recalcular();
+}
+
+let ULTIMO=null;
+function recalcular(){
+  if(!R)return;
+  const m=$('moneda').value;
+  $('lbl-mon').textContent=m;$('lbl-mon2').textContent=m;
+  const ed=envioDefecto();
+  $('envio').placeholder=ed?String(ed):'0';
+  $('envio-ayuda').textContent=ed?`Vacío = envío estándar (${mon(ed,m)})`:'';
+  const k=calcularCosto(), c=k.costo;
+  $('costo').textContent=sol(c);
+  $('detalle').innerHTML=k.detalle;
+  $('regimen').innerHTML=k.regimen==='bajo'?'<span class="chip ok">Sin impuestos</span>':
+    k.regimen==='sobre'?'<span class="chip warn">Paga impuestos</span>':k.regimen==='manual'?'<span class="chip warn">Costo manual</span>':'';
+  const ps=c>0?propuestas(c):[];
+  $('props').innerHTML=ps.map(p=>{
+    const g=p.p-c;
+    return `<div class="prop${p.id===ELEGIDO?' on':''}" data-p="${p.id}" title="Clic para elegir y copiar">
+      <div class="t">${p.t}</div><div class="p">${sol0(p.p)}</div>
+      <div class="g">+${sol(g)} · ${pct(g/c)}</div>
+      <div class="x">${p.x}${p.min?`<br>Mínimo ${sol0(p.min)} (+${pct((p.min-c)/c)})`:''}<br>$${(p.p/TC.USD).toFixed(0)} · sin IGV ${sol0(p.p/R.igv)}</div>
+    </div>`;}).join('');
+  $('props').querySelectorAll('.prop').forEach(d=>d.onclick=()=>{
+    ELEGIDO=d.dataset.p;const p=ps.find(x=>x.id===ELEGIDO);
+    $('ofrecido').value='';copiar(String(p.p));recalcular();
+  });
+  const of=num('ofrecido');
+  if(of&&c>0){const g=of-c;$('ofrecido-res').innerHTML=`<span class="chip ${g<0?'bad':g/c<0.15?'warn':'ok'}">${g<0?'Pierdes':'Ganas'} ${sol(Math.abs(g))} · ${pct(g/c)} sobre costo</span>`;}
+  else $('ofrecido-res').innerHTML='';
+  ULTIMO={costo:c,props:ps,regimen:k.regimen};
+}
+
+function pintarLista(){
+  if(!LISTA.length){$('lista').innerHTML='<div class="vacio">Aún no hay nada. Calcula un producto y pulsa “Agregar a la lista”.</div>';return;}
+  const minC=Math.min(...LISTA.map(x=>x.costo).filter(x=>x>0));
+  $('lista').innerHTML=`<table><thead><tr><th>Producto</th><th>Tienda</th><th class="n">Precio tienda</th><th class="n">Costo S/</th><th class="n">Etiqueta</th><th class="n">Mínimo</th><th class="n">Margen+IGV</th><th class="n">Alto</th><th class="n">Ofrecido</th><th></th></tr></thead><tbody>`+
+    LISTA.map((x,i)=>`<tr class="${LISTA.length>1&&x.costo===minC?'mejor':''}">
+      <td><span class="nom" title="${esc(x.nombre)}">${x.url?`<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.nombre||'(sin nombre)')}</a>`:esc(x.nombre||'(sin nombre)')}</span><span class="desc">${esc(x.fecha)}</span></td>
+      <td>${esc(x.tienda)}</td>
+      <td class="n">${x.precio?mon(x.precio,x.moneda):'—'}</td>
+      <td class="n"><b>${sol(x.costo)}</b></td>
+      <td class="n">${sol0(x.etiqueta)}</td><td class="n">${sol0(x.minimo)}</td>
+      <td class="n">${sol0(x.margen)}</td><td class="n">${sol0(x.alto)}</td>
+      <td class="n">${x.ofrecido?sol0(x.ofrecido):'—'}</td>
+      <td><button class="del" data-i="${i}" title="Quitar">✕</button></td></tr>`).join('')+'</tbody></table>';
+  $('lista').querySelectorAll('.del').forEach(b=>b.onclick=()=>{LISTA.splice(+b.dataset.i,1);guardarLista();pintarLista();});
+}
+
+// ── Acciones ────────────────────────────────────────────────────────────────
+function aviso(txt,tipo){const a=$('aviso');if(!txt){a.style.display='none';return;}a.textContent=txt;a.className='aviso '+tipo;a.style.display='block';}
+function pintarProd(){
+  if(!URL_ACT&&!IMAGEN){$('prod').style.display='none';return;}
+  $('prod').style.display='flex';
+  $('prod').innerHTML=(IMAGEN?`<img src="${esc(IMAGEN)}" alt="" onerror="this.remove()">`:'')+
+    (URL_ACT?`<a href="${esc(URL_ACT)}" target="_blank" rel="noopener">${esc(URL_ACT.length>90?URL_ACT.slice(0,90)+'…':URL_ACT)}</a>`:'');
+}
+
+async function procesarEntrada(){
+  const v=$('entrada').value.trim();
+  if(!v)return;
+  if(/^https?:\/\//i.test(v)||/^[\w-]+(\.[\w-]+)+\//.test(v)){
+    const url=/^https?:/i.test(v)?v:'https://'+v;
+    URL_ACT=url;IMAGEN=null;pintarProd();
+    // La tienda se reconoce al instante por el dominio, sin esperar al servidor
+    try{const h=new URL(url).hostname+new URL(url).pathname;const t=R.tiendas.find(t=>(t.dominios||[]).some(d=>h.toLowerCase().includes(d)));elegirTienda(t?t.id:null,true);}catch(e){}
+    aviso('Leyendo la página…','warn');$('btn-leer').disabled=true;
+    try{
+      const d=await api('/api/precio-importado/leer',{method:'POST',body:{url}});
+      if(d.tienda&&d.tienda!==TIENDA)elegirTienda(d.tienda,true);
+      if(d.moneda&&['USD','EUR','PEN'].includes(d.moneda))$('moneda').value=d.moneda;
+      if(d.precio){$('precio').value=d.precio;}
+      if(d.nombre)$('nombre').value=d.nombre;
+      IMAGEN=d.imagen||null;pintarProd();
+      if(d.leido)aviso(`Precio leído: ${mon(d.precio,$('moneda').value)}. Revisa que sea el de la talla/color correcto.`,'ok');
+      else aviso(d.aviso||'No encontré el precio. Escríbelo a mano.','warn');
+      if(!d.leido)$('precio').focus();
+    }catch(e){aviso(e.message+'. Escribe el precio a mano.','bad');$('precio').focus();}
+    finally{$('btn-leer').disabled=false;recalcular();}
+  }else{
+    const n=parseFloat(v.replace(/[^\d.,]/g,'').replace(/,(?=\d{1,2}$)/,'.').replace(/,/g,''));
+    if(isFinite(n)){$('precio').value=n;aviso('');recalcular();}
+    else aviso('Pega un link o escribe un número.','warn');
+  }
+}
+
+function resumen(){
+  if(!ULTIMO||!ULTIMO.costo)return'';
+  const m=$('moneda').value,t=R.tiendas.find(x=>x.id===TIENDA);
+  const L=[];
+  if($('nombre').value.trim())L.push($('nombre').value.trim());
+  if(URL_ACT)L.push(URL_ACT);
+  if(num('precio'))L.push(`${t?t.nombre:'Tienda'}: ${mon(num('precio'),m)} + envío ${mon(num('envio')??envioDefecto(),m)}`);
+  L.push(`Costo: ${sol(ULTIMO.costo)}`);
+  ULTIMO.props.forEach(p=>L.push(`${p.t}: ${sol0(p.p)}${p.min?` (mín ${sol0(p.min)})`:''}`));
+  if(num('ofrecido'))L.push(`Ofrecido: ${sol0(num('ofrecido'))}`);
+  return L.join('\n');
+}
+async function copiar(txt){try{await navigator.clipboard.writeText(txt);toast('Copiado');}catch(e){toast('No se pudo copiar');}}
+
+function nuevo(){
+  ['entrada','precio','envio','costo-manual','nombre','ofrecido'].forEach(id=>$(id).value='');
+  URL_ACT='';IMAGEN=null;pintarProd();aviso('');ELEGIDO='etiqueta';recalcular();$('entrada').focus();
+}
+
+// ── Arranque ────────────────────────────────────────────────────────────────
+function tcDesdeCampos(){
+  const u=num('tc-usd'),e=num('tc-eur');
+  if(u>0)TC.USD=u;if(e>0)TC.EUR=e;
+  try{localStorage.setItem('precio_imp_tc',JSON.stringify({USD:TC.USD,EUR:TC.EUR,dia:new Date().toDateString()}));}catch(x){}
+  $('tc-src').textContent='editado a mano (hoy)';recalcular();
+}
+
+async function iniciar(){
+  try{
+    const d=await api('/api/precio-importado/config');
+    R=d.reglas;TC={USD:d.tc.USD,EUR:d.tc.EUR};
+    let src=d.tc.fuente==='open.er-api.com'?`Mercado ${d.tc.usd_mercado.toFixed(3)} / ${d.tc.eur_mercado.toFixed(3)} + recargo`:'⚠ '+d.tc.fuente;
+    // Si hoy se editó a mano, se respeta
+    try{const g=JSON.parse(localStorage.getItem('precio_imp_tc')||'null');if(g&&g.dia===new Date().toDateString()){TC={USD:g.USD,EUR:g.EUR};src='editado a mano (hoy)';}}catch(e){}
+    $('tc-usd').value=TC.USD;$('tc-eur').value=TC.EUR;$('tc-src').textContent=src;
+  }catch(e){
+    document.querySelector('.wrap').insertAdjacentHTML('afterbegin',`<div class="aviso bad" style="display:block;margin-bottom:12px">No se pudo cargar: ${esc(e.message)}. Vuelve a entrar al panel.</div>`);
+    return;
+  }
+  elegirTienda(R.tiendas[0].id,true);
+  pintarLista();
+  $('btn-leer').onclick=procesarEntrada;
+  $('entrada').addEventListener('keydown',e=>{if(e.key==='Enter')procesarEntrada();});
+  $('entrada').addEventListener('paste',()=>setTimeout(procesarEntrada,0));
+  ['precio','envio','costo-manual','ofrecido'].forEach(id=>$(id).addEventListener('input',recalcular));
+  $('moneda').addEventListener('change',()=>{$('envio').value='';recalcular();});
+  $('tc-usd').addEventListener('change',tcDesdeCampos);$('tc-eur').addEventListener('change',tcDesdeCampos);
+  $('btn-copiar').onclick=()=>{const r=resumen();if(r)copiar(r);else toast('Primero calcula un precio');};
+  $('btn-nuevo').onclick=nuevo;
+  $('btn-limpiar').onclick=()=>{if(!LISTA.length)return;LISTA=[];guardarLista();pintarLista();toast('Lista vacía');};
+  $('btn-guardar').onclick=()=>{
+    if(!ULTIMO||!ULTIMO.costo){toast('Primero calcula un precio');return;}
+    const t=R.tiendas.find(x=>x.id===TIENDA),P=Object.fromEntries(ULTIMO.props.map(p=>[p.id,p]));
+    LISTA.unshift({fecha:new Date().toLocaleDateString('es-PE'),nombre:$('nombre').value.trim(),url:URL_ACT,
+      tienda:t?t.nombre:'Otra',precio:num('precio'),moneda:$('moneda').value,costo:+ULTIMO.costo.toFixed(2),
+      etiqueta:P.etiqueta.p,minimo:+P.etiqueta.min.toFixed(2),margen:P.margen.p,alto:P.alto.p,ofrecido:num('ofrecido')});
+    LISTA=LISTA.slice(0,60);guardarLista();pintarLista();toast('Agregado a la lista');
+  };
+  $('entrada').focus();
+}
+iniciar();
+</script>
+</body>
+</html>

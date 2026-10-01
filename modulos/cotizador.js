@@ -99,7 +99,11 @@ const VV_COT = "('paid','confirmed','pending_payment')";
 // Tiendas que NUNCA se muestran (nombre o dominio), separadas por coma: COTIZADOR_TIENDAS_OCULTAS.
 const TIENDAS_OCULTAS = (process.env.COTIZADOR_TIENDAS_OCULTAS || 'lordgun')
   .split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
-const MODELO_IA = (process.env.COTIZADOR_MODELO_IA || 'gemini-3.6-flash').replace(/[^a-zA-Z0-9.\-]/g, '');
+const limpiarModelo = m => String(m || '').trim().replace(/^models\//, '').replace(/[^a-zA-Z0-9.\-]/g, '').slice(0, 60);
+const MODELO_IA = limpiarModelo(process.env.COTIZADOR_MODELO_IA) || 'gemini-3.6-flash';
+// Modelo en uso: empieza en MODELO_IA (3.6 por defecto); puede cambiarlo el maestro desde la página
+// o aprenderse solo si Google sugiere otro. Vive en memoria (vuelve a MODELO_IA al reiniciar).
+let modeloActual = MODELO_IA;
 const INTERNET_TTL = 7 * 24 * 60 * 60 * 1000;   // cada producto se vuelve a buscar como máximo 1 vez por semana
 const INTERNET_TTL_FALLA = 6 * 60 * 60 * 1000;  // si no encontró nada, reintenta en 6 h
 
@@ -540,18 +544,19 @@ Responde SOLO con JSON, sin texto adicional:
 {"resultados":[{"tienda":"nombre","url":"https://...","pais":"código ISO de 2 letras","moneda":"código ISO de 3 letras","precio":123.45}]}
 Si no encuentras nada, responde {"resultados":[]}.`;
     // Se intenta con el modelo configurado y, si Google responde error, con un modelo de respaldo.
-    const modelos = [...new Set([MODELO_IA, 'gemini-2.5-flash'])];
-    let txt = '', ultimoError = null;
-    // Cada modelo se prueba hasta 2 veces si Google responde "saturado" (429/503/overloaded),
-    // esperando 3 s entre intentos; luego pasa al modelo de respaldo.
-    const intentos = [];
-    modelos.forEach(m => { intentos.push(m, m); });
-    let saturadoPrevio = null;
-    for (let i = 0; i < intentos.length; i++) {
-      const mdl = intentos[i];
-      // el 2.º intento del mismo modelo solo si el 1.º fue por saturación
-      if (i > 0 && intentos[i - 1] === mdl && saturadoPrevio !== mdl) continue;
-      if (i > 0 && intentos[i - 1] === mdl) await new Promise(r => setTimeout(r, 3000));
+    // Orden de modelos: el actual (3.6 por defecto, o el que se haya aprendido/elegido) y los de respaldo.
+    // Si Google responde "usa models/X" (modelo retirado), se prueba X en ese momento y, si funciona,
+    // queda como modelo actual (en memoria; para que sea permanente: variable COTIZADOR_MODELO_IA).
+    const respaldo = (process.env.COTIZADOR_MODELOS_RESPALDO || 'gemini-3.8-flash,gemini-3.7-flash')
+      .split(',').map(limpiarModelo).filter(Boolean);
+    const cola = [...new Set([modeloActual, ...respaldo])];
+    const probados = new Set(), errores = [];
+    let txt = '', ultimoError = null, sugerido = null, reintentado = null;
+    while (cola.length) {
+      const mdl = cola.shift();
+      const repetido = probados.has(mdl);
+      if (repetido) await new Promise(r => setTimeout(r, 3000));   // 2.º intento tras saturación
+      probados.add(mdl);
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${mdl}:generateContent?key=${encodeURIComponent(key)}`;
       const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 60000);
       try {
@@ -564,20 +569,40 @@ Si no encuentras nada, responde {"resultados":[]}.`;
           const msg = (d && d.error && d.error.message) || ('HTTP ' + g.status + ' ' + raw.slice(0, 150));
           const err = new Error(`${mdl}: ${msg}`);
           err.saturado = g.status === 429 || g.status === 503 || /overload|unavailable|exhausted|try again/i.test(msg);
+          const m = msg.match(/use\s+(?:the\s+)?(?:models\/)?(gemini-[a-z0-9.\-]+)/i);
+          if (m) err.sugerido = limpiarModelo(m[1]);
           throw err;
         }
         const cand = ((d && d.candidates) || [])[0] || {};
         txt = ((cand.content || {}).parts || []).map(p => p.text || '').join('');
         if (!txt) throw new Error(`${mdl}: respuesta vacía${cand.finishReason ? ' (' + cand.finishReason + ')' : ''}`);
         ultimoError = null;
+        if (mdl === sugerido && mdl !== modeloActual) {
+          console.log(`[cotizador] modelo IA actualizado a ${mdl} (sugerido por Google)`);
+          modeloActual = mdl;
+        }
         break;
       } catch (e) {
         ultimoError = e.name === 'AbortError' ? new Error(`${mdl}: tardó más de 60 s`) : e;
-        saturadoPrevio = ultimoError.saturado ? mdl : null;
+        errores.push(ultimoError);
         console.warn('[cotizador] internet IA', ultimoError.message);
+        // modelo sugerido por Google: se prueba a continuación
+        if (ultimoError.sugerido && !probados.has(ultimoError.sugerido) && !cola.includes(ultimoError.sugerido)) {
+          sugerido = ultimoError.sugerido; cola.unshift(sugerido);
+        }
+        // saturado: el mismo modelo una vez más (tras 3 s) antes de pasar al siguiente
+        else if (ultimoError.saturado && !repetido && reintentado !== mdl) { reintentado = mdl; cola.unshift(mdl); }
       } finally { clearTimeout(to); }
     }
-    if (ultimoError) throw ultimoError;
+    if (ultimoError) {
+      // Mensaje con el motivo de cada modelo (sin repetir), para saber qué pasó con el principal
+      const vistos = new Set(), partes = [];
+      errores.forEach(e => { if (!vistos.has(e.message)) { vistos.add(e.message); partes.push(e.message.slice(0, 120)); } });
+      const err = new Error(partes.join(' | '));
+      err.saturado = errores.some(e => e.saturado);
+      err.modelo_sugerido = (errores.find(e => e.sugerido) || {}).sugerido || null;
+      throw err;
+    }
     const j = jsonDeTexto(txt);
     const crudos = j && Array.isArray(j.resultados) ? j.resultados : [];
     const tc = await tasasPEN();
@@ -624,9 +649,9 @@ Si no encuentras nada, responde {"resultados":[]}.`;
         catch (e) {
           console.warn('[cotizador] internet', vid, e.message);
           // Se muestra el motivo real (sin la clave) para poder corregirlo; se reintenta en 15 min
-          const motivo = String(e.message || 'error desconocido').replace(/key=[^&\s]+/g, 'key=…').slice(0, 220);
+          const motivo = String(e.message || 'error desconocido').replace(/key=[^&\s]+/g, 'key=…').slice(0, 400);
           r = { t: Date.now() - INTERNET_TTL_FALLA + 15 * 60 * 1000, intento, data: { disponible: true, resultados: [], resumen: null, error: motivo,
-            saturado: !!e.saturado } };
+            saturado: !!e.saturado, modelo_sugerido: e.modelo_sugerido || null } };
         }
         if (r.data.disponible !== false) _inet.set(vid, r);
       }
@@ -635,6 +660,22 @@ Si no encuentras nada, responde {"resultados":[]}.`;
       res.json({ ...d, comparacion: d.resumen && normal > 0 ? comparar(normal, d.resumen.mediana) : null,
         comparacion_pvp_rec: d.resumen && it.pvp_recomendado ? comparar(it.pvp_recomendado, d.resumen.mediana) : null });
     } catch (e) { console.error('[cotizador] internet', e.message); res.status(500).json({ error: 'No se pudo consultar internet: ' + e.message }); }
+  });
+
+  // Ver / cambiar el modelo de IA desde la página (solo maestro). Queda en memoria hasta reiniciar;
+  // para dejarlo fijo, poner la variable COTIZADOR_MODELO_IA en Railway.
+  app.get('/api/cotizador/modelo-ia', authAdmin, mCot, (req, res) => {
+    if (!(req.admin && req.admin.maestro)) return res.status(403).json({ error: 'Solo el administrador maestro' });
+    res.json({ modelo: modeloActual, por_defecto: MODELO_IA });
+  });
+  app.post('/api/cotizador/modelo-ia', authAdmin, mCot, (req, res) => {
+    if (!(req.admin && req.admin.maestro)) return res.status(403).json({ error: 'Solo el administrador maestro' });
+    const m = limpiarModelo(req.body && req.body.modelo);
+    if (!/^gemini-[a-z0-9.\-]+$/i.test(m)) return res.status(400).json({ error: 'Nombre de modelo no válido (ej. gemini-3.8-flash)' });
+    modeloActual = m;
+    _inet.forEach((v, k) => { if (!v.data.resumen) _inet.delete(k); });   // reintentar los que fallaron
+    console.log('[cotizador] modelo IA cambiado a', m, 'por', req.admin.usuario);
+    res.json({ ok: true, modelo: modeloActual });
   });
 
   // catalogo también se expone para otros módulos (Precio importado lo reutiliza)

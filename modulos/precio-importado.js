@@ -208,8 +208,31 @@ async function leerLink(url) {
   return res;
 }
 
-module.exports = function registrarPrecioImportado({ app, authAdmin, requiereModulo }) {
+// ── Comparar con lo registrado en el sistema ─────────────────────────────────
+// Palabras que no ayudan a encontrar el producto (títulos de tiendas online)
+const RUIDO = new Set(['de','del','la','el','los','las','con','para','y','en','the','and','for','with','of',
+  'a','an','mm','cm','kg','g','bike','bikes','bicycle','bicicleta','cycling','ciclismo','mtb','shop','tienda',
+  'comprar','buy','online','precio','oferta','new','nuevo','nueva','r2','bike24','bikeinn','lordgun','ebay',
+  'components','discount','tradeinn','versandkostenfrei','kostenlos','envio','gratis']);
+
+function puntuarLargo(consulta, item, P) {
+  // Los títulos de tienda son largos y traen palabras extra: se mide qué parte de las
+  // palabras buscadas calza con el producto (no se exige que calcen todas).
+  const sku = P.puntuar(consulta, item);
+  if (sku >= 70) return sku;
+  const qs = P.tokens(consulta).filter(t => t.length >= 2 && !RUIDO.has(t));
+  if (!qs.length) return sku;
+  let suma = 0, fuertes = 0;
+  for (const q of qs) { const p = P.puntajePalabra(q, item._pal, item._comp); suma += p; if (p >= 0.85) fuertes++; }
+  // también cuánto del nombre del producto quedó cubierto (evita calzar con nombres muy cortos)
+  const cubre = item._pal.filter(w => w.length >= 2 && !RUIDO.has(w)).length || 1;
+  const s = (suma / qs.length) * 70 + Math.min(1, fuertes / cubre) * 30;
+  return Math.max(sku, Math.round(s));
+}
+
+module.exports = function registrarPrecioImportado({ app, authAdmin, requiereModulo, prodPool, VV, catalogo }) {
   const mPI = requiereModulo('precio_importado');
+  const P = require('./cotizador')._puros;
 
   app.get('/api/precio-importado/config', authAdmin, mPI, async (req, res) => {
     const tc = await tipoCambio();
@@ -224,6 +247,86 @@ module.exports = function registrarPrecioImportado({ app, authAdmin, requiereMod
     });
   });
 
+  // Busca el producto en el catálogo del sistema (misma caché que el Cotizador)
+  app.get('/api/precio-importado/buscar', authAdmin, mPI, async (req, res) => {
+    try {
+      const q = String(req.query.q || '').trim().slice(0, 200);
+      if (!q || !catalogo || !prodPool) return res.json([]);
+      const cat = await catalogo();
+      const res0 = [];
+      for (const it of cat) {
+        const sc = puntuarLargo(q, it, P);
+        if (sc >= 45) res0.push([sc, it]);
+      }
+      res0.sort((a, b) => b[0] - a[0] || b[1].stock_total - a[1].stock_total);
+      res.json(res0.slice(0, 6).map(([score, it]) => ({
+        vid: it.vid, sku: it.sku, nombre: it.nombre, imagen: it.imagen, score,
+        precio_normal: it.precio_normal, stock: it.stock, stock_total: it.stock_total
+      })));
+    } catch (e) { console.error('[precio-importado] buscar', e.message); res.status(500).json({ error: 'No se pudo buscar: ' + e.message }); }
+  });
+
+  // Lo registrado de un producto: compras (lotes con su costo) y ventas reales
+  app.get('/api/precio-importado/historial', authAdmin, mPI, async (req, res) => {
+    try {
+      const vid = parseInt(req.query.vid, 10);
+      if (!vid || !prodPool) return res.status(400).json({ error: 'Falta el producto' });
+      const cat = catalogo ? await catalogo() : [];
+      const it = cat.find(x => x.vid === vid) || null;
+      const f10 = d => d ? (d instanceof Date ? d.toISOString() : String(d)).slice(0, 10) : null;
+
+      // Compras: todos los lotes (también los ya vendidos) con costo > 0
+      const [lotes] = await prodPool.query(`
+        SELECT entry_date, cost_price, initial_quantity, quantity
+        FROM stock_batches
+        WHERE product_variation_id = ? AND cost_price > 0
+        ORDER BY entry_date DESC, id DESC LIMIT 50`, [vid]).catch(async e => {
+          // por si la columna initial_quantity no existe en el ERP
+          if (!/initial_quantity/.test(e.message)) throw e;
+          return prodPool.query(`
+            SELECT entry_date, cost_price, NULL AS initial_quantity, quantity
+            FROM stock_batches WHERE product_variation_id = ? AND cost_price > 0
+            ORDER BY entry_date DESC, id DESC LIMIT 50`, [vid]);
+        });
+      const costos = lotes.map(l => +l.cost_price);
+      const compras = lotes.length ? {
+        n: lotes.length,
+        ultimo: { costo: +lotes[0].cost_price, fecha: f10(lotes[0].entry_date) },
+        min: Math.min(...costos), max: Math.max(...costos),
+        prom: costos.reduce((a, b) => a + b, 0) / costos.length,
+        lotes: lotes.slice(0, 5).map(l => ({ fecha: f10(l.entry_date), costo: +l.cost_price,
+          cantidad: l.initial_quantity != null ? +l.initial_quantity : null, quedan: +l.quantity }))
+      } : null;
+
+      // Ventas reales de los últimos 24 meses (precio efectivo = total / cantidad)
+      const [vs] = await prodPool.query(`
+        SELECT s.created_at AS fecha, si.quantity AS cant, si.total
+        FROM sale_items si JOIN sales s ON s.id = si.sale_id
+        WHERE si.product_variation_id = ? AND s.deleted_at IS NULL AND s.status IN ${VV}
+          AND si.quantity > 0 AND si.total > 0
+          AND s.created_at >= DATE_SUB(NOW(), INTERVAL 24 MONTH)
+        ORDER BY s.created_at DESC LIMIT 200`, [vid]);
+      let ventas = null;
+      if (vs.length) {
+        const unit = vs.map(v => +v.total / +v.cant);
+        const uds = vs.reduce((a, v) => a + +v.cant, 0);
+        ventas = {
+          n: vs.length, unidades: uds,
+          prom: vs.reduce((a, v) => a + +v.total, 0) / uds,
+          min: Math.min(...unit), max: Math.max(...unit),
+          ultimo: { precio: unit[0], fecha: f10(vs[0].fecha) }
+        };
+      }
+      res.json({
+        producto: it ? { vid: it.vid, sku: it.sku, nombre: it.nombre, imagen: it.imagen,
+          precio_normal: it.precio_normal, precio_regular: it.precio_regular, precio_oferta: it.precio_oferta,
+          pvp_recomendado: it.pvp_recomendado || null,
+          stock: it.stock, stock_total: it.stock_total } : { vid },
+        compras, ventas
+      });
+    } catch (e) { console.error('[precio-importado] historial', e.message); res.status(500).json({ error: 'No se pudo leer el historial: ' + e.message }); }
+  });
+
   app.post('/api/precio-importado/leer', authAdmin, mPI, async (req, res) => {
     try { res.json(await leerLink(String((req.body && req.body.url) || '').trim())); }
     catch (e) { res.status(400).json({ error: e.message }); }
@@ -231,4 +334,4 @@ module.exports = function registrarPrecioImportado({ app, authAdmin, requiereMod
 };
 
 // Para pruebas
-module.exports._interno = { productoJsonLd, aNumero, tiendaDeUrl, ipPrivada, REGLAS_BASE };
+module.exports._interno = { productoJsonLd, aNumero, tiendaDeUrl, ipPrivada, puntuarLargo, REGLAS_BASE };

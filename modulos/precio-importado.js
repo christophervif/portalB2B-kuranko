@@ -38,7 +38,7 @@ const REGLAS_BASE = {
   tiendas: [
     // Proveedor reservado: el repo es público, así que su dominio no se escribe en claro;
     // se reconoce por el SHA-256 de una parte del dominio (hash_dominio) y se muestra con un seudónimo.
-    { id: 'px', nombre: 'Proveedor X', moneda: 'USD', envio: 40, dominios: [], oculta: true,
+    { id: 'px', nombre: 'Ldg', moneda: 'USD', envio: 40, dominios: [], oculta: true,
       hash_dominio: 'dadcbf7ab5c56f9373fef3f15634a9ad17b2ea99537562ac346bfc98fdb36aa4' },
     { id: 'bike24',         nombre: 'Bike24',         moneda: 'EUR', envio: 70,  dominios: ['bike24'] },
     { id: 'bikecomponents', nombre: 'Bike-components',moneda: 'EUR', envio: 30,  dominios: ['bike-components'] },
@@ -273,7 +273,7 @@ function puntuarLargo(consulta, item, P) {
   return Math.max(sku, Math.round(sc));
 }
 
-module.exports = function registrarPrecioImportado({ app, authAdmin, requiereModulo, prodPool, VV, catalogo }) {
+module.exports = function registrarPrecioImportado({ app, authAdmin, requiereModulo, prodPool, VV, catalogo, buscarInternet }) {
   const mPI = requiereModulo('precio_importado');
   const P = require('./cotizador')._puros;
 
@@ -449,6 +449,69 @@ module.exports = function registrarPrecioImportado({ app, authAdmin, requiereMod
         compras, ventas
       });
     } catch (e) { console.error('[precio-importado] historial', e.message); res.status(500).json({ error: 'No se pudo leer el historial: ' + e.message }); }
+  });
+
+  // ── Precio de mercado ──────────────────────────────────────────────────────
+  // Usa la misma búsqueda con IA + Google del Cotizador (excluye las tiendas ocultas).
+  // Primero tiendas de PERÚ (ya con IGV); si no hay, el resto de internet en soles × 1.18.
+  // Caché en memoria por nombre: 7 días si encontró, 15 min si falló o no encontró.
+  const cacheMercado = new Map();
+  const mediana = v => { const o = [...v].sort((a, b) => a - b), n = o.length;
+    return n ? (n % 2 ? o[(n - 1) / 2] : (o[n / 2 - 1] + o[n / 2]) / 2) : null; };
+  app.get('/api/precio-importado/mercado', authAdmin, mPI, async (req, res) => {
+    const nombre = String(req.query.nombre || '').trim().slice(0, 200);
+    const sku = String(req.query.sku || '').trim().slice(0, 60);
+    if (nombre.length < 4) return res.status(400).json({ error: 'Escribe el nombre del producto' });
+    if (!buscarInternet) return res.json({ disponible: false, motivo: 'La búsqueda de internet del Cotizador no está disponible' });
+    const clave = (nombre + '|' + sku).toLowerCase();
+    const c = cacheMercado.get(clave);
+    if (c && req.query.fresh !== '1' && Date.now() - c.t < (c.data.precio ? 7 * 864e5 : 15 * 60e3)) return res.json({ ...c.data, cache: true });
+    try {
+      const r = await buscarInternet({ nombre, sku });
+      if (r && r.disponible === false) return res.json(r);
+      const resultados = (r && r.resultados) || [];
+      const peru = resultados.filter(x => x.igv_incluido);
+      const base = peru.length ? peru : resultados;
+      const med = mediana(base.map(x => x.precio_pen_igv));
+      const data = { disponible: true, fuente: peru.length ? 'peru' : resultados.length ? 'internet' : null,
+        precio: med != null ? Math.ceil(med) : null, n: base.length, resultados, actualizado: new Date().toISOString() };
+      cacheMercado.set(clave, { t: Date.now(), data });
+      res.json(data);
+    } catch (e) {
+      res.status(502).json({ error: 'No se pudo buscar el precio de mercado: ' + String(e.message).slice(0, 200), saturado: !!e.saturado });
+    }
+  });
+
+  // ── Confirmar y copiar cotización: aviso por correo para enviarla por WhatsApp ──
+  // Correo por la API de Resend (Railway bloquea SMTP en varios planes).
+  // Variables: RESEND_API_KEY (obligatoria), PRECIO_IMP_EMAIL (destino, por defecto info@kuranko.pe),
+  //            PRECIO_IMP_EMAIL_DESDE (remitente, por defecto "Kuranko <onboarding@resend.dev>").
+  const escH = t => String(t == null ? '' : t).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+  app.post('/api/precio-importado/confirmar', authAdmin, mPI, async (req, res) => {
+    const b = req.body || {};
+    const texto = String(b.texto || '').slice(0, 3000), nombre = String(b.nombre || '').slice(0, 200);
+    const precio = Number(b.precio);
+    if (!texto || !(precio > 0)) return res.status(400).json({ error: 'Falta el precio' });
+    const key = process.env.RESEND_API_KEY;
+    const para = (process.env.PRECIO_IMP_EMAIL || 'info@kuranko.pe').split(',').map(x => x.trim()).filter(Boolean);
+    if (!key) return res.json({ correo: false, error: 'Correo no configurado (falta RESEND_API_KEY en Railway)' });
+    const wa = 'https://wa.me/?text=' + encodeURIComponent(texto);
+    const quien = (req.admin && req.admin.usuario) || 'administrador';
+    const html = `<div style="font-family:Arial,Helvetica,sans-serif;color:#111827;max-width:560px">
+      <p style="margin:0 0 10px;color:#4b5563">Cotización a pedido confirmada por <b>${escH(quien)}</b>. Envíala por WhatsApp:</p>
+      <pre style="white-space:pre-wrap;font-family:inherit;font-size:15px;background:#f3f4f6;border-radius:10px;padding:14px;margin:0">${escH(texto)}</pre>
+      <p style="margin:14px 0 0"><a href="${escH(wa)}" style="background:#25d366;color:#05310f;text-decoration:none;font-weight:bold;padding:10px 16px;border-radius:8px;display:inline-block">Abrir en WhatsApp</a></p>
+    </div>`;
+    try {
+      const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 10000);
+      const r = await fetch('https://api.resend.com/emails', { method: 'POST', signal: ctrl.signal,
+        headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from: process.env.PRECIO_IMP_EMAIL_DESDE || 'Kuranko <onboarding@resend.dev>', to: para,
+          subject: `Cotización a pedido: ${nombre || 'producto'} · S/ ${precio.toLocaleString('es-PE')}`, html, text: texto + '\n\n' + wa }) });
+      clearTimeout(to);
+      if (!r.ok) return res.json({ correo: false, error: `Resend ${r.status}: ${(await r.text()).slice(0, 200)}` });
+      res.json({ correo: true, para });
+    } catch (e) { res.json({ correo: false, error: e.message }); }
   });
 
   app.post('/api/precio-importado/leer', authAdmin, mPI, async (req, res) => {

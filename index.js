@@ -270,7 +270,8 @@ let modSeguimiento = null;
   const modCotizador = require('./modulos/cotizador')({ app, authAdmin, requiereModulo, prodPool });
 
   // Precio importado: calculadora de pedidos especiales a tiendas online (reemplaza la hoja de Google)
-  require('./modulos/precio-importado')({ app, authAdmin, requiereModulo, prodPool, VV, catalogo: modCotizador.catalogo });
+  require('./modulos/precio-importado')({ app, authAdmin, requiereModulo, prodPool, VV, catalogo: modCotizador.catalogo,
+    buscarInternet: modCotizador._test && modCotizador._test.buscarInternet });
 
   // ── Módulo Sincronización + Auditoría ──
   modSync = require('./modulos/sincronizacion')({ app, authAdmin, requiereModulo, prodPool, portalPool });

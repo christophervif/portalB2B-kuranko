@@ -127,7 +127,20 @@ tr.mejor td{background:var(--bg-ok)}
 .modal textarea{width:100%;min-height:260px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:10px;font-size:13px;font-family:ui-monospace,Menlo,monospace;line-height:1.5;margin-top:10px}
 .modal .chk{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);margin-top:8px;cursor:pointer}
 .btn-wa{background:#25d366;color:#05310f}.btn-wa:hover{background:#1fbd5a}
-.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--accent);color:var(--accent-text);padding:9px 16px;border-radius:999px;font-weight:700;font-size:13px;display:none;z-index:50}
+.valido{font-size:12px;color:var(--muted);display:inline-flex;align-items:center;gap:4px}
+.valido input{width:48px;background:transparent;border:1px dashed var(--border);color:var(--text2);border-radius:8px;padding:5px;font-size:12px;text-align:center}
+.elegido{margin-top:12px;font-size:13px;color:var(--text2)}
+.elegido b{color:var(--white);font-size:16px}
+.mercado{margin-top:10px;border:1px solid var(--border);border-radius:14px;padding:12px;background:var(--surface2);cursor:pointer;position:relative}
+.mercado:hover{border-color:var(--muted)}
+.mercado.on{border-color:var(--accent);background:var(--hover)}
+.mercado .fila1{padding-right:36px;display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
+.mercado .t{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.03em}
+.mercado .p{font-size:22px;font-weight:800;color:var(--white)}
+.mercado .x{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.5}
+.mercado .x a{color:var(--text2)}
+.mercado .recarga{position:absolute;top:8px;right:8px}
+;bottom:18px;left:50%;transform:translateX(-50%);background:var(--accent);color:var(--accent-text);padding:9px 16px;border-radius:999px;font-weight:700;font-size:13px;display:none;z-index:50}
 </style>
 </head>
 <body>
@@ -197,6 +210,7 @@ tr.mejor td{background:var(--bg-ok)}
         <div class="detalle" id="detalle"></div>
 
         <div class="props" id="props"></div>
+        <div id="mercado"></div>
 
         <div class="manual">
           <div class="campo opc">
@@ -205,10 +219,12 @@ tr.mejor td{background:var(--bg-ok)}
           </div>
           <div class="res" id="ofrecido-res"></div>
         </div>
+        <div class="elegido" id="elegido"></div>
 
         <div class="acciones">
           <button class="btn" id="btn-guardar">＋ Agregar a la lista</button>
-          <button class="btn btn-wa" id="btn-vendedor">✅ Confirmar</button>
+          <button class="btn btn-wa" id="btn-confirmar">✅ Confirmar y Copiar cotización</button>
+          <label class="valido" title="Días de validez del precio">válido <input id="validez" type="number" min="1" max="60" value="3"> días</label>
           <button class="btn btn-sec" id="btn-copiar">Copiar resumen</button>
           <button class="btn btn-sec" id="btn-nuevo">Nuevo</button>
         </div>
@@ -235,28 +251,6 @@ tr.mejor td{background:var(--bg-ok)}
     <div class="tw" id="lista"></div>
   </div>
 </div>
-<div class="modal" id="modal-vend">
-  <div class="caja">
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
-      <h3>✅ Confirmar precio</h3>
-      <button class="btn btn-sec btn-sm" id="vend-cerrar">✕</button>
-    </div>
-    <div class="desc">Solo 3 precios: recomendado, de mercado y mínimo, más un argumento de venta. No incluye tu costo ni tu ganancia.</div>
-    <div class="campos">
-      <div class="campo"><label>WhatsApp del vendedor</label><input id="vend-num" inputmode="tel" placeholder="51 987 654 321"></div>
-      <div class="campo"><label>Entrega estimada</label><input id="vend-plazo" placeholder="15 a 20 días hábiles"></div>
-      <div class="campo opc"><label>Adelanto</label><input id="vend-adelanto" placeholder="50%"></div>
-      <div class="campo"><label>Precio válido (días)</label><input id="vend-validez" type="number" min="1" value="3"></div>
-      <div class="campo opc ancho"><label>Nota (opcional)</label><input id="vend-nota" placeholder="Ej. talla 54 confirmada, color negro"></div>
-    </div>
-    <label class="chk" style="color:var(--muted)"><input type="checkbox" id="vend-link"> Incluir link de la tienda (el cliente podría ver el precio de origen)</label>
-    <textarea id="vend-txt"></textarea>
-    <div class="acciones">
-      <button class="btn btn-wa" id="vend-wa">Abrir WhatsApp</button>
-      <button class="btn btn-sec" id="vend-copiar">Copiar texto</button>
-    </div>
-  </div>
-</div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -265,7 +259,8 @@ let TOKEN='';try{TOKEN=localStorage.getItem('admtoken')||'';}catch(e){}
 let R=null;            // reglas del servidor
 let TC={USD:0,EUR:0};  // tipo de cambio con recargo (editable)
 let TIENDA=null;       // id de tienda elegida (null = otra)
-let ELEGIDO='etiqueta';
+let ELEGIDO=null;      // precio elegido: etiqueta / margen / alto / mercado (o el que se escribe)
+let MERCADO=null;      // precio de mercado: Perú primero, si no internet ×1.18
 let SIS=null;          // producto del sistema elegido + historial
 let COINC=[];          // coincidencias de la búsqueda
 let IMAGEN=null,URL_ACT='';
@@ -372,22 +367,24 @@ function recalcular(){
   $('regimen').innerHTML=k.regimen==='bajo'?'<span class="chip ok">Sin impuestos</span>':
     k.regimen==='sobre'?'<span class="chip warn">Paga impuestos</span>':k.regimen==='manual'?'<span class="chip warn">Costo manual</span>':'';
   const ps=c>0?propuestas(c):[];
+  // referencia de las etiquetas: el precio de mercado si ya se encontró; si no, esta tienda × 1.18
+  const refM=MERCADO&&MERCADO.precio?MERCADO.precio:inet;
   $('props').innerHTML=ps.map(p=>{
     const g=p.p-c;
-    return `<div class="prop${p.id===ELEGIDO?' on':''}" data-p="${p.id}" title="Clic para elegir y copiar">
+    return `<div class="prop${p.id===ELEGIDO?' on':''}" data-p="${p.id}" title="Clic para elegir este precio">
       <div class="t">${p.t}</div><div class="p">${sol0(p.p)}</div>
       <div class="g">+${sol(g)} · ${pct(g/c)}</div>
       <div class="x">${p.x}${p.min?`<br>Mínimo ${sol0(p.min)} (+${pct((p.min-c)/c)})`:''}<br>$${(p.p/TC.USD).toFixed(0)} · sin IGV ${sol0(p.p/R.igv)}</div>
-      ${inet?`<div style="margin-top:6px">${difChip(p.p,inet,'Sobre internet','Bajo internet','warn','ok')}</div>`:''}
+      ${refM?`<div style="margin-top:6px">${difChip(p.p,refM,'Sobre mercado','Bajo mercado','warn','ok')}</div>`:''}
     </div>`;}).join('');
   $('props').querySelectorAll('.prop').forEach(d=>d.onclick=()=>{
-    ELEGIDO=d.dataset.p;const p=ps.find(x=>x.id===ELEGIDO);
-    $('ofrecido').value='';copiar(String(p.p));recalcular();
+    ELEGIDO=d.dataset.p;$('ofrecido').value='';recalcular();
   });
   const of=num('ofrecido');
-  if(of&&c>0){const g=of-c;$('ofrecido-res').innerHTML=`<span class="chip ${g<0?'bad':g/c<0.15?'warn':'ok'}">${g<0?'Pierdes':'Ganas'} ${sol(Math.abs(g))} · ${pct(g/c)} sobre costo</span>`+(inet?' '+difChip(of,inet,'Sobre internet','Bajo internet','warn','ok'):'');}
+  if(of&&c>0){const g=of-c;$('ofrecido-res').innerHTML=`<span class="chip ${g<0?'bad':g/c<0.15?'warn':'ok'}">${g<0?'Pierdes':'Ganas'} ${sol(Math.abs(g))} · ${pct(g/c)} sobre costo</span>`+(refM?' '+difChip(of,refM,'Sobre mercado','Bajo mercado','warn','ok'):'');}
   else $('ofrecido-res').innerHTML='';
   ULTIMO={costo:c,props:ps,regimen:k.regimen,inet};
+  pintarMercado();pintarElegido();
   pintarComparacion();
 }
 
@@ -553,7 +550,7 @@ async function procesarEntrada(){
       if(d.moneda&&['USD','EUR','PEN'].includes(d.moneda))$('moneda').value=d.moneda;
       if(d.precio){$('precio').value=d.precio;}
       CODIGOS=d.codigos||[];
-      if(d.nombre||CODIGOS.length){$('nombre').value=d.nombre||$('nombre').value;$('buscar-sis').value=d.nombre||'';buscarSistema(d.nombre||'',true);}
+      if(d.nombre||CODIGOS.length){$('nombre').value=d.nombre||$('nombre').value;$('buscar-sis').value=d.nombre||'';buscarSistema(d.nombre||'',true);buscarMercado(false);}
       IMAGEN=d.imagen||null;pintarProd();
       if(d.leido)aviso(`Precio leído: ${mon(d.precio,$('moneda').value)}. Revisa que sea el de la talla/color correcto.`,'ok');
       else aviso(d.aviso||'No encontré el precio. Escríbelo a mano.','warn');
@@ -572,7 +569,7 @@ function resumen(){
   const m=$('moneda').value,t=R.tiendas.find(x=>x.id===TIENDA);
   const L=[];
   if($('nombre').value.trim())L.push($('nombre').value.trim());
-  if(URL_ACT&&!(t&&t.oculta))L.push(URL_ACT); // proveedor reservado: nunca se copia su link
+  if(URL_ACT)L.push(URL_ACT);
   if(num('precio'))L.push(`${t?t.nombre:'Tienda'}: ${mon(num('precio'),m)} + envío ${mon(num('envio')??envioDefecto(),m)}`);
   if(ULTIMO.inet)L.push(`Internet con IGV: ${sol(ULTIMO.inet)}`);
   L.push(`Costo: ${sol(ULTIMO.costo)}`);
@@ -580,63 +577,89 @@ function resumen(){
   if(num('ofrecido'))L.push(`Ofrecido: ${sol0(num('ofrecido'))}`);
   return L.join('\n');
 }
-// ── Reporte para el vendedor (sin costo ni ganancia) ────────────────────────
-const VEND_CAMPOS=['vend-num','vend-plazo','vend-adelanto','vend-validez'];
-function reporteVendedor(){
-  if(!ULTIMO||!ULTIMO.costo||!ULTIMO.props.length)return'';
-  const P=Object.fromEntries(ULTIMO.props.map(p=>[p.id,p]));
-  const lista=num('ofrecido')||(P[ELEGIDO]||P.etiqueta).p;
-  // Piso de negociación: el mínimo de la etiqueta (90 %), nunca por encima del precio de lista
-  const piso=Math.min(lista,Math.ceil(P.etiqueta.min));
-  const margen=lista-piso;
-  const dias=Math.max(1,parseInt($('vend-validez').value,10)||3);
-  const hasta=new Date(Date.now()+dias*864e5).toLocaleDateString('es-PE',{timeZone:'America/Lima',day:'2-digit',month:'2-digit'});
-  // Proveedor reservado: no se muestra su precio como "mercado" ni su link
-  const tOc=R.tiendas.find(x=>x.id===TIENDA), inetRep=tOc&&tOc.oculta?0:ULTIMO.inet;
-  const nombre=$('nombre').value.trim()||'Producto';
-  const L=[`*Pedido especial · precio para cotizar*`,`*${nombre}*`];
-  if($('vend-link').checked&&URL_ACT&&!(tOc&&tOc.oculta))L.push(URL_ACT);
-  // Los 3 precios que necesita el vendedor: recomendado, mercado y mínimo
-  L.push('',`✅ Precio recomendado: *${sol0(lista)}*`);
-  if(inetRep)L.push(`🌐 Precio de mercado: ${sol0(Math.round(inetRep))} _(internet con IGV, sin envío ni aduana)_`);
-  L.push(margen>0?`🔻 Precio mínimo: *${sol0(piso)}* _(no bajar de aquí)_`:`🔻 Precio cerrado: sin margen para descuento`);
-  // Argumento de venta frente a comprar por internet
-  if(inetRep){
-    const d=lista/inetRep-1;
-    if(d<=-SIMILAR)L.push('',`💡 Está ${(-d*100).toFixed(0)}% más barato que en internet y se entrega en Lima.`);
-    else if(Math.abs(d)<SIMILAR)L.push('',`💡 Mismo precio que en internet, sin pagar envío, impuestos ni trámites.`);
-    else L.push('',`💡 Sale ${(d*100).toFixed(0)}% sobre internet porque incluye envío, impuestos y aduana; si el cliente lo trae solo, paga eso aparte y asume el riesgo.`);
+// ── Precio de mercado: Perú primero; si no, internet en soles × 1.18 ──────────
+let _mercadoClave='',_tMercado=null;
+function programarMercado(){clearTimeout(_tMercado);_tMercado=setTimeout(()=>buscarMercado(false),1200);}
+async function buscarMercado(fresh){
+  const nombre=$('nombre').value.trim();
+  if(nombre.length<4)return;
+  const clave=nombre.toLowerCase();
+  if(!fresh&&clave===_mercadoClave)return;
+  _mercadoClave=clave;MERCADO={cargando:true};pintarMercado();
+  try{
+    const d=await api('/api/precio-importado/mercado?nombre='+encodeURIComponent(nombre)+(CODIGOS[0]?'&sku='+encodeURIComponent(CODIGOS[0]):'')+(fresh?'&fresh=1':''));
+    if(clave!==_mercadoClave)return;
+    MERCADO=d;
+  }catch(e){if(clave===_mercadoClave)MERCADO={error:e.message};}
+  recalcular();
+}
+// Si la IA no encontró nada: el precio de esta tienda × TC × 1.18 (nunca el del proveedor reservado)
+function precioMercado(){
+  if(MERCADO&&MERCADO.precio)return{precio:MERCADO.precio,fuente:MERCADO.fuente};
+  const t=R&&R.tiendas.find(x=>x.id===TIENDA);
+  if(MERCADO&&!MERCADO.cargando&&ULTIMO&&ULTIMO.inet&&!(t&&t.oculta))return{precio:Math.ceil(ULTIMO.inet),fuente:'tienda'};
+  return null;
+}
+function pintarMercado(){
+  const el=$('mercado');if(!el)return;
+  const pm=precioMercado();
+  if(!MERCADO&&!pm){el.innerHTML=$('nombre').value.trim().length>=4?'<div class="mercado" style="cursor:default"><div class="t">Precio de mercado</div><div class="x">Se busca al escribir el nombre del producto.</div></div>':'';return;}
+  const rec='<button class="btn btn-sec btn-sm recarga" title="Volver a buscar" onclick="event.stopPropagation();buscarMercado(true)">↻</button>';
+  let cuerpo='';
+  if(MERCADO&&MERCADO.cargando)cuerpo='<div class="p">…</div><div class="x">Buscando primero en tiendas de Perú y luego en internet…</div>';
+  else if(pm){
+    const lista=(MERCADO&&MERCADO.resultados||[]).filter(r=>pm.fuente!=='peru'||r.igv_incluido).slice(0,5)
+      .map(r=>(r.url?`<a href="${esc(r.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(r.tienda)}</a>`:esc(r.tienda))+' '+sol0(r.precio_pen_igv)).join(' · ');
+    const de=pm.fuente==='peru'?`🇵🇪 Tiendas de Perú (${MERCADO.n}) · precio con IGV`:pm.fuente==='internet'?`🌐 No hay en Perú: internet (${MERCADO.n}) en soles × 1.18`:'🌐 Solo esta tienda: precio × TC × 1.18 (sin envío)';
+    cuerpo=`<div class="fila1"><div class="p">${sol0(pm.precio)}</div>${ULTIMO&&ULTIMO.costo?`<span class="chip ${pm.precio<ULTIMO.costo?'bad':'ok'}">${pm.precio<ULTIMO.costo?'bajo tu costo':'+'+pct((pm.precio-ULTIMO.costo)/ULTIMO.costo)+' sobre costo'}</span>`:''}</div>
+      <div class="x">${de}${lista?'<br>'+lista:''}${MERCADO&&MERCADO.error?'<br>No se pudo buscar en internet: '+esc(MERCADO.error):''}</div>`;
   }
-  const plazo=$('vend-plazo').value.trim(),adel=$('vend-adelanto').value.trim(),nota=$('vend-nota').value.trim();
-  if(plazo||adel)L.push('');
-  if(plazo)L.push(`⏱️ Entrega: ${plazo}`);
-  if(adel)L.push(`💵 Adelanto: ${adel}`);
-  if(nota)L.push(`📝 ${nota}`);
-  L.push('',`_Precios con IGV. Válidos hasta el ${hasta} (dependen del tipo de cambio)._`);
-  return L.join('\n');
+  else if(MERCADO&&MERCADO.error)cuerpo=`<div class="p">—</div><div class="x">No se pudo buscar: ${esc(MERCADO.error)}</div>`;
+  else if(MERCADO&&MERCADO.disponible===false)cuerpo=`<div class="p">—</div><div class="x">${esc(MERCADO.motivo||'No disponible')}</div>`;
+  else cuerpo='<div class="p">—</div><div class="x">No se encontró el mismo producto en tiendas de Perú ni de internet.</div>';
+  el.innerHTML=`<div class="mercado${ELEGIDO==='mercado'&&pm?' on':''}" id="card-mercado" title="${pm?'Clic para elegir este precio':''}"><div class="t">Precio de mercado</div>${cuerpo}${MERCADO&&!MERCADO.cargando?rec:''}</div>`;
+  if(pm)$('card-mercado').onclick=()=>{ELEGIDO='mercado';$('ofrecido').value='';recalcular();};
 }
-function abrirVendedor(){
-  const t=reporteVendedor();
-  if(!t){toast('Primero calcula un precio');return;}
-  try{const g=JSON.parse(localStorage.getItem('precio_imp_vend')||'{}');VEND_CAMPOS.forEach(id=>{if(g[id]!=null&&!$(id).value)$(id).value=g[id];});}catch(e){}
-  const oc=R.tiendas.find(x=>x.id===TIENDA);const ck=$('vend-link');ck.disabled=!!(oc&&oc.oculta);if(ck.disabled)ck.checked=false;
-  ck.parentElement.title=ck.disabled?'Proveedor reservado: su link nunca se incluye':'';
-  $('vend-txt').value=reporteVendedor();
-  $('modal-vend').classList.add('on');
+
+// ── Precio elegido y "Confirmar y Copiar cotización" ─────────────────────────
+function precioElegido(){
+  const of=num('ofrecido');
+  if(of>0)return{precio:Math.round(of),de:'escrito a mano'};
+  if(ELEGIDO==='mercado'){const pm=precioMercado();return pm?{precio:pm.precio,de:'precio de mercado'}:null;}
+  const p=ULTIMO&&ULTIMO.props.find(x=>x.id===ELEGIDO);
+  return p?{precio:p.p,de:p.t.toLowerCase()}:null;
 }
-function guardarVend(){try{localStorage.setItem('precio_imp_vend',JSON.stringify(Object.fromEntries(VEND_CAMPOS.map(id=>[id,$(id).value]))));}catch(e){}}
-function enviarWhatsApp(){
-  guardarVend();
-  const n=$('vend-num').value.replace(/\D/g,'');
-  const tel=n&&n.length===9?'51'+n:n; // 9 dígitos = celular peruano sin código
-  window.open('https://wa.me/'+(tel||'')+'?text='+encodeURIComponent($('vend-txt').value),'_blank','noopener');
+function pintarElegido(){
+  const e=precioElegido(),el=$('elegido');if(!el)return;
+  el.innerHTML=e?`Precio a cotizar: <b>${sol0(e.precio)}</b> <span class="s">(${esc(e.de)})</span>`:
+    (ULTIMO&&ULTIMO.costo?'<span class="s">Elige un precio (clic en una tarjeta) o escríbelo arriba para poder confirmar.</span>':'');
+}
+function textoCotizacion(precio){
+  const dias=Math.max(1,parseInt($('validez').value,10)||3);
+  const hasta=new Date(Date.now()+dias*864e5).toLocaleDateString('es-PE',{timeZone:'America/Lima',day:'numeric',month:'numeric'});
+  const nombre=$('nombre').value.trim()||'Producto';
+  return `*Cotización a pedido*\n*${nombre}*\n\nPrecio: *${sol0(precio)}*\n\n_Precios válidos hasta el ${hasta}._`;
+}
+async function confirmarCotizacion(){
+  const e=precioElegido();
+  if(!e){toast('Primero elige o escribe el precio');return;}
+  if(!$('nombre').value.trim()){toast('Escribe el nombre del producto');$('nombre').focus();return;}
+  const texto=textoCotizacion(e.precio);
+  try{localStorage.setItem('precio_imp_validez',$('validez').value);}catch(x){}
+  try{await navigator.clipboard.writeText(texto);}catch(x){}
+  const b=$('btn-confirmar');b.disabled=true;
+  try{
+    const r=await api('/api/precio-importado/confirmar',{method:'POST',body:{texto,nombre:$('nombre').value.trim(),precio:e.precio}});
+    toast(r.correo?'Copiado y enviado a '+r.para.join(', '):'Copiado. El correo no salió: '+(r.error||''));
+  }catch(x){toast('Copiado. El correo no salió: '+x.message);}
+  finally{b.disabled=false;}
 }
 
 async function copiar(txt){try{await navigator.clipboard.writeText(txt);toast('Copiado');}catch(e){toast('No se pudo copiar');}}
 
 function nuevo(){
   ['entrada','precio','envio','costo-manual','nombre','ofrecido'].forEach(id=>$(id).value='');
-  URL_ACT='';IMAGEN=null;pintarProd();aviso('');ELEGIDO='etiqueta';
+  URL_ACT='';IMAGEN=null;pintarProd();aviso('');ELEGIDO=null;MERCADO=null;_mercadoClave='';
   SIS=null;COINC=[];CODIGOS=[];_ultimaBus='';$('buscar-sis').value='';$('coinc').innerHTML='';recalcular();$('entrada').focus();
 }
 
@@ -674,13 +697,9 @@ async function iniciar(){
   $('tc-usd').addEventListener('change',tcDesdeCampos);$('tc-eur').addEventListener('change',tcDesdeCampos);
   $('btn-copiar').onclick=()=>{const r=resumen();if(r)copiar(r);else toast('Primero calcula un precio');};
   $('btn-nuevo').onclick=nuevo;
-  $('btn-vendedor').onclick=abrirVendedor;
-  $('vend-cerrar').onclick=()=>$('modal-vend').classList.remove('on');
-  $('modal-vend').addEventListener('click',e=>{if(e.target.id==='modal-vend')$('modal-vend').classList.remove('on');});
-  ['vend-plazo','vend-adelanto','vend-validez','vend-nota','vend-link'].forEach(id=>$(id).addEventListener('input',()=>{$('vend-txt').value=reporteVendedor();guardarVend();}));
-  $('vend-num').addEventListener('change',guardarVend);
-  $('vend-wa').onclick=enviarWhatsApp;
-  $('vend-copiar').onclick=()=>{guardarVend();copiar($('vend-txt').value);};
+  $('btn-confirmar').onclick=confirmarCotizacion;
+  try{const v=localStorage.getItem('precio_imp_validez');if(v)$('validez').value=v;}catch(e){}
+  $('nombre').addEventListener('input',programarMercado);
   $('btn-limpiar').onclick=()=>{if(!LISTA.length)return;LISTA=[];guardarLista();pintarLista();toast('Lista vacía');};
   $('btn-guardar').onclick=()=>{
     if(!ULTIMO||!ULTIMO.costo){toast('Primero calcula un precio');return;}

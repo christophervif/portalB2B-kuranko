@@ -63,8 +63,21 @@ html,body{overflow-x:hidden}
 .cant{display:flex;align-items:center;gap:6px;margin:12px 0}
 .cant button{width:38px;height:38px;border-radius:10px;border:1px solid var(--border);background:var(--surface3);color:var(--text);font-size:18px;cursor:pointer}
 .cant input{width:70px;text-align:center;padding:9px;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:16px}
-.precios{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
-@media(max-width:560px){.precios{grid-template-columns:1fr 1fr}.precios .pbox.sug{grid-column:1/-1;order:-1}}
+.precios{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+@media(max-width:1100px){.precios{grid-template-columns:1fr 1fr}}
+.precios .pbox .val{font-size:1.15rem;white-space:nowrap}
+.pbox.rec{border-style:dashed}
+.pbox.falta .val{color:var(--fg-r)}
+.comp{margin-top:10px;border:1px solid var(--border);border-radius:12px;background:var(--surface2);padding:10px 12px}
+.comp h4{font-size:12px;color:var(--white);margin-bottom:4px}
+.comp .fila-c{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;padding:7px 0;border-top:1px solid var(--border);font-size:13px}
+.comp .fila-c:first-of-type{border-top:none}
+.comp .fila-c .t{color:var(--text2);min-width:0}
+.comp .fila-c .t small{display:block;color:var(--muted);font-size:11px;margin-top:2px}
+.comp .fila-c .v{text-align:right;white-space:nowrap}
+.tiendas{margin-top:4px;display:flex;flex-wrap:wrap;gap:4px}
+.tiendas a,.tiendas span.tnd{font-size:11px;padding:2px 8px;border-radius:20px;background:var(--surface3);border:1px solid var(--border);color:var(--text2);text-decoration:none}
+.tiendas a:hover{border-color:var(--accent)}
 .pbox.sug{border-color:var(--fg-ok)}.pbox.sug .val{color:var(--fg-ok)}
 .pbox{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:12px}
 .pbox .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
@@ -218,16 +231,71 @@ function pintarRes(){
       <div class="izq">${thumb(x)}<div style="min-width:0"><div class="nom">${esc(x.nombre)}</div>
         <div class="meta"><span class="sku">${esc(x.sku||'sin SKU')}</span> · ${esc(empresasTxt(x))}</div>
         <div style="margin-top:5px;display:flex;gap:4px;flex-wrap:wrap">${chipStock(x)} ${x.anio_modelo?'<span class="chip emp">MY '+x.anio_modelo+'</span>':''} ${chipEdad(x)}</div></div></div>
-      <div class="der"><div class="precio">${S(x.precio_normal)}</div></div>
+      <div class="der">${x.sin_precio?(x.pvp_recomendado?'<div class="precio">'+S(x.pvp_recomendado)+'</div><div class="meta">PVP recomendado</div>':'<div class="meta" style="color:var(--fg-r)">sin precio</div>'):'<div class="precio">'+S(x.precio_normal)+'</div>'}</div>
     </div>`).join('');
   const s=cont.querySelector('.res.sel');if(s)s.scrollIntoView({block:'nearest'});
+}
+
+// ══════════ Comparación de precios (sistema vs recomendado / vendido / internet) ══════════
+// tipo: 'rec' (bajo = poco margen → rojo), 'inet' (alto = más caro que el mercado → amarillo; bajo → verde), 'ven'
+function chipComp(c,tipo){
+  if(!c)return '<span class="chip emp">—</span>';
+  if(c.nivel==='similar')return '<span class="chip ok">similar ('+(c.dif_pct>0?'+':'')+c.dif_pct+'%)</span>';
+  const alto=c.nivel==='alto';
+  const cls=tipo==='rec'?(alto?'warn':'bad'):tipo==='inet'?(alto?'warn':'ok'):'warn';
+  return '<span class="chip '+cls+'">'+(alto?'▲ ':'▼ ')+Math.abs(c.dif_pct)+'% '+(alto?'más alto':'más bajo')+'</span>';
+}
+let _seqInet=0;
+async function cargarInternet(fresh){
+  if(!ACTUAL)return;
+  const vid=ACTUAL.item.vid,seq=++_seqInet;
+  ACTUAL.inet={cargando:true};pintarComparacion();
+  try{
+    const d=await apiCall('/api/cotizador/internet?vid='+vid+(fresh?'&fresh=1':''));
+    if(seq!==_seqInet||!ACTUAL||ACTUAL.item.vid!==vid)return;
+    ACTUAL.inet=d;
+  }catch(e){if(seq===_seqInet&&ACTUAL)ACTUAL.inet={error:e.message};}
+  pintarComparacion();
+}
+function pintarComparacion(){
+  const el=document.getElementById('det-comp');if(!el||!ACTUAL)return;
+  const x=ACTUAL.item,p=ACTUAL.precio||{},in_=ACTUAL.inet||{},c=p.comparacion||{};
+  const normal=x.precio_normal>0?x.precio_normal:null;
+  const filas=[];
+  // 1) PVP recomendado
+  filas.push(`<div class="fila-c"><div class="t">PVP recomendado<small>costo de la última compra ÷ ${p.factor_pvp||0.45}</small></div>
+    <div class="v"><b>${x.pvp_recomendado?S(x.pvp_recomendado):'—'}</b><br>${normal?chipComp(c.vs_pvp_recomendado,'rec'):'<span class="chip bad">sin precio en sistema</span>'}</div></div>`);
+  // 2) Ventas registradas
+  const v=p.vendido;
+  filas.push(`<div class="fila-c"><div class="t">Vendido (últimos 24 meses)<small>${v?v.ventas+' venta'+(v.ventas===1?'':'s')+' · '+v.unidades+' u.'+(v.ultimo_precio?' · última '+S(v.ultimo_precio)+' el '+fecha(v.ultima):''):'Sin ventas registradas'}</small></div>
+    <div class="v"><b>${v?S(v.precio_prom):'—'}</b>${v&&normal?'<br>'+chipComp(c.vs_vendido,'ven'):''}</div></div>`);
+  // 3) Internet
+  let inet='';
+  if(in_.cargando)inet='<small>Buscando precios en tiendas online…</small>';
+  else if(in_.error)inet='<small>No se pudo consultar: '+esc(in_.error)+'</small>';
+  else if(in_.disponible===false)inet='<small>'+esc(in_.motivo||'No disponible')+'</small>';
+  else if(!in_.resumen)inet='<small>No se encontró el mismo producto en tiendas online'+(in_.error?' ('+esc(in_.error)+')':'')+'.</small>';
+  else inet='<small>Mediana de '+in_.resumen.n+' tienda'+(in_.resumen.n===1?'':'s')+(in_.resumen.n>1?' · rango '+S(in_.resumen.min)+' – '+S(in_.resumen.max):'')+' · extranjeras ×1.18 IGV</small>'+
+      '<div class="tiendas">'+in_.resultados.map(r=>{const t=esc(r.tienda)+' '+S(r.precio_pen_igv)+(r.igv_incluido?'':' ('+esc(r.moneda)+' '+r.precio+')');
+        return r.url?'<a href="'+esc(r.url)+'" target="_blank" rel="noopener noreferrer">'+t+' ↗</a>':'<span class="tnd">'+t+'</span>';}).join('')+'</div>';
+  const refr=ES_MAESTRO&&!in_.cargando&&in_.actualizado?' <a href="#" onclick="event.preventDefault();cargarInternet(true)" style="font-size:11px;color:var(--accent)">↻</a>':'';
+  filas.push(`<div class="fila-c"><div class="t">Precio en internet (c/IGV)${refr}${inet}</div>
+    <div class="v"><b>${in_.resumen?S(in_.resumen.mediana):in_.cargando?'…':'—'}</b>${in_.resumen&&normal?'<br>'+chipComp(in_.comparacion,'inet'):''}</div></div>`);
+  // Veredicto
+  let ver='';
+  if(normal){
+    const partes=[];const n=(cc,ref)=>{if(cc&&cc.nivel!=='similar')partes.push((cc.nivel==='alto'?'más alto':'más bajo')+' que '+ref);};
+    n(c.vs_pvp_recomendado,'el recomendado');n(c.vs_vendido,'lo vendido');n(in_.comparacion,'internet');
+    ver=partes.length?'El precio del sistema está '+partes.join(', ')+'.':(c.vs_pvp_recomendado||c.vs_vendido||in_.comparacion?'El precio del sistema está en línea con las referencias.':'');
+  } else ver='Este producto no tiene precio en el sistema: se cotiza con el PVP recomendado. Avisa a administración para que lo asignen.';
+  el.innerHTML='<div class="comp"><h4>¿El precio está bien?</h4>'+(ver?'<div class="desc" style="margin-bottom:4px">'+esc(ver)+'</div>':'')+filas.join('')+'</div>';
 }
 
 // ══════════ Detalle del producto + precio mínimo ══════════
 let _seqPre=0,_tCant=null;
 function elegir(i){
   SEL=i;pintarRes();ACTUAL={item:RES[i],cantidad:1,precio:null};
-  pintarDetalle();cargarPrecio();
+  pintarDetalle();cargarPrecio();cargarInternet();
 }
 function cambiarCant(delta,abs){
   if(!ACTUAL)return;
@@ -244,7 +312,7 @@ async function cargarPrecio(){
   try{
     const p=await apiCall(`/api/cotizador/precio?vid=${ACTUAL.item.vid}&cantidad=${ACTUAL.cantidad}`);
     if(seq!==_seqPre)return;
-    ACTUAL.precio=p;pintarPrecios();
+    ACTUAL.precio=p;pintarPrecios();pintarComparacion();
   }catch(e){showToast(e.message,true);}
   finally{const el=document.getElementById('det-precios');if(el)el.style.opacity=1;}
 }
@@ -278,10 +346,11 @@ function pintarDetalle(){
       <button onclick="cambiarCant(1)">+</button>
     </div>
     <div id="det-precios"></div>
+    <div id="det-comp"></div>
     <div class="fila"><button class="btn" onclick="agregarActual()">+ Agregar a cotización</button></div>
     <h3 style="margin-top:16px">Stock por almacén</h3>
     <div style="margin-top:6px;overflow-x:auto">${alm}</div>`;
-  pintarPrecios();
+  pintarPrecios();pintarComparacion();
 }
 function pintarPrecios(){
   const el=document.getElementById('det-precios');if(!el||!ACTUAL)return;
@@ -292,6 +361,7 @@ function pintarPrecios(){
   let avisos='';
   if(p.sin_costo)avisos+='<div class="aviso bad">No hay costo registrado para estas unidades: no se puede calcular el precio mínimo. Consulta antes de dar descuento.</div>';
   if(p.insuficiente&&!p.sin_costo)avisos+=`<div class="aviso warn">Solo hay ${p.unidades_con_costo} unidad(es) en lotes; el mínimo se calculó con esas.</div>`;
+  if(x.sin_precio)avisos+='<div class="aviso warn">Sin precio en el sistema: se cotiza con el PVP recomendado'+(x.pvp_recomendado?' ('+S(x.pvp_recomendado)+')':' (no hay costo de compra para calcularlo)')+'.</div>';
   if(p.precio_minimo!=null&&x.precio_normal>0&&p.precio_minimo>x.precio_normal)avisos+='<div class="aviso bad">El precio mínimo supera al precio normal: el precio de sistema está por debajo del costo. Avisa a administración.</div>';
   let costo='';
   if(ES_MAESTRO&&p.costo_prom!=null){
@@ -300,14 +370,16 @@ function pintarPrecios(){
   }
   el.innerHTML=`
     <div class="precios">
-      <div class="pbox"><div class="lbl">Precio normal (sistema)</div><div class="val">${S(x.precio_normal)}</div>
-        <div class="sub">${x.precio_oferta!=null&&x.precio_oferta<x.precio_regular?'Oferta · regular '+S(x.precio_regular):'por unidad'}${n>1?' · total '+S(x.precio_normal*n):''}</div></div>
+      <div class="pbox${x.sin_precio?' falta':''}"><div class="lbl">Precio normal (sistema)</div><div class="val">${x.sin_precio?'Sin precio':S(x.precio_normal)}</div>
+        <div class="sub">${x.sin_precio?'se usa el PVP recomendado':(x.precio_oferta!=null&&x.precio_oferta<x.precio_regular?'Oferta · regular '+S(x.precio_regular):'por unidad')}${n>1&&!x.sin_precio?' · total '+S(x.precio_normal*n):''}</div></div>
+      <div class="pbox rec"><div class="lbl">PVP recomendado</div><div class="val">${x.pvp_recomendado?S(x.pvp_recomendado):'—'}</div>
+        <div class="sub">${x.pvp_recomendado?'costo última compra ÷ '+(p.factor_pvp||0.45):'sin costo de compra'}</div></div>
       <div class="pbox sug"><div class="lbl">Precio sugerido</div><div class="val">${p.precio_sugerido!=null?S(p.precio_sugerido):'—'}</div>
         <div class="sub">${p.sugerido?(p.sugerido.descuento_pct>0?'desc. '+p.sugerido.descuento_pct+'%':'sin descuento')+' · '+esc(p.sugerido.motivo)+(n>1?' · total '+S(p.precio_sugerido*n):''):''}</div></div>
       <div class="pbox min"><div class="lbl">Precio mínimo${n>1?' ('+n+' u.)':''}</div><div class="val">${minTxt}</div>
         <div class="sub">${p.precio_minimo!=null?'por unidad'+(n>1?' · total '+S(p.precio_minimo*n):''):''}${p.descuento_max_pct!=null?' · desc. máx. '+p.descuento_max_pct+'%':''}</div></div>
     </div>
-    <div class="desc" style="margin-top:6px">${p.sugerido?'Sugerido para cliente final · '+esc(p.sugerido.tipo_nombre)+': '+esc(p.sugerido.motivo)+' → '+(p.sugerido.regla_pct==='min'?'precio mínimo':'−'+p.sugerido.regla_pct+'%')+(p.sugerido.topado_en_minimo?' (limitado al mínimo)':'')+(p.sugerido.nota?' · '+esc(p.sugerido.nota):'')+'. ':''}Mínimo según ${n>1?'las '+n+' unidades más antiguas':'la unidad más antigua'}${antig!=null?' · lote más antiguo: '+fecha(p.lote_mas_antiguo)+' ('+antig+' días)':''}.</div>
+    <div class="desc" style="margin-top:6px">${p.sugerido?'Sugerido para cliente final · '+esc(p.sugerido.tipo_nombre)+': '+esc(p.sugerido.motivo)+' → '+(p.sugerido.regla_pct==='min'?'precio mínimo':Number(p.sugerido.regla_pct)>0?'−'+p.sugerido.regla_pct+'%':'sin descuento')+(p.sugerido.topado_en_minimo?' (limitado al mínimo)':'')+(p.sugerido.nota?' · '+esc(p.sugerido.nota):'')+'. ':''}Mínimo según ${n>1?'las '+n+' unidades más antiguas':'la unidad más antigua'}${antig!=null?' · lote más antiguo: '+fecha(p.lote_mas_antiguo)+' ('+antig+' días)':''}.</div>
     ${avisos}${costo}`;
 }
 
@@ -320,8 +392,8 @@ function agregarActual(){
   const x=ACTUAL.item,p=ACTUAL.precio||{};
   const ya=CARRITO.find(l=>l.vid===x.vid);
   if(ya){ya.cantidad+=ACTUAL.cantidad;recalcularLinea(ya);}
-  else CARRITO.push({vid:x.vid,sku:x.sku,nombre:x.nombre,cantidad:ACTUAL.cantidad,precio_normal:x.precio_normal,
-    precio:p.precio_sugerido??x.precio_normal,precio_minimo:p.precio_minimo??null,precio_sugerido:p.precio_sugerido??null,imagen:x.imagen||null,stock:x.stock,stock_consig:x.stock_consignacion||0});
+  else CARRITO.push({vid:x.vid,sku:x.sku,nombre:x.nombre,cantidad:ACTUAL.cantidad,precio_normal:x.precio_base??x.precio_normal,sin_precio:!!x.sin_precio,
+    precio:p.precio_sugerido??x.precio_base??x.precio_normal,precio_minimo:p.precio_minimo??null,precio_sugerido:p.precio_sugerido??null,imagen:x.imagen||null,stock:x.stock,stock_consig:x.stock_consignacion||0});
   guardarCarrito();pintarCarrito();showToast('Agregado a la cotización');
   $q.select();
 }
@@ -353,7 +425,7 @@ function pintarCarrito(){
   const c=document.getElementById('carrito');
   if(!CARRITO.length){c.innerHTML='<div class="vacio">Aún no agregas productos.</div>';pintarTotales();return;}
   c.innerHTML=CARRITO.map((l,i)=>`<div class="linea">
-      <div class="top"><div style="display:flex;gap:8px;min-width:0">${thumb(l,'mini')}<div style="min-width:0"><div class="nm">${esc(l.nombre)}</div><div class="desc"><span class="sku">${esc(l.sku||'')}</span> · normal ${S(l.precio_normal)} · sug. ${S(l.precio_sugerido)} · mín. ${S(l.precio_minimo)}</div></div></div>
+      <div class="top"><div style="display:flex;gap:8px;min-width:0">${thumb(l,'mini')}<div style="min-width:0"><div class="nm">${esc(l.nombre)}</div><div class="desc"><span class="sku">${esc(l.sku||'')}</span> · ${l.sin_precio?'PVP rec.':'normal'} ${S(l.precio_normal)} · sug. ${S(l.precio_sugerido)} · mín. ${S(l.precio_minimo)}</div></div></div>
         <button class="x" title="Quitar" onclick="quitarLinea(${i})">×</button></div>
       <div class="ctr">Cant. <input class="q" type="number" min="1" value="${l.cantidad}" oninput="editarLinea(${i},'cantidad',this.value)"/>
         Precio u. <input id="lp-${i}" type="number" min="0" step="1" value="${l.precio}" oninput="editarLinea(${i},'precio',this.value)"/>

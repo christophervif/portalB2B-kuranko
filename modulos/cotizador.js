@@ -539,17 +539,45 @@ Reglas: solo el MISMO producto y la misma versión (modelo, año, tamaño o capa
 Responde SOLO con JSON, sin texto adicional:
 {"resultados":[{"tienda":"nombre","url":"https://...","pais":"código ISO de 2 letras","moneda":"código ISO de 3 letras","precio":123.45}]}
 Si no encuentras nada, responde {"resultados":[]}.`;
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODELO_IA}:generateContent?key=${encodeURIComponent(key)}`;
-    const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 45000);
-    let txt = '';
-    try {
-      const g = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ctrl.signal,
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], tools: [{ google_search: {} }],
-          generationConfig: { temperature: 0 } }) });
-      const d = await g.json();
-      if (!g.ok) throw new Error((d && d.error && d.error.message) || ('HTTP ' + g.status));
-      txt = ((((d.candidates || [])[0] || {}).content || {}).parts || []).map(p => p.text || '').join('');
-    } finally { clearTimeout(to); }
+    // Se intenta con el modelo configurado y, si Google responde error, con un modelo de respaldo.
+    const modelos = [...new Set([MODELO_IA, 'gemini-2.5-flash'])];
+    let txt = '', ultimoError = null;
+    // Cada modelo se prueba hasta 2 veces si Google responde "saturado" (429/503/overloaded),
+    // esperando 3 s entre intentos; luego pasa al modelo de respaldo.
+    const intentos = [];
+    modelos.forEach(m => { intentos.push(m, m); });
+    let saturadoPrevio = null;
+    for (let i = 0; i < intentos.length; i++) {
+      const mdl = intentos[i];
+      // el 2.º intento del mismo modelo solo si el 1.º fue por saturación
+      if (i > 0 && intentos[i - 1] === mdl && saturadoPrevio !== mdl) continue;
+      if (i > 0 && intentos[i - 1] === mdl) await new Promise(r => setTimeout(r, 3000));
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${mdl}:generateContent?key=${encodeURIComponent(key)}`;
+      const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 60000);
+      try {
+        const g = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ctrl.signal,
+          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], tools: [{ google_search: {} }],
+            generationConfig: { temperature: 0 } }) });
+        const raw = await g.text();
+        let d = null; try { d = JSON.parse(raw); } catch (e) { /* respuesta no JSON */ }
+        if (!g.ok) {
+          const msg = (d && d.error && d.error.message) || ('HTTP ' + g.status + ' ' + raw.slice(0, 150));
+          const err = new Error(`${mdl}: ${msg}`);
+          err.saturado = g.status === 429 || g.status === 503 || /overload|unavailable|exhausted|try again/i.test(msg);
+          throw err;
+        }
+        const cand = ((d && d.candidates) || [])[0] || {};
+        txt = ((cand.content || {}).parts || []).map(p => p.text || '').join('');
+        if (!txt) throw new Error(`${mdl}: respuesta vacía${cand.finishReason ? ' (' + cand.finishReason + ')' : ''}`);
+        ultimoError = null;
+        break;
+      } catch (e) {
+        ultimoError = e.name === 'AbortError' ? new Error(`${mdl}: tardó más de 60 s`) : e;
+        saturadoPrevio = ultimoError.saturado ? mdl : null;
+        console.warn('[cotizador] internet IA', ultimoError.message);
+      } finally { clearTimeout(to); }
+    }
+    if (ultimoError) throw ultimoError;
     const j = jsonDeTexto(txt);
     const crudos = j && Array.isArray(j.resultados) ? j.resultados : [];
     const tc = await tasasPEN();
@@ -587,12 +615,18 @@ Si no encuentras nada, responde {"resultados":[]}.`;
       if (!it) return res.status(404).json({ error: 'Producto no encontrado' });
       let r = _inet.get(vid);
       const vigente = r && (Date.now() - r.t) < (r.data.resumen ? INTERNET_TTL : INTERNET_TTL_FALLA);
-      if (!vigente || (req.query.fresh === '1' && req.admin && req.admin.maestro)) {
+      const pideRecarga = req.query.fresh === '1' && (!r || !r.data.resumen || (req.admin && req.admin.maestro))
+        && (!r || Date.now() - (r.intento || r.t) > 15000);
+      if (!vigente || pideRecarga) {
         if (!_inetEnCurso.has(vid)) _inetEnCurso.set(vid, buscarInternet(it).finally(() => _inetEnCurso.delete(vid)));
-        try { r = { t: Date.now(), data: await _inetEnCurso.get(vid) }; }
+        const intento = Date.now();
+        try { r = { t: Date.now(), intento, data: await _inetEnCurso.get(vid) }; }
         catch (e) {
           console.warn('[cotizador] internet', vid, e.message);
-          r = { t: Date.now() - INTERNET_TTL_FALLA + 15 * 60 * 1000, data: { disponible: true, resultados: [], resumen: null, error: 'No se pudo consultar ahora' } };
+          // Se muestra el motivo real (sin la clave) para poder corregirlo; se reintenta en 15 min
+          const motivo = String(e.message || 'error desconocido').replace(/key=[^&\s]+/g, 'key=…').slice(0, 220);
+          r = { t: Date.now() - INTERNET_TTL_FALLA + 15 * 60 * 1000, intento, data: { disponible: true, resultados: [], resumen: null, error: motivo,
+            saturado: !!e.saturado } };
         }
         if (r.data.disponible !== false) _inet.set(vid, r);
       }

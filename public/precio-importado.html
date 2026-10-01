@@ -57,6 +57,11 @@ body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min
 .campo input,.campo select{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:10px;font-size:15px}
 .campo .ayuda{font-size:11px;color:var(--muted);margin-top:3px}
 .campo.ancho{grid-column:1/-1}
+/* Campos opcionales: discretos para que no distraigan */
+.campo.opc label{color:var(--muted);font-weight:500}
+.campo.opc input{background:transparent;border:1px dashed var(--border);color:var(--text2);font-size:13px;padding:8px 10px}
+.campo.opc input::placeholder{color:var(--muted);opacity:.7}
+.campo.opc .ayuda{opacity:.8}
 .prod{display:flex;gap:10px;align-items:center;margin-top:12px}
 .prod img{width:56px;height:56px;border-radius:10px;background:#fff;object-fit:contain;border:1px solid var(--border);flex:none}
 .prod a{color:var(--text2);font-size:12px;word-break:break-all}
@@ -99,6 +104,13 @@ tr.mejor td{background:var(--bg-ok)}
 .coinc .sinimg{display:flex;align-items:center;justify-content:center;background:var(--surface3);color:var(--muted)}
 .coinc .nm{font-weight:600;color:var(--white);font-size:13px;line-height:1.3}
 .coinc .mt{font-size:11px;color:var(--muted);margin-top:2px}
+.coinc .gtit{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.03em;margin-top:2px}
+.coinc .grupo{border:1px solid var(--border);border-radius:12px;background:var(--surface)}
+.coinc .ghead{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 10px;cursor:pointer;font-size:13px;color:var(--text2)}
+.coinc .ghead b{color:var(--white)}
+.coinc .grupo .gitems{display:flex;flex-direction:column;gap:6px;padding:0 8px 8px}
+.coinc .grupo:not(.abierto) .gitems{display:none}
+.coinc .s{font-size:11px;color:var(--muted)}
 .coinc .sc{margin-left:auto;font-size:11px;color:var(--muted);white-space:nowrap}
 .cmp{margin-top:12px}
 .cmp table td{padding:7px 6px}
@@ -160,7 +172,7 @@ tr.mejor td{background:var(--bg-ok)}
             <label>Moneda</label>
             <select id="moneda"><option>USD</option><option>EUR</option><option>PEN</option></select>
           </div>
-          <div class="campo ancho">
+          <div class="campo opc ancho">
             <label>Costo real en soles (opcional)</label>
             <input id="costo-manual" type="number" step="0.01" inputmode="decimal" placeholder="Si ya sabes cuánto te costó puesto en Lima, con envío e impuestos">
             <div class="ayuda">Si lo llenas, se ignoran precio y envío.</div>
@@ -187,7 +199,7 @@ tr.mejor td{background:var(--bg-ok)}
         <div class="props" id="props"></div>
 
         <div class="manual">
-          <div class="campo">
+          <div class="campo opc">
             <label>Precio que vas a ofrecer (S/)</label>
             <input id="ofrecido" type="number" step="1" inputmode="decimal" placeholder="Opcional">
           </div>
@@ -233,11 +245,11 @@ tr.mejor td{background:var(--bg-ok)}
     <div class="campos">
       <div class="campo"><label>WhatsApp del vendedor</label><input id="vend-num" inputmode="tel" placeholder="51 987 654 321"></div>
       <div class="campo"><label>Entrega estimada</label><input id="vend-plazo" placeholder="15 a 20 días hábiles"></div>
-      <div class="campo"><label>Adelanto</label><input id="vend-adelanto" placeholder="50%"></div>
+      <div class="campo opc"><label>Adelanto</label><input id="vend-adelanto" placeholder="50%"></div>
       <div class="campo"><label>Precio válido (días)</label><input id="vend-validez" type="number" min="1" value="3"></div>
-      <div class="campo ancho"><label>Nota (opcional)</label><input id="vend-nota" placeholder="Ej. talla 54 confirmada, color negro"></div>
+      <div class="campo opc ancho"><label>Nota (opcional)</label><input id="vend-nota" placeholder="Ej. talla 54 confirmada, color negro"></div>
     </div>
-    <label class="chk"><input type="checkbox" id="vend-link"> Incluir link de la tienda (el cliente podría ver el precio de origen)</label>
+    <label class="chk" style="color:var(--muted)"><input type="checkbox" id="vend-link"> Incluir link de la tienda (el cliente podría ver el precio de origen)</label>
     <textarea id="vend-txt"></textarea>
     <div class="acciones">
       <button class="btn btn-wa" id="vend-wa">Abrir WhatsApp</button>
@@ -405,33 +417,56 @@ function difChip(nuevo,ref,txtAlto,txtBajo,claseAlto,claseBajo){
   if(Math.abs(d)<=SIMILAR)return`<span class="chip ok">Similar ${s}</span>`;
   return d>0?`<span class="chip ${claseAlto}">${txtAlto} ${s}</span>`:`<span class="chip ${claseBajo}">${txtBajo} ${s}</span>`;
 }
-let _tBus=null,_ultimaBus='';
+let _tBus=null,_ultimaBus='',CODIGOS=[],ABIERTO=null;
 function programarBusqueda(q,auto){
   clearTimeout(_tBus);
   _tBus=setTimeout(()=>buscarSistema(q,auto),450);
 }
+// Busca primero por código (SKU/MPN/EAN leídos de la página) y luego por nombre.
+// Si el código calza, se elige solo. Si no, se muestran opciones agrupadas: variantes del
+// mismo producto juntas, productos simples solos, y las de alto parecido marcadas.
 async function buscarSistema(q,auto){
   q=(q||'').trim();
-  if(!q||q===_ultimaBus)return;
-  _ultimaBus=q;
+  const clave=q+'|'+CODIGOS.join(',');
+  if((!q&&!CODIGOS.length)||clave===_ultimaBus)return;
+  _ultimaBus=clave;
   $('coinc').innerHTML='<div class="s desc">Buscando…</div>';
   try{
-    COINC=await api('/api/precio-importado/buscar?q='+encodeURIComponent(q));
-    if(q!==_ultimaBus)return;
-    if(!COINC.length){$('coinc').innerHTML='<div class="desc">No está registrado en el sistema (o búscalo con otro nombre / SKU).</div>';SIS=null;pintarComparacion();return;}
+    const r=await api('/api/precio-importado/buscar?q='+encodeURIComponent(q)+(CODIGOS.length?'&codigos='+encodeURIComponent(CODIGOS.join(',')):''));
+    if(clave!==_ultimaBus)return;
+    COINC=r;ABIERTO=r.grupos&&r.grupos[0]&&r.grupos[0].tipo==='variable'?r.grupos[0].pid:null;
+    if(r.modo==='nada'){$('coinc').innerHTML='<div class="desc">No está registrado en el sistema (o búscalo con otro nombre / SKU).</div>';SIS=null;pintarComparacion();return;}
     pintarCoincidencias();
-    // Si la mejor coincidencia es clara, se elige sola
-    if(auto&&((COINC[0].score>=80&&(!COINC[1]||COINC[0].score-COINC[1].score>=5))||(COINC.length===1&&COINC[0].score>=60)))elegirSistema(COINC[0].vid);
-    else if(!auto&&COINC.length===1)elegirSistema(COINC[0].vid);
+    // Código exacto y único → se elige solo
+    const ex=r.exactos||[];
+    if(ex.length&&ex[0].score===100&&ex.filter(x=>x.score===100).length===1)elegirSistema(ex[0].vid);
+    else if(!auto&&!ex.length&&r.grupos.length===1&&r.grupos[0].items.length===1)elegirSistema(r.grupos[0].items[0].vid);
   }catch(e){$('coinc').innerHTML=`<div class="aviso bad" style="display:block">${esc(e.message)}</div>`;}
 }
-function pintarCoincidencias(){
-  $('coinc').innerHTML=COINC.map(c=>`<div class="it${SIS&&SIS.vid===c.vid?' on':''}" data-v="${c.vid}">
+function filaItem(c,extra){
+  return `<div class="it${SIS&&SIS.vid===c.vid?' on':''}" data-v="${c.vid}">
     ${c.imagen?`<img src="${esc(c.imagen)}" alt="" onerror="this.outerHTML='<div class=sinimg>🚲</div>'">`:'<div class="sinimg">🚲</div>'}
-    <div style="min-width:0"><div class="nm">${esc(c.nombre)}</div><div class="mt">${esc(c.sku||'sin SKU')} · PVP ${sol0(c.precio_normal)} · stock ${c.stock_total}</div></div>
-    <div class="sc">${c.score}%</div></div>`).join('')+
-    (SIS?'<div style="text-align:right"><button class="btn btn-sec btn-sm" id="btn-ninguno">No es ninguno</button></div>':'');
+    <div style="min-width:0"><div class="nm">${esc(c.nombre)}</div><div class="mt">${esc(c.sku||'sin SKU')} · PVP ${sol0(c.precio_normal)} · stock ${c.stock_total}${c.via?' · <b>por '+esc(c.via)+'</b>':''}</div></div>
+    <div class="sc">${extra||c.score+'%'}</div></div>`;
+}
+function pintarCoincidencias(){
+  const r=COINC||{};let h='';
+  if(r.exactos&&r.exactos.length){
+    h+=`<div class="gtit">✅ Encontrado por código</div>`+r.exactos.map(c=>filaItem(c,'<span class="chip ok">'+(c.score===100?'exacto':'parecido')+'</span>')).join('');
+    if(r.grupos.length)h+=`<div class="gtit" style="margin-top:6px">Otras opciones por nombre</div>`;
+  }else if(r.grupos&&r.grupos.length){
+    h+=`<div class="gtit">${r.codigos&&r.codigos.length?'No calzó el código ('+esc(r.codigos.slice(0,3).join(', ').toUpperCase())+'). ':''}Elige el producto:</div>`;
+  }
+  h+=(r.grupos||[]).map(g=>{
+    const badge=g.alto?'<span class="chip ok">alto parecido</span>':'<span class="chip emp">'+g.score+'%</span>';
+    if(g.tipo==='simple')return filaItem(g.items[0],badge+' <span class="s">simple</span>');
+    const ab=ABIERTO===g.pid;
+    return `<div class="grupo${ab?' abierto':''}"><div class="ghead" data-g="${g.pid}"><span>${ab?'▾':'▸'} <b>${esc(g.nombre)}</b> <span class="s">${g.items.length} variantes</span></span>${badge}</div>
+      <div class="gitems">${ab?g.items.map(c=>filaItem(c)).join(''):''}</div></div>`;}).join('');
+  if(SIS)h+='<div style="text-align:right"><button class="btn btn-sec btn-sm" id="btn-ninguno">No es ninguno</button></div>';
+  $('coinc').innerHTML=h;
   $('coinc').querySelectorAll('.it').forEach(d=>d.onclick=()=>elegirSistema(+d.dataset.v));
+  $('coinc').querySelectorAll('.ghead').forEach(d=>d.onclick=()=>{const g=+d.dataset.g;ABIERTO=ABIERTO===g?null:g;pintarCoincidencias();});
   const n=$('btn-ninguno');if(n)n.onclick=()=>{SIS=null;pintarCoincidencias();pintarComparacion();};
 }
 async function elegirSistema(vid){
@@ -512,7 +547,8 @@ async function procesarEntrada(){
       if(d.tienda&&d.tienda!==TIENDA)elegirTienda(d.tienda,true);
       if(d.moneda&&['USD','EUR','PEN'].includes(d.moneda))$('moneda').value=d.moneda;
       if(d.precio){$('precio').value=d.precio;}
-      if(d.nombre){$('nombre').value=d.nombre;$('buscar-sis').value=d.nombre;buscarSistema(d.nombre,true);}
+      CODIGOS=d.codigos||[];
+      if(d.nombre||CODIGOS.length){$('nombre').value=d.nombre||$('nombre').value;$('buscar-sis').value=d.nombre||'';buscarSistema(d.nombre||'',true);}
       IMAGEN=d.imagen||null;pintarProd();
       if(d.leido)aviso(`Precio leído: ${mon(d.precio,$('moneda').value)}. Revisa que sea el de la talla/color correcto.`,'ok');
       else aviso(d.aviso||'No encontré el precio. Escríbelo a mano.','warn');
@@ -531,7 +567,7 @@ function resumen(){
   const m=$('moneda').value,t=R.tiendas.find(x=>x.id===TIENDA);
   const L=[];
   if($('nombre').value.trim())L.push($('nombre').value.trim());
-  if(URL_ACT)L.push(URL_ACT);
+  if(URL_ACT&&!(t&&t.oculta))L.push(URL_ACT); // proveedor reservado: nunca se copia su link
   if(num('precio'))L.push(`${t?t.nombre:'Tienda'}: ${mon(num('precio'),m)} + envío ${mon(num('envio')??envioDefecto(),m)}`);
   if(ULTIMO.inet)L.push(`Internet con IGV: ${sol(ULTIMO.inet)}`);
   L.push(`Costo: ${sol(ULTIMO.costo)}`);
@@ -550,16 +586,18 @@ function reporteVendedor(){
   const margen=lista-piso;
   const dias=Math.max(1,parseInt($('vend-validez').value,10)||3);
   const hasta=new Date(Date.now()+dias*864e5).toLocaleDateString('es-PE',{timeZone:'America/Lima',day:'2-digit',month:'2-digit'});
+  // Proveedor reservado: no se muestra su precio como "mercado" ni su link
+  const tOc=R.tiendas.find(x=>x.id===TIENDA), inetRep=tOc&&tOc.oculta?0:ULTIMO.inet;
   const nombre=$('nombre').value.trim()||'Producto';
   const L=[`*Pedido especial · precio para cotizar*`,`*${nombre}*`];
-  if($('vend-link').checked&&URL_ACT)L.push(URL_ACT);
+  if($('vend-link').checked&&URL_ACT&&!(tOc&&tOc.oculta))L.push(URL_ACT);
   // Los 3 precios que necesita el vendedor: recomendado, mercado y mínimo
   L.push('',`✅ Precio recomendado: *${sol0(lista)}*`);
-  if(ULTIMO.inet)L.push(`🌐 Precio de mercado: ${sol0(Math.round(ULTIMO.inet))} _(internet con IGV, sin envío ni aduana)_`);
+  if(inetRep)L.push(`🌐 Precio de mercado: ${sol0(Math.round(inetRep))} _(internet con IGV, sin envío ni aduana)_`);
   L.push(margen>0?`🔻 Precio mínimo: *${sol0(piso)}* _(no bajar de aquí)_`:`🔻 Precio cerrado: sin margen para descuento`);
   // Argumento de venta frente a comprar por internet
-  if(ULTIMO.inet){
-    const d=lista/ULTIMO.inet-1;
+  if(inetRep){
+    const d=lista/inetRep-1;
     if(d<=-SIMILAR)L.push('',`💡 Está ${(-d*100).toFixed(0)}% más barato que en internet y se entrega en Lima.`);
     else if(Math.abs(d)<SIMILAR)L.push('',`💡 Mismo precio que en internet, sin pagar envío, impuestos ni trámites.`);
     else L.push('',`💡 Sale ${(d*100).toFixed(0)}% sobre internet porque incluye envío, impuestos y aduana; si el cliente lo trae solo, paga eso aparte y asume el riesgo.`);
@@ -576,6 +614,8 @@ function abrirVendedor(){
   const t=reporteVendedor();
   if(!t){toast('Primero calcula un precio');return;}
   try{const g=JSON.parse(localStorage.getItem('precio_imp_vend')||'{}');VEND_CAMPOS.forEach(id=>{if(g[id]!=null&&!$(id).value)$(id).value=g[id];});}catch(e){}
+  const oc=R.tiendas.find(x=>x.id===TIENDA);const ck=$('vend-link');ck.disabled=!!(oc&&oc.oculta);if(ck.disabled)ck.checked=false;
+  ck.parentElement.title=ck.disabled?'Proveedor reservado: su link nunca se incluye':'';
   $('vend-txt').value=reporteVendedor();
   $('modal-vend').classList.add('on');
 }
@@ -592,7 +632,7 @@ async function copiar(txt){try{await navigator.clipboard.writeText(txt);toast('C
 function nuevo(){
   ['entrada','precio','envio','costo-manual','nombre','ofrecido'].forEach(id=>$(id).value='');
   URL_ACT='';IMAGEN=null;pintarProd();aviso('');ELEGIDO='etiqueta';
-  SIS=null;COINC=[];_ultimaBus='';$('buscar-sis').value='';$('coinc').innerHTML='';recalcular();$('entrada').focus();
+  SIS=null;COINC=[];CODIGOS=[];_ultimaBus='';$('buscar-sis').value='';$('coinc').innerHTML='';recalcular();$('entrada').focus();
 }
 
 // ── Arranque ────────────────────────────────────────────────────────────────
@@ -624,6 +664,7 @@ async function iniciar(){
   $('nombre').addEventListener('input',()=>{$('buscar-sis').value=$('nombre').value;programarBusqueda($('nombre').value,true);});
   $('buscar-sis').addEventListener('input',()=>programarBusqueda($('buscar-sis').value,false));
   $('buscar-sis').addEventListener('keydown',e=>{if(e.key==='Enter'){clearTimeout(_tBus);_ultimaBus='';buscarSistema($('buscar-sis').value,false);}});
+  $('buscar-sis').addEventListener('input',()=>{CODIGOS=[];});
   $('moneda').addEventListener('change',()=>{$('envio').value='';recalcular();});
   $('tc-usd').addEventListener('change',tcDesdeCampos);$('tc-eur').addEventListener('change',tcDesdeCampos);
   $('btn-copiar').onclick=()=>{const r=resumen();if(r)copiar(r);else toast('Primero calcula un precio');};

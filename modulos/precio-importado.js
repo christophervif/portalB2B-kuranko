@@ -19,6 +19,7 @@
 // ═════════════════════════════════════════════════════════════════════════════
 
 const dns = require('dns').promises;
+const crypto = require('crypto');
 const net = require('net');
 
 // Reglas copiadas de la hoja de Google (sep 2026).
@@ -35,7 +36,10 @@ const REGLAS_BASE = {
   // Tiendas: moneda y envío aproximado (en su moneda). "dominios" sirve para
   // reconocerlas al pegar el link.
   tiendas: [
-    { id: 'lordgun',        nombre: 'Lordgun',        moneda: 'USD', envio: 40,  dominios: ['lordgunbicycles'] },
+    // Proveedor reservado: el repo es público, así que su dominio no se escribe en claro;
+    // se reconoce por el SHA-256 de una parte del dominio (hash_dominio) y se muestra con un seudónimo.
+    { id: 'px', nombre: 'Proveedor X', moneda: 'USD', envio: 40, dominios: [], oculta: true,
+      hash_dominio: 'dadcbf7ab5c56f9373fef3f15634a9ad17b2ea99537562ac346bfc98fdb36aa4' },
     { id: 'bike24',         nombre: 'Bike24',         moneda: 'EUR', envio: 70,  dominios: ['bike24'] },
     { id: 'bikecomponents', nombre: 'Bike-components',moneda: 'EUR', envio: 30,  dominios: ['bike-components'] },
     { id: 'bikediscount',   nombre: 'Bike-discount',  moneda: 'EUR', envio: 40,  dominios: ['bike-discount'] },
@@ -96,7 +100,10 @@ async function tipoCambio() {
 function tiendaDeUrl(u) {
   const host = u.hostname.toLowerCase();
   const path = u.pathname.toLowerCase();
+  const sha = x => crypto.createHash('sha256').update(x).digest('hex');
+  const partes = host.split('.');
   for (const t of REGLAS.tiendas) {
+    if (t.hash_dominio && partes.some(p => sha(p) === t.hash_dominio)) return t.id;
     if ((t.dominios || []).some(d => host.includes(d) || (d === 'bikeinn' && path.includes('/bikeinn')))) return t.id;
   }
   return null;
@@ -149,9 +156,15 @@ function productoJsonLd(html) {
     if (o.hasVariant) visitar(o.hasVariant, out);
   };
   const productos = [];
+  // Códigos del producto (SKU del fabricante, MPN, EAN/GTIN): sirven para encontrarlo en el sistema
+  const codigos = new Set();
+  const tomar = o => { if (!o || typeof o !== 'object') return;
+    ['sku', 'mpn', 'gtin', 'gtin8', 'gtin12', 'gtin13', 'gtin14', 'productID'].forEach(k => {
+      [].concat(o[k] || []).forEach(v => { const t = String(v).trim(); if (t.length >= 4 && t.length <= 40) codigos.add(t); }); }); };
   for (const b of bloques) {
     try { visitar(JSON.parse(b[1].trim()), productos); } catch (e) { /* JSON-LD roto: se ignora */ }
   }
+  productos.forEach(p => { tomar(p); [].concat(p.offers || []).forEach(tomar); [].concat(p.hasVariant || []).forEach(tomar); });
   for (const p of productos) {
     const ofertas = [].concat(p.offers || []).flatMap(o => o && o.offers ? [].concat(o.offers) : [o]);
     for (const o of ofertas) {
@@ -160,7 +173,9 @@ function productoJsonLd(html) {
       const moneda = o.priceCurrency || (o.priceSpecification && o.priceSpecification.priceCurrency) || null;
       if (precio) {
         const img = [].concat(p.image || [])[0];
-        return { nombre: decodificar(p.name), precio, moneda, imagen: typeof img === 'string' ? img : (img && img.url) || null };
+        const marca = p.brand && (typeof p.brand === 'string' ? p.brand : p.brand.name);
+        return { nombre: decodificar(p.name), precio, moneda, imagen: typeof img === 'string' ? img : (img && img.url) || null,
+          marca: marca ? decodificar(marca) : null, codigos: [...codigos] };
       }
     }
   }
@@ -171,7 +186,7 @@ async function leerLink(url) {
   let u;
   try { u = new URL(url); } catch (e) { throw new Error('El link no es válido'); }
   if (!/^https?:$/.test(u.protocol)) throw new Error('Solo links http(s)');
-  const res = { url: u.href, tienda: tiendaDeUrl(u), nombre: null, precio: null, moneda: null, imagen: null, leido: false };
+  const res = { url: u.href, tienda: tiendaDeUrl(u), nombre: null, precio: null, moneda: null, imagen: null, marca: null, codigos: [], leido: false };
 
   // No dejar que el servidor consulte direcciones internas
   const ips = await dns.lookup(u.hostname, { all: true }).catch(() => []);
@@ -200,6 +215,18 @@ async function leerLink(url) {
       res.moneda = res.moneda || meta(html, 'product:price:currency') || meta(html, 'og:price:currency') || meta(html, 'priceCurrency');
     }
     if (res.moneda) res.moneda = String(res.moneda).toUpperCase();
+    // Proveedor reservado: quitar el nombre de la tienda que suele venir al final del título ("… | Tienda")
+    const t = REGLAS.tiendas.find(x => x.id === res.tienda);
+    if (t && t.oculta && res.nombre) res.nombre = res.nombre.split(/\s+[|·–—-]\s+/)[0].trim();
+    // Más códigos: microdatos (itemprop) y textos tipo "SKU: …", "MPN …", "EAN …", "Art.-Nr. …", "Referencia …"
+    const cods = new Set(res.codigos || []);
+    for (const m of html.matchAll(/itemprop=["'](?:sku|mpn|gtin\d*|productID)["'][^>]*content=["']([^"']{4,40})["']/gi)) cods.add(decodificar(m[1]));
+    const texto = html.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+    for (const m of texto.matchAll(/\b(?:SKU|MPN|EAN|GTIN|UPC|Ref(?:erencia|erence)?\.?|C[oó]digo|Art(?:ikel)?\.?\s?-?\s?Nr\.?|Item\s?(?:No|#)|Part\s?(?:No|Number)|Herstellernummer|Manufacturer\s?(?:Part\s?)?(?:No|Number))\s*[:#.]?\s*([A-Z0-9][A-Z0-9\-./]{3,30})/gi)) {
+      if (/\d/.test(m[1])) cods.add(m[1].replace(/[.\-/]+$/, ''));
+      if (cods.size > 12) break;
+    }
+    res.codigos = [...cods].slice(0, 12);
     res.leido = !!res.precio;
     if (!res.precio) res.aviso = 'No encontré el precio en la página. Escríbelo a mano.';
   } catch (e) {
@@ -212,22 +239,38 @@ async function leerLink(url) {
 // Palabras que no ayudan a encontrar el producto (títulos de tiendas online)
 const RUIDO = new Set(['de','del','la','el','los','las','con','para','y','en','the','and','for','with','of',
   'a','an','mm','cm','kg','g','bike','bikes','bicycle','bicicleta','cycling','ciclismo','mtb','shop','tienda',
-  'comprar','buy','online','precio','oferta','new','nuevo','nueva','r2','bike24','bikeinn','lordgun','ebay',
+  'comprar','buy','online','precio','oferta','new','nuevo','nueva','r2','bike24','bikeinn','ebay',
   'components','discount','tradeinn','versandkostenfrei','kostenlos','envio','gratis']);
 
+// Puntaje por nombre "en las dos direcciones": qué parte de las palabras buscadas está en el
+// producto (65 %) y qué parte del nombre del producto está en lo buscado (35 %). Las palabras con
+// números (modelos: 1275, 29, 12v…) y la marca pesan más. Tolera errores, sinónimos y palabras pegadas.
 function puntuarLargo(consulta, item, P) {
-  // Los títulos de tienda son largos y traen palabras extra: se mide qué parte de las
-  // palabras buscadas calza con el producto (no se exige que calcen todas).
   const sku = P.puntuar(consulta, item);
   if (sku >= 70) return sku;
+  const peso = t => /\d/.test(t) ? 1.6 : t.length <= 2 ? 0.6 : 1;
   const qs = P.tokens(consulta).filter(t => t.length >= 2 && !RUIDO.has(t));
   if (!qs.length) return sku;
-  let suma = 0, fuertes = 0;
-  for (const q of qs) { const p = P.puntajePalabra(q, item._pal, item._comp); suma += p; if (p >= 0.85) fuertes++; }
-  // también cuánto del nombre del producto quedó cubierto (evita calzar con nombres muy cortos)
-  const cubre = item._pal.filter(w => w.length >= 2 && !RUIDO.has(w)).length || 1;
-  const s = (suma / qs.length) * 70 + Math.min(1, fuertes / cubre) * 30;
-  return Math.max(sku, Math.round(s));
+  const marca = item._pal[0];
+  let suma = 0, total = 0, faltan = 0;
+  for (const q of qs) {
+    const w = peso(q) * (q === marca ? 1.3 : 1);
+    const pp = P.puntajePalabra(q, item._pal, item._comp);
+    suma += pp * w; total += w;
+    // palabra de modelo (con números o código corto tipo DHF/XT/GX) que no está: resta
+    if (pp < 0.5 && !/^(19|20)\d\d$/.test(q) && (/\d/.test(q) || (q.length <= 4 && q.length >= 2))) faltan++;
+  }
+  const ida = suma / total;
+  // vuelta: palabras del producto que aparecen en lo buscado
+  const qComp = P.compacto(consulta), qSet = qs;
+  const pals = [...new Set(item._pal.filter(w => w.length >= 2 && !RUIDO.has(w)))];
+  let s2 = 0, t2 = 0;
+  for (const w of pals) { const pw = peso(w); t2 += pw; s2 += (P.puntajePalabra(w, qSet, qComp) >= 0.75 ? 1 : 0) * pw; }
+  const vuelta = t2 ? s2 / t2 : 0;
+  let sc = ida * 65 + vuelta * 35 - Math.min(25, faltan * 5);
+  // si el nombre del producto entero está dentro de lo buscado (o al revés), sube
+  if (item._comp.length >= 6 && (qComp.includes(item._comp) || item._comp.includes(qComp))) sc = Math.max(sc, 85);
+  return Math.max(sku, Math.round(sc));
 }
 
 module.exports = function registrarPrecioImportado({ app, authAdmin, requiereModulo, prodPool, VV, catalogo }) {
@@ -247,22 +290,103 @@ module.exports = function registrarPrecioImportado({ app, authAdmin, requiereMod
     });
   });
 
-  // Busca el producto en el catálogo del sistema (misma caché que el Cotizador)
+  // Códigos extra del ERP (EAN, código de barras, MPN…): se detectan las columnas que existan
+  // en product_variations y se guardan en memoria 10 minutos.
+  let _cods = null, _codsAt = 0;
+  async function codigosErp() {
+    if (_cods && Date.now() - _codsAt < 10 * 60 * 1000) return _cods;
+    const mapa = new Map(); // código compacto → [vid]
+    try {
+      const [cols] = await prodPool.query(`
+        SELECT COLUMN_NAME AS c FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'product_variations'
+          AND COLUMN_NAME REGEXP 'barcode|ean|gtin|upc|mpn|isbn|part_number|manufacturer_code|codigo|reference'
+          AND DATA_TYPE IN ('varchar','char','text','tinytext','bigint','int')`);
+      const nombres = cols.map(r => r.c).filter(c => /^[a-z0-9_]+$/i.test(c)).slice(0, 6);
+      if (nombres.length) {
+        const [rows] = await prodPool.query(`SELECT id, ${nombres.map(c => '`' + c + '`').join(', ')} FROM product_variations WHERE deleted_at IS NULL`);
+        rows.forEach(r => nombres.forEach(c => {
+          const v = P.compacto(r[c]); if (v.length >= 5) { const a = mapa.get(v) || []; a.push(r.id); mapa.set(v, a); }
+        }));
+      }
+    } catch (e) { console.warn('[precio-importado] códigos del ERP:', e.message); }
+    _cods = mapa; _codsAt = Date.now();
+    return mapa;
+  }
+  // Nombres de los productos padre (para agrupar variantes)
+  async function nombresPadre(pids) {
+    const m = {};
+    if (!pids.length) return m;
+    try {
+      const [rows] = await prodPool.query('SELECT id, name FROM products WHERE id IN (?)', [pids]);
+      rows.forEach(r => { m[r.id] = r.name; });
+    } catch (e) { /* sin nombres de padre: se usa el de la primera variante */ }
+    return m;
+  }
+  const fichaItem = (it, score, via) => ({
+    vid: it.vid, pid: it.pid, sku: it.sku, nombre: it.nombre, imagen: it.imagen, score, via: via || null,
+    precio_normal: it.precio_normal, stock: it.stock, stock_total: it.stock_total
+  });
+
+  // Busca el producto en el sistema:
+  //  1) por código (SKU/MPN/EAN de la página y códigos con números del nombre) → exacto
+  //  2) por nombre (difuso, en las dos direcciones) → opciones agrupadas por producto padre
+  //     (variantes juntas; los productos simples van solos), marcando las de alto parecido.
   app.get('/api/precio-importado/buscar', authAdmin, mPI, async (req, res) => {
     try {
-      const q = String(req.query.q || '').trim().slice(0, 200);
-      if (!q || !catalogo || !prodPool) return res.json([]);
+      // Medidas escritas distinto: 29" x 2.50" → 29x2.5 (como suelen estar en el sistema)
+      const q = String(req.query.q || '').trim().slice(0, 200)
+        .replace(/(\d)\s*(?:["”″]|''|in\b|inch\b)/gi, '$1')
+        .replace(/(\d)\s*[x×]\s*(\d)/gi, '$1x$2')
+        .replace(/(\d+\.\d*?[1-9])0+\b|(\d+)\.0+\b/g, (m, a, b) => a || b);
+      const codigosIn = String(req.query.codigos || '').split(',').map(x => x.trim()).filter(Boolean).slice(0, 12);
+      if ((!q && !codigosIn.length) || !catalogo || !prodPool) return res.json({ modo: 'nada', exactos: [], grupos: [] });
       const cat = await catalogo();
-      const res0 = [];
-      for (const it of cat) {
-        const sc = puntuarLargo(q, it, P);
-        if (sc >= 45) res0.push([sc, it]);
+      const porVid = new Map(cat.map(it => [it.vid, it]));
+
+      // 1) Códigos: los de la página + palabras del nombre con letras y números (≥ 5), p. ej. "XG-1275"
+      const candidatos = new Set(codigosIn.map(c => P.compacto(c)).filter(c => c.length >= 4));
+      (q.match(/\b[A-Za-z0-9][A-Za-z0-9\-./]{3,}\b/g) || []).forEach(w => {
+        const c = P.compacto(w); if (c.length >= 5 && /\d/.test(c) && /[a-z]/.test(c)) candidatos.add(c); });
+      const exactos = new Map();
+      if (candidatos.size) {
+        const cods = await codigosErp();
+        for (const c of candidatos) {
+          const desdePagina = codigosIn.some(x => P.compacto(x) === c);
+          (cods.get(c) || []).forEach(vid => { const it = porVid.get(vid); if (it) exactos.set(vid, fichaItem(it, 100, 'código ' + c.toUpperCase())); });
+          for (const it of cat) {
+            if (!it._sku || exactos.has(it.vid)) continue;
+            if (it._sku === c) exactos.set(it.vid, fichaItem(it, 100, 'SKU'));
+            else if (desdePagina && c.length >= 6 && it._sku.length >= 6 && (it._sku.includes(c) || c.includes(it._sku)))
+              exactos.set(it.vid, fichaItem(it, 92, 'SKU parecido'));
+          }
+        }
       }
-      res0.sort((a, b) => b[0] - a[0] || b[1].stock_total - a[1].stock_total);
-      res.json(res0.slice(0, 6).map(([score, it]) => ({
-        vid: it.vid, sku: it.sku, nombre: it.nombre, imagen: it.imagen, score,
-        precio_normal: it.precio_normal, stock: it.stock, stock_total: it.stock_total
-      })));
+
+      // 2) Nombre
+      const puntajes = [];
+      if (q) for (const it of cat) { const sc = puntuarLargo(q, it, P); if (sc >= 40) puntajes.push([sc, it]); }
+      puntajes.sort((a, b) => b[0] - a[0] || b[1].stock_total - a[1].stock_total);
+      const grupos = new Map();
+      for (const [sc, it] of puntajes.slice(0, 80)) {
+        const k = it.pid || ('v' + it.vid);
+        if (!grupos.has(k)) grupos.set(k, { pid: it.pid, score: sc, puntos: new Map() });
+        grupos.get(k).puntos.set(it.vid, sc);
+      }
+      const top = [...grupos.values()].sort((a, b) => b.score - a.score).slice(0, 6);
+      const padres = await nombresPadre(top.map(g => g.pid).filter(Boolean));
+      const salida = top.map(g => {
+        // todas las variantes del mismo padre (aunque no hayan calzado), ordenadas por parecido
+        const hermanos = g.pid ? cat.filter(it => it.pid === g.pid) : [porVid.get([...g.puntos.keys()][0])];
+        const items = hermanos.map(it => fichaItem(it, g.puntos.get(it.vid) || puntuarLargo(q, it, P)))
+          .sort((a, b) => b.score - a.score || b.stock_total - a.stock_total).slice(0, 30);
+        return { pid: g.pid, nombre: (g.pid && padres[g.pid]) || items[0].nombre, score: g.score,
+          tipo: items.length > 1 ? 'variable' : 'simple', alto: g.score >= 70, items };
+      });
+      const ex = [...exactos.values()].sort((a, b) => b.score - a.score).slice(0, 10);
+      // no repetir abajo un producto simple que ya salió por código
+      const grupos2 = salida.filter(g => !(g.tipo === 'simple' && exactos.has(g.items[0].vid)));
+      res.json({ modo: ex.length ? 'codigo' : grupos2.length ? 'nombre' : 'nada', codigos: [...candidatos], exactos: ex, grupos: grupos2 });
     } catch (e) { console.error('[precio-importado] buscar', e.message); res.status(500).json({ error: 'No se pudo buscar: ' + e.message }); }
   });
 

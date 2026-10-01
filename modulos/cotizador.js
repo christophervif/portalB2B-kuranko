@@ -263,7 +263,41 @@ function puntuar(consulta, item) {
   return Math.max(sku, nombre);
 }
 
-module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, prodPool }) {
+module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, prodPool, portalPool }) {
+  // ── Configuración guardada (base del PORTAL, no el ERP): por ahora el modelo de IA elegido ──
+  // Si index.js no pasa portalPool, se abre un pool pequeño propio con PORTAL_URL.
+  let cfgPool = portalPool || null;
+  if (!cfgPool && process.env.PORTAL_URL) {
+    try { cfgPool = require('mysql2/promise').createPool(process.env.PORTAL_URL + '?connectionLimit=2'); }
+    catch (e) { console.warn('[cotizador] sin base del portal para guardar la configuración:', e.message); }
+  }
+  let _cfgLista = null;
+  function cargarConfig() {
+    if (_cfgLista) return _cfgLista;
+    _cfgLista = (async () => {
+      if (!cfgPool) return;
+      try {
+        await cfgPool.query(`CREATE TABLE IF NOT EXISTS cotizador_config (
+          clave VARCHAR(50) PRIMARY KEY, valor TEXT,
+          actualizado_por VARCHAR(100), actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)`);
+        const [[r]] = await cfgPool.query(`SELECT valor FROM cotizador_config WHERE clave = 'modelo_ia'`);
+        const m = r && limpiarModelo(r.valor);
+        if (m) { modeloActual = m; console.log('[cotizador] modelo IA guardado:', m); }
+      } catch (e) { console.warn('[cotizador] no se pudo leer la configuración guardada:', e.message); _cfgLista = null; }
+    })();
+    return _cfgLista;
+  }
+  async function guardarModelo(m, quien) {
+    modeloActual = m;
+    if (!cfgPool) return false;
+    try {
+      await cfgPool.query(`INSERT INTO cotizador_config (clave, valor, actualizado_por) VALUES ('modelo_ia', ?, ?)
+        ON DUPLICATE KEY UPDATE valor = VALUES(valor), actualizado_por = VALUES(actualizado_por)`, [m, quien || 'sistema']);
+      return true;
+    } catch (e) { console.warn('[cotizador] no se pudo guardar el modelo:', e.message); return false; }
+  }
+  cargarConfig();
+
   const mCot = requiereModulo('cotizador');
 
   // ── Catálogo en caché: variantes vendibles + stock por almacén + empresa ──
@@ -579,7 +613,7 @@ Si no encuentras nada, responde {"resultados":[]}.`;
         ultimoError = null;
         if (mdl === sugerido && mdl !== modeloActual) {
           console.log(`[cotizador] modelo IA actualizado a ${mdl} (sugerido por Google)`);
-          modeloActual = mdl;
+          guardarModelo(mdl, 'automático (sugerido por Google)');
         }
         break;
       } catch (e) {
@@ -636,6 +670,7 @@ Si no encuentras nada, responde {"resultados":[]}.`;
     try {
       const vid = parseInt(req.query.vid, 10);
       if (!vid) return res.status(400).json({ error: 'Falta el producto' });
+      await cargarConfig();
       const it = (await catalogo()).find(x => x.vid === vid);
       if (!it) return res.status(404).json({ error: 'Producto no encontrado' });
       let r = _inet.get(vid);
@@ -664,18 +699,56 @@ Si no encuentras nada, responde {"resultados":[]}.`;
 
   // Ver / cambiar el modelo de IA desde la página (solo maestro). Queda en memoria hasta reiniciar;
   // para dejarlo fijo, poner la variable COTIZADOR_MODELO_IA en Railway.
+  // Lista de modelos Gemini disponibles para la clave (Google ListModels), solo los que generan
+  // texto (generateContent); se ocultan embeddings, imagen, audio y TTS. Caché 1 h. Solo maestro.
+  let _modelos = null, _modelosAt = 0;
+  app.get('/api/cotizador/modelos-ia', authAdmin, mCot, async (req, res) => {
+    if (!(req.admin && req.admin.maestro)) return res.status(403).json({ error: 'Solo el administrador maestro' });
+    try {
+      const key = process.env.GEMINI_API_KEY;
+      if (!key) return res.status(500).json({ error: 'Falta GEMINI_API_KEY en el servidor' });
+      await cargarConfig();
+      if (!_modelos || Date.now() - _modelosAt > 60 * 60 * 1000 || req.query.fresh === '1') {
+        const lista = [];
+        let token = '';
+        for (let pag = 0; pag < 5; pag++) {
+          const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 15000);
+          const g = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000${token ? '&pageToken=' + encodeURIComponent(token) : ''}&key=${encodeURIComponent(key)}`, { signal: ctrl.signal });
+          clearTimeout(to);
+          const d = await g.json();
+          if (!g.ok) throw new Error((d && d.error && d.error.message) || ('HTTP ' + g.status));
+          (d.models || []).forEach(m => lista.push(m));
+          token = d.nextPageToken || '';
+          if (!token) break;
+        }
+        _modelos = lista
+          .filter(m => /^models\/gemini-/.test(m.name || '') && (m.supportedGenerationMethods || []).includes('generateContent'))
+          .filter(m => !/embedding|image|imagen|tts|audio|live|native|robotics|computer-use/i.test(m.name))
+          .map(m => ({ id: m.name.replace(/^models\//, ''), nombre: m.displayName || '', descripcion: (m.description || '').slice(0, 160) }))
+          // más nuevos primero (por número de versión), y 'flash' antes que 'pro' dentro de la misma versión
+          .sort((a, b) => {
+            const ver = id => { const m = id.match(/gemini-(\d+)(?:\.(\d+))?/) || []; return [+(m[1] || 0), +(m[2] || 0)]; };
+            const [am, an] = ver(a.id), [bm, bn] = ver(b.id);
+            return bm - am || bn - an || (/flash/.test(b.id) - /flash/.test(a.id)) || a.id.localeCompare(b.id);
+          });
+        _modelosAt = Date.now();
+      }
+      res.json({ modelo: modeloActual, por_defecto: MODELO_IA, modelos: _modelos });
+    } catch (e) { console.error('[cotizador] modelos-ia', e.message); res.status(500).json({ error: 'No se pudo leer la lista de modelos: ' + String(e.message).replace(/key=[^&\s]+/g, 'key=…') }); }
+  });
+
   app.get('/api/cotizador/modelo-ia', authAdmin, mCot, (req, res) => {
     if (!(req.admin && req.admin.maestro)) return res.status(403).json({ error: 'Solo el administrador maestro' });
-    res.json({ modelo: modeloActual, por_defecto: MODELO_IA });
+    cargarConfig().then(() => res.json({ modelo: modeloActual, por_defecto: MODELO_IA }));
   });
-  app.post('/api/cotizador/modelo-ia', authAdmin, mCot, (req, res) => {
+  app.post('/api/cotizador/modelo-ia', authAdmin, mCot, async (req, res) => {
     if (!(req.admin && req.admin.maestro)) return res.status(403).json({ error: 'Solo el administrador maestro' });
     const m = limpiarModelo(req.body && req.body.modelo);
     if (!/^gemini-[a-z0-9.\-]+$/i.test(m)) return res.status(400).json({ error: 'Nombre de modelo no válido (ej. gemini-3.8-flash)' });
-    modeloActual = m;
+    const guardado = await guardarModelo(m, req.admin.usuario);
     _inet.forEach((v, k) => { if (!v.data.resumen) _inet.delete(k); });   // reintentar los que fallaron
     console.log('[cotizador] modelo IA cambiado a', m, 'por', req.admin.usuario);
-    res.json({ ok: true, modelo: modeloActual });
+    res.json({ ok: true, modelo: modeloActual, guardado });
   });
 
   // catalogo también se expone para otros módulos (Precio importado lo reutiliza)

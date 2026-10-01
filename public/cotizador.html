@@ -154,8 +154,8 @@ let TOKEN='';try{TOKEN=localStorage.getItem('admtoken')||'';}catch(e){}
 let ES_MAESTRO=false;try{ES_MAESTRO=localStorage.getItem('admmaestro')==='1';}catch(e){}
 function esc(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function showToast(m,e){const t=document.getElementById('toast');t.textContent=m;t.className='toast'+(e?' err':'');t.style.display='block';clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',3000);}
-async function apiCall(ep){
-  const r=await fetch(ep,{headers:{'Authorization':'Bearer '+TOKEN}});
+async function apiCall(ep,body){
+  const r=await fetch(ep,body?{method:'POST',headers:{'Authorization':'Bearer '+TOKEN,'Content-Type':'application/json'},body:JSON.stringify(body)}:{headers:{'Authorization':'Bearer '+TOKEN}});
   if(r.status===401)throw new Error('Sesión del portal expirada — vuelve a entrar al panel.');
   const d=await r.json();if(!r.ok)throw new Error(d.error||'Error');return d;
 }
@@ -257,6 +257,12 @@ async function cargarInternet(fresh){
   }catch(e){if(seq===_seqInet&&ACTUAL)ACTUAL.inet={error:e.message};}
   pintarComparacion();
 }
+// Solo maestro: cambia el modelo de IA (por ejemplo el que Google sugiere) y vuelve a buscar
+async function cambiarModelo(){
+  const inp=document.getElementById('inp-modelo');const m=inp?inp.value.trim():'';if(!m)return;
+  try{const r=await apiCall('/api/cotizador/modelo-ia',{modelo:m});showToast('Modelo de IA: '+r.modelo);cargarInternet(true);}
+  catch(e){showToast(e.message,true);}
+}
 function pintarComparacion(){
   const el=document.getElementById('det-comp');if(!el||!ACTUAL)return;
   const x=ACTUAL.item,p=ACTUAL.precio||{},in_=ACTUAL.inet||{},c=p.comparacion||{};
@@ -272,7 +278,11 @@ function pintarComparacion(){
   // 3) Internet
   let inet='';
   if(in_.cargando)inet='<small>Buscando precios en tiendas online…</small>';
-  else if(in_.error)inet='<small>'+(in_.saturado?'La IA de Google está saturada; prueba ↻ en unos segundos. ':'No se pudo consultar: ')+'<span style="opacity:.75">'+esc(in_.error)+'</span></small>';
+  else if(in_.error&&ES_MAESTRO&&in_.modelo_sugerido)inet='<small>No se pudo consultar: <span style="opacity:.75">'+esc(in_.error)+'</span></small>'+
+      '<div style="display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap"><span class="desc">Modelo de IA:</span>'+
+      '<input id="inp-modelo" value="'+esc(in_.modelo_sugerido)+'" style="width:170px;padding:5px 8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:12px"/>'+
+      '<button class="btn btn-sm" onclick="cambiarModelo()">Usar</button></div>';
+    else if(in_.error)inet='<small>'+(in_.saturado?'La IA de Google está saturada; prueba ↻ en unos segundos. ':'No se pudo consultar: ')+'<span style="opacity:.75">'+esc(in_.error)+'</span></small>';
   else if(in_.disponible===false)inet='<small>'+esc(in_.motivo||'No disponible')+'</small>';
   else if(!in_.resumen)inet='<small>No se encontró el mismo producto en tiendas online'+(in_.error?' ('+esc(in_.error)+')':'')+'.</small>';
   else inet='<small>Mediana de '+in_.resumen.n+' tienda'+(in_.resumen.n===1?'':'s')+(in_.resumen.n>1?' · rango '+S(in_.resumen.min)+' – '+S(in_.resumen.max):'')+' · extranjeras ×1.18 IGV</small>'+

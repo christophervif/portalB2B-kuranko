@@ -485,7 +485,7 @@ module.exports = function registrarPrecioImportado({ app, authAdmin, requiereMod
   // ── Confirmar y copiar cotización: aviso por correo para enviarla por WhatsApp ──
   // Correo por la API de Resend (Railway bloquea SMTP en varios planes).
   // Variables: RESEND_API_KEY (obligatoria), PRECIO_IMP_EMAIL (destino, por defecto info@kuranko.pe),
-  //            PRECIO_IMP_EMAIL_DESDE (remitente, por defecto "Kuranko <onboarding@resend.dev>").
+  //            PRECIO_IMP_EMAIL_DESDE (remitente; si no, RESEND_FROM, igual que el resto del portal: noreply@kuranko.pe).
   const escH = t => String(t == null ? '' : t).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
   app.post('/api/precio-importado/confirmar', authAdmin, mPI, async (req, res) => {
     const b = req.body || {};
@@ -506,7 +506,7 @@ module.exports = function registrarPrecioImportado({ app, authAdmin, requiereMod
       const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 10000);
       const r = await fetch('https://api.resend.com/emails', { method: 'POST', signal: ctrl.signal,
         headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from: process.env.PRECIO_IMP_EMAIL_DESDE || 'Kuranko <onboarding@resend.dev>', to: para,
+        body: JSON.stringify({ from: process.env.PRECIO_IMP_EMAIL_DESDE || process.env.RESEND_FROM || 'Portal Kuranko <noreply@kuranko.pe>', to: para,
           subject: `Cotización a pedido: ${nombre || 'producto'} · S/ ${precio.toLocaleString('es-PE')}`, html, text: texto + '\n\n' + wa }) });
       clearTimeout(to);
       if (!r.ok) return res.json({ correo: false, error: `Resend ${r.status}: ${(await r.text()).slice(0, 200)}` });

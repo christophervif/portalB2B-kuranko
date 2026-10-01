@@ -48,6 +48,14 @@ html,body{overflow-x:hidden}
 .thumb.grande{width:110px;height:110px;cursor:zoom-in}
 .thumb.mini{width:40px;height:40px;border-radius:8px}
 .res .izq{display:flex;gap:10px;min-width:0}
+.kebab{background:none;border:none;color:var(--muted);font-size:20px;line-height:1;cursor:pointer;padding:2px 8px;border-radius:8px}
+.kebab:hover{background:var(--surface3);color:var(--text)}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:flex-start;justify-content:center;z-index:150;padding:40px 16px;overflow:auto}
+.modal .caja{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:16px;width:100%;max-width:560px;box-shadow:0 10px 40px rgba(0,0,0,.35)}
+.modal .mod-fila{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--border)}
+.modal .mod-fila .id{font-family:ui-monospace,Menlo,monospace;font-size:13px;color:var(--white);word-break:break-all}
+.modal .mod-fila .ds{font-size:11px;color:var(--muted)}
+.modal .mod-fila.actual .id::after{content:' · en uso';color:var(--fg-ok);font-family:system-ui,sans-serif;font-size:11px;font-weight:700}
 .visor{position:fixed;inset:0;background:rgba(0,0,0,.75);display:none;align-items:center;justify-content:center;z-index:200;cursor:zoom-out;padding:16px}
 .visor img{max-width:100%;max-height:100%;border-radius:12px;background:#fff}
 .res .nom{font-weight:600;color:var(--white);line-height:1.35}
@@ -110,12 +118,30 @@ textarea{width:100%;min-height:60px;background:var(--bg);border:1px solid var(--
 <body>
 <div class="toast" id="toast"></div>
 <div class="visor" id="visor" onclick="this.style.display='none'"><img alt=""/></div>
+<div class="modal" id="modal-ia" onclick="if(event.target===this)cerrarModelos()">
+  <div class="caja">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+      <h3 style="font-size:14px;color:var(--white)">Modelo de IA (precio en internet)</h3>
+      <button class="kebab" onclick="cerrarModelos()" title="Cerrar">✕</button>
+    </div>
+    <div class="desc" style="margin-top:4px">Si Google retira un modelo, elige otro de la lista o pega su nombre. El último que elijas queda guardado.</div>
+    <div id="ia-actual" class="desc" style="margin-top:8px"></div>
+    <div style="display:flex;gap:6px;margin-top:8px">
+      <input id="inp-modelo-pop" placeholder="Pega aquí el nombre, ej. gemini-3.8-flash" style="flex:1;padding:8px 10px;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:13px"/>
+      <button class="btn btn-sm" onclick="usarModelo(document.getElementById('inp-modelo-pop').value)">Usar</button>
+    </div>
+    <div id="ia-lista" style="margin-top:10px;max-height:55vh;overflow:auto"></div>
+  </div>
+</div>
 <div class="wrap">
   <div class="grid">
     <!-- Columna izquierda: buscador + detalle -->
     <div>
       <div class="card">
-        <h3>Cotizador rápido</h3>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <h3>Cotizador rápido</h3>
+          <button class="kebab" id="btn-kebab" style="display:none" title="Opciones" onclick="abrirModelos()">⋮</button>
+        </div>
         <div class="desc">Busca por nombre o SKU, como sea que lo escribas: con errores, en otro orden, sin tildes o en español (azul, llanta, casete…).</div>
         <div class="buscador">
           <input id="q" type="search" autocomplete="off" placeholder="Ej: crafti carbon azul M, maxis ardent 29, SHM-XT…" autofocus/>
@@ -257,6 +283,31 @@ async function cargarInternet(fresh){
   }catch(e){if(seq===_seqInet&&ACTUAL)ACTUAL.inet={error:e.message};}
   pintarComparacion();
 }
+// ══════════ Menú ⋮ (solo maestro): modelos de IA disponibles ══════════
+if(ES_MAESTRO){const k=document.getElementById('btn-kebab');if(k)k.style.display='';}
+async function abrirModelos(){
+  document.getElementById('modal-ia').style.display='flex';
+  const lista=document.getElementById('ia-lista');lista.innerHTML='<div class="desc">Consultando a Google los modelos disponibles…</div>';
+  try{
+    const d=await apiCall('/api/cotizador/modelos-ia');
+    document.getElementById('ia-actual').innerHTML='En uso: <b class="sku">'+esc(d.modelo)+'</b>'+(d.modelo!==d.por_defecto?' · por defecto: <span class="sku">'+esc(d.por_defecto)+'</span>':'');
+    if(!d.modelos||!d.modelos.length){lista.innerHTML='<div class="desc">Google no devolvió modelos para esta clave.</div>';return;}
+    lista.innerHTML=d.modelos.map(m=>`<div class="mod-fila${m.id===d.modelo?' actual':''}"><div style="min-width:0"><div class="id">${esc(m.id)}</div><div class="ds">${esc(m.nombre)}</div></div>
+      <div style="display:flex;gap:4px;flex:none"><button class="btn btn-sec btn-sm" onclick="copiarModelo('${esc(m.id)}')">Copiar</button><button class="btn btn-sm" onclick="usarModelo('${esc(m.id)}')">Usar</button></div></div>`).join('');
+  }catch(e){lista.innerHTML='<div class="desc" style="color:var(--fg-r)">'+esc(e.message)+'</div>';}
+}
+function cerrarModelos(){document.getElementById('modal-ia').style.display='none';}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')cerrarModelos();});
+async function copiarModelo(id){
+  try{await navigator.clipboard.writeText(id);}catch(e){const i=document.getElementById('inp-modelo-pop');i.value=id;i.select();try{document.execCommand('copy');}catch(_){}}
+  document.getElementById('inp-modelo-pop').value=id;showToast('Copiado: '+id);
+}
+async function usarModelo(id){
+  id=String(id||'').trim();if(!id)return;
+  try{const r=await apiCall('/api/cotizador/modelo-ia',{modelo:id});showToast('Modelo de IA: '+r.modelo+(r.guardado===false?' (no se pudo guardar; solo hasta reiniciar)':' · guardado'));cerrarModelos();if(ACTUAL)cargarInternet(true);}
+  catch(e){showToast(e.message,true);}
+}
+
 // Solo maestro: cambia el modelo de IA (por ejemplo el que Google sugiere) y vuelve a buscar
 async function cambiarModelo(){
   const inp=document.getElementById('inp-modelo');const m=inp?inp.value.trim():'';if(!m)return;

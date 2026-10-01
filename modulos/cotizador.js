@@ -602,7 +602,10 @@ Si no encuentras nada, responde {"resultados":[]}.`;
         if (!g.ok) {
           const msg = (d && d.error && d.error.message) || ('HTTP ' + g.status + ' ' + raw.slice(0, 150));
           const err = new Error(`${mdl}: ${msg}`);
-          err.saturado = g.status === 429 || g.status === 503 || /overload|unavailable|exhausted|try again/i.test(msg);
+          // cuota agotada (plan / facturación de la clave) ≠ saturación momentánea de Google
+          err.cuota = /quota|billing|plan and billing/i.test(msg);
+          err.saturado = !err.cuota && (g.status === 429 || g.status === 503 || /overload|unavailable|exhausted|try again/i.test(msg));
+          err.texto = msg;
           const m = msg.match(/use\s+(?:the\s+)?(?:models\/)?(gemini-[a-z0-9.\-]+)/i);
           if (m) err.sugerido = limpiarModelo(m[1]);
           throw err;
@@ -630,10 +633,17 @@ Si no encuentras nada, responde {"resultados":[]}.`;
     }
     if (ultimoError) {
       // Mensaje con el motivo de cada modelo (sin repetir), para saber qué pasó con el principal
-      const vistos = new Set(), partes = [];
-      errores.forEach(e => { if (!vistos.has(e.message)) { vistos.add(e.message); partes.push(e.message.slice(0, 120)); } });
-      const err = new Error(partes.join(' | '));
-      err.saturado = errores.some(e => e.saturado);
+      // Agrupa modelos con el mismo error: "gemini-3.6-flash, gemini-3.8-flash: You exceeded…"
+      const grupos = new Map();
+      errores.forEach(e => {
+        const txt = String(e.texto || e.message.replace(/^[^:]+:\s*/, '')).replace(/For more information.*$/i, '').trim().slice(0, 140);
+        const mdl = (e.message.match(/^([^:]+):/) || [])[1] || '?';
+        if (!grupos.has(txt)) grupos.set(txt, new Set());
+        grupos.get(txt).add(mdl);
+      });
+      const err = new Error([...grupos].map(([t, ms]) => `${[...ms].join(', ')}: ${t}`).join(' | '));
+      err.cuota = errores.length > 0 && errores.every(e => e.cuota);
+      err.saturado = !err.cuota && errores.some(e => e.saturado);
       err.modelo_sugerido = (errores.find(e => e.sugerido) || {}).sugerido || null;
       throw err;
     }
@@ -686,7 +696,7 @@ Si no encuentras nada, responde {"resultados":[]}.`;
           // Se muestra el motivo real (sin la clave) para poder corregirlo; se reintenta en 15 min
           const motivo = String(e.message || 'error desconocido').replace(/key=[^&\s]+/g, 'key=…').slice(0, 400);
           r = { t: Date.now() - INTERNET_TTL_FALLA + 15 * 60 * 1000, intento, data: { disponible: true, resultados: [], resumen: null, error: motivo,
-            saturado: !!e.saturado, modelo_sugerido: e.modelo_sugerido || null } };
+            saturado: !!e.saturado, cuota: !!e.cuota, modelo_sugerido: e.modelo_sugerido || null } };
         }
         if (r.data.disponible !== false) _inet.set(vid, r);
       }

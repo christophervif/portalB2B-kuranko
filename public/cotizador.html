@@ -138,10 +138,7 @@ textarea{width:100%;min-height:60px;background:var(--bg);border:1px solid var(--
     <!-- Columna izquierda: buscador + detalle -->
     <div>
       <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
-          <h3>Cotizador rápido</h3>
-          <button class="kebab" id="btn-kebab" style="display:none" title="Opciones" onclick="abrirModelos()">⋮</button>
-        </div>
+        <h3>Cotizador rápido</h3>
         <div class="desc">Busca por nombre o SKU, como sea que lo escribas: con errores, en otro orden, sin tildes o en español (azul, llanta, casete…).</div>
         <div class="buscador">
           <input id="q" type="search" autocomplete="off" placeholder="Ej: crafti carbon azul M, maxis ardent 29, SHM-XT…" autofocus/>
@@ -284,7 +281,6 @@ async function cargarInternet(fresh){
   pintarComparacion();
 }
 // ══════════ Menú ⋮ (solo maestro): modelos de IA disponibles ══════════
-if(ES_MAESTRO){const k=document.getElementById('btn-kebab');if(k)k.style.display='';}
 async function abrirModelos(){
   document.getElementById('modal-ia').style.display='flex';
   const lista=document.getElementById('ia-lista');lista.innerHTML='<div class="desc">Consultando a Google los modelos disponibles…</div>';
@@ -333,7 +329,8 @@ function pintarComparacion(){
       '<div style="display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap"><span class="desc">Modelo de IA:</span>'+
       '<input id="inp-modelo" value="'+esc(in_.modelo_sugerido)+'" style="width:170px;padding:5px 8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:12px"/>'+
       '<button class="btn btn-sm" onclick="cambiarModelo()">Usar</button></div>';
-    else if(in_.error)inet='<small>'+(in_.saturado?'La IA de Google está saturada; prueba ↻ en unos segundos. ':'No se pudo consultar: ')+'<span style="opacity:.75">'+esc(in_.error)+'</span></small>';
+    else if(in_.error)inet='<small>'+(in_.cuota?'Se acabó la cuota de la IA de Google para esta clave (plan / facturación). Revisa la facturación en Google AI Studio o espera a que se renueve. '
+      :in_.saturado?'La IA de Google está saturada; prueba ↻ en unos segundos. ':'No se pudo consultar: ')+'<span style="opacity:.7">'+esc(in_.error)+'</span></small>';
   else if(in_.disponible===false)inet='<small>'+esc(in_.motivo||'No disponible')+'</small>';
   else if(!in_.resumen)inet='<small>No se encontró el mismo producto en tiendas online'+(in_.error?' ('+esc(in_.error)+')':'')+'.</small>';
   else inet='<small>Mediana de '+in_.resumen.n+' tienda'+(in_.resumen.n===1?'':'s')+(in_.resumen.n>1?' · rango '+S(in_.resumen.min)+' – '+S(in_.resumen.max):'')+' · extranjeras ×1.18 IGV</small>'+
@@ -342,7 +339,8 @@ function pintarComparacion(){
   // Botón de recarga: para todos cuando falló o no encontró; con resultados, solo el maestro
   const puedeRecargar=!in_.cargando&&(in_.error||(in_.disponible!==false&&!in_.resumen)||(ES_MAESTRO&&in_.actualizado));
   const refr=puedeRecargar?' <button class="btn btn-sec btn-sm" style="padding:2px 8px;font-size:11px;margin-left:4px" title="Volver a buscar" onclick="cargarInternet(true)">↻</button>':'';
-  filas.push(`<div class="fila-c"><div class="t">Precio en internet (c/IGV)${refr}${inet}</div>
+  const keb=ES_MAESTRO?' <button class="kebab" style="font-size:16px;padding:0 6px;vertical-align:middle" title="Modelo de IA" onclick="abrirModelos()">⋮</button>':'';
+  filas.push(`<div class="fila-c"><div class="t">Precio en internet (c/IGV)${refr}${keb}${inet}</div>
     <div class="v"><b>${in_.resumen?S(in_.resumen.mediana):in_.cargando?'…':'—'}</b>${in_.resumen&&normal?'<br>'+chipComp(in_.comparacion,'inet'):''}</div></div>`);
   // Veredicto
   let ver='';

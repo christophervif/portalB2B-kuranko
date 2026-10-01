@@ -208,7 +208,7 @@ tr.mejor td{background:var(--bg-ok)}
 
         <div class="acciones">
           <button class="btn" id="btn-guardar">＋ Agregar a la lista</button>
-          <button class="btn btn-wa" id="btn-vendedor">📲 Enviar al vendedor</button>
+          <button class="btn btn-wa" id="btn-vendedor">✅ Confirmar</button>
           <button class="btn btn-sec" id="btn-copiar">Copiar resumen</button>
           <button class="btn btn-sec" id="btn-nuevo">Nuevo</button>
         </div>
@@ -238,7 +238,7 @@ tr.mejor td{background:var(--bg-ok)}
 <div class="modal" id="modal-vend">
   <div class="caja">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
-      <h3>📲 Reporte para el vendedor</h3>
+      <h3>✅ Confirmar precio</h3>
       <button class="btn btn-sec btn-sm" id="vend-cerrar">✕</button>
     </div>
     <div class="desc">Solo 3 precios: recomendado, de mercado y mínimo, más un argumento de venta. No incluye tu costo ni tu ganancia.</div>
@@ -330,7 +330,7 @@ function propuestas(c){
   const alto=va>40?redondeoArriba(va,-1):redondeoArriba(va,0);
   return[
     {id:'etiqueta',t:'Etiqueta',p:etiqueta,min:etiqueta*P.etiqueta.minimo,x:`Costo +${pe}%`},
-    {id:'margen',t:'Margen + IGV',p:margen,x:`Margen ${pm}% + IGV`},
+    {id:'margen',t:'Margen + IGV',p:margen,x:`Costo ÷ (1 − ${pm}%) × IGV 1.18`},
     {id:'alto',t:'Alto',p:alto,x:`Costo +${pa}%`}
   ];
 }
@@ -446,7 +446,7 @@ async function buscarSistema(q,auto){
 function filaItem(c,extra){
   return `<div class="it${SIS&&SIS.vid===c.vid?' on':''}" data-v="${c.vid}">
     ${c.imagen?`<img src="${esc(c.imagen)}" alt="" onerror="this.outerHTML='<div class=sinimg>🚲</div>'">`:'<div class="sinimg">🚲</div>'}
-    <div style="min-width:0"><div class="nm">${esc(c.nombre)}</div><div class="mt">${esc(c.sku||'sin SKU')} · PVP ${sol0(c.precio_normal)} · stock ${c.stock_total}${c.via?' · <b>por '+esc(c.via)+'</b>':''}</div></div>
+    <div style="min-width:0"><div class="nm">${esc(c.nombre)}</div><div class="mt">${esc(c.sku||'sin SKU')} · ${c.precio_normal>0?'PVP '+sol0(c.precio_normal):'<b style="color:var(--fg-r)">sin precio</b>'} · stock ${c.stock_total}${c.via?' · <b>por '+esc(c.via)+'</b>':''}</div></div>
     <div class="sc">${extra||c.score+'%'}</div></div>`;
 }
 function pintarCoincidencias(){
@@ -490,6 +490,8 @@ function pintarComparacion(){
     if(co.n>1)filas.push(`<tr><td>Costo<div class="s">vs promedio de compras</div></td><td class="n"><span class="v">${sol(co.prom)}</span></td>
       <td class="n">${difChip(c,co.prom,'Más caro','Más barato','bad','ok')}</td></tr>`);
   }
+  if(pr.vid&&!(pr.precio_normal>0))filas.push(`<tr><td>Precio del sistema<div class="s">no tiene precio de venta asignado</div></td>
+      <td class="n"><span class="v">S/ 0</span></td><td class="n"><span class="chip bad">Sin precio</span></td></tr>`);
   if(pr.precio_normal>0)filas.push(`<tr><td>${lblVenta}<div class="s">vs precio del sistema${pr.precio_oferta?' (oferta)':''}</div></td>
       <td class="n"><span class="v">${sol0(pr.precio_normal)}</span>${pr.precio_oferta&&pr.precio_regular?`<div class="s">regular ${sol0(pr.precio_regular)}</div>`:''}</td>
       <td class="n">${difChip(venta,pr.precio_normal,'Más alto','Más bajo','warn','warn')}</td></tr>`);
@@ -517,9 +519,12 @@ function pintarComparacion(){
   if(pr.precio_normal>0&&venta>0){const d=venta/pr.precio_normal-1;
     if(d>SIMILAR){ver+=` El ${lblVenta.toLowerCase()} queda ${(d*100).toFixed(0)}% sobre el precio del sistema: revisa si el cliente lo aceptará.`;if(cls==='ok')cls='warn';}
     else if(d<-SIMILAR){ver+=` El ${lblVenta.toLowerCase()} queda ${(-d*100).toFixed(0)}% bajo el precio del sistema: podrías cobrar más.`;if(cls==='ok')cls='warn';}}
+  // Sin precio en el sistema: avisar y sugerir con qué precio registrarlo
+  const sinPrecio=pr.vid&&!(pr.precio_normal>0)?`<div class="aviso bad" style="display:block">⚠️ Este producto <b>no tiene precio asignado en el sistema</b> (PVP S/ 0). Regístralo para que el vendedor no cotice en cero.`+
+    `<br>Referencias: ${venta?lblVenta.toLowerCase()+' de esta importación <b>'+sol0(venta)+'</b>':''}${venta&&pr.pvp_recomendado?' · ':''}${pr.pvp_recomendado?'PVP recomendado <b>'+sol0(pr.pvp_recomendado)+'</b> (costo del sistema ÷ 0.45)':''}${ve?' · se vendió a '+sol0(ve.prom)+' en promedio':''}.</div>`:'';
   const stock=pr.stock_total>0?`<div class="aviso warn" style="display:block">Hay ${pr.stock_total} en el sistema${pr.stock!==pr.stock_total?` (${pr.stock} disponibles para entregar ya)`:''}. ¿Hace falta importarlo?</div>`:'';
-  if(!filas.length){el.innerHTML=stock+'<div class="desc">Este producto no tiene compras con costo ni ventas registradas.</div>';return;}
-  el.innerHTML=stock+(ver&&c>0?`<div class="veredicto ${cls}">${ver}</div>`:'')+
+  if(!filas.length){el.innerHTML=sinPrecio+stock+'<div class="desc">Este producto no tiene compras con costo ni ventas registradas.</div>';return;}
+  el.innerHTML=sinPrecio+stock+(ver&&c>0?`<div class="veredicto ${cls}">${ver}</div>`:'')+
     `<div class="tw"><table><thead><tr><th>Comparación</th><th class="n">Sistema</th><th class="n">Diferencia</th></tr></thead><tbody>${filas.join('')}</tbody></table></div>`+
     (co?'<div class="desc" style="margin-top:6px">Costos del sistema tal como están en los lotes (confirma si incluyen IGV).</div>':'');
 }

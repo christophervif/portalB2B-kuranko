@@ -272,13 +272,15 @@ function pintarComparacion(){
   // 3) Internet
   let inet='';
   if(in_.cargando)inet='<small>Buscando precios en tiendas online…</small>';
-  else if(in_.error)inet='<small>No se pudo consultar: '+esc(in_.error)+'</small>';
+  else if(in_.error)inet='<small>'+(in_.saturado?'La IA de Google está saturada; prueba ↻ en unos segundos. ':'No se pudo consultar: ')+'<span style="opacity:.75">'+esc(in_.error)+'</span></small>';
   else if(in_.disponible===false)inet='<small>'+esc(in_.motivo||'No disponible')+'</small>';
   else if(!in_.resumen)inet='<small>No se encontró el mismo producto en tiendas online'+(in_.error?' ('+esc(in_.error)+')':'')+'.</small>';
   else inet='<small>Mediana de '+in_.resumen.n+' tienda'+(in_.resumen.n===1?'':'s')+(in_.resumen.n>1?' · rango '+S(in_.resumen.min)+' – '+S(in_.resumen.max):'')+' · extranjeras ×1.18 IGV</small>'+
       '<div class="tiendas">'+in_.resultados.map(r=>{const t=esc(r.tienda)+' '+S(r.precio_pen_igv)+(r.igv_incluido?'':' ('+esc(r.moneda)+' '+r.precio+')');
         return r.url?'<a href="'+esc(r.url)+'" target="_blank" rel="noopener noreferrer">'+t+' ↗</a>':'<span class="tnd">'+t+'</span>';}).join('')+'</div>';
-  const refr=ES_MAESTRO&&!in_.cargando&&in_.actualizado?' <a href="#" onclick="event.preventDefault();cargarInternet(true)" style="font-size:11px;color:var(--accent)">↻</a>':'';
+  // Botón de recarga: para todos cuando falló o no encontró; con resultados, solo el maestro
+  const puedeRecargar=!in_.cargando&&(in_.error||(in_.disponible!==false&&!in_.resumen)||(ES_MAESTRO&&in_.actualizado));
+  const refr=puedeRecargar?' <button class="btn btn-sec btn-sm" style="padding:2px 8px;font-size:11px;margin-left:4px" title="Volver a buscar" onclick="cargarInternet(true)">↻</button>':'';
   filas.push(`<div class="fila-c"><div class="t">Precio en internet (c/IGV)${refr}${inet}</div>
     <div class="v"><b>${in_.resumen?S(in_.resumen.mediana):in_.cargando?'…':'—'}</b>${in_.resumen&&normal?'<br>'+chipComp(in_.comparacion,'inet'):''}</div></div>`);
   // Veredicto

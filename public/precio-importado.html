@@ -168,6 +168,10 @@ tr.mejor td{background:var(--bg-ok)}
         </div>
         <div class="aviso" id="aviso"></div>
         <div class="prod" id="prod" style="display:none"></div>
+        <div class="campo" style="margin-top:12px">
+          <label>Nombre del producto <span style="font-weight:400;color:var(--muted)">(opcional, si no se carga del link)</span></label>
+          <input id="nombre" placeholder="Se llena solo al leer el link · ej. Fox 32 Taper-Cast 2025">
+        </div>
 
         <div class="tiendas" id="tiendas"></div>
 
@@ -189,10 +193,6 @@ tr.mejor td{background:var(--bg-ok)}
             <label>Costo real en soles (opcional)</label>
             <input id="costo-manual" type="number" step="0.01" inputmode="decimal" placeholder="Si ya sabes cuánto te costó puesto en Lima, con envío e impuestos">
             <div class="ayuda">Si lo llenas, se ignoran precio y envío.</div>
-          </div>
-          <div class="campo ancho">
-            <label>Nombre (para la lista)</label>
-            <input id="nombre" placeholder="Ej. Fox 32 Taper-Cast 2025">
           </div>
         </div>
       </div>
@@ -640,6 +640,44 @@ function textoCotizacion(precio){
   const nombre=$('nombre').value.trim()||'Producto';
   return `*Cotización a pedido*\n*${nombre}*\n\nPrecio: *${sol0(precio)}*\n\n_Precios válidos hasta el ${hasta}._`;
 }
+// Resumen completo para el correo interno (todo lo que se usó para cotizar)
+const txt=h=>String(h||'').replace(/<br\s*\/?>/gi,' · ').replace(/<[^>]+>/g,'').replace(/\s+/g,' ').trim();
+function resumenCorreo(e){
+  const m=$('moneda').value,t=R.tiendas.find(x=>x.id===TIENDA),c=ULTIMO.costo,k=calcularCosto();
+  const S=[];
+  const prod=[['Producto',$('nombre').value.trim()]];
+  if(URL_ACT)prod.push(['Link',URL_ACT]);
+  prod.push(['Tienda',t?t.nombre:'Otra']);
+  if(num('precio'))prod.push(['Precio en tienda',mon(num('precio'),m)]);
+  if(num('precio'))prod.push(['Envío',mon(num('envio')??envioDefecto(),m)+(num('envio')==null?' (estándar)':'')]);
+  if(m!=='PEN')prod.push(['Tipo de cambio',m+' '+fx(m)]);
+  S.push({titulo:'Producto y compra',filas:prod});
+  S.push({titulo:'Costo puesto en Lima',filas:[
+    ['Costo',sol(c)],
+    ['Régimen',k.regimen==='bajo'?'Bajo el límite: sin impuestos, envío prorrateado':k.regimen==='sobre'?'Sobre el límite: paga impuestos (× '+R.factor_impuestos+')':'Costo ingresado a mano'],
+    ['Cálculo',txt(k.detalle)]]});
+  const P=ULTIMO.props.map(p=>[p.t,sol0(p.p)+' (+'+pct((p.p-c)/c)+' sobre costo)'+(p.min?' · mínimo '+sol0(p.min):''),p.x]);
+  const pm=precioMercado();
+  if(pm)P.push(['Precio de mercado',sol0(pm.precio),pm.fuente==='peru'?'Tiendas de Perú ('+MERCADO.n+')':pm.fuente==='internet'?'Internet ('+MERCADO.n+') × 1.18':'Solo esta tienda × TC × 1.18']);
+  if(ULTIMO.inet)P.push(['Esta tienda en soles con IGV',sol(ULTIMO.inet),'sin envío']);
+  S.push({titulo:'Propuestas de precio',filas:P});
+  if(MERCADO&&MERCADO.resultados&&MERCADO.resultados.length)
+    S.push({titulo:'Tiendas encontradas (mercado)',filas:MERCADO.resultados.slice(0,6).map(r=>[r.tienda+(r.pais?' ('+r.pais+')':''),sol(r.precio_pen_igv)+(r.igv_incluido?'':' · '+r.moneda+' '+r.precio+' × 1.18'),r.url||''])});
+  const g=e.precio-c;
+  S.push({titulo:'Precio cotizado',destacar:true,filas:[
+    ['Precio',sol0(e.precio)+' ('+e.de+')'],
+    ['Ganancia',sol(g)+' · '+pct(g/c)+' sobre costo · '+pct(g/e.precio)+' del precio'],
+    ['Válido',($('validez').value||3)+' días']]});
+  if(SIS&&SIS.producto&&SIS.producto.vid){
+    const pr=SIS.producto,co=SIS.compras,ve=SIS.ventas,f=[['Producto',pr.nombre+(pr.sku?' · '+pr.sku:'')],
+      ['Precio en el sistema',pr.precio_normal>0?sol0(pr.precio_normal):'SIN PRECIO'],['Stock',String(pr.stock_total??'—')]];
+    if(pr.pvp_recomendado)f.push(['PVP recomendado',sol0(pr.pvp_recomendado)+' (costo ÷ 0.45)']);
+    if(co)f.push(['Última compra',sol(co.ultimo.costo)+' el '+co.ultimo.fecha+' ('+co.n+' compra'+(co.n>1?'s':'')+')']);
+    if(ve)f.push(['Vendido (24 meses)',ve.unidades+' und · promedio '+sol0(ve.prom)+' · último '+sol0(ve.ultimo.precio)]);
+    S.push({titulo:'En el sistema',filas:f});
+  }
+  return S;
+}
 async function confirmarCotizacion(){
   const e=precioElegido();
   if(!e){toast('Primero elige o escribe el precio');return;}
@@ -649,7 +687,7 @@ async function confirmarCotizacion(){
   try{await navigator.clipboard.writeText(texto);}catch(x){}
   const b=$('btn-confirmar');b.disabled=true;
   try{
-    const r=await api('/api/precio-importado/confirmar',{method:'POST',body:{texto,nombre:$('nombre').value.trim(),precio:e.precio}});
+    const r=await api('/api/precio-importado/confirmar',{method:'POST',body:{texto,nombre:$('nombre').value.trim(),precio:e.precio,secciones:resumenCorreo(e)}});
     toast(r.correo?'Copiado y enviado a '+r.para.join(', '):'Copiado. El correo no salió: '+(r.error||''));
   }catch(x){toast('Copiado. El correo no salió: '+x.message);}
   finally{b.disabled=false;}

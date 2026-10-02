@@ -497,11 +497,29 @@ module.exports = function registrarPrecioImportado({ app, authAdmin, requiereMod
     if (!key) return res.json({ correo: false, error: 'Correo no configurado (falta RESEND_API_KEY en Railway)' });
     const wa = 'https://wa.me/?text=' + encodeURIComponent(texto);
     const quien = (req.admin && req.admin.usuario) || 'administrador';
-    const html = `<div style="font-family:Arial,Helvetica,sans-serif;color:#111827;max-width:560px">
-      <p style="margin:0 0 10px;color:#4b5563">Cotización a pedido confirmada por <b>${escH(quien)}</b>. Envíala por WhatsApp:</p>
-      <pre style="white-space:pre-wrap;font-family:inherit;font-size:15px;background:#f3f4f6;border-radius:10px;padding:14px;margin:0">${escH(texto)}</pre>
-      <p style="margin:14px 0 0"><a href="${escH(wa)}" style="background:#25d366;color:#05310f;text-decoration:none;font-weight:bold;padding:10px 16px;border-radius:8px;display:inline-block">Abrir en WhatsApp</a></p>
-    </div>`;
+    // Correo interno: resumen completo (lo arma la página) + el mensaje para el cliente.
+    // Tablas con colores fijos para que se vea bien también en modo oscuro (Outlook, Gmail).
+    const secciones = Array.isArray(b.secciones) ? b.secciones.slice(0, 12) : [];
+    const celda = 'padding:7px 10px;border-bottom:1px solid #e5e7eb;font-size:14px;vertical-align:top;';
+    const valor = v => { const t = String(v == null ? '' : v).slice(0, 600);
+      return /^https?:\/\/\S+$/.test(t) ? `<a href="${escH(t)}" style="color:#1d4ed8;word-break:break-all">${escH(t.length > 70 ? t.slice(0, 70) + '…' : t)}</a>` : escH(t); };
+    const bloques = secciones.map(sec => {
+      const filas = (Array.isArray(sec.filas) ? sec.filas.slice(0, 20) : []).map(f => {
+        const [a, v, n] = Array.isArray(f) ? f : [];
+        return `<tr><td style="${celda}color:#6b7280;width:38%">${escH(a)}</td><td style="${celda}color:#111827">${valor(v)}${n ? `<div style="font-size:12px;color:#6b7280;margin-top:2px">${valor(n)}</div>` : ''}</td></tr>`;
+      }).join('');
+      return `<tr><td style="padding:16px 0 6px;font-size:13px;font-weight:bold;color:${sec.destacar ? '#15803d' : '#1e3a5f'};text-transform:uppercase;letter-spacing:.04em">${escH(sec.titulo)}</td></tr>
+        <tr><td><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;background:${sec.destacar ? '#f0fdf4' : '#ffffff'};border:1px solid #e5e7eb;border-radius:8px">${filas}</table></td></tr>`;
+    }).join('');
+    const html = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="#f3f4f6" style="background:#f3f4f6;padding:16px 0"><tr><td align="center">
+      <table role="presentation" width="640" cellpadding="0" cellspacing="0" bgcolor="#ffffff" style="max-width:640px;width:100%;background:#ffffff;border-radius:12px;padding:20px;font-family:Arial,Helvetica,sans-serif;color:#111827">
+        <tr><td style="font-size:20px;font-weight:bold;color:#111827">${escH(nombre || 'Cotización a pedido')}</td></tr>
+        <tr><td style="font-size:14px;color:#4b5563;padding-top:4px">Cotizado en <b style="color:#15803d">S/ ${escH(precio.toLocaleString('es-PE'))}</b> · confirmado por ${escH(quien)} · ${escH(new Date().toLocaleString('es-PE', { timeZone: 'America/Lima' }))}</td></tr>
+        ${bloques}
+        <tr><td style="padding:18px 0 6px;font-size:13px;font-weight:bold;color:#1e3a5f;text-transform:uppercase;letter-spacing:.04em">Mensaje para el cliente</td></tr>
+        <tr><td style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:12px 14px;font-size:15px;line-height:1.5;color:#064e3b;font-family:Arial,Helvetica,sans-serif">${escH(texto).replace(/\n/g, '<br>')}</td></tr>
+        <tr><td style="padding-top:14px"><a href="${escH(wa)}" style="background:#25d366;color:#ffffff;text-decoration:none;font-weight:bold;padding:11px 18px;border-radius:8px;display:inline-block;font-size:14px">Abrir en WhatsApp</a></td></tr>
+      </table></td></tr></table>`;
     try {
       const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 10000);
       const r = await fetch('https://api.resend.com/emails', { method: 'POST', signal: ctrl.signal,

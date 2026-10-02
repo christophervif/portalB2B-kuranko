@@ -49,7 +49,8 @@ function tipoProducto(categorias, nombre) {
   const txt = cats + ' ' + nom;
   if (/(^| )(ropa|indumentaria|vestimenta|jersey|jerseys|polo|polos|short|shorts|culotte?s?|casaca|casacas|chaleco|guantes?|cascos?|zapatillas?|calzado|lentes|gafas|medias|calcetines|bibs?)( |$)/.test(txt))
     return 'ropa';
-  if (/(^| )(llantas?|neumaticos?|cubiertas?|camaras?|tubeless|sellante|lubricantes?|grasa|aceite|pastillas?|zapatas?|cinta|limpiador|limpieza|cadenas?|cables?|fundas?)( |$)/.test(txt))
+  if (/(^| )(llantas?|neumaticos?|cubiertas?|camaras?|tubeless|sellante|lubricantes?|grasa|aceite|pastillas?|zapatas?|cinta|limpiador|limpieza|cadenas?)( |$)/.test(txt)
+    || /(^| )(cables?|fundas?|forros?)( de)? (freno|frenos|cambio|cambios|shift|brake)/.test(txt))
     return 'consumible';
   return 'componente';
 }
@@ -87,9 +88,9 @@ function reglaSugerido(tipo, anio, edadDias) {
   return { pct: pctTramos(regla, meses), motivo: `stock de ${textoMeses(meses)}${tipo === 'bicicleta' ? ' (sin año modelo en el nombre)' : ''}` };
 }
 
-// PVP recomendado = costo de la ÚLTIMA compra ÷ 0.45 (sirve cuando el producto no tiene precio
+// PVP recomendado = costo de la ÚLTIMA compra (con IGV) ÷ 0.65 (sirve cuando el producto no tiene precio
 // en el sistema o el que tiene está mal). Configurable con COTIZADOR_FACTOR_PVP.
-const FACTOR_PVP = Number(process.env.COTIZADOR_FACTOR_PVP) || 0.45;
+const FACTOR_PVP = Number(process.env.COTIZADOR_FACTOR_PVP) || 0.65;
 const IGV = 1.18;
 // Comparaciones: dentro de ±5% se considera "similar"
 const MARGEN_SIMILAR = 5;
@@ -402,7 +403,7 @@ module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, p
         const tipo = tipoProducto(categorias, p.producto || nombre);
         return {
           imagen: imgVar[p.vid] || imgProd[p.pid] || null,
-          // PVP recomendado (costo última compra ÷ 0.45). Si el producto no tiene precio en el
+          // PVP recomendado (costo última compra ÷ 0.65). Si el producto no tiene precio en el
           // sistema, se usa como precio base para cotizar.
           pvp_recomendado: pvpRec, sin_precio: !(normalSis > 0),
           precio_base: normalSis > 0 ? normalSis : pvpRec,

@@ -127,6 +127,10 @@ tr.mejor td{background:var(--bg-ok)}
 .modal textarea{width:100%;min-height:260px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:10px;font-size:13px;font-family:ui-monospace,Menlo,monospace;line-height:1.5;margin-top:10px}
 .modal .chk{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);margin-top:8px;cursor:pointer}
 .btn-wa{background:#25d366;color:#05310f}.btn-wa:hover{background:#1fbd5a}
+.confirmado{margin-top:12px;border:1px solid var(--fg-ok);background:var(--bg-ok);border-radius:12px;padding:10px 12px}
+.confirmado .conf-tit{font-weight:700;color:var(--fg-ok);font-size:14px}
+.confirmado .conf-txt{margin-top:6px;font-size:13px;color:var(--text);line-height:1.5;user-select:all}
+.confirmado .conf-mail{margin-top:6px;font-size:12px;color:var(--text2)}
 .valido{font-size:12px;color:var(--muted);display:inline-flex;align-items:center;gap:4px}
 .valido input{width:48px;background:transparent;border:1px dashed var(--border);color:var(--text2);border-radius:8px;padding:5px;font-size:12px;text-align:center}
 .elegido{margin-top:12px;font-size:13px;color:var(--text2)}
@@ -228,6 +232,7 @@ tr.mejor td{background:var(--bg-ok)}
           <button class="btn btn-sec" id="btn-copiar">Copiar resumen</button>
           <button class="btn btn-sec" id="btn-nuevo">Nuevo</button>
         </div>
+        <div class="confirmado" id="confirmado" style="display:none"></div>
       </div>
 
       <div class="card">
@@ -678,26 +683,42 @@ function resumenCorreo(e){
   }
   return S;
 }
+// Copia al portapapeles (con respaldo para navegadores/iframes que bloquean la API moderna)
+async function copiarTexto(t){
+  try{await navigator.clipboard.writeText(t);return true;}catch(e){}
+  try{const ta=document.createElement('textarea');ta.value=t;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();
+    const ok=document.execCommand('copy');ta.remove();return ok;}catch(e){return false;}
+}
+function estadoConfirmacion(copiado,texto,correo){
+  const el=$('confirmado');
+  el.innerHTML=`<div class="conf-tit">${copiado?'✅ Cotización copiada':'⚠️ No se pudo copiar automáticamente: selecciona el texto y cópialo'}</div>
+    <div class="conf-txt">${esc(texto).replace(/\n/g,'<br>')}</div>
+    <div class="conf-mail">${correo}</div>`;
+  el.style.display='block';
+}
 async function confirmarCotizacion(){
   const e=precioElegido();
   if(!e){toast('Primero elige o escribe el precio');return;}
   if(!$('nombre').value.trim()){toast('Escribe el nombre del producto');$('nombre').focus();return;}
   const texto=textoCotizacion(e.precio);
   try{localStorage.setItem('precio_imp_validez',$('validez').value);}catch(x){}
-  try{await navigator.clipboard.writeText(texto);}catch(x){}
-  const b=$('btn-confirmar');b.disabled=true;
+  const copiado=await copiarTexto(texto);
+  const b=$('btn-confirmar'),orig=b.innerHTML;
+  b.disabled=true;b.innerHTML=copiado?'✓ ¡Cotización copiada!':'Enviando…';
+  estadoConfirmacion(copiado,texto,'✉️ Enviando el resumen por correo…');
+  toast(copiado?'Cotización copiada':'No se pudo copiar');
   try{
     const r=await api('/api/precio-importado/confirmar',{method:'POST',body:{texto,nombre:$('nombre').value.trim(),precio:e.precio,secciones:resumenCorreo(e)}});
-    toast(r.correo?'Copiado y enviado a '+r.para.join(', '):'Copiado. El correo no salió: '+(r.error||''));
-  }catch(x){toast('Copiado. El correo no salió: '+x.message);}
-  finally{b.disabled=false;}
+    estadoConfirmacion(copiado,texto,r.correo?'✉️ Resumen enviado a '+esc(r.para.join(', ')):'⚠️ El correo no salió: '+esc(r.error||''));
+  }catch(x){estadoConfirmacion(copiado,texto,'⚠️ El correo no salió: '+esc(x.message));}
+  finally{setTimeout(()=>{b.disabled=false;b.innerHTML=orig;},2500);}
 }
 
 async function copiar(txt){try{await navigator.clipboard.writeText(txt);toast('Copiado');}catch(e){toast('No se pudo copiar');}}
 
 function nuevo(){
   ['entrada','precio','envio','costo-manual','nombre','ofrecido'].forEach(id=>$(id).value='');
-  URL_ACT='';IMAGEN=null;pintarProd();aviso('');ELEGIDO=null;MERCADO=null;_mercadoClave='';
+  URL_ACT='';IMAGEN=null;pintarProd();aviso('');ELEGIDO=null;MERCADO=null;_mercadoClave='';$('confirmado').style.display='none';
   SIS=null;COINC=[];CODIGOS=[];_ultimaBus='';$('buscar-sis').value='';$('coinc').innerHTML='';recalcular();$('entrada').focus();
 }
 

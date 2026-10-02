@@ -227,7 +227,8 @@ let modSeguimiento = null;
   // ── Módulo Ventas-BI (KPIs, rentabilidad, top productos) ──
   require('./modulos/ventas-bi')({ app, authAdmin, mResumen, mRent, mCaja, prodPool, portalPool, VV });
 
-  // ── Módulo Inventario (capital parado, resumen, stock por sucursal) ──
+  // ── Módulo Inventario (foto del stock: salud, antigüedad, ubicaciones, capital parado) ──
+  //    Frontend propio en public/inventario.html (iframe dentro del panel).
   require('./modulos/inventario')({ app, authAdmin, mInv, prodPool, VV });
 
   // ── Módulo Restock (qué reponer y cuánto) + exportador de inventario ──

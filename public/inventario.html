@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<script src="/tema.js"></script>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Inventario — Kuranko</title>
+<style>
+:root{
+  --bg:#0a1030;--surface:#111a44;--surface2:#0e1640;--surface3:#18224e;
+  --border:#212b54;--text:#eef1f8;--text2:#c6cee2;--muted:#8a93b4;--muted2:#a2abca;
+  --accent:#FFB30D;--accent-text:#000726;--accent-h:#e6a00c;--hover:#1a2450;--white:#ffffff;
+  --bg-ok:#163a29;--fg-ok:#6ee59a;--bg-warn:#3d3315;--fg-warn:#ffcb52;--bg-r:#3f1c20;--fg-r:#f79a9a;
+  --bg-v:#2a2766;--fg-v:#cecbf6;
+  --radius:18px;--radius-sm:12px;
+  --shadow-sm:0 2px 8px rgba(0,0,0,.10);
+}
+[data-theme="light"]{
+  --bg:#f6f8fd;--surface:#ffffff;--surface2:#fbfcff;--surface3:#f2f5fb;
+  --border:#e3e9f5;--text:#1a2140;--text2:#4a5680;--muted:#9aa3c0;--muted2:#727e9f;
+  --hover:#f2f5fb;--white:#1a2140;
+  --bg-ok:#e8f8ef;--fg-ok:#1f9c56;--bg-warn:#fdf5db;--fg-warn:#9a6b00;--bg-r:#fdeded;--fg-r:#dc4b4b;
+  --bg-v:#eeedfc;--fg-v:#4b43b8;
+  --shadow-sm:0 2px 10px rgba(30,45,90,.04);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{overflow-x:hidden}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px}
+.wrap{max-width:1240px;margin:0 auto;padding:1.25rem}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.1rem;box-shadow:var(--shadow-sm);margin-bottom:16px;min-width:0}
+.card h3{font-size:15px;font-weight:600;color:var(--white);margin-bottom:4px}
+.desc{font-size:12px;color:var(--muted);line-height:1.55}
+.fila{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px}
+.campo{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--muted2)}
+.campo select,.fila>select,.fila>input{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:8px 10px;font-size:13px;max-width:100%}
+input:focus,select:focus{outline:none;border-color:var(--accent)}
+.btn{background:var(--accent);border:none;color:var(--accent-text);border-radius:var(--radius-sm);padding:9px 16px;font-size:13px;cursor:pointer;font-weight:600}
+.btn:hover{background:var(--accent-h)}
+.btn:disabled{opacity:.6;cursor:wait}
+.btn-sec{background:var(--surface3);border:1px solid var(--border);color:var(--text2)}
+.btn-sec:hover{background:var(--hover)}
+.seg{display:inline-flex;gap:4px;background:var(--surface3);padding:3px;border-radius:10px}
+.seg button{background:transparent;border:none;color:var(--text2);border-radius:8px;padding:5px 10px;font-size:12px;cursor:pointer;font-weight:600}
+.seg button.on{background:var(--accent);color:var(--accent-text)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:14px}
+.kpi{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:12px}
+.kpi.clic{cursor:pointer}.kpi.clic:hover{border-color:var(--accent)}
+.kpi .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.kpi .v{font-size:1.35rem;font-weight:700;color:var(--white);margin-top:4px;white-space:nowrap}
+.kpi .s{font-size:11px;color:var(--muted2);margin-top:2px}
+.kpi.r .v{color:var(--fg-r)}.kpi.w .v{color:var(--fg-warn)}.kpi.a .v{color:var(--accent)}
+.aviso{font-size:12px;border-radius:10px;padding:8px 10px;margin-top:10px;background:var(--bg-warn);color:var(--fg-warn)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.barra-salud{display:flex;height:16px;border-radius:8px;overflow:hidden;background:var(--surface3);margin:12px 0 10px}
+.barra-salud div{height:100%;cursor:pointer}
+.leyenda-salud{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
+.ls-item{border:1px solid var(--border);border-radius:10px;padding:8px 10px;cursor:pointer;background:var(--surface2)}
+.ls-item:hover{border-color:var(--accent)}
+.ls-item .t{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--white)}
+.ls-item .t i{width:10px;height:10px;border-radius:3px;display:inline-block}
+.ls-item .n{font-size:15px;font-weight:700;color:var(--white);margin-top:3px}
+.ls-item .s{font-size:11px;color:var(--muted)}
+.hbar{margin-bottom:9px}
+.hbar .top{display:flex;justify-content:space-between;gap:8px;font-size:12px;margin-bottom:3px;color:var(--text2)}
+.hbar .top span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hbar .top b{white-space:nowrap;color:var(--white)}
+.hbar .pista{height:6px;background:var(--surface3);border-radius:4px;overflow:hidden}
+.hbar .pista div{height:100%;border-radius:4px}
+.hbar .sub{font-size:10.5px;color:var(--muted);margin-top:2px}
+.c-ok-bg{background:var(--fg-ok)}.c-w-bg{background:var(--fg-warn)}.c-r-bg{background:var(--fg-r)}.c-v-bg{background:var(--fg-v)}.c-a-bg{background:var(--accent)}.c-g-bg{background:var(--muted)}
+.tabla-wrap{overflow:auto;max-height:68vh;margin-top:10px;border:1px solid var(--border);border-radius:12px}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{position:sticky;top:0;background:var(--surface3);text-align:left;padding:8px;color:var(--muted2);font-weight:600;font-size:11px;border-bottom:1px solid var(--border);white-space:nowrap;cursor:pointer;user-select:none;z-index:1}
+th:hover{color:var(--white)}
+th.n,td.n{text-align:right}
+td.n{white-space:nowrap}
+th.asc::after{content:' ↑';color:var(--accent)}th.desc::after{content:' ↓';color:var(--accent)}
+td{padding:8px;border-bottom:1px solid var(--border);color:var(--text2);vertical-align:top}
+tr:hover td{background:var(--hover)}
+tr.clic{cursor:pointer}
+tr.sel td{background:var(--surface3)}
+tr.fuera td{opacity:.55}
+td .nom{color:var(--white);font-weight:500;line-height:1.35}
+td .sku{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--muted)}
+#tbl-det td:nth-child(2){min-width:220px}
+.chip{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:20px;white-space:nowrap}
+.c-r{background:var(--bg-r);color:var(--fg-r)}.c-w{background:var(--bg-warn);color:var(--fg-warn)}.c-ok{background:var(--bg-ok);color:var(--fg-ok)}
+.c-v{background:var(--bg-v);color:var(--fg-v)}.c-g{background:var(--surface3);color:var(--text2);border:1px solid var(--border)}
+.vacio{color:var(--muted);text-align:center;padding:1.5rem;font-size:13px}
+details.ayuda{margin-top:10px;font-size:12px;color:var(--text2)}
+details.ayuda summary{cursor:pointer;color:var(--muted2)}
+details.ayuda ul{margin:6px 0 0 18px;line-height:1.6}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--bg-ok);color:var(--fg-ok);padding:12px 18px;border-radius:12px;font-size:13px;display:none;z-index:100;border:1px solid var(--border);max-width:320px}
+.toast.err{background:var(--bg-r);color:var(--fg-r)}
+@media(max-width:860px){.grid2{grid-template-columns:1fr}}
+@media(max-width:640px){.wrap{padding:.75rem}.card{padding:.9rem}.fila>.campo,.fila>select{flex:1 1 140px}.campo select{width:100%}}
+</style>
+</head>
+<body>
+<div class="toast" id="toast"></div>
+<div class="wrap">
+
+  <!-- ══════════ FILTROS + KPIs ══════════ -->
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
+      <div>
+        <h3>Inventario</h3>
+        <div class="desc">Foto del stock <b>al momento</b>, valorizado a costo. No depende de fechas: para ventas por periodo usa <i>Ventas e ingresos</i>.</div>
+      </div>
+      <div class="desc" id="inv-hora"></div>
+    </div>
+
+    <div class="fila">
+      <label class="campo" title="Qué ubicaciones cuentan. Por defecto: almacenes y tiendas (sin consignación ni no vendibles)">Ubicación
+        <select id="f-alcance" onchange="cargar()">
+          <option value="propio">Stock propio (almacenes y tiendas)</option>
+          <option value="todo">Todas las ubicaciones</option>
+          <option value="consignacion">Solo consignación (en clientes)</option>
+          <option value="no_vendible">Solo no vendibles (cuarentena, exhibición…)</option>
+          <optgroup label="Una ubicación" id="f-locs"></optgroup>
+        </select>
+      </label>
+      <label class="campo">Marca<select id="f-marca" onchange="cargar()"><option value="">Todas</option></select></label>
+      <label class="campo">Categoría<select id="f-cat" onchange="cargar()"><option value="">Todas</option></select></label>
+      <label class="campo" title="A partir de cuántos días sin vender un producto se considera estancado">Estancado si no vende hace
+        <select id="f-umbral" onchange="cargar()">
+          <option value="90">90+ días</option><option value="120" selected>120+ días (4 meses)</option>
+          <option value="180">180+ días (6 meses)</option><option value="365">365+ días (1 año)</option>
+        </select>
+      </label>
+      <button class="btn" id="btn-act" onclick="cargar()">Actualizar</button>
+      <button class="btn btn-sec" onclick="excel()">Excel</button>
+    </div>
+
+    <div class="kpis" id="kpis"></div>
+    <div id="avisos"></div>
+  </div>
+
+  <!-- ══════════ SALUD + ANTIGÜEDAD ══════════ -->
+  <div class="grid2">
+    <div class="card">
+      <h3>Salud del stock</h3>
+      <div class="desc">Cómo se reparte el capital según qué tan recientemente vendió cada producto. Clic para ver el detalle.</div>
+      <div class="barra-salud" id="salud-barra"></div>
+      <div class="leyenda-salud" id="salud-ley"></div>
+    </div>
+    <div class="card">
+      <h3>Antigüedad del inventario</h3>
+      <div class="desc">Capital según la fecha de ingreso de cada lote (FIFO).</div>
+      <div id="antig" style="margin-top:12px"></div>
+    </div>
+  </div>
+
+  <!-- ══════════ UBICACIONES ══════════ -->
+  <div class="card">
+    <h3>Stock por ubicación</h3>
+    <div class="desc">Todas las ubicaciones con stock (respeta marca y categoría). Clic en una fila para analizar solo esa ubicación.</div>
+    <div class="tabla-wrap" style="max-height:none"><table id="tbl-ubic"></table></div>
+  </div>
+
+  <!-- ══════════ CAPITAL PARADO ══════════ -->
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <h3 style="margin:0">Capital parado — Top 15</h3>
+      <div class="seg"><button id="cap-prod" class="on" onclick="capVista('producto')">Por producto</button><button id="cap-marca" onclick="capVista('marca')">Por marca</button></div>
+    </div>
+    <div class="desc" id="cap-nota" style="margin-top:4px"></div>
+    <div id="cap-lista" style="margin-top:12px"></div>
+  </div>
+
+  <!-- ══════════ DETALLE ══════════ -->
+  <div class="card">
+    <h3>Detalle por producto</h3>
+    <div class="fila">
+      <input id="d-buscar" type="search" placeholder="Buscar SKU o nombre…" oninput="pintarDetalle()" style="flex:1;min-width:180px">
+      <select id="d-estado" onchange="pintarDetalle()">
+        <option value="">Todos los estados</option><option value="activo">Activo</option><option value="lento">Lento</option>
+        <option value="nuevo">Nuevo</option><option value="estancado">Estancado</option>
+      </select>
+      <select id="d-extra" onchange="pintarDetalle()">
+        <option value="">Sin filtro extra</option><option value="sobre">Sobre-stock (12+ meses p/ agotar)</option>
+        <option value="reserv">Con reservas</option><option value="sincosto">Sin costo registrado</option><option value="inactivo">Producto inactivo con stock</option>
+      </select>
+    </div>
+    <div class="desc" id="d-conteo" style="margin-top:8px"></div>
+    <div class="tabla-wrap"><table id="tbl-det"></table></div>
+    <details class="ayuda">
+      <summary>¿Cómo se calcula?</summary>
+      <ul>
+        <li><b>Unidades</b>: stock por ubicación del ERP. <b>Capital</b>: unidades × costo promedio de los lotes con existencia (si no hay lote, el último costo conocido).</li>
+        <li><b>Stock propio</b>: almacenes y tiendas. La consignación (está en el cliente) y las ubicaciones no vendibles <span id="ay-otros"></span> se ven aparte.</li>
+        <li><b>Activo</b>: vendió en los últimos 90 días. <b>Lento</b>: su última venta fue hace entre 90 días y el umbral elegido.</li>
+        <li><b>Estancado</b>: no vende hace más del umbral (o nunca) <i>y</i> su lote más antiguo ya tiene esa edad. <b>Nuevo</b>: aún no vende, pero ingresó hace menos del umbral (no es capital parado todavía).</li>
+        <li><b>Meses para agotar</b>: stock ÷ promedio mensual vendido en los últimos 12 meses. Sobre-stock = 12 meses o más.</li>
+        <li>La marca es la primera palabra del nombre del producto (igual que en Restock y Promociones).</li>
+      </ul>
+    </details>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+//  Inventario — frontend (mini-app en iframe dentro de admin.html)
+//  Comparte token y origen con el panel (localStorage 'admtoken').
+//  Backend: modulos/inventario.js  (/api/inventario, /api/inventario-excel)
+// ═══════════════════════════════════════════════════════════════════════════
+let TOKEN = ''; try { TOKEN = localStorage.getItem('admtoken') || ''; } catch (e) {}
+const $ = id => document.getElementById(id);
+function esc(t) { return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function showToast(m, e) { const t = $('toast'); t.textContent = m; t.className = 'toast' + (e ? ' err' : ''); t.style.display = 'block'; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', 3500); }
+async function apiCall(ep) {
+  const r = await fetch(ep, { headers: { 'Authorization': 'Bearer ' + TOKEN } });
+  if (r.status === 401) throw new Error('Sesión del portal expirada — vuelve a entrar al panel.');
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || 'Error');
+  return d;
+}
+const money = n => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { maximumFractionDigits: 0 });
+const nfmt = n => Number(n || 0).toLocaleString('es-PE');
+const pct = (a, b) => b > 0 ? Math.round(a / b * 100) : 0;
+
+const EST = {
+  activo:    { t: 'Activo',    chip: 'c-ok', bg: 'c-ok-bg' },
+  lento:     { t: 'Lento',     chip: 'c-w',  bg: 'c-w-bg' },
+  nuevo:     { t: 'Nuevo',     chip: 'c-v',  bg: 'c-v-bg' },
+  estancado: { t: 'Estancado', chip: 'c-r',  bg: 'c-r-bg' }
+};
+const CLASE = { propio: ['Propio', 'c-ok'], consignacion: ['Consignación', 'c-v'], no_vendible: ['No vendible', 'c-g'] };
+const TIPO = { warehouse: 'Almacén', store: 'Tienda', consignment: 'Consignación' };
+
+let D = null, capModo = 'producto';
+let orden = { k: 'capital', dir: 'desc' };
+
+// ── Filtros (se recuerdan entre visitas) ──
+function filtrosQS() {
+  const p = new URLSearchParams();
+  p.set('alcance', $('f-alcance').value || 'propio');
+  if ($('f-marca').value) p.set('marca', $('f-marca').value);
+  if ($('f-cat').value) p.set('categoria', $('f-cat').value);
+  p.set('umbral', $('f-umbral').value);
+  return p;
+}
+function guardarFiltros() {
+  try { localStorage.setItem('inv_filtros', filtrosQS().toString()); } catch (e) {}
+}
+function leerGuardados() {
+  try { return new URLSearchParams(localStorage.getItem('inv_filtros') || ''); } catch (e) { return new URLSearchParams(); }
+}
+function llenarSelect(sel, lista, valor, todos) {
+  sel.innerHTML = `<option value="">${todos}</option>` + lista.map(x => `<option value="${esc(x)}"${x === valor ? ' selected' : ''}>${esc(x)}</option>`).join('');
+}
+
+// ── Carga ──
+async function cargar(qsForzado) {
+  const btn = $('btn-act'); btn.disabled = true; btn.textContent = 'Cargando…';
+  try {
+    const qs = qsForzado || filtrosQS();
+    D = await apiCall('/api/inventario?' + qs.toString());
+    const f = D.filtros, o = D.opciones;
+    // Opciones de filtros (se arman con lo que existe hoy en stock)
+    $('f-locs').innerHTML = o.ubicaciones.map(u => `<option value="loc:${u.id}">${esc(u.nombre)}</option>`).join('');
+    $('f-alcance').value = f.alcance;
+    if ($('f-alcance').value !== f.alcance) $('f-alcance').value = 'propio';
+    llenarSelect($('f-marca'), o.marcas, f.marca, 'Todas');
+    llenarSelect($('f-cat'), o.categorias, f.categoria, 'Todas');
+    $('f-umbral').value = String(f.umbral);
+    $('ay-otros').textContent = D.no_vendibles && D.no_vendibles.length ? '(' + D.no_vendibles.join(', ').toLowerCase() + ')' : '';
+    guardarFiltros();
+    $('inv-hora').textContent = 'Actualizado: ' + new Date().toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
+    pintarTodo();
+  } catch (e) {
+    showToast(e.message, true);
+    $('kpis').innerHTML = `<div class="vacio" style="grid-column:1/-1">No se pudo cargar: ${esc(e.message)}</div>`;
+  } finally { btn.disabled = false; btn.textContent = 'Actualizar'; }
+}
+
+function pintarTodo() { pintarKpis(); pintarSalud(); pintarAntiguedad(); pintarUbic(); pintarCapital(); pintarDetalle(); }
+
+function pintarKpis() {
+  const k = D.kpis, s = D.salud;
+  const capEst = s.estancado.capital;
+  const kp = [
+    { l: 'Capital a costo', v: money(k.capital), s: nfmt(k.skus) + ' SKUs con stock', c: 'a' },
+    { l: 'Unidades', v: nfmt(k.unidades), s: nfmt(k.disponibles) + ' disponibles' },
+    { l: 'Reservadas', v: nfmt(k.reservadas), s: 'comprometidas en ventas', click: "irDetalle('','reserv')" },
+    { l: 'Capital estancado', v: money(capEst), s: pct(capEst, k.capital) + '% del capital · ' + nfmt(s.estancado.skus) + ' SKUs', c: capEst > 0 ? 'r' : '', click: "irDetalle('estancado','')" },
+    { l: 'Sobre-stock', v: nfmt(k.sobrestock), s: 'SKUs con 12+ meses p/ agotar', c: k.sobrestock ? 'w' : '', click: "irDetalle('','sobre')" }
+  ];
+  $('kpis').innerHTML = kp.map(x => `<div class="kpi ${x.c || ''} ${x.click ? 'clic' : ''}" ${x.click ? `onclick="${x.click}"` : ''}>
+    <div class="l">${x.l}</div><div class="v">${x.v}</div><div class="s">${esc(x.s)}</div></div>`).join('');
+
+  const av = [];
+  if (k.sin_costo) av.push(`${k.sin_costo} SKU(s) con stock no tienen costo registrado: su capital figura en S/ 0. <a href="#" onclick="irDetalle('','sincosto');return false" style="color:inherit">Ver cuáles</a>.`);
+  const q = D.calidad;
+  if (q && q.diferencia) av.push(`Las ubicaciones suman ${nfmt(q.unidades_ubicaciones)} und. y los lotes ${nfmt(q.unidades_lotes)} und. (diferencia ${q.diferencia > 0 ? '+' : ''}${nfmt(q.diferencia)}). Conviene revisar ajustes de stock en el ERP.`);
+  $('avisos').innerHTML = av.map(t => `<div class="aviso">${t}</div>`).join('');
+}
+
+function pintarSalud() {
+  const s = D.salud, tot = D.kpis.capital;
+  const orden = ['activo', 'lento', 'nuevo', 'estancado'];
+  $('salud-barra').innerHTML = tot > 0 ? orden.filter(e => s[e].capital > 0).map(e =>
+    `<div class="${EST[e].bg}" style="width:${s[e].capital / tot * 100}%" title="${EST[e].t}: ${money(s[e].capital)}" onclick="irDetalle('${e}','')"></div>`).join('') : '';
+  const sub = { activo: 'vendió en los últimos 90 días', lento: 'última venta hace 90–' + D.filtros.umbral + ' días',
+    nuevo: 'sin venta aún, ingresó hace < ' + D.filtros.umbral + ' días', estancado: D.filtros.umbral + '+ días sin vender' };
+  $('salud-ley').innerHTML = orden.map(e => `<div class="ls-item" onclick="irDetalle('${e}','')">
+    <div class="t"><i class="${EST[e].bg}"></i>${EST[e].t} · ${pct(s[e].capital, tot)}%</div>
+    <div class="n">${money(s[e].capital)}</div>
+    <div class="s">${nfmt(s[e].skus)} SKUs · ${nfmt(s[e].unidades)} und · ${sub[e]}</div></div>`).join('');
+}
+
+function hbar(etq, valor, max, color, sub, title) {
+  const w = max > 0 ? Math.max(valor > 0 ? 2 : 0, Math.round(valor / max * 100)) : 0;
+  return `<div class="hbar"><div class="top"><span title="${esc(title || etq)}">${etq}</span><b>${money(valor)}</b></div>
+    <div class="pista"><div class="${color}" style="width:${w}%"></div></div>${sub ? `<div class="sub">${sub}</div>` : ''}</div>`;
+}
+
+function pintarAntiguedad() {
+  const a = D.antiguedad.filter(t => t.k !== 'sin_fecha' || t.capital > 0);
+  const max = Math.max(...a.map(t => t.capital), 0), tot = D.kpis.capital;
+  const col = { '0-90': 'c-ok-bg', '91-180': 'c-a-bg', '181-365': 'c-w-bg', '365+': 'c-r-bg', sin_fecha: 'c-g-bg' };
+  $('antig').innerHTML = a.map(t => hbar(esc(t.t), t.capital, max, col[t.k], pct(t.capital, tot) + '% del capital')).join('')
+    || '<div class="vacio">Sin stock en este filtro.</div>';
+}
+
+function pintarUbic() {
+  const u = D.ubicaciones, tot = u.reduce((s, x) => s + x.capital, 0);
+  if (!u.length) { $('tbl-ubic').innerHTML = '<tr><td class="vacio">Sin stock.</td></tr>'; return; }
+  const sel = D.filtros.alcance;
+  $('tbl-ubic').innerHTML = `<thead><tr><th>Ubicación</th><th>Cuenta como</th><th class="n">Unidades</th><th class="n">Disponibles</th><th class="n">Reservadas</th><th class="n">SKUs</th><th class="n">Capital</th><th class="n">% capital</th></tr></thead><tbody>` +
+    u.map(x => `<tr class="clic ${sel === 'loc:' + x.id ? 'sel' : ''} ${x.en_alcance ? '' : 'fuera'}" onclick="verUbicacion(${Number(x.id)})" title="${x.en_alcance ? 'Incluida en el filtro actual' : 'Fuera del filtro actual'}">
+      <td><div class="nom">${esc(x.nombre)}${x.activa ? '' : ' <span class="chip c-g">inactiva</span>'}</div><div class="sku">${esc(TIPO[x.tipo] || x.tipo || '')}</div></td>
+      <td><span class="chip ${CLASE[x.clase][1]}">${CLASE[x.clase][0]}</span></td>
+      <td class="n">${nfmt(x.unidades)}</td><td class="n">${nfmt(x.disponibles)}</td><td class="n">${nfmt(x.reservadas)}</td>
+      <td class="n">${nfmt(x.skus)}</td><td class="n"><b>${money(x.capital)}</b></td><td class="n">${pct(x.capital, tot)}%</td></tr>`).join('') + '</tbody>';
+}
+function verUbicacion(id) {
+  const v = 'loc:' + id;
+  $('f-alcance').value = $('f-alcance').value === v ? 'propio' : v; // segundo clic: vuelve a stock propio
+  cargar();
+}
+
+function capVista(m) { capModo = m; $('cap-prod').classList.toggle('on', m === 'producto'); $('cap-marca').classList.toggle('on', m === 'marca'); pintarCapital(); }
+function pintarCapital() {
+  const U = D.filtros.umbral;
+  if (capModo === 'producto') {
+    $('cap-nota').textContent = `Productos estancados (${U}+ días sin vender y stock con esa antigüedad) con más dinero invertido.`;
+    const est = D.items.filter(x => x.estado === 'estancado' && x.capital > 0).slice(0, 15);
+    const total = D.salud.estancado.capital;
+    if (!est.length) { $('cap-lista').innerHTML = '<div class="vacio">✓ Sin productos estancados con este filtro.</div>'; return; }
+    $('cap-lista').innerHTML = `<div class="desc" style="margin-bottom:8px">Total estancado: <b>${money(total)}</b> · ${nfmt(D.salud.estancado.skus)} SKUs <a href="#" onclick="irDetalle('estancado','');return false" style="color:var(--accent)">ver todos</a></div>` +
+      est.map(x => hbar(esc(x.producto), x.capital, est[0].capital, 'c-r-bg',
+        `${esc(x.sku)} · ${nfmt(x.stock)} und · ${x.dias_sin_venta == null ? 'nunca vendido' : x.dias_sin_venta + ' días sin venta'}${x.edad_dias != null ? ' · en almacén hace ' + x.edad_dias + ' d' : ''}`, x.producto)).join('');
+  } else {
+    $('cap-nota').textContent = 'Capital estancado por marca (incluye marcas que tardarían 12+ meses en agotar su stock al ritmo actual).';
+    const ms = D.marcas.filter(m => m.capital_estancado > 0 || m.meses_para_agotar == null || m.meses_para_agotar >= 12)
+      .sort((a, b) => (b.capital_estancado - a.capital_estancado) || (b.capital - a.capital)).slice(0, 15);
+    if (!ms.length) { $('cap-lista').innerHTML = '<div class="vacio">✓ Ninguna marca con rotación lenta.</div>'; return; }
+    // La barra y el monto son el capital ESTANCADO de la marca; el total va en el subtítulo
+    const max = Math.max(...ms.map(m => m.capital_estancado), 1);
+    $('cap-lista').innerHTML = ms.map(m => hbar(`<b>${esc(m.marca)}</b>`, m.capital_estancado, max, 'c-w-bg',
+      `${m.estancados} de ${m.referencias} ref. estancadas · stock total ${money(m.capital)} (${nfmt(m.stock)} und) · ${m.meses_para_agotar == null ? 'sin ventas en 12m' : m.meses_para_agotar + ' meses p/ agotar'}`, m.marca)).join('');
+  }
+}
+
+// ── Detalle ──
+const COLS = [
+  { k: 'estado', t: 'Estado' }, { k: 'producto', t: 'Producto' }, { k: 'marca', t: 'Marca' },
+  { k: 'stock', t: 'Stock', n: 1 }, { k: 'reservadas', t: 'Reserv.', n: 1 }, { k: 'costo', t: 'Costo unit.', n: 1 },
+  { k: 'capital', t: 'Capital', n: 1 }, { k: 'und_90d', t: 'Vend. 90d', n: 1 }, { k: 'und_12m', t: 'Vend. 12m', n: 1 },
+  { k: 'dias_sin_venta', t: 'Días s/ venta', n: 1 }, { k: 'edad_dias', t: 'Edad stock', n: 1 }, { k: 'meses_para_agotar', t: 'Meses p/ agotar', n: 1 }
+];
+const MAX_FILAS = 300;
+function irDetalle(estado, extra) {
+  $('d-estado').value = estado; $('d-extra').value = extra; $('d-buscar').value = '';
+  pintarDetalle();
+  $('tbl-det').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+function ordenar(k) { orden = orden.k === k ? { k, dir: orden.dir === 'asc' ? 'desc' : 'asc' } : { k, dir: 'desc' }; pintarDetalle(); }
+function filasDetalle() {
+  const q = $('d-buscar').value.trim().toLowerCase(), est = $('d-estado').value, ex = $('d-extra').value;
+  let r = D.items.filter(x =>
+    (!est || x.estado === est) &&
+    (!q || (x.sku + ' ' + x.producto).toLowerCase().includes(q)) &&
+    (ex !== 'sobre' || (x.meses_para_agotar != null && x.meses_para_agotar >= 12)) &&
+    (ex !== 'reserv' || x.reservadas > 0) &&
+    (ex !== 'sincosto' || !(x.costo > 0)) &&
+    (ex !== 'inactivo' || x.inactivo));
+  const { k, dir } = orden, m = dir === 'asc' ? 1 : -1;
+  // "nunca vendido" (null) cuenta como el valor más alto en días sin venta
+  const val = x => x[k] == null ? (k === 'dias_sin_venta' || k === 'meses_para_agotar' ? Infinity : -Infinity) : x[k];
+  return r.sort((a, b) => typeof a[k] === 'string' ? m * a[k].localeCompare(b[k]) : m * (val(a) - val(b) || 0));
+}
+function pintarDetalle() {
+  if (!D) return;
+  const rows = filasDetalle();
+  const cap = rows.reduce((s, x) => s + x.capital, 0);
+  $('d-conteo').innerHTML = `<b>${nfmt(rows.length)}</b> producto(s) · ${money(cap)}` + (rows.length > MAX_FILAS ? ` · mostrando ${MAX_FILAS} (el Excel trae todo)` : '');
+  if (!rows.length) { $('tbl-det').innerHTML = '<tr><td class="vacio">Ningún producto con estos filtros.</td></tr>'; return; }
+  $('tbl-det').innerHTML = '<thead><tr>' + COLS.map(c => `<th class="${c.n ? 'n' : ''} ${orden.k === c.k ? orden.dir : ''}" onclick="ordenar('${c.k}')">${c.t}</th>`).join('') + '</tr></thead><tbody>' +
+    rows.slice(0, MAX_FILAS).map(x => `<tr>
+      <td><span class="chip ${EST[x.estado].chip}">${EST[x.estado].t}</span></td>
+      <td><div class="nom">${esc(x.producto)}${x.inactivo ? ' <span class="chip c-g">inactivo</span>' : ''}</div><div class="sku">${esc(x.sku)}${x.categoria ? ' · ' + esc(x.categoria) : ''}</div></td>
+      <td>${esc(x.marca)}</td>
+      <td class="n">${nfmt(x.stock)}</td><td class="n">${x.reservadas ? nfmt(x.reservadas) : '—'}</td>
+      <td class="n">${x.costo > 0 ? 'S/ ' + Number(x.costo).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '<span class="chip c-w">sin costo</span>'}</td>
+      <td class="n"><b>${money(x.capital)}</b></td>
+      <td class="n">${nfmt(x.und_90d)}</td><td class="n">${nfmt(x.und_12m)}</td>
+      <td class="n">${x.dias_sin_venta == null ? 'nunca' : nfmt(x.dias_sin_venta)}</td>
+      <td class="n">${x.edad_dias == null ? '—' : nfmt(x.edad_dias) + ' d'}</td>
+      <td class="n">${x.meses_para_agotar == null ? '—' : x.meses_para_agotar}</td></tr>`).join('') + '</tbody>';
+}
+
+// ── Excel ──
+async function excel() {
+  try {
+    const p = filtrosQS(); if ($('d-estado').value) p.set('estado', $('d-estado').value);
+    const r = await fetch('/api/inventario-excel?' + p.toString(), { headers: { 'Authorization': 'Bearer ' + TOKEN } });
+    if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || 'No se pudo generar el Excel'); }
+    const cd = r.headers.get('Content-Disposition') || '';
+    const nombre = (cd.match(/filename="([^"]+)"/) || [])[1] || 'inventario.xlsx';
+    const url = URL.createObjectURL(await r.blob());
+    const a = document.createElement('a'); a.href = url; a.download = nombre; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (e) { showToast(e.message, true); }
+}
+
+// Primera carga con los filtros de la última visita
+cargar(leerGuardados().has('alcance') ? leerGuardados() : null);
+</script>
+</body>
+</html>

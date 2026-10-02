@@ -606,28 +606,9 @@ tr:hover td{background:var(--hover)}
     </div>
 
     <div id="tab-inventario" class="panel">
-      <div class="card">
-        <div class="filtros-fila" style="align-items:center">
-          <label style="font-size:13px">Mes: <input type="month" class="db-mes" onchange="dbAplicarMes(this)"></label>
-          <label style="font-size:13px">Desde: <input type="date" class="db-desde"></label>
-          <label style="font-size:13px">Hasta: <input type="date" class="db-hasta"></label>
-          <button class="btn" onclick="dbCargarActual()">Actualizar</button>
-        </div>
-        <div id="inv-kpis" class="kpi-grid"></div>
-        <div class="dbcard"><h4>Stock por sucursal</h4>
-          <div style="overflow-x:auto"><table class="dtable" id="tbl-sucursal"></table></div></div>
-        <div class="dbcard">
-          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-            <h4 style="margin:0">Capital parado — Top 15</h4>
-            <div style="display:flex;gap:4px;background:var(--surface3);padding:3px;border-radius:10px">
-              <button class="btn btn-sm" id="cap-btn-prod" onclick="capVista('producto')" style="background:var(--accent);color:#000726">Por producto</button>
-              <button class="btn btn-sm" id="cap-btn-marca" onclick="capVista('marca')" style="background:transparent">Por marca</button>
-            </div>
-          </div>
-          <p class="card-note" id="cap-nota">Los productos con más dinero invertido que llevan 4+ meses sin venderse.</p>
-          <div id="inv-estancados"><div class="muted">Cargando...</div></div>
-          <div id="inv-marcas" style="display:none"><div class="muted">Cargando...</div></div>
-        </div>
+      <div class="card" style="padding:0;overflow:hidden">
+        <iframe id="inv-frame" title="Inventario"
+          style="width:100%;height:calc(100vh - 150px);min-height:560px;border:0;display:block"></iframe>
       </div>
     </div>
 
@@ -1060,7 +1041,7 @@ function cargarDatosTab(id){
   }
   else if(id==='sync'){cargarEstadoActualizacion();}
   else if(id==='auditoria'){if(!auditoriaCache)cargarAuditoriaGuardada();}
-  else if(['resumen','rentabilidad','inventario','clientes_bi','caja_bi','crm'].includes(id)){
+  else if(['resumen','rentabilidad','clientes_bi','caja_bi','crm'].includes(id)){
     dbInitFechas('tab-'+id);
     if(!dbCargadas[id])dbCargarModulo(id);
   }
@@ -1093,6 +1074,11 @@ function cargarDatosTab(id){
     // Calculadora de precio para pedidos especiales importados (public/precio-importado.html)
     const fr=document.getElementById('pimp-frame');
     if(fr&&!fr.src){fr.src='/precio-importado.html?v='+Date.now();}
+  }
+  else if(id==='inventario'){
+    // Inventario (foto del stock hoy) en iframe (public/inventario.html); comparte token/origen.
+    const fr=document.getElementById('inv-frame');
+    if(fr&&!fr.src){fr.src='/inventario.html?v='+Date.now();}
   }
   else if(id==='restock'){
     // Restock + exportador de inventario en iframe (public/restock.html); comparte token/origen.
@@ -1768,78 +1754,9 @@ const PROMO_DESCS={
   lote_antiguo:'El lote más viejo lleva 1+ año en almacén: riesgo de obsolescencia (los modelos cambian de temporada).',
   casi_agotado:'Venden bien y quedan 3 o menos unidades: no para descuento, sino para promo de urgencia ("última unidad").'
 };
-// ══════════ Capital parado (Inventario) ══════════
-// Barras proporcionales para ver de un vistazo dónde está el dinero detenido.
-// Alterna entre la lista por producto y la lista por marca
-function capVista(cual){
-  const esProd=cual==='producto';
-  document.getElementById('inv-estancados').style.display=esProd?'':'none';
-  document.getElementById('inv-marcas').style.display=esProd?'none':'';
-  document.getElementById('cap-nota').textContent=esProd
-    ? 'Los productos con más dinero invertido que llevan 4+ meses sin venderse.'
-    : 'Marcas con más dinero en stock que peor rotan (12+ meses para agotarse al ritmo actual).';
-  const bp=document.getElementById('cap-btn-prod'), bm=document.getElementById('cap-btn-marca');
-  if(bp&&bm){
-    bp.style.background=esProd?'var(--accent)':'transparent';
-    bp.style.color=esProd?'#000726':'';
-    bm.style.background=esProd?'transparent':'var(--accent)';
-    bm.style.color=esProd?'':'#000726';
-  }
-}
+// Inventario (capital parado, ubicaciones, salud del stock) → public/inventario.html (iframe)
 
-async function cargarInvAnalisis(){
-  const cp=document.getElementById('inv-estancados'), cm=document.getElementById('inv-marcas');
-  if(!cp||!cm)return;
-  const money=n=>'S/ '+Number(n||0).toLocaleString('es-PE',{maximumFractionDigits:0});
-  try{
-    const d=await apiCall('/api/inventario-analisis','GET');
-    // Productos
-    if(!d.productos.length){cp.innerHTML='<div class="muted">✓ Sin productos estancados.</div>';}
-    else{
-      const max=d.productos[0].capital||1;
-      cp.innerHTML=`<div style="font-size:12px;color:var(--muted);margin-bottom:8px">Total parado: <b>${money(d.capital_estancado)}</b></div>`+
-        d.productos.map(x=>{
-          const pct=Math.max(2,Math.round(x.capital/max*100));
-          const tiempo=x.dias_sin_venta==null?'nunca vendido (12m)':x.dias_sin_venta+' días sin venta';
-          return `<div style="margin-bottom:9px">
-            <div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;margin-bottom:2px">
-              <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(x.producto)}">${esc(x.producto)}</span>
-              <b style="white-space:nowrap">${money(x.capital)}</b>
-            </div>
-            <div style="height:6px;background:var(--surface3);border-radius:4px;overflow:hidden">
-              <div style="height:100%;width:${pct}%;background:var(--accent);border-radius:4px"></div>
-            </div>
-            <div style="font-size:10.5px;color:var(--muted);margin-top:2px">${x.stock} und · ${tiempo}</div>
-          </div>`;
-        }).join('');
-    }
-    // Marcas
-    if(!d.marcas.length){cm.innerHTML='<div class="muted">✓ Ninguna marca con rotación lenta.</div>';}
-    else{
-      const maxM=d.marcas[0].capital||1;
-      cm.innerHTML=`<div style="font-size:12px;color:var(--muted);margin-bottom:8px">Total parado: <b>${money(d.capital_marcas)}</b></div>`+
-        d.marcas.map(m=>{
-          const pct=Math.max(2,Math.round(m.capital/maxM*100));
-          const rot=m.meses_para_agotar==null?'sin ventas en 12m':`${m.meses_para_agotar} meses para agotar`;
-          return `<div style="margin-bottom:9px">
-            <div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;margin-bottom:2px">
-              <b style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.marca)}</b>
-              <b style="white-space:nowrap">${money(m.capital)}</b>
-            </div>
-            <div style="height:6px;background:var(--surface3);border-radius:4px;overflow:hidden">
-              <div style="height:100%;width:${pct}%;background:var(--warn,#FFB30D);border-radius:4px"></div>
-            </div>
-            <div style="font-size:10.5px;color:var(--muted);margin-top:2px">${m.referencias} referencias · ${m.stock} und · ${rot}</div>
-          </div>`;
-        }).join('');
-    }
-  }catch(e){
-    cp.innerHTML='<div class="muted">No se pudo cargar.</div>';
-    cm.innerHTML='<div class="muted">No se pudo cargar.</div>';
-  }
-}
-
-// Restock y Exportar inventario → public/restock.html + public/restock.js (iframe)
+// Restock y Exportar inventario → public/restock.html (iframe)
 
 function promoCambioCriterio(){
   const c=document.getElementById('promo-criterio').value;
@@ -2383,7 +2300,6 @@ async function dbCargarModulo(id){
   try{
     if(id==='resumen')await dbResumen();
     else if(id==='rentabilidad')await dbRentabilidad();
-    else if(id==='inventario')await dbInventario();
     else if(id==='clientes_bi')await dbClientes();
     else if(id==='caja_bi')await dbCaja();
     else if(id==='crm')await dbCRM();
@@ -2772,26 +2688,6 @@ async function dbRentabilidad(){
     {k:'ganancia',t:'Ganancia',fmt:dbFmt,num:1},
     {k:'margen',t:'Margen %',fmt:v=>v+'%',num:1}
   ],'ganancia');
-}
-
-async function dbInventario(){
-  const r=await dbApi('/api/inventario-resumen');
-  cargarInvAnalisis();
-  document.getElementById('inv-kpis').innerHTML=[
-    {l:'Unidades en stock',v:dbFmtN(r.unidades_totales),s:dbFmtN(r.skus_distintos)+' SKUs',a:1},
-    {l:'Disponibles',v:dbFmtN(r.disponibles),s:'para venta'},
-    {l:'Reservadas',v:dbFmtN(r.reservadas),s:'comprometidas'},
-    {l:'Valor inventario',v:dbFmt(r.valor_inventario),s:'a costo',a:1},
-  ].map(x=>`<div class="kpi ${x.a?'accent':''}"><div class="kpi-label">${x.l}</div><div class="kpi-val">${x.v}</div><div class="kpi-sub">${x.s}</div></div>`).join('');
-  const suc=await dbApi('/api/stock-por-sucursal');
-  const tipoNom={warehouse:'Almacén',store:'Tienda',consignment:'Consignación'};
-  dbSortTable('tbl-sucursal',suc.map(s=>({...s,tipo_nom:tipoNom[s.type]||s.type})),[
-    {k:'sucursal',t:'Sucursal',fmt:v=>v},
-    {k:'tipo_nom',t:'Tipo',fmt:v=>v},
-    {k:'unidades',t:'Unidades',fmt:dbFmtN,num:1},
-    {k:'disponibles',t:'Disponibles',fmt:dbFmtN,num:1},
-    {k:'skus',t:'SKUs',fmt:dbFmtN,num:1}
-  ],'unidades');
 }
 
 async function dbClientes(){

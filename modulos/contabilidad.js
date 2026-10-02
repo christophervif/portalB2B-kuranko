@@ -304,8 +304,105 @@ function resumenPagos(lista) {
 
 const ESTADO_VENTA = { paid: 'Pagada', confirmed: 'Confirmada', pending_payment: 'Pago pendiente', cancelled: 'Cancelada' };
 
+// ─── Comprobantes SUNAT vs sistema (puro) ───────────────────────────────────
+// Lee el texto del "Listado de CPE emitidos" de SUNAT (Facturas o Boletas, impreso
+// a PDF) y devuelve { tipo, desde, hasta, periodo, filas }. El texto llega del
+// navegador (pdf.js); el nombre del archivo no importa: el tipo se lee del título.
+function arreglarTexto(s) {
+  s = String(s || '').replace(/\u0000/g, '');
+  // SUNAT a veces entrega UTF-8 leído como Latin-1 ("NUÃ‘EZ"): intentar repararlo
+  if (/Ã|Â/.test(s)) {
+    try { const r = Buffer.from(s, 'latin1').toString('utf8'); if (!r.includes('�')) return r; } catch (e) {}
+  }
+  // Lo que no se pudo reparar: "NUÃ EZ" casi siempre es Ñ (el segundo byte se pierde)
+  return s.replace(/Ã\s(?=[A-ZÁÉÍÓÚ])/g, 'Ñ');
+}
+function parsearListadoCPE(texto) {
+  const t = String(texto || '').replace(/\u0000/g, '').replace(/\s+/g, ' ');
+  let tipo = null;
+  if (/Boletas?\s+de\s+Venta/i.test(t)) tipo = 'boleta';
+  else if (/Notas?\s+de\s+(Cr[eé]dito|D[eé]bito)/i.test(t)) tipo = 'nota';
+  else if (/Facturas?\s+Electr/i.test(t) || /\bFacturas?\b/i.test(t)) tipo = 'factura';
+  const per = t.match(/(\d{2})\/(\d{2})\/(\d{4})\s*-\s*(\d{2})\/(\d{2})\/(\d{4})/);
+  const desde = per ? `${per[3]}-${per[2]}-${per[1]}` : null;
+  const hasta = per ? `${per[6]}-${per[5]}-${per[4]}` : null;
+
+  const SERIE = /\b([A-Z][A-Z0-9]{3})\s*-\s*(\d{1,8})\s/g;
+  const inicios = [];
+  let m;
+  while ((m = SERIE.exec(t))) inicios.push({ i: m.index, serie: m[1], numero: Number(m[2]), fin: SERIE.lastIndex });
+  const filas = [];
+  for (let k = 0; k < inicios.length; k++) {
+    const a = inicios[k];
+    const bloque = t.slice(a.fin, k + 1 < inicios.length ? inicios[k + 1].i : t.length);
+    const r = bloque.match(/^\s*(?:([0-9A-Z]{1,15})?\s*-\s+)?(.*?)\s*(S\/|US\$|\$)\s?(-?[\d,]+\.\d{2})\s+(\d{2})\/(\d{2})\/(\d{4})(.*)$/);
+    if (!r) continue;                         // no es una fila (p. ej. el rango del encabezado)
+    let cola = r[8] || '';
+    const corte = cola.search(/https?:|\.::|\d{1,2}\/\d{1,2}\/\d{2},|Nro\. CPE/);
+    if (corte >= 0) cola = cola.slice(0, corte);
+    const rech = cola.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+    filas.push({
+      serie: a.serie, numero: a.numero,
+      receptor_doc: r[1] || '', receptor_nombre: arreglarTexto((r[2] || '').trim()).slice(0, 250),
+      moneda: r[3] === 'S/' ? 'PEN' : 'USD', importe: Number(r[4].replace(/,/g, '')),
+      emision: `${r[7]}-${r[6]}-${r[5]}`,
+      rechazo: rech ? `${rech[3]}-${rech[2]}-${rech[1]}` : null,
+      anulado: /\b(S[IÍ]|ANULADO|X)\b/i.test(cola.replace(/\d{2}\/\d{2}\/\d{4}/g, ''))
+    });
+  }
+  // Sin título claro: deducir por la serie (B… / EB… = boleta)
+  if (!tipo && filas.length) tipo = /^(B|EB)/.test(filas[0].serie) ? 'boleta' : 'factura';
+  const periodo = desde ? desde.slice(0, 7) : (filas[0] ? filas[0].emision.slice(0, 7) : null);
+  return { tipo, desde, hasta, periodo, filas };
+}
+
+// Cruza las filas de SUNAT con los comprobantes del ERP. Puro.
+// erp: [{ serie, number, type, amount, code, status, deleted_at }]
+function cruzarCPE(filas, erp) {
+  const mapa = new Map();
+  erp.forEach(v => {
+    const k = String(v.serie || '').trim().toUpperCase() + '|' + parseInt(String(v.number).replace(/\D/g, ''), 10);
+    const prev = mapa.get(k);
+    if (!prev || (prev.deleted_at && !v.deleted_at)) mapa.set(k, v);
+  });
+  return filas.map(f => {
+    const v = mapa.get(f.serie.toUpperCase() + '|' + Number(f.numero));
+    const enSistema = !!(v && !v.deleted_at);
+    let estado = f.anulado ? 'anulado' : enSistema ? 'en_sistema' : f.marcado_en ? 'anotado' : 'pendiente';
+    const out = { ...f, estado, erp_venta: v ? v.code : null, erp_importe: v && v.amount != null ? Number(v.amount) : null,
+      erp_eliminada: !!(v && v.deleted_at), erp_cancelada: !!(v && v.status === 'cancelled') };
+    out.dif_importe = enSistema && f.moneda === 'PEN' && out.erp_importe != null && Math.abs(out.erp_importe - f.importe) >= 0.01;
+    return out;
+  });
+}
+
+// Estado de cada mes: completo cuando se subieron los dos listados (facturas y
+// boletas) y ningún comprobante queda pendiente (todos en el sistema, anotados o
+// anulados). Puro. cargas: [{ periodo, tipo, n, subido_en }]
+function estadoMeses(cruzadas, cargas) {
+  const m = new Map();
+  const mes = p => {
+    if (!m.has(p)) m.set(p, { periodo: p, factura: null, boleta: null, total: 0, pendientes: 0, anotados: 0, en_sistema: 0, anulados: 0, monto_pendiente: 0 });
+    return m.get(p);
+  };
+  cargas.forEach(c => { if (c.periodo) mes(c.periodo)[c.tipo] = { n: Number(c.n) || 0, subido_en: c.subido_en || null }; });
+  cruzadas.forEach(x => {
+    const o = mes(x.periodo);
+    if (!o[x.tipo]) o[x.tipo] = { n: 0, subido_en: x.subido_en || null };
+    o.total++;
+    if (x.estado === 'pendiente') { o.pendientes++; if (x.moneda === 'PEN') o.monto_pendiente = r2(o.monto_pendiente + x.importe); }
+    else if (x.estado === 'anotado') o.anotados++;
+    else if (x.estado === 'en_sistema') o.en_sistema++;
+    else if (x.estado === 'anulado') o.anulados++;
+  });
+  return [...m.values()].map(o => {
+    const falta_subir = ['factura', 'boleta'].filter(t => !o[t]);
+    return { ...o, falta_subir, completo: !falta_subir.length && o.pendientes === 0 };
+  }).sort((a, b) => (a.periodo < b.periodo ? 1 : -1));
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
-module.exports = function registrarContabilidad({ app, authAdmin, requiereModulo, prodPool }) {
+module.exports = function registrarContabilidad({ app, authAdmin, requiereModulo, prodPool, portalPool }) {
   const mRep = requiereModulo('reportes');
 
   async function enBloques(sql, ids, extra = []) {
@@ -886,6 +983,208 @@ module.exports = function registrarContabilidad({ app, authAdmin, requiereModulo
       res.end();
     } catch (e) { res.status(500).json({ error: 'Error al generar el reporte: ' + e.message }); }
   });
+
+  // ════════════════════ COMPROBANTES SUNAT vs SISTEMA ════════════════════
+  // Cada mes se suben los listados de SUNAT (facturas y boletas emitidas). Se guardan
+  // en la base del portal y, cada vez que se abre la pantalla, se cruzan con los
+  // comprobantes del ERP: lo que ya se registró en el sistema sale solo de la lista
+  // de pendientes. Lo que se registró de otra forma se puede marcar "anotado" a mano.
+  async function asegurarTablaCPE() {
+    if (!portalPool) throw new Error('Falta la conexión a la base del portal');
+    await portalPool.query(`
+      CREATE TABLE IF NOT EXISTS cont_cpe_sunat (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        tipo VARCHAR(10) NOT NULL,
+        serie VARCHAR(8) NOT NULL,
+        numero INT NOT NULL,
+        emision DATE,
+        periodo CHAR(7),
+        receptor_doc VARCHAR(20),
+        receptor_nombre VARCHAR(255),
+        moneda CHAR(3) DEFAULT 'PEN',
+        importe DECIMAL(12,2),
+        anulado TINYINT DEFAULT 0,
+        rechazo DATE NULL,
+        archivo VARCHAR(255),
+        subido_por VARCHAR(100),
+        subido_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+        marcado_por VARCHAR(100) NULL,
+        marcado_en DATETIME NULL,
+        nota VARCHAR(255) NULL,
+        UNIQUE KEY uq_cpe (tipo, serie, numero),
+        INDEX idx_periodo (periodo)
+      )`);
+    // Qué listados se subieron (aunque vengan vacíos: un mes sin boletas también cuenta)
+    await portalPool.query(`
+      CREATE TABLE IF NOT EXISTS cont_cpe_cargas (
+        periodo CHAR(7) NOT NULL,
+        tipo VARCHAR(10) NOT NULL,
+        n INT DEFAULT 0,
+        archivo VARCHAR(255),
+        subido_por VARCHAR(100),
+        subido_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (periodo, tipo)
+      )`);
+    // Meses completados: se registra la primera vez que el mes queda completo
+    await portalPool.query(`
+      CREATE TABLE IF NOT EXISTS cont_cpe_meses (
+        periodo CHAR(7) PRIMARY KEY,
+        completado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+        completado_por VARCHAR(100)
+      )`);
+  }
+  let tablaCPE = null;
+  const tablaListaCPE = () => (tablaCPE = tablaCPE || asegurarTablaCPE().catch(e => { tablaCPE = null; throw e; }));
+  const quien = req => (req.admin && req.admin.usuario) || 'admin';
+  const claveCPE = (serie, numero) => String(serie || '').trim().toUpperCase() + '|' + parseInt(String(numero).replace(/\D/g, ''), 10);
+
+  // Subir un listado: el navegador extrae el texto del PDF (pdf.js) y lo manda aquí
+  app.post('/admin/cpe-sunat/importar', authAdmin, mRep, async (req, res) => {
+    try {
+      await tablaListaCPE();
+      const archivo = String(req.body.archivo || '').slice(0, 250);
+      const r = parsearListadoCPE(req.body.texto);
+      if (r.tipo === 'nota') return res.status(400).json({ error: `"${archivo}" es un listado de notas de crédito/débito; solo se cargan facturas y boletas.` });
+      const esListado = /Emitid[oa]s\s+del\s+Periodo|Listado\s+de\s+CPE/i.test(String(req.body.texto || ''));
+      if (!r.filas.length && !(esListado && r.periodo && (r.tipo === 'factura' || r.tipo === 'boleta')))
+        return res.status(400).json({ error: `No se encontraron comprobantes en "${archivo}". ¿Es el "Listado de CPE" de SUNAT impreso en PDF?` });
+      let nuevos = 0, actualizados = 0;
+      for (const f of r.filas) {
+        const [x] = await portalPool.query(`
+          INSERT INTO cont_cpe_sunat (tipo, serie, numero, emision, periodo, receptor_doc, receptor_nombre, moneda, importe, anulado, rechazo, archivo, subido_por)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+          ON DUPLICATE KEY UPDATE emision=VALUES(emision), periodo=VALUES(periodo), receptor_doc=VALUES(receptor_doc),
+            receptor_nombre=VALUES(receptor_nombre), moneda=VALUES(moneda), importe=VALUES(importe), anulado=VALUES(anulado),
+            rechazo=VALUES(rechazo), archivo=VALUES(archivo), subido_por=VALUES(subido_por), subido_en=CURRENT_TIMESTAMP`,
+          [r.tipo, f.serie, f.numero, f.emision, f.emision.slice(0, 7), f.receptor_doc, f.receptor_nombre, f.moneda, f.importe,
+           f.anulado ? 1 : 0, f.rechazo, archivo, quien(req)]);
+        if (x.affectedRows === 1) nuevos++; else actualizados++;
+      }
+      await portalPool.query(`
+        INSERT INTO cont_cpe_cargas (periodo, tipo, n, archivo, subido_por) VALUES (?,?,?,?,?)
+        ON DUPLICATE KEY UPDATE n=VALUES(n), archivo=VALUES(archivo), subido_por=VALUES(subido_por), subido_en=CURRENT_TIMESTAMP`,
+        [r.periodo, r.tipo, r.filas.length, archivo, quien(req)]);
+      res.json({ ok: true, archivo, tipo: r.tipo, periodo: r.periodo, desde: r.desde, hasta: r.hasta,
+        total: r.filas.length, nuevos, actualizados, anulados: r.filas.filter(f => f.anulado).length });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Lista cruzada con el ERP (se recalcula en cada consulta: lo que ya se registró se actualiza solo)
+  app.get('/admin/cpe-sunat', authAdmin, mRep, async (req, res) => {
+    try {
+      await tablaListaCPE();
+      const [cargasRows] = await portalPool.query(`SELECT periodo, tipo, n, archivo, subido_por, subido_en FROM cont_cpe_cargas`);
+      const [rows] = await portalPool.query(`
+        SELECT id, tipo, serie, numero, emision, periodo, receptor_doc, receptor_nombre, moneda, importe, anulado, rechazo,
+          archivo, subido_por, subido_en, marcado_por, marcado_en, nota
+        FROM cont_cpe_sunat ORDER BY tipo, serie, numero DESC`);
+      const todas = rows.map(x => ({ ...x, numero: Number(x.numero), importe: Number(x.importe), anulado: !!x.anulado,
+        emision: literalFecha(x.emision, false), rechazo: x.rechazo ? literalFecha(x.rechazo, false) : null,
+        subido_en: literalFecha(x.subido_en), marcado_en: x.marcado_en ? literalFecha(x.marcado_en) : null }));
+
+      // Comprobantes del ERP con esas series y números (el número puede venir con ceros a la izquierda)
+      let erp = [];
+      const series = [...new Set(todas.map(f => f.serie))];
+      if (series.length) {
+        erp = await enBloques(`
+          SELECT sv.serie, sv.number, sv.type, sv.amount, s.code, s.status, s.deleted_at
+          FROM sale_vouchers sv LEFT JOIN sales s ON s.id = sv.sale_id
+          WHERE CAST(sv.number AS UNSIGNED) IN (?) AND sv.serie IN (?)`,
+          [...new Set(todas.map(f => f.numero))], [series]);
+      }
+      const cruzadasTodas = cruzarCPE(todas, erp);
+
+      // Estado de cada mes + registro de la fecha en que quedó completo
+      const cargas = cargasRows.map(c => ({ ...c, subido_en: literalFecha(c.subido_en) }));
+      const meses = estadoMeses(cruzadasTodas, cargas);
+      const [regs] = await portalPool.query(`SELECT periodo, completado_en, completado_por FROM cont_cpe_meses`);
+      const reg = new Map(regs.map(x => [x.periodo, x]));
+      for (const m of meses) {
+        const r0 = reg.get(m.periodo);
+        if (m.completo && !r0) {
+          await portalPool.query(`INSERT IGNORE INTO cont_cpe_meses (periodo, completado_por) VALUES (?, ?)`, [m.periodo, quien(req)]);
+          const [[n0]] = await portalPool.query(`SELECT completado_en, completado_por FROM cont_cpe_meses WHERE periodo = ?`, [m.periodo]);
+          m.completado_en = n0 ? literalFecha(n0.completado_en) : null; m.completado_por = n0 ? n0.completado_por : quien(req); m.recien_completado = true;
+        } else if (!m.completo && r0) {
+          // Dejó de estar completo (se subió un listado nuevo o se quitó una marca)
+          await portalPool.query(`DELETE FROM cont_cpe_meses WHERE periodo = ?`, [m.periodo]);
+        } else if (r0) { m.completado_en = literalFecha(r0.completado_en); m.completado_por = r0.completado_por; }
+      }
+
+      const periodo = /^\d{4}-\d{2}$/.test(req.query.periodo || '') ? req.query.periodo
+        : (req.query.periodo === 'todos' ? null : (meses[0] ? meses[0].periodo : null));
+      const cruzadas = periodo ? cruzadasTodas.filter(x => x.periodo === periodo) : cruzadasTodas;
+      const filas = cruzadas;
+      // Lista de cargas (compatibilidad con la pantalla): una por mes y tipo
+      const periodos = [];
+      meses.forEach(m => ['factura', 'boleta'].forEach(t => { if (m[t]) periodos.push({ periodo: m.periodo, tipo: t, n: m[t].n, subido_en: m[t].subido_en }); }));
+
+      // Al revés: en el ERP con emisión en el periodo, pero que no aparecen en el listado de SUNAT
+      // (solo para los tipos cuyo listado se subió). Suele ser un número mal tipeado.
+      let soloSistema = [];
+      if (periodo) {
+        const tipos = [...new Set(filas.map(f => f.tipo))];
+        if (tipos.length) {
+          const enSunat = new Set(filas.map(f => claveCPE(f.serie, f.numero)));
+          const [vs] = await prodPool.query(`
+            SELECT sv.type, sv.serie, sv.number, sv.amount, sv.emission_date, s.code, s.status
+            FROM sale_vouchers sv JOIN sales s ON s.id = sv.sale_id
+            WHERE s.deleted_at IS NULL AND sv.type IN (?) AND sv.emission_date >= ? AND sv.emission_date < DATE_ADD(?, INTERVAL 1 MONTH)
+            ORDER BY sv.serie, sv.number`, [tipos, `${periodo}-01`, `${periodo}-01`]);
+          soloSistema = vs.filter(v => !enSunat.has(claveCPE(v.serie, v.number)))
+            .map(v => ({ tipo: v.type, comprobante: `${v.serie}-${v.number}`, emision: literalFecha(v.emission_date, false),
+              importe: Number(v.amount || 0), venta: v.code, cancelada: v.status === 'cancelled' }));
+        }
+      }
+      const suma = arr => r2(arr.reduce((s, x) => s + (x.moneda === 'PEN' ? x.importe : 0), 0));
+      const de = e => cruzadas.filter(x => x.estado === e);
+      res.json({
+        periodo, periodos, meses,
+        resumen: {
+          total: cruzadas.length, monto: suma(cruzadas.filter(x => !x.anulado)),
+          en_sistema: de('en_sistema').length, pendientes: de('pendiente').length, monto_pendiente: suma(de('pendiente')),
+          anotados: de('anotado').length, anulados: de('anulado').length,
+          dif_importe: cruzadas.filter(x => x.dif_importe).length, solo_sistema: soloSistema.length
+        },
+        filas: cruzadas, solo_sistema: soloSistema
+      });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Marcar / desmarcar como anotado (uno o varios)
+  app.post('/admin/cpe-sunat/marcar', authAdmin, mRep, async (req, res) => {
+    try {
+      await tablaListaCPE();
+      const ids = (Array.isArray(req.body.ids) ? req.body.ids : []).map(Number).filter(n => n > 0).slice(0, 2000);
+      if (!ids.length) return res.status(400).json({ error: 'No hay comprobantes seleccionados' });
+      if (req.body.marcado) await portalPool.query(`UPDATE cont_cpe_sunat SET marcado_por = ?, marcado_en = NOW() WHERE id IN (?)`, [quien(req), ids]);
+      else await portalPool.query(`UPDATE cont_cpe_sunat SET marcado_por = NULL, marcado_en = NULL WHERE id IN (?)`, [ids]);
+      res.json({ ok: true, n: ids.length });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Guardar la nota de un comprobante (p. ej. "se registró como venta V-0123")
+  app.post('/admin/cpe-sunat/nota', authAdmin, mRep, async (req, res) => {
+    try {
+      await tablaListaCPE();
+      const id = Number(req.body.id);
+      if (!id) return res.status(400).json({ error: 'Falta el comprobante' });
+      await portalPool.query(`UPDATE cont_cpe_sunat SET nota = ? WHERE id = ?`, [String(req.body.nota || '').trim().slice(0, 250) || null, id]);
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Borrar una carga (si se subió el archivo equivocado). Se pierden sus marcas y notas.
+  app.post('/admin/cpe-sunat/borrar', authAdmin, mRep, async (req, res) => {
+    try {
+      await tablaListaCPE();
+      const { periodo, tipo } = req.body;
+      if (!/^\d{4}-\d{2}$/.test(periodo || '') || !['factura', 'boleta'].includes(tipo)) return res.status(400).json({ error: 'Periodo o tipo inválido' });
+      const [x] = await portalPool.query(`DELETE FROM cont_cpe_sunat WHERE periodo = ? AND tipo = ?`, [periodo, tipo]);
+      await portalPool.query(`DELETE FROM cont_cpe_cargas WHERE periodo = ? AND tipo = ?`, [periodo, tipo]);
+      res.json({ ok: true, borrados: x.affectedRows });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
 };
 
-module.exports._test = { direccionMov, simularKardex, filtrarFilasKardex, leerFiltrosKardex, filtrarPagos, ordenarYAgrupar, resumenPagos, literalFecha, fechaTxt, CODIGOS_SUNAT };
+module.exports._test = { direccionMov, simularKardex, filtrarFilasKardex, leerFiltrosKardex, filtrarPagos, ordenarYAgrupar, resumenPagos, literalFecha, fechaTxt, CODIGOS_SUNAT, parsearListadoCPE, cruzarCPE, arreglarTexto, estadoMeses };

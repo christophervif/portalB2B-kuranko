@@ -260,8 +260,9 @@ let modSeguimiento = null;
     prodPool, portalPool, JWT_SECRET, MODULOS_ADMIN, leerAdminsSecundarios
   });
 
-  // ── Módulo Contabilidad (kardex + reporte de pagos) ──
-  require('./modulos/contabilidad')({ app, authAdmin, requiereModulo, prodPool, VV });
+  // ── Módulo Contabilidad (kardex + reporte de pagos + comprobantes SUNAT vs sistema) ──
+  //    (portalPool: guarda los listados de SUNAT y sus marcas de "anotado")
+  require('./modulos/contabilidad')({ app, authAdmin, requiereModulo, prodPool, portalPool, VV });
 
   // ── Módulo Importaciones (costeo / landed cost) ──
   // Catálogo desde producción (Renzo, solo lectura); tasas/importaciones/memoria

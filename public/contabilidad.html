@@ -7,6 +7,7 @@
 <title>Contabilidad — Kuranko</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="/vendor/pdf.min.js"></script>
 <style>
 :root{
   --bg:#0a1030;--surface:#111a44;--surface2:#0e1640;--surface3:#18224e;
@@ -86,6 +87,26 @@ td .sku{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--mute
 details.ayuda{margin-top:10px;font-size:12px;color:var(--text2)}
 details.ayuda summary{cursor:pointer;color:var(--muted2)}
 details.ayuda ul{margin:6px 0 0 18px;line-height:1.6}
+a{color:var(--accent)}
+.zona{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center;border:2px dashed var(--border);border-radius:14px;padding:22px 14px;margin-top:12px;cursor:pointer;color:var(--text2);background:var(--surface2)}
+.zona:hover,.zona.sobre{border-color:var(--accent);color:var(--white)}
+.zona input{display:none}
+.btn-mini{background:var(--surface3);border:1px solid var(--border);color:var(--text2);border-radius:8px;padding:4px 9px;font-size:11.5px;cursor:pointer;font-weight:600;white-space:nowrap}
+.btn-mini.on{background:var(--accent);color:var(--accent-text);border-color:var(--accent)}
+.btn-mini:hover{filter:brightness(1.08)}
+.nota-in{background:transparent;border:1px solid transparent;color:var(--text2);border-radius:8px;padding:4px 6px;font-size:12px;width:100%;min-width:140px}
+.nota-in:hover,.nota-in:focus{border-color:var(--border);background:var(--bg)}
+.meses{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.mes{display:flex;flex-direction:column;gap:2px;border:1px solid var(--border);background:var(--surface2);border-radius:12px;padding:8px 12px;cursor:pointer;min-width:130px;text-align:left;color:var(--text2);font-size:12px}
+.mes b{color:var(--white);font-size:13px;text-transform:capitalize}
+.mes.ok{border-color:var(--fg-ok);background:var(--bg-ok)}.mes.ok b,.mes.ok span{color:var(--fg-ok)}
+.mes.r span{color:var(--fg-r)}.mes.w span{color:var(--fg-warn)}
+.mes.sel{outline:2px solid var(--accent);outline-offset:1px}
+.banner{display:flex;gap:12px;align-items:center;border-radius:14px;padding:14px 16px;margin-top:4px;font-size:13px;line-height:1.45}
+.banner .ico{font-size:24px;line-height:1}
+.banner.ok{background:var(--bg-ok);color:var(--fg-ok);border:1px solid var(--fg-ok)}
+.banner.r{background:var(--bg-r);color:var(--fg-r)}.banner.w{background:var(--bg-warn);color:var(--fg-warn)}
+.banner b{font-size:14px}
 .toast{position:fixed;bottom:20px;right:20px;background:var(--bg-ok);color:var(--fg-ok);padding:12px 18px;border-radius:12px;font-size:13px;display:none;z-index:100;border:1px solid var(--border);max-width:340px}
 .toast.err{background:var(--bg-r);color:var(--fg-r)}
 @media(max-width:860px){.grid2{grid-template-columns:1fr}}
@@ -98,6 +119,7 @@ details.ayuda ul{margin:6px 0 0 18px;line-height:1.6}
   <div class="tabs">
     <button id="t-pagos" class="on" onclick="pestana('pagos')">Reporte de pagos</button>
     <button id="t-kardex" onclick="pestana('kardex')">Kardex valorizado</button>
+    <button id="t-cpe" onclick="pestana('cpe')">Comprobantes SUNAT</button>
   </div>
 
   <!-- ══════════════════════ REPORTE DE PAGOS ══════════════════════ -->
@@ -194,6 +216,62 @@ details.ayuda ul{margin:6px 0 0 18px;line-height:1.6}
       <div class="tabla-wrap" id="kx-tabla"></div>
     </div>
   </section>
+
+  <!-- ══════════════════════ COMPROBANTES SUNAT vs SISTEMA ══════════════════════ -->
+  <section id="s-cpe" class="oculto">
+    <div class="card">
+      <h3>Comprobantes SUNAT vs sistema</h3>
+      <div class="desc">Sube cada fin de mes los dos listados de SUNAT (<b>facturas</b> y <b>boletas</b> emitidas). Se comparan con los comprobantes registrados en el sistema y quedan guardados: cada vez que entras se vuelve a revisar, y lo que ya se registró sale solo de la lista de pendientes. El nombre del archivo no importa.</div>
+      <label class="zona" id="cpe-zona" for="cpe-archivos">
+        <input type="file" id="cpe-archivos" accept="application/pdf,.pdf" multiple onchange="subirCPE(this.files)">
+        <b>Arrastra aquí los PDF de SUNAT</b> o haz clic para elegirlos
+        <span class="desc">Puedes subir los dos a la vez. Si vuelves a subir un mes, se actualiza sin perder lo que ya marcaste.</span>
+      </label>
+      <div id="cpe-subida"></div>
+      <details class="ayuda"><summary>¿De dónde saco los PDF?</summary><ul>
+        <li>SUNAT Operaciones en Línea → <i>Comprobantes de pago</i> → <i>Consultas</i> → <b>Listado de CPE emitidos</b> (facturas y, aparte, boletas).</li>
+        <li>Elige el periodo del mes, pulsa <b>Imprimir</b> y en la ventana de impresión elige <b>Guardar como PDF</b>.</li>
+      </ul></details>
+    </div>
+
+    <div class="card oculto" id="cpe-card-filtros">
+      <div class="desc" style="margin-bottom:6px"><b>Meses</b> · ✓ = completo: se subieron facturas y boletas y todas están en el sistema o anotadas</div>
+      <div class="meses" id="cpe-meses"></div>
+      <div class="fila" style="margin-top:0">
+        <label class="campo">Periodo<select id="cpe-periodo" onchange="cargarCPE()"></select></label>
+        <label class="campo">Tipo<select id="cpe-tipo" onchange="pintarCPE()">
+          <option value="">Facturas y boletas</option><option value="factura">Facturas</option><option value="boleta">Boletas</option></select></label>
+        <label class="campo">Estado<select id="cpe-estado" onchange="pintarCPE()">
+          <option value="pendiente">Faltan en el sistema</option><option value="anotado">Marcados como anotados</option>
+          <option value="en_sistema">Ya están en el sistema</option><option value="anulado">Anulados en SUNAT</option>
+          <option value="dif">Con diferencia de importe</option><option value="">Todos</option></select></label>
+        <label class="campo">Buscar<input type="text" id="cpe-q" placeholder="Número, cliente, RUC/DNI…" oninput="pintarCPE()"></label>
+        <button class="btn btn-sec" id="cpe-btn" onclick="cargarCPE()">Actualizar</button>
+        <button class="btn btn-sec" onclick="excelCPE()">Excel</button>
+        <span class="desc" id="cpe-hora"></span>
+      </div>
+      <div id="cpe-mes-estado"></div>
+      <div class="kpis" id="cpe-kpis"></div>
+      <div id="cpe-cargas" class="desc" style="margin-top:10px"></div>
+    </div>
+
+    <div class="card oculto" id="cpe-card-tabla">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <div class="desc" id="cpe-titulo-tabla"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn" id="cpe-marcar-sel" onclick="marcarSel(true)" disabled>Marcar seleccionados como anotados</button>
+          <button class="btn btn-sec" id="cpe-desmarcar-sel" onclick="marcarSel(false)" disabled>Quitar marca</button>
+        </div>
+      </div>
+      <div class="tabla-wrap" id="cpe-tabla"></div>
+    </div>
+
+    <div class="card oculto" id="cpe-card-solo">
+      <h3>En el sistema pero no en SUNAT</h3>
+      <div class="desc">Comprobantes registrados en el sistema con fecha de emisión en este periodo que no aparecen en el listado de SUNAT. Suele ser un número o serie mal tipeado al registrar la venta.</div>
+      <div class="tabla-wrap" id="cpe-solo"></div>
+    </div>
+  </section>
 </div>
 
 <script>
@@ -202,6 +280,7 @@ details.ayuda ul{margin:6px 0 0 18px;line-height:1.6}
 //  Comparte token y origen con el panel (localStorage 'admtoken').
 //  Backend: modulos/contabilidad.js
 //    /admin/reporte-pagos[/filtros|-excel]   /admin/kardex[/opciones|/productos|-excel]
+//    /admin/cpe-sunat[/importar|/marcar|/nota|/borrar]  (listados SUNAT vs sistema)
 // ═══════════════════════════════════════════════════════════════════════════
 let TOKEN = ''; try { TOKEN = localStorage.getItem('admtoken') || ''; } catch (e) {}
 const $ = id => document.getElementById(id);
@@ -263,9 +342,10 @@ function limpiar(p) {
   guardarFiltros(p);
 }
 function pestana(c) {
-  ['pagos', 'kardex'].forEach(x => { $('s-' + x).classList.toggle('oculto', x !== c); $('t-' + x).classList.toggle('on', x === c); });
+  ['pagos', 'kardex', 'cpe'].forEach(x => { $('s-' + x).classList.toggle('oculto', x !== c); $('t-' + x).classList.toggle('on', x === c); });
   try { localStorage.setItem('cont_tab', c); } catch (e) {}
   if (c === 'kardex') cargarOpcionesKx();
+  if (c === 'cpe') cargarCPE();   // siempre vuelve a cruzar con el sistema al entrar
 }
 
 // ════════════════════════════ REPORTE DE PAGOS ════════════════════════════
@@ -554,11 +634,197 @@ async function pdfKardex() {
   }
 }
 
+
+// ════════════════════ COMPROBANTES SUNAT vs SISTEMA ════════════════════
+// El PDF se lee aquí con pdf.js (solo el texto) y el servidor lo interpreta, lo guarda
+// y lo cruza con el sistema. Las marcas de "anotado" quedan en la base del portal.
+let CPE = null, cpeSel = new Set(), cpeCargado = false;
+const TIPO_CPE = { factura: 'Factura', boleta: 'Boleta' };
+const EST_CPE = {
+  pendiente: ['Falta en el sistema', 'c-r'], anotado: ['Anotado a mano', 'c-v'],
+  en_sistema: ['En el sistema', 'c-ok'], anulado: ['Anulado en SUNAT', 'c-g']
+};
+async function apiPost(ep, body) {
+  const r = await fetch(ep, { method: 'POST', headers: { 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (r.status === 401) throw new Error('Sesión del portal expirada — vuelve a entrar al panel.');
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || 'Error');
+  return d;
+}
+async function textoPDF(file) {
+  if (typeof pdfjsLib === 'undefined') throw new Error('No cargó el lector de PDF; recarga la página.');
+  const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+  let full = '';
+  for (let i = 1; i <= pdf.numPages; i++) { const pg = await pdf.getPage(i); const tc = await pg.getTextContent(); full += tc.items.map(it => it.str).join(' ') + '\n'; }
+  return full;
+}
+const mesNombre = per => { if (!per) return ''; const [a, m] = per.split('-').map(Number); return MESES[m - 1] + ' ' + a; };
+async function subirCPE(files) {
+  const lista = [...(files || [])].filter(f => /\.pdf$/i.test(f.name) || f.type === 'application/pdf');
+  if (!lista.length) { showToast('Elige archivos PDF', true); return; }
+  const box = $('cpe-subida'); box.innerHTML = '';
+  let ultimoPeriodo = null;
+  for (const f of lista) {
+    const linea = document.createElement('div'); linea.className = 'nota'; linea.textContent = `Leyendo ${f.name}…`; box.appendChild(linea);
+    try {
+      const texto = await textoPDF(f);
+      const r = await apiPost('/admin/cpe-sunat/importar', { archivo: f.name, texto });
+      ultimoPeriodo = r.periodo;
+      linea.innerHTML = `✓ <b>${esc(f.name)}</b>: ${r.tipo === 'factura' ? 'Facturas' : 'Boletas'} de ${esc(mesNombre(r.periodo))} — ${r.total ? `${r.total} comprobantes (${r.nuevos} nuevos, ${r.actualizados} actualizados${r.anulados ? `, ${r.anulados} anulados` : ''})` : 'sin comprobantes emitidos (queda registrado como subido)'}.`;
+    } catch (e) {
+      linea.style.borderLeftColor = 'var(--fg-r)'; linea.innerHTML = `✗ <b>${esc(f.name)}</b>: ${esc(e.message)}`;
+    }
+  }
+  $('cpe-archivos').value = '';
+  if (ultimoPeriodo) { await cargarCPE(ultimoPeriodo); $('cpe-estado').value = 'pendiente'; pintarCPE(); }
+}
+async function cargarCPE(periodoForzado) {
+  const b = $('cpe-btn'); b.disabled = true;
+  try {
+    const per = periodoForzado || $('cpe-periodo').value || '';
+    CPE = await apiCall('/admin/cpe-sunat' + (per ? '?periodo=' + encodeURIComponent(per) : ''));
+    cpeSel.clear(); cpeCargado = true;
+    const pers = [...new Set(CPE.periodos.map(x => x.periodo))];
+    const mesDe = p => (CPE.meses || []).find(m => m.periodo === p);
+    $('cpe-periodo').innerHTML = pers.map(p => `<option value="${p}">${mesDe(p) && mesDe(p).completo ? '✓ ' : ''}${esc(mesNombre(p))}</option>`).join('') + (pers.length > 1 ? '<option value="todos">Todos los meses</option>' : '');
+    $('cpe-periodo').value = CPE.periodo || (pers.length ? 'todos' : '');
+    $('cpe-hora').textContent = 'Revisado contra el sistema ' + new Date().toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
+    pintarCPE();
+    const nuevo = (CPE.meses || []).find(m => m.recien_completado);
+    if (nuevo) showToast(`✓ ${mesNombre(nuevo.periodo)} quedó completo: todas las facturas y boletas están anotadas`);
+  } catch (e) { showToast(e.message, true); }
+  finally { b.disabled = false; }
+}
+function filtrarCPE() {
+  const t = $('cpe-tipo').value, e = $('cpe-estado').value, q = $('cpe-q').value.trim().toLowerCase();
+  return CPE.filas.filter(x => {
+    if (t && x.tipo !== t) return false;
+    if (e === 'dif') { if (!x.dif_importe) return false; } else if (e && x.estado !== e) return false;
+    if (q && !`${x.serie}-${x.numero} ${x.serie}-${String(x.numero).padStart(8, '0')} ${x.receptor_doc} ${x.receptor_nombre} ${x.nota || ''} ${x.erp_venta || ''}`.toLowerCase().includes(q)) return false;
+    return true;
+  });
+}
+function pintarCPE() {
+  const hay = CPE && CPE.periodos.length;
+  ['cpe-card-filtros', 'cpe-card-tabla'].forEach(id => $(id).classList.toggle('oculto', !hay));
+  if (!hay) { $('cpe-card-solo').classList.add('oculto'); return; }
+  const r = CPE.resumen;
+  const kpi = (cls, est, l, v, s) => `<div class="kpi clic ${cls}" onclick="$('cpe-estado').value='${est}';pintarCPE()"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
+  $('cpe-kpis').innerHTML =
+    kpi('', '', 'Emitidos en SUNAT', r.total, money(r.monto) + ' (en soles)') +
+    kpi(r.pendientes ? 'r' : '', 'pendiente', 'Faltan en el sistema', r.pendientes, r.pendientes ? money(r.monto_pendiente) : 'todo registrado ✓') +
+    kpi('', 'anotado', 'Anotados a mano', r.anotados, 'marcados por ustedes') +
+    kpi('', 'en_sistema', 'Ya en el sistema', r.en_sistema, 'se detectan solos') +
+    kpi(r.dif_importe ? 'w' : '', 'dif', 'Diferencia de importe', r.dif_importe, 'SUNAT ≠ sistema') +
+    (r.anulados ? kpi('', 'anulado', 'Anulados en SUNAT', r.anulados, 'no hay que registrarlos') : '');
+  // Meses: completo / faltan N / falta subir un listado
+  const TXT_T = { factura: 'facturas', boleta: 'boletas' };
+  const estadoMes = m => m.falta_subir.length ? ['w', `falta subir ${m.falta_subir.map(t => TXT_T[t]).join(' y ')}`]
+    : m.pendientes ? ['r', m.pendientes === 1 ? 'falta 1 por anotar' : `faltan ${m.pendientes} por anotar`] : ['ok', '✓ completo'];
+  $('cpe-meses').innerHTML = (CPE.meses || []).map(m => {
+    const [c, t] = estadoMes(m);
+    return `<button class="mes ${c}${m.periodo === CPE.periodo ? ' sel' : ''}" onclick="$('cpe-periodo').value='${m.periodo}';cargarCPE('${m.periodo}')" title="${m.total} comprobantes · ${m.en_sistema} en el sistema · ${m.anotados} anotados a mano${m.anulados ? ' · ' + m.anulados + ' anulados' : ''}">
+      <b>${esc(mesNombre(m.periodo))}</b><span>${t}</span>${m.completo && m.completado_en ? `<small class="sku">desde ${esc(fTxt(m.completado_en))}</small>` : ''}</button>`;
+  }).join('');
+  const mSel = (CPE.meses || []).find(m => m.periodo === CPE.periodo);
+  if (mSel) {
+    const [c] = estadoMes(mSel);
+    $('cpe-mes-estado').innerHTML = c === 'ok'
+      ? `<div class="banner ok"><span class="ico">✓</span><div><b>${esc(mesNombre(mSel.periodo))} completo.</b> Las ${mSel.factura ? mSel.factura.n : 0} facturas y ${mSel.boleta ? mSel.boleta.n : 0} boletas de SUNAT están en el sistema (${mSel.en_sistema}) o anotadas a mano (${mSel.anotados})${mSel.anulados ? `; ${mSel.anulados} anuladas` : ''}.${mSel.completado_en ? ` Completo desde el ${esc(fTxt(mSel.completado_en, true))}${mSel.completado_por ? ' (' + esc(mSel.completado_por) + ')' : ''}.` : ''}</div></div>`
+      : c === 'w'
+        ? `<div class="banner w"><span class="ico">!</span><div><b>${esc(mesNombre(mSel.periodo))} incompleto:</b> falta subir el listado de ${mSel.falta_subir.map(t => TXT_T[t]).join(' y ')} de SUNAT.${mSel.pendientes ? ` Además ${mSel.pendientes === 1 ? 'falta 1 comprobante' : `faltan ${mSel.pendientes} comprobantes`} por anotar.` : ''}</div></div>`
+        : `<div class="banner r"><span class="ico">!</span><div><b>${esc(mesNombre(mSel.periodo))}: ${mSel.pendientes === 1 ? 'falta 1 comprobante' : `faltan ${mSel.pendientes} comprobantes`}</b> por registrar en el sistema o marcar como anotados (${money(mSel.monto_pendiente)}).</div></div>`;
+  } else $('cpe-mes-estado').innerHTML = '';
+  // Cargas del periodo (con opción de borrar si se subió mal)
+  const cargas = CPE.periodos.filter(x => !CPE.periodo || x.periodo === CPE.periodo);
+  $('cpe-cargas').innerHTML = 'Cargado: ' + cargas.map(x => `${x.tipo === 'factura' ? 'Facturas' : 'Boletas'} ${esc(mesNombre(x.periodo))} (${x.n}, subido ${esc(fTxt(x.subido_en, true))}) <a href="#" onclick="borrarCarga('${x.periodo}','${x.tipo}');return false" title="Borrar esta carga">borrar</a>`).join(' · ') +
+    '';
+
+  const lista = filtrarCPE();
+  const est = $('cpe-estado');
+  $('cpe-titulo-tabla').innerHTML = `<b>${lista.length}</b> comprobantes · ${esc(est.options[est.selectedIndex].text)}`;
+  if (!lista.length) {
+    $('cpe-tabla').innerHTML = `<div class="vacio">${est.value === 'pendiente' ? '✓ No falta registrar ningún comprobante de este periodo.' : 'No hay comprobantes con esos filtros.'}</div>`;
+  } else {
+    $('cpe-tabla').innerHTML = `<table><thead><tr>
+      <th style="width:28px"><input type="checkbox" id="cpe-todos" onclick="selTodosCPE(this.checked)" title="Seleccionar todos"></th>
+      <th>Comprobante</th><th>Emisión</th><th>Cliente</th><th class="n">Importe SUNAT</th><th>Estado</th><th>En el sistema</th><th>Anotado</th><th>Nota</th></tr></thead><tbody>
+      ${lista.map(x => {
+        const [et, ec] = EST_CPE[x.estado] || [x.estado, 'c-g'];
+        const sis = x.estado === 'en_sistema'
+          ? `${esc(x.erp_venta || '')}${x.erp_cancelada ? ' <span class="chip c-r">venta cancelada</span>' : ''}${x.dif_importe ? `<div class="sku" style="color:var(--fg-warn)">importe ${money(x.erp_importe)}</div>` : ''}`
+          : (x.erp_eliminada ? '<span class="sku">está en una venta eliminada</span>' : '<span class="sku">—</span>');
+        const marca = x.estado === 'en_sistema' || x.estado === 'anulado' ? '' : x.marcado_en
+          ? `<button class="btn-mini" onclick="marcar([${x.id}],false)" title="Quitar marca">✓ ${esc(x.marcado_por || '')}</button><div class="sku">${esc(fTxt(x.marcado_en, true))}</div>`
+          : `<button class="btn-mini on" onclick="marcar([${x.id}],true)">Marcar anotado</button>`;
+        return `<tr>
+          <td><input type="checkbox" ${cpeSel.has(x.id) ? 'checked' : ''} onclick="selCPE(${x.id},this.checked)"></td>
+          <td style="white-space:nowrap"><b style="color:var(--white)">${esc(x.serie)}-${x.numero}</b><div class="sku">${TIPO_CPE[x.tipo] || x.tipo}</div></td>
+          <td style="white-space:nowrap">${fTxt(x.emision)}${x.rechazo ? `<div class="sku" style="color:var(--fg-r)">rechazo ${fTxt(x.rechazo)}</div>` : ''}</td>
+          <td><div class="nom">${esc(x.receptor_nombre)}</div><div class="sku">${esc(x.receptor_doc)}</div></td>
+          <td class="n">${x.moneda === 'USD' ? 'US$ ' + Number(x.importe).toLocaleString('es-PE', { minimumFractionDigits: 2 }) : money(x.importe)}</td>
+          <td><span class="chip ${ec}">${et}</span></td>
+          <td>${sis}</td>
+          <td>${marca}</td>
+          <td><input class="nota-in" value="${esc(x.nota || '')}" placeholder="—" onchange="guardarNota(${x.id},this)"></td>
+        </tr>`;
+      }).join('')}</tbody></table>`;
+  }
+  actualizarBotonesSel();
+  // Al revés: en el sistema y no en SUNAT
+  const solo = CPE.solo_sistema || [];
+  $('cpe-card-solo').classList.toggle('oculto', !solo.length);
+  $('cpe-solo').innerHTML = solo.length ? `<table><thead><tr><th>Comprobante</th><th>Tipo</th><th>Emisión</th><th>Venta</th><th class="n">Importe</th></tr></thead><tbody>${solo.map(v =>
+    `<tr><td><b style="color:var(--white)">${esc(v.comprobante)}</b></td><td>${TIPO_CPE[v.tipo] || esc(v.tipo)}</td><td>${fTxt(v.emision)}</td><td>${esc(v.venta || '')}${v.cancelada ? ' <span class="chip c-r">cancelada</span>' : ''}</td><td class="n">${money(v.importe)}</td></tr>`).join('')}</tbody></table>` : '';
+}
+function selCPE(id, on) { on ? cpeSel.add(id) : cpeSel.delete(id); actualizarBotonesSel(); }
+function selTodosCPE(on) { filtrarCPE().forEach(x => on ? cpeSel.add(x.id) : cpeSel.delete(x.id)); pintarCPE(); }
+function actualizarBotonesSel() {
+  const n = cpeSel.size;
+  $('cpe-marcar-sel').disabled = !n; $('cpe-desmarcar-sel').disabled = !n;
+  $('cpe-marcar-sel').textContent = n ? `Marcar ${n} como anotados` : 'Marcar seleccionados como anotados';
+}
+async function marcar(ids, on) {
+  try { await apiPost('/admin/cpe-sunat/marcar', { ids, marcado: on }); showToast(on ? '✓ Marcado como anotado' : 'Marca quitada'); await cargarCPE(); }
+  catch (e) { showToast(e.message, true); }
+}
+function marcarSel(on) { if (cpeSel.size) marcar([...cpeSel], on); }
+async function guardarNota(id, inp) {
+  try { await apiPost('/admin/cpe-sunat/nota', { id, nota: inp.value }); const f = CPE.filas.find(x => x.id === id); if (f) f.nota = inp.value; showToast('✓ Nota guardada'); }
+  catch (e) { showToast(e.message, true); }
+}
+async function borrarCarga(periodo, tipo) {
+  if (!confirm(`¿Borrar las ${tipo === 'factura' ? 'facturas' : 'boletas'} de ${mesNombre(periodo)}? Se pierden sus marcas y notas.`)) return;
+  try { const r = await apiPost('/admin/cpe-sunat/borrar', { periodo, tipo }); showToast(`Se borraron ${r.borrados} comprobantes`); await cargarCPE(); }
+  catch (e) { showToast(e.message, true); }
+}
+// Excel armado en el navegador (CSV que abre Excel) con lo que se ve en la tabla
+function excelCPE() {
+  if (!CPE) return;
+  const lista = filtrarCPE();
+  const c = v => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
+  const filas = [['Tipo', 'Serie', 'Número', 'Emisión', 'RUC/DNI', 'Cliente', 'Moneda', 'Importe SUNAT', 'Estado', 'Venta en sistema', 'Importe sistema', 'Anotado por', 'Anotado el', 'Nota']]
+    .concat(lista.map(x => [TIPO_CPE[x.tipo] || x.tipo, x.serie, x.numero, fTxt(x.emision), x.receptor_doc, x.receptor_nombre, x.moneda, x.importe,
+      (EST_CPE[x.estado] || [x.estado])[0], x.erp_venta || '', x.erp_importe == null ? '' : x.erp_importe, x.marcado_por || '', x.marcado_en ? fTxt(x.marcado_en, true) : '', x.nota || '']));
+  const csv = '﻿' + filas.map(f => f.map(c).join(';')).join('\r\n');
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  a.download = `comprobantes-sunat-${CPE.periodo || 'todos'}-${stamp()}.csv`; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+// Arrastrar y soltar
+(() => {
+  const z = $('cpe-zona'); if (!z) return;
+  ['dragenter', 'dragover'].forEach(ev => z.addEventListener(ev, e => { e.preventDefault(); z.classList.add('sobre'); }));
+  ['dragleave', 'drop'].forEach(ev => z.addEventListener(ev, e => { e.preventDefault(); z.classList.remove('sobre'); }));
+  z.addEventListener('drop', e => subirCPE(e.dataTransfer.files));
+})();
+if (typeof pdfjsLib !== 'undefined') pdfjsLib.GlobalWorkerOptions.workerSrc = '/vendor/pdf.worker.min.js';
+
 // ── Arranque ──
 cargarFiltrosRP();
 let tabIni = 'pagos'; try { tabIni = localStorage.getItem('cont_tab') || 'pagos'; } catch (e) {}
 restaurarFiltros('kx');
-pestana(tabIni === 'kardex' ? 'kardex' : 'pagos');
+pestana(['kardex', 'cpe'].includes(tabIni) ? tabIni : 'pagos');
 </script>
 </body>
 </html>

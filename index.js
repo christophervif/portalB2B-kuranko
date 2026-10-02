@@ -183,6 +183,7 @@ const VV = "('paid','confirmed','pending_payment')";
 
 // Referencia a módulos que exponen funciones de arranque (se asigna dentro de la IIFE)
 let modSync = null;
+let modAuditoria = null;
 let modPortal = null;
 let modImportacion = null;
 let modRecepciones = null;
@@ -282,8 +283,12 @@ let modSeguimiento = null;
   require('./modulos/precio-importado')({ app, authAdmin, requiereModulo, prodPool, VV, catalogo: modCotizador.catalogo,
     buscarInternet: modCotizador._test && modCotizador._test.buscarInternet });
 
-  // ── Módulo Sincronización + Auditoría ──
+  // ── Módulo Sincronización web ──
   modSync = require('./modulos/sincronizacion')({ app, authAdmin, requiereModulo, prodPool, portalPool });
+
+  // ── Módulo Auditoría de catálogo + chequeo de empresa en ventas ──
+  //    Frontend propio en public/auditoria.html (iframe dentro del panel).
+  modAuditoria = require('./modulos/auditoria')({ app, authAdmin, requiereModulo, prodPool, portalPool });
   const rango = (desde, hasta, campo='s.created_at') =>
     desde && hasta ? `AND ${campo} BETWEEN '${desde}' AND '${hasta} 23:59:59'` : '';
 
@@ -337,7 +342,7 @@ app.listen(PORT, async () => {
   // Preparar tablas una vez al arrancar (evita que el primer login pague la espera)
   try {
     if (modPortal && modPortal.prepararTablas) await modPortal.prepararTablas();
-    if (modSync && modSync.prepararTablas) await modSync.prepararTablas();
+    if (modAuditoria && modAuditoria.prepararTablas) await modAuditoria.prepararTablas();
     if (modImportacion && modImportacion.prepararTablas) await modImportacion.prepararTablas();
     if (modRecepciones && modRecepciones.prepararTablas) await modRecepciones.prepararTablas();
     if (modSeguimiento && modSeguimiento.prepararTablas) await modSeguimiento.prepararTablas();

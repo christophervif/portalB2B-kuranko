@@ -347,59 +347,11 @@ tr:hover td{background:var(--hover)}
     
 
     <div id="tab-auditoria" class="panel">
-      <div class="card">
-        <h3>Auditoría del catálogo</h3>
-        <div class="desc">Revisa la salud de tu catálogo en el ERP: productos sin ID de WooCommerce (pendientes de crear en la web) y alertas de datos (sin precio/imagen/descripción con stock, descontinuados con stock, SKU duplicado, oferta mal puesta, margen bajo vs costo, etc.). <b>El análisis no se ejecuta solo</b> (es una consulta pesada): púlsalo cuando lo necesites.</div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn" id="btn-auditar" onclick="analizarCatalogo()">Analizar catálogo</button>
-          <button class="btn" id="btn-auditar-excel" onclick="descargarAuditoria()" style="display:none">Descargar en Excel</button>
-        </div>
-        <div id="auditoria-result" class="muted" style="margin-top:10px"></div>
-      </div>
-      <div id="auditoria-datos" style="display:none">
-        <div class="card">
-          <div class="subtabs">
-            <button class="subtab active" id="st-alertas" onclick="subtabAud('alertas')">Alertas del sistema <span id="aud-alert-count" class="pill"></span></button>
-            <button class="subtab" id="st-pendientes" onclick="subtabAud('pendientes')">Pendientes en la web <span id="aud-pend-count" class="pill"></span></button>
-          </div>
-
-          <div id="sub-alertas" class="subpanel active">
-            <div class="filtros-fila">
-              <select id="aud-filtro" onchange="renderAlertasAud()"><option value="">Todas</option></select>
-              <input id="aud-buscar-alertas" type="text" placeholder="Buscar por SKU, nombre u observación..." oninput="renderAlertasAud()">
-            </div>
-            <div id="aud-alertas" style="overflow-x:auto;max-height:60vh;overflow-y:auto"></div>
-          </div>
-
-          <div id="sub-pendientes" class="subpanel">
-            <div class="desc">Productos del ERP sin ID de WooCommerce (debes crearlos en la web). Se omiten los que no tienen stock, salvo que tengan un ingreso pendiente por llegar.</div>
-            <div class="filtros-fila">
-              <input id="aud-buscar-pend" type="text" placeholder="Buscar por SKU o nombre..." oninput="renderPendientesAud()">
-            </div>
-            <div id="aud-pendientes" style="overflow-x:auto;max-height:60vh;overflow-y:auto"></div>
-          </div>
-        </div>
-      </div>
-
-      <div class="card">
-        <h3>Chequeo de empresa en ventas</h3>
-        <div class="desc">Detecta ventas donde la <b>empresa vendedora</b> falta o no coincide con la empresa dueña de los productos. <b>Solo revisa y lista</b> — no corrige nada en el ERP. Úsalo para saber qué ventas revisar manualmente.</div>
-        <div class="filtros-fila" style="align-items:center;gap:8px;flex-wrap:wrap">
-          <select id="chq-tipo">
-            <option value="no_coincide">Empresa no coincide (grave)</option>
-            <option value="sin_empresa">Sin empresa vendedora (grave)</option>
-            <option value="sin_lote">Producto sin lote (informativo)</option>
-            <option value="">Todos los problemas</option>
-          </select>
-          <button class="btn" onclick="cargarChequeo()">Revisar ventas</button>
-          <button class="btn" onclick="descargarChequeoExcel()">Excel</button>
-        </div>
-        <div id="chq-resumen" style="margin:8px 0;font-size:13px;color:var(--muted)"></div>
-        <div id="chq-tabla" style="overflow-x:auto;max-height:60vh;overflow-y:auto"></div>
+      <div class="card" style="padding:0;overflow:hidden">
+        <iframe id="aud-frame" title="Auditoría de catálogo"
+          style="width:100%;height:calc(100vh - 150px);min-height:560px;border:0;display:block"></iframe>
       </div>
     </div>
-
-    
 
     <div id="tab-ventas_ingresos" class="panel">
       <div class="card">
@@ -1007,7 +959,11 @@ function cargarDatosTab(id){
     concInitDia();
   }
   else if(id==='sync'){cargarEstadoActualizacion();}
-  else if(id==='auditoria'){if(!auditoriaCache)cargarAuditoriaGuardada();}
+  else if(id==='auditoria'){
+    // Auditoría de catálogo + chequeo de empresas en iframe (public/auditoria.html); comparte token/origen.
+    const fr=document.getElementById('aud-frame');
+    if(fr&&!fr.src){fr.src='/auditoria.html?v='+Date.now();}
+  }
   else if(id==='clientes_bi'){
     // Clientes BI en iframe (public/clientes-bi.html); comparte token/origen. Carga perezosa.
     const fr=document.getElementById('cbi-frame');
@@ -1629,100 +1585,8 @@ async function cancelarActualizacion(){
     cargarEstadoActualizacion();
   }catch(e){res.textContent='';showToast(e.message,true);}
 }
-// ── Auditoría de catálogo ──
-let auditoriaCache=null;
-function fmtFecha(f){try{return new Date(f).toLocaleString('es-PE',{timeZone:'America/Lima'});}catch(e){return f;}}
-// Al entrar a la pestaña: cargar el último análisis guardado (sin recalcular)
-async function cargarAuditoriaGuardada(){
-  const res=document.getElementById('auditoria-result');
-  try{
-    const d=await apiCall('/admin/auditoria','GET'); // sin force → trae el guardado
-    if(d.sin_analisis){
-      res.textContent='Aún no se ha analizado el catálogo. Pulsa "Analizar catálogo" para generarlo.';
-      document.getElementById('auditoria-datos').style.display='none';
-      document.getElementById('btn-auditar-excel').style.display='none';
-      return;
-    }
-    auditoriaCache=d;
-    mostrarAuditoria(true);
-  }catch(e){res.textContent='';}
-}
-async function analizarCatalogo(){
-  const res=document.getElementById('auditoria-result');
-  const btn=document.getElementById('btn-auditar');
-  res.textContent='Analizando el catálogo... esto puede tardar unos segundos.';
-  btn.disabled=true;
-  try{
-    auditoriaCache=await apiCall('/admin/auditoria?force=1','GET'); // fuerza recalcular y guardar
-    mostrarAuditoria(false);
-  }catch(e){res.textContent='';showToast(e.message,true);}
-  finally{btn.disabled=false;}
-}
-function mostrarAuditoria(desdeCache){
-  const res=document.getElementById('auditoria-result');
-  const fecha=fmtFecha(auditoriaCache.generado_en);
-  res.innerHTML=(desdeCache?'📋 Último análisis: ':'✓ Análisis actualizado: ')+
-    `<b>${fecha}</b> — ${auditoriaCache.total_pendientes} pendientes, ${auditoriaCache.total_alertas} alertas.`+
-    (desdeCache?' <span class="muted">(pulsa "Analizar catálogo" para datos frescos)</span>':'');
-  document.getElementById('auditoria-datos').style.display='block';
-  document.getElementById('btn-auditar-excel').style.display='';
-  document.getElementById('btn-auditar').textContent=desdeCache?'Analizar de nuevo':'Analizar catálogo';
-  renderPendientesAud();
-  prepararFiltroAud();
-  renderAlertasAud();
-}
 function esc(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-// ══════════ Chequeo de empresa en ventas ══════════
-const CHQ_EMPRESAS={1:'Diseños Corporativos SAC',2:'Christopher Villasante F.'};
-const CHQ_PROB={sin_empresa:{t:'Sin empresa vendedora',c:'badge-r'},no_coincide:{t:'Empresa no coincide',c:'badge-r'},sin_lote:{t:'Producto sin lote',c:'badge-y'}};
-function chqParams(){
-  const p=new URLSearchParams();
-  const t=document.getElementById('chq-tipo').value;
-  if(t)p.set('tipo',t);
-  return p;
-}
-async function cargarChequeo(){
-  const res=document.getElementById('chq-resumen');
-  const cont=document.getElementById('chq-tabla');
-  res.textContent='Revisando ventas... puede tardar unos segundos.';
-  cont.innerHTML='';
-  try{
-    const d=await apiCall('/admin/chequeo-empresas?'+chqParams().toString(),'GET');
-    res.innerHTML=`<b>${d.total}</b> venta(s) con problema · `+
-      `Sin empresa: ${d.conteo.sin_empresa||0} · No coincide: ${d.conteo.no_coincide||0} · Sin lote: ${d.conteo.sin_lote||0}`+
-      (d.total>500?' <span class="badge-y">Mostrando las 500 más recientes</span>':'');
-    if(!d.ventas.length){cont.innerHTML='<div class="muted">✓ No se encontraron ventas con ese problema.</div>';return;}
-    cont.innerHTML='<table class="deudas-tbl"><thead><tr><th>Venta</th><th>Fecha</th><th>Estado</th><th>Empresa vendedora</th><th>Empresa(s) del producto</th><th>Problema(s)</th><th style="text-align:right">Total</th></tr></thead><tbody>'+
-      d.ventas.map(v=>`<tr>
-        <td><b>${esc(v.code)}</b></td>
-        <td>${v.fecha?new Date(v.fecha).toLocaleDateString('es-PE'):'—'}</td>
-        <td>${esc(v.status)}</td>
-        <td>${v.empresa_venta!=null?esc(CHQ_EMPRESAS[v.empresa_venta]||('Empresa '+v.empresa_venta)):'<span class="badge-r">vacío</span>'}</td>
-        <td>${v.empresas_producto.length?v.empresas_producto.map(e=>esc(CHQ_EMPRESAS[e]||('Empresa '+e))).join(', '):'<span class="muted">sin lote</span>'}</td>
-        <td>${v.problemas.map(p=>`<span class="${(CHQ_PROB[p]||{}).c||'badge-y'}" style="font-size:9px">${esc((CHQ_PROB[p]||{}).t||p)}</span>`).join(' ')}</td>
-        <td style="text-align:right">S/ ${Number(v.total).toLocaleString('es-PE',{minimumFractionDigits:2})}</td>
-      </tr>`).join('')+'</tbody></table>';
-  }catch(e){res.textContent='';showToast(e.message,true);}
-}
-async function descargarChequeoExcel(){
-  try{
-    const r=await fetch(API+'/admin/chequeo-empresas-excel?'+chqParams().toString(),{headers:{'Authorization':'Bearer '+TOKEN}});
-    if(!r.ok)throw new Error('No se pudo generar el Excel');
-    const blob=await r.blob();
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement('a');a.href=url;a.download=nombreArchivo('chequeo-empresas','xlsx');a.click();
-    URL.revokeObjectURL(url);
-  }catch(e){showToast(e.message,true);}
-}
-
-function subtabAud(cual){
-  // Solo los subpaneles de auditoría (ids sub-alertas / sub-pendientes)
-  ['alertas','pendientes'].forEach(x=>{
-    const p=document.getElementById('sub-'+x), t=document.getElementById('st-'+x);
-    if(p)p.classList.toggle('active',x===cual);
-    if(t)t.classList.toggle('active',x===cual);
-  });
-}
+// Auditoría de catálogo y chequeo de empresas → public/auditoria.html (iframe)
 // Promociones recomendadas → public/promociones.html (iframe)
 // Inventario (capital parado, ubicaciones, salud del stock) → public/inventario.html (iframe)
 // Restock y Exportar inventario → public/restock.html (iframe)
@@ -1737,50 +1601,6 @@ function subtabSis(cual){
   if(cual==='sync')cargarEstadoActualizacion();
   if(cual==='pagos'&&typeof cargarMetodosPago==='function')cargarMetodosPago();
   if(cual==='accesos'&&typeof cargarAccesos==='function')cargarAccesos();
-}
-
-function renderPendientesAud(){
-  const cont=document.getElementById('aud-pendientes');
-  const q=(document.getElementById('aud-buscar-pend').value||'').toLowerCase().trim();
-  let p=auditoriaCache.pendientes;
-  document.getElementById('aud-pend-count').textContent=p.length;
-  if(q)p=p.filter(r=>(r.sku||'').toLowerCase().includes(q)||(r.nombre||'').toLowerCase().includes(q));
-  if(!p.length){cont.innerHTML='<div class="muted">'+(q?'Ningún pendiente coincide con la búsqueda.':'No hay productos pendientes con stock (o con ingreso por llegar).')+'</div>';return;}
-  cont.innerHTML='<table class="tabla responsive"><thead><tr><th>SKU</th><th>Tipo</th><th>Nombre</th><th>Precio regular</th><th>Stock</th><th>Ingreso pend.</th></tr></thead><tbody>'+
-    p.map(r=>`<tr><td data-label="SKU">${esc(r.sku)}</td><td data-label="Tipo">${esc(r.tipo)}</td><td data-label="Nombre">${esc(r.nombre)}</td><td data-label="Precio regular">${r.precio==null?'—':'S/'+r.precio.toFixed(2)}</td><td data-label="Stock">${r.stock}</td><td data-label="Ingreso pend.">${r.ingreso_pendiente?'Sí':'—'}</td></tr>`).join('')+
-    '</tbody></table>';
-}
-function prepararFiltroAud(){
-  const sel=document.getElementById('aud-filtro');
-  const c=auditoriaCache.conteo_por_tipo||{};
-  sel.innerHTML='<option value="">Todas ('+auditoriaCache.total_alertas+')</option>'+
-    Object.keys(c).sort().map(t=>`<option value="${esc(t)}">${esc(t)} (${c[t]})</option>`).join('');
-}
-function renderAlertasAud(){
-  const cont=document.getElementById('aud-alertas');
-  const filtro=document.getElementById('aud-filtro').value;
-  const q=(document.getElementById('aud-buscar-alertas').value||'').toLowerCase().trim();
-  document.getElementById('aud-alert-count').textContent=auditoriaCache.total_alertas;
-  let lista=auditoriaCache.alertas;
-  if(filtro)lista=lista.filter(a=>a.tipo===filtro);
-  if(q)lista=lista.filter(a=>(a.sku||'').toLowerCase().includes(q)||(a.nombre||'').toLowerCase().includes(q)||(a.obs||'').toLowerCase().includes(q));
-  if(!lista.length){cont.innerHTML='<div class="muted">No hay alertas'+(filtro||q?' que coincidan':'')+'.</div>';return;}
-  cont.innerHTML='<table class="tabla responsive"><thead><tr><th>Tipo</th><th>SKU</th><th>WooCommerce ID</th><th>Nombre</th><th>Observación</th></tr></thead><tbody>'+
-    lista.map(a=>`<tr><td data-label="Tipo">${esc(a.tipo)}</td><td data-label="SKU">${esc(a.sku)}</td><td data-label="WooCommerce ID">${esc(a.wc)}</td><td data-label="Nombre">${esc(a.nombre)}</td><td data-label="Observación">${esc(a.obs)}</td></tr>`).join('')+
-    '</tbody></table>';
-}
-async function descargarAuditoria(){
-  const res=document.getElementById('auditoria-result');
-  res.textContent='Generando Excel...';
-  try{
-    const r=await fetch(API+'/admin/auditoria-excel',{headers:{'Authorization':'Bearer '+TOKEN}});
-    if(!r.ok)throw new Error('No se pudo generar el Excel');
-    const blob=await r.blob();
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement('a');a.href=url;a.download=nombreArchivo('auditoria','xlsx');a.click();
-    URL.revokeObjectURL(url);
-    res.textContent='✓ Excel descargado.';
-  }catch(e){res.textContent='';showToast(e.message,true);}
 }
 
 // ══════════ REPORTE 3.2 — LISTA DE PAGOS ══════════

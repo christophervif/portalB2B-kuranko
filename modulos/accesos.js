@@ -139,10 +139,6 @@ module.exports = function registrarAccesos({
     } catch (e) { res.status(500).json({ error: 'Error: ' + e.message }); }
   });
 
-  // ─── Reporte de sincronización: pendientes + alertas (Excel, 2 pestañas) ─────
-  // Lee del ERP en SOLO LECTURA. No modifica nada. Genera el Excel al momento.
-  // ─── Auditoría del catálogo (datos del ERP) — reutilizable para pantalla y Excel ──
-
   // ════════════════════════════════════════════════════════════════════════════
   // REPORTE 3.2 — LISTA DE PAGOS EN EL TIEMPO
   // Cada fila es un pago: venta, empresa que gestiona la venta, empresa(s) del producto (por
@@ -173,8 +169,8 @@ module.exports = function registrarAccesos({
   // ── Módulo Contabilidad (kardex + reporte de pagos) en modulos/contabilidad.js ──
   // Se carga más abajo, donde VV ya está definido.
 
-  // ── Módulo Sincronización + Auditoría en modulos/sincronizacion.js ──
-  // Se carga más abajo junto a los otros módulos.
+  // ── Sincronización (modulos/sincronizacion.js) y Auditoría (modulos/auditoria.js) ──
+  // Se cargan más abajo junto a los otros módulos.
 
   // ─── Ver accesos (SOLO admin maestro) — lectura de las variables de Railway ──
   app.get('/admin/accesos', authAdmin, soloMaestro, async (req, res) => {

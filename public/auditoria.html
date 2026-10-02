@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<script src="/tema.js"></script>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Auditoría de catálogo — Kuranko</title>
+<style>
+:root{
+  --bg:#0a1030;--surface:#111a44;--surface2:#0e1640;--surface3:#18224e;
+  --border:#212b54;--text:#eef1f8;--text2:#c6cee2;--muted:#8a93b4;--muted2:#a2abca;
+  --accent:#FFB30D;--accent-text:#000726;--accent-h:#e6a00c;--hover:#1a2450;--white:#ffffff;
+  --bg-ok:#163a29;--fg-ok:#6ee59a;--bg-warn:#3d3315;--fg-warn:#ffcb52;--bg-r:#3f1c20;--fg-r:#f79a9a;
+  --bg-v:#2a2766;--fg-v:#cecbf6;
+  --radius:18px;--radius-sm:12px;
+  --shadow-sm:0 2px 8px rgba(0,0,0,.10);
+}
+[data-theme="light"]{
+  --bg:#f6f8fd;--surface:#ffffff;--surface2:#fbfcff;--surface3:#f2f5fb;
+  --border:#e3e9f5;--text:#1a2140;--text2:#4a5680;--muted:#9aa3c0;--muted2:#727e9f;
+  --hover:#f2f5fb;--white:#1a2140;
+  --bg-ok:#e8f8ef;--fg-ok:#1f9c56;--bg-warn:#fdf5db;--fg-warn:#9a6b00;--bg-r:#fdeded;--fg-r:#dc4b4b;
+  --bg-v:#eeedfc;--fg-v:#4b43b8;
+  --shadow-sm:0 2px 10px rgba(30,45,90,.04);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{overflow-x:hidden}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px}
+.wrap{max-width:1240px;margin:0 auto;padding:1.25rem}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.1rem;box-shadow:var(--shadow-sm);margin-bottom:16px;min-width:0}
+.card h3{font-size:15px;font-weight:600;color:var(--white);margin-bottom:4px}
+.desc{font-size:12px;color:var(--muted);line-height:1.55}
+.fila{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px}
+.campo{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--muted2)}
+.campo select,.fila>select,.fila>input{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:8px 10px;font-size:13px;max-width:100%}
+input:focus,select:focus{outline:none;border-color:var(--accent)}
+.btn{background:var(--accent);border:none;color:var(--accent-text);border-radius:var(--radius-sm);padding:9px 16px;font-size:13px;cursor:pointer;font-weight:600}
+.btn:hover{background:var(--accent-h)}
+.btn:disabled{opacity:.6;cursor:wait}
+.btn-sec{background:var(--surface3);border:1px solid var(--border);color:var(--text2)}
+.btn-sec:hover{background:var(--hover)}
+.seg{display:inline-flex;gap:4px;background:var(--surface3);padding:3px;border-radius:10px}
+.seg button{background:transparent;border:none;color:var(--text2);border-radius:8px;padding:5px 10px;font-size:12px;cursor:pointer;font-weight:600}
+.seg button.on{background:var(--accent);color:var(--accent-text)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:14px}
+.kpi{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:12px}
+.kpi.clic{cursor:pointer}.kpi.clic:hover{border-color:var(--accent)}
+.kpi .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.kpi .v{font-size:1.35rem;font-weight:700;color:var(--white);margin-top:4px;white-space:nowrap}
+.kpi .s{font-size:11px;color:var(--muted2);margin-top:2px}
+.kpi.r .v{color:var(--fg-r)}.kpi.w .v{color:var(--fg-warn)}.kpi.a .v{color:var(--accent)}
+.aviso{font-size:12px;border-radius:10px;padding:8px 10px;margin-top:10px;background:var(--bg-warn);color:var(--fg-warn)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.barra-salud{display:flex;height:16px;border-radius:8px;overflow:hidden;background:var(--surface3);margin:12px 0 10px}
+.barra-salud div{height:100%;cursor:pointer}
+.leyenda-salud{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
+.ls-item{border:1px solid var(--border);border-radius:10px;padding:8px 10px;cursor:pointer;background:var(--surface2)}
+.ls-item:hover{border-color:var(--accent)}
+.ls-item .t{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--white)}
+.ls-item .t i{width:10px;height:10px;border-radius:3px;display:inline-block}
+.ls-item .n{font-size:15px;font-weight:700;color:var(--white);margin-top:3px}
+.ls-item .s{font-size:11px;color:var(--muted)}
+.hbar{margin-bottom:9px}
+.hbar .top{display:flex;justify-content:space-between;gap:8px;font-size:12px;margin-bottom:3px;color:var(--text2)}
+.hbar .top span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hbar .top b{white-space:nowrap;color:var(--white)}
+.hbar .pista{height:6px;background:var(--surface3);border-radius:4px;overflow:hidden}
+.hbar .pista div{height:100%;border-radius:4px}
+.hbar .sub{font-size:10.5px;color:var(--muted);margin-top:2px}
+.c-ok-bg{background:var(--fg-ok)}.c-w-bg{background:var(--fg-warn)}.c-r-bg{background:var(--fg-r)}.c-v-bg{background:var(--fg-v)}.c-a-bg{background:var(--accent)}.c-g-bg{background:var(--muted)}
+.tabla-wrap{overflow:auto;max-height:68vh;margin-top:10px;border:1px solid var(--border);border-radius:12px}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{position:sticky;top:0;background:var(--surface3);text-align:left;padding:8px;color:var(--muted2);font-weight:600;font-size:11px;border-bottom:1px solid var(--border);white-space:nowrap;cursor:pointer;user-select:none;z-index:1}
+th:hover{color:var(--white)}
+th.n,td.n{text-align:right}
+td.n{white-space:nowrap}
+th.asc::after{content:' ↑';color:var(--accent)}th.desc::after{content:' ↓';color:var(--accent)}
+td{padding:8px;border-bottom:1px solid var(--border);color:var(--text2);vertical-align:top}
+tr:hover td{background:var(--hover)}
+tr.clic{cursor:pointer}
+tr.sel td{background:var(--surface3)}
+tr.fuera td{opacity:.55}
+td .nom{color:var(--white);font-weight:500;line-height:1.35}
+td .sku{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--muted)}
+#tbl-det td:nth-child(2){min-width:220px}
+.chip{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:20px;white-space:nowrap}
+.c-r{background:var(--bg-r);color:var(--fg-r)}.c-w{background:var(--bg-warn);color:var(--fg-warn)}.c-ok{background:var(--bg-ok);color:var(--fg-ok)}
+.c-v{background:var(--bg-v);color:var(--fg-v)}.c-g{background:var(--surface3);color:var(--text2);border:1px solid var(--border)}
+.vacio{color:var(--muted);text-align:center;padding:1.5rem;font-size:13px}
+details.ayuda{margin-top:10px;font-size:12px;color:var(--text2)}
+details.ayuda summary{cursor:pointer;color:var(--muted2)}
+details.ayuda ul{margin:6px 0 0 18px;line-height:1.6}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--bg-ok);color:var(--fg-ok);padding:12px 18px;border-radius:12px;font-size:13px;display:none;z-index:100;border:1px solid var(--border);max-width:320px}
+.toast.err{background:var(--bg-r);color:var(--fg-r)}
+@media(max-width:860px){.grid2{grid-template-columns:1fr}}
+@media(max-width:640px){.wrap{padding:.75rem}.card{padding:.9rem}.fila>.campo,.fila>select{flex:1 1 140px}.campo select{width:100%}}
+
+.tabs{display:flex;gap:4px;flex-wrap:wrap;margin:2px 0 12px}
+.tabs button{background:var(--surface);border:1px solid var(--border);color:var(--text2);border-radius:10px;padding:8px 14px;font-size:13px;cursor:pointer;font-weight:600}
+.tabs button.on{background:var(--accent);color:var(--accent-text);border-color:var(--accent)}
+.tabs .pill{display:inline-block;min-width:20px;padding:0 6px;margin-left:4px;border-radius:10px;background:var(--surface3);color:var(--text2);font-size:11px}
+.tabs button.on .pill{background:rgba(0,0,0,.15);color:var(--accent-text)}
+.oculto{display:none!important}
+.campo input[type=text]{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:8px 10px;font-size:13px;min-width:220px}
+.chk{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);padding-bottom:8px}
+.nota{font-size:11.5px;color:var(--muted);margin-top:8px}
+td .probs{display:flex;flex-wrap:wrap;gap:4px}
+.kpi.ok .v{color:var(--fg-ok)}
+</style>
+</head>
+<body>
+<div class="toast" id="toast"></div>
+<div class="wrap">
+
+  <!-- ══════════ CABECERA + KPIs ══════════ -->
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
+      <div>
+        <h3>Auditoría del catálogo</h3>
+        <div class="desc">Revisa la salud del catálogo en el ERP: productos que faltan crear en la web y datos mal puestos (precio, imagen, oferta, margen, SKU…). <b>No se ejecuta solo</b> (es una consulta pesada): se muestra el último análisis guardado.</div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" id="btn-analizar" onclick="analizar()">Analizar catálogo</button>
+        <button class="btn btn-sec oculto" id="btn-excel" onclick="descargarExcel()">Excel (con filtros)</button>
+      </div>
+    </div>
+    <div class="desc" id="estado" style="margin-top:8px">Cargando el último análisis…</div>
+    <div class="kpis oculto" id="kpis"></div>
+  </div>
+
+  <div class="tabs" id="tabs">
+    <button class="on" data-t="alertas" onclick="verTab('alertas')">Alertas <span class="pill" id="n-alertas"></span></button>
+    <button data-t="pendientes" onclick="verTab('pendientes')">Pendientes en la web <span class="pill" id="n-pend"></span></button>
+    <button data-t="chequeo" onclick="verTab('chequeo')">Chequeo de empresa en ventas</button>
+  </div>
+
+  <!-- ══════════ ALERTAS ══════════ -->
+  <div class="card" id="t-alertas">
+    <div class="fila">
+      <label class="campo">Severidad
+        <span class="seg" id="f-sev">
+          <button class="on" data-v="" onclick="setSev(this)">Todas</button>
+          <button data-v="critico" onclick="setSev(this)">Crítico</button>
+          <button data-v="importante" onclick="setSev(this)">Importante</button>
+          <button data-v="info" onclick="setSev(this)">Info</button>
+        </span>
+      </label>
+      <label class="campo">Tipo de alerta<select id="f-tipo" onchange="pintarAlertas()"></select></label>
+      <label class="campo">Marca<select id="f-marca" onchange="pintarAlertas()"></select></label>
+      <label class="campo">En la web
+        <select id="f-web" onchange="pintarAlertas()"><option value="">Todos</option><option value="si">Sí (tiene ID)</option><option value="no">No (sin ID)</option></select>
+      </label>
+      <label class="campo">Estado
+        <select id="f-estado" onchange="pintarAlertas()"><option value="">Todos</option><option value="activo">Activo</option><option value="borrador">Borrador</option><option value="descontinuado">Descontinuado</option></select>
+      </label>
+      <label class="campo">Buscar<input type="text" id="f-q" placeholder="SKU, nombre u observación…" oninput="pintarAlertas()"></label>
+      <label class="campo">Vista
+        <select id="f-vista" onchange="pintarAlertas()"><option value="alerta">Una fila por alerta</option><option value="sku">Agrupar por SKU</option></select>
+      </label>
+      <button class="btn btn-sec" onclick="limpiarFiltros()">Limpiar</button>
+    </div>
+    <div class="nota" id="res-alertas"></div>
+    <div class="tabla-wrap"><table id="tbl-alertas"></table></div>
+    <details class="ayuda">
+      <summary>¿Qué revisa cada alerta?</summary>
+      <ul>
+        <li><b>Stock</b> = stock propio (almacenes y tiendas). No cuenta consignación ni ubicaciones no vendibles (cuarentena, exhibición…).</li>
+        <li><b>Crítico</b>: SKU duplicado (sin distinguir mayúsculas, en todo el catálogo), WooCommerce ID duplicado, sin SKU, falta precio, oferta ≥ regular, venta a pérdida, stock negativo.</li>
+        <li><b>Importante</b>: falta imagen / descripción / categoría, borrador o descontinuado con stock, margen &lt; 10 %, costo no registrado, padre en la web sin variaciones activas, variable (padre) con stock.</li>
+        <li><b>Info</b>: margen &lt; 20 %, ventas al producto padre en el último año.</li>
+        <li><b>Margen</b> = (precio − costo FIFO) ÷ precio, con el precio que paga hoy el cliente (oferta si está vigente). Productos MKP/PCK no se evalúan por costo.</li>
+      </ul>
+    </details>
+  </div>
+
+  <!-- ══════════ PENDIENTES ══════════ -->
+  <div class="card oculto" id="t-pendientes">
+    <div class="desc">Productos del ERP <b>sin ID de WooCommerce</b> que tienen stock propio o un backorder abierto (venta a pedido aún sin entregar). La columna <i>Le falta</i> dice qué completar antes de crearlo en la web.</div>
+    <div class="fila">
+      <label class="campo">Marca<select id="p-marca" onchange="pintarPendientes()"></select></label>
+      <label class="campo">Motivo
+        <select id="p-motivo" onchange="pintarPendientes()"><option value="">Todos</option><option value="stock">Tiene stock</option><option value="backorder">Solo backorder abierto</option></select>
+      </label>
+      <label class="campo">Preparación
+        <select id="p-prep" onchange="pintarPendientes()"><option value="">Todos</option><option value="listo">Listos para crear</option><option value="incompleto">Les falta algo</option></select>
+      </label>
+      <label class="campo">Buscar<input type="text" id="p-q" placeholder="SKU o nombre…" oninput="pintarPendientes()"></label>
+      <label class="chk"><input type="checkbox" id="p-mkp" onchange="pintarPendientes()"> Ocultar marketplace / packs</label>
+      <button class="btn btn-sec" onclick="plantillaWoo()" title="Mismo archivo que el botón de Sincronización web">Plantilla para WooCommerce</button>
+    </div>
+    <div class="nota">La plantilla para WooCommerce incluye <b>todos</b> los productos sin ID (con o sin stock, excepto MKP sin stock), por eso puede traer más filas que esta lista.</div>
+    <div class="nota" id="res-pend"></div>
+    <div class="tabla-wrap"><table id="tbl-pend"></table></div>
+  </div>
+
+  <!-- ══════════ CHEQUEO DE EMPRESAS ══════════ -->
+  <div class="card oculto" id="t-chequeo">
+    <div class="desc">Ventas donde la <b>empresa vendedora</b> falta o no coincide con la empresa dueña del lote vendido. <b>Solo revisa y lista</b>, no corrige nada en el ERP. Los ítems a pedido (backorder sin lote) no cuentan como “sin lote”.</div>
+    <div class="fila">
+      <label class="campo">Problema
+        <select id="c-tipo">
+          <option value="no_coincide">Empresa no coincide (grave)</option>
+          <option value="sin_empresa">Sin empresa vendedora (grave)</option>
+          <option value="sin_lote">Producto sin lote (informativo)</option>
+          <option value="">Todos los problemas</option>
+        </select>
+      </label>
+      <label class="campo">Periodo
+        <select id="c-dias"><option value="90">Últimos 90 días</option><option value="365">Últimos 12 meses</option><option value="0">Todo el historial (lento)</option></select>
+      </label>
+      <button class="btn" id="btn-chq" onclick="cargarChequeo()">Revisar ventas</button>
+      <button class="btn btn-sec" onclick="excelChequeo()">Excel</button>
+    </div>
+    <div class="nota" id="res-chq"></div>
+    <div class="tabla-wrap oculto" id="wrap-chq"><table id="tbl-chq"></table></div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+//  Auditoría de catálogo — frontend (mini-app en iframe dentro de admin.html)
+//  Comparte token y origen con el panel (localStorage 'admtoken').
+//  Backend: modulos/auditoria.js
+// ═══════════════════════════════════════════════════════════════════════════
+let TOKEN = ''; try { TOKEN = localStorage.getItem('admtoken') || ''; } catch (e) {}
+const $ = id => document.getElementById(id);
+function esc(t) { return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function showToast(m, e) { const t = $('toast'); t.textContent = m; t.className = 'toast' + (e ? ' err' : ''); t.style.display = 'block'; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', 3500); }
+async function apiCall(ep) {
+  const r = await fetch(ep, { headers: { 'Authorization': 'Bearer ' + TOKEN } });
+  if (r.status === 401) throw new Error('Sesión del portal expirada — vuelve a entrar al panel.');
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || 'Error');
+  return d;
+}
+async function descargar(ep, base) {
+  const r = await fetch(ep, { headers: { 'Authorization': 'Bearer ' + TOKEN } });
+  if (!r.ok) { let m = 'No se pudo generar el archivo'; try { m = (await r.json()).error || m; } catch (e) {} throw new Error(m); }
+  const url = URL.createObjectURL(await r.blob());
+  const a = document.createElement('a'); a.href = url;
+  a.download = base + '-' + new Date().toISOString().slice(0, 10) + '.xlsx';
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+}
+const nfmt = n => Number(n || 0).toLocaleString('es-PE');
+const fecha = f => { try { return new Date(f).toLocaleString('es-PE', { timeZone: 'America/Lima' }); } catch (e) { return f; } };
+const SEV = { critico: ['Crítico', 'c-r'], importante: ['Importante', 'c-w'], info: ['Info', 'c-g'] };
+const MAX_FILAS = 500;
+
+let D = null;
+
+// ── Filtros recordados entre visitas ──
+const CAMPOS = ['f-tipo', 'f-marca', 'f-web', 'f-estado', 'f-vista', 'p-marca', 'p-motivo', 'p-prep', 'c-tipo', 'c-dias'];
+function guardarFiltros() {
+  try {
+    const o = { sev: sevActual(), mkp: $('p-mkp').checked };
+    CAMPOS.forEach(id => o[id] = $(id).value);
+    localStorage.setItem('aud_filtros', JSON.stringify(o));
+  } catch (e) {}
+}
+function leerFiltros() { try { return JSON.parse(localStorage.getItem('aud_filtros') || '{}'); } catch (e) { return {}; } }
+function sevActual() { const b = document.querySelector('#f-sev button.on'); return b ? b.dataset.v : ''; }
+function setSev(btn) { document.querySelectorAll('#f-sev button').forEach(b => b.classList.toggle('on', b === btn)); pintarAlertas(); }
+function limpiarFiltros() {
+  setSevValor(''); ['f-tipo', 'f-marca', 'f-web', 'f-estado', 'f-q'].forEach(id => $(id).value = ''); pintarAlertas();
+}
+function setSevValor(v) { document.querySelectorAll('#f-sev button').forEach(b => b.classList.toggle('on', b.dataset.v === v)); }
+function filtroAlertasQS() {
+  const p = new URLSearchParams();
+  const m = { sev: sevActual(), tipo: $('f-tipo').value, marca: $('f-marca').value, web: $('f-web').value, estado: $('f-estado').value, q: $('f-q').value.trim() };
+  Object.keys(m).forEach(k => { if (m[k]) p.set(k, m[k]); });
+  return p;
+}
+
+function verTab(t) {
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.t === t));
+  ['alertas', 'pendientes', 'chequeo'].forEach(x => $('t-' + x).classList.toggle('oculto', x !== t));
+  try { localStorage.setItem('aud_tab', t); } catch (e) {}
+}
+
+// ── Carga ──
+async function cargarGuardado() {
+  try {
+    const d = await apiCall('/admin/auditoria');
+    if (d.sin_analisis) { $('estado').innerHTML = 'Aún no hay un análisis (o era de la versión anterior). Pulsa <b>Analizar catálogo</b>.'; return; }
+    mostrar(d);
+  } catch (e) { $('estado').textContent = 'No se pudo cargar: ' + e.message; }
+}
+async function analizar() {
+  const b = $('btn-analizar'); b.disabled = true; b.textContent = 'Analizando…';
+  $('estado').textContent = 'Analizando el catálogo… puede tardar unos segundos.';
+  try { mostrar(await apiCall('/admin/auditoria?force=1')); showToast('Análisis actualizado'); }
+  catch (e) { $('estado').textContent = ''; showToast(e.message, true); }
+  finally { b.disabled = false; b.textContent = 'Analizar de nuevo'; }
+}
+function mostrar(d) {
+  D = d;
+  $('btn-analizar').textContent = 'Analizar de nuevo';
+  $('btn-excel').classList.remove('oculto');
+  const viejo = (Date.now() - new Date(d.generado_en).getTime()) > 24 * 3600e3;
+  $('estado').innerHTML = (d.desde_cache ? 'Último análisis: ' : '✓ Análisis actualizado: ') + `<b>${esc(fecha(d.generado_en))}</b>` +
+    (viejo ? ' <span class="chip c-w">tiene más de 1 día</span>' : '') +
+    (d.ver_costos ? '' : ' <span class="chip c-g" title="Solo el admin maestro ve costos y márgenes">montos de costo ocultos</span>');
+  pintarKpis(); armarOpciones(); pintarAlertas(); pintarPendientes();
+}
+
+function pintarKpis() {
+  const s = D.por_sev || {};
+  const k = (cls, l, v, sub, clic) => `<div class="kpi ${cls}${clic ? ' clic' : ''}"${clic ? ` onclick="${clic}"` : ''}><div class="l">${l}</div><div class="v">${nfmt(v)}</div><div class="s">${sub}</div></div>`;
+  $('kpis').innerHTML =
+    k('r', 'Críticos', s.critico, 'afectan venta o precio', "irSev('critico')") +
+    k('w', 'Importantes', s.importante, 'datos incompletos', "irSev('importante')") +
+    k('', 'Info', s.info, 'para revisar', "irSev('info')") +
+    k('a', 'SKUs con alerta', D.skus_con_alerta, nfmt(D.total_alertas) + ' alertas en total') +
+    k('ok', 'Pendientes en la web', D.total_pendientes, nfmt(D.pendientes_listos) + ' listos para crear', "verTab('pendientes')");
+  $('kpis').classList.remove('oculto');
+  $('n-alertas').textContent = nfmt(D.total_alertas);
+  $('n-pend').textContent = nfmt(D.total_pendientes);
+}
+function irSev(v) { verTab('alertas'); setSevValor(v); pintarAlertas(); }
+
+function llenar(sel, html, valor) { sel.innerHTML = html; sel.value = valor || ''; if (sel.value !== (valor || '')) sel.value = ''; }
+function armarOpciones() {
+  const g = leerFiltros();
+  // Tipos agrupados, con conteo
+  const grupos = {};
+  Object.values(D.reglas || {}).forEach(r => (grupos[r.grupo] = grupos[r.grupo] || []).push(r.tipo));
+  const c = D.conteo_por_tipo || {};
+  const tipos = Object.keys(grupos).map(gr => `<optgroup label="${esc(gr)}">` +
+    grupos[gr].filter(t => c[t]).map(t => `<option value="${esc(t)}">${esc(t)} (${c[t]})</option>`).join('') + '</optgroup>').join('');
+  llenar($('f-tipo'), `<option value="">Todos (${nfmt(D.total_alertas)})</option>` + tipos, $('f-tipo').value || g['f-tipo']);
+  const marcas = l => [...new Set(l.map(x => x.marca).filter(m => m && m !== '—'))].sort((a, b) => a.localeCompare(b));
+  const opc = l => '<option value="">Todas</option>' + marcas(l).map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('');
+  llenar($('f-marca'), opc(D.alertas), $('f-marca').value || g['f-marca']);
+  llenar($('p-marca'), opc(D.pendientes), $('p-marca').value || g['p-marca']);
+}
+
+// ── Alertas ──
+function alertasFiltradas() {
+  const sev = sevActual(), tipo = $('f-tipo').value, marca = $('f-marca').value, web = $('f-web').value,
+    estado = $('f-estado').value, q = $('f-q').value.toLowerCase().trim();
+  return D.alertas.filter(a => (!sev || a.sev === sev) && (!tipo || a.tipo === tipo) && (!marca || a.marca === marca) &&
+    (!estado || a.estado === estado) && (!web || (web === 'si' ? !!a.wc : !a.wc)) &&
+    (!q || [a.sku, a.nombre, a.obs].some(x => String(x || '').toLowerCase().includes(q))));
+}
+const chipSev = s => `<span class="chip ${SEV[s][1]}">${SEV[s][0]}</span>`;
+const celdaProd = a => `<div class="nom">${esc(a.nombre)}</div><div class="sku">${esc(a.sku || '(sin SKU)')}${a.wc ? ' · WC ' + esc(a.wc) : ' · <span style="color:var(--fg-warn)">sin ID web</span>'}</div>`;
+function pintarAlertas() {
+  if (!D) return;
+  guardarFiltros();
+  const lista = alertasFiltradas();
+  const porSku = $('f-vista').value === 'sku';
+  let html, filas;
+  if (porSku) {
+    const g = {};
+    lista.forEach(a => { const e = g[a.vid] = g[a.vid] || { a, items: [] }; e.items.push(a); });
+    filas = Object.values(g).sort((x, y) => Math.min(...x.items.map(i => ORD[i.sev])) - Math.min(...y.items.map(i => ORD[i.sev])) || y.items.length - x.items.length);
+    html = '<thead><tr><th>Producto</th><th>Marca</th><th>Estado</th><th class="n">Stock</th><th>Problemas</th></tr></thead><tbody>' +
+      filas.slice(0, MAX_FILAS).map(({ a, items }) => `<tr><td>${celdaProd(a)}</td><td>${esc(a.marca)}</td><td>${esc(a.estado)}</td><td class="n">${nfmt(a.stock)}</td>
+        <td><div class="probs">${items.map(i => `<span class="chip ${SEV[i.sev][1]}" title="${esc(i.obs)}">${esc(i.tipo)}</span>`).join('')}</div></td></tr>`).join('') + '</tbody>';
+    $('res-alertas').textContent = `${nfmt(filas.length)} SKU(s) con ${nfmt(lista.length)} alerta(s)` + (filas.length > MAX_FILAS ? ` · mostrando ${MAX_FILAS} (usa el Excel para ver todo)` : '');
+  } else {
+    filas = lista;
+    html = '<thead><tr><th>Severidad</th><th>Tipo</th><th>Producto</th><th>Marca</th><th>Estado</th><th class="n">Stock</th><th>Observación</th></tr></thead><tbody>' +
+      lista.slice(0, MAX_FILAS).map(a => `<tr><td>${chipSev(a.sev)}</td><td>${esc(a.tipo)}</td><td>${celdaProd(a)}</td><td>${esc(a.marca)}</td><td>${esc(a.estado)}</td>
+        <td class="n">${nfmt(a.stock)}${a.consig ? `<div class="sku">+${nfmt(a.consig)} consig.</div>` : ''}</td><td>${esc(a.obs)}</td></tr>`).join('') + '</tbody>';
+    $('res-alertas').textContent = `${nfmt(lista.length)} alerta(s)` + (lista.length > MAX_FILAS ? ` · mostrando ${MAX_FILAS} (usa el Excel para ver todo)` : '');
+  }
+  $('tbl-alertas').innerHTML = filas.length ? html : '<tbody><tr><td class="vacio">✓ No hay alertas con estos filtros.</td></tr></tbody>';
+}
+const ORD = { critico: 0, importante: 1, info: 2 };
+
+// ── Pendientes ──
+function pintarPendientes() {
+  if (!D) return;
+  guardarFiltros();
+  const marca = $('p-marca').value, mot = $('p-motivo').value, prep = $('p-prep').value, q = $('p-q').value.toLowerCase().trim(), sinMkp = $('p-mkp').checked;
+  const lista = D.pendientes.filter(p => (!marca || p.marca === marca) && (!mot || p.motivo === mot) &&
+    (!prep || (prep === 'listo' ? !p.falta.length : p.falta.length > 0)) && (!sinMkp || !p.mkp) &&
+    (!q || (p.sku || '').toLowerCase().includes(q) || (p.nombre || '').toLowerCase().includes(q)));
+  $('res-pend').textContent = `${nfmt(lista.length)} pendiente(s) · ${nfmt(lista.filter(p => !p.falta.length).length)} listos para crear` + (lista.length > MAX_FILAS ? ` · mostrando ${MAX_FILAS}` : '');
+  $('tbl-pend').innerHTML = !lista.length ? '<tbody><tr><td class="vacio">✓ No hay productos pendientes con estos filtros.</td></tr></tbody>' :
+    '<thead><tr><th>Producto</th><th>Tipo</th><th>Marca</th><th class="n">Precio</th><th class="n">Stock</th><th class="n">Backorder</th><th>Le falta</th></tr></thead><tbody>' +
+    lista.slice(0, MAX_FILAS).map(p => `<tr><td><div class="nom">${esc(p.nombre)}</div><div class="sku">${esc(p.sku)}${p.mkp ? ' · MKP/PCK' : ''}</div></td>
+      <td>${esc(p.tipo_prod)}</td><td>${esc(p.marca)}</td>
+      <td class="n">${p.precio > 0 ? 'S/ ' + Number(p.precio).toLocaleString('es-PE', { minimumFractionDigits: 2 }) : '—'}</td>
+      <td class="n">${nfmt(p.stock)}${p.consig ? `<div class="sku">+${nfmt(p.consig)} consig.</div>` : ''}</td>
+      <td class="n">${p.backorder ? nfmt(p.backorder) : '—'}</td>
+      <td>${p.falta.length ? `<div class="probs">${p.falta.map(f => `<span class="chip c-w">${esc(f)}</span>`).join('')}</div>` : '<span class="chip c-ok">Listo para crear</span>'}</td></tr>`).join('') + '</tbody>';
+}
+
+async function descargarExcel() {
+  try { await descargar('/admin/auditoria-excel?' + filtroAlertasQS().toString(), 'auditoria-catalogo'); showToast('Excel descargado'); }
+  catch (e) { showToast(e.message, true); }
+}
+async function plantillaWoo() {
+  try { await descargar('/admin/pendientes-web-csv?web=1', 'productos-sin-id'); showToast('Plantilla descargada'); }
+  catch (e) { showToast(e.message, true); }
+}
+
+// ── Chequeo de empresa en ventas ──
+const PROB = { sin_empresa: ['Sin empresa vendedora', 'c-r'], no_coincide: ['Empresa no coincide', 'c-r'], sin_lote: ['Producto sin lote', 'c-w'] };
+const chqQS = () => { guardarFiltros(); const p = new URLSearchParams(); if ($('c-tipo').value) p.set('tipo', $('c-tipo').value); p.set('dias', $('c-dias').value); return p; };
+async function cargarChequeo() {
+  const b = $('btn-chq'); b.disabled = true;
+  $('res-chq').textContent = 'Revisando ventas…';
+  try {
+    const d = await apiCall('/admin/chequeo-empresas?' + chqQS().toString());
+    const emp = e => (d.empresas && d.empresas[e]) || ('Empresa ' + e);
+    $('res-chq').innerHTML = `<b>${nfmt(d.total)}</b> venta(s) con problema · Sin empresa: ${d.conteo.sin_empresa} · No coincide: ${d.conteo.no_coincide} · Sin lote: ${d.conteo.sin_lote}` +
+      (d.total > 500 ? ' · mostrando las 500 más recientes' : '');
+    $('wrap-chq').classList.toggle('oculto', !d.ventas.length);
+    $('tbl-chq').innerHTML = '<thead><tr><th>Venta</th><th>Fecha</th><th>Estado</th><th>Empresa vendedora</th><th>Empresa(s) del producto</th><th>Problema(s)</th><th class="n">Total</th></tr></thead><tbody>' +
+      d.ventas.map(v => `<tr><td><b>${esc(v.code)}</b></td><td>${v.fecha ? new Date(v.fecha).toLocaleDateString('es-PE') : '—'}</td><td>${esc(v.status)}</td>
+        <td>${v.empresa_venta != null ? esc(emp(v.empresa_venta)) : '<span class="chip c-r">vacío</span>'}</td>
+        <td>${v.empresas_producto.length ? v.empresas_producto.map(e => esc(emp(e))).join(', ') : '<span class="sku">sin lote</span>'}</td>
+        <td><div class="probs">${v.problemas.map(p => `<span class="chip ${(PROB[p] || [, 'c-g'])[1]}">${esc((PROB[p] || [p])[0])}</span>`).join('')}</div></td>
+        <td class="n">S/ ${Number(v.total).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</td></tr>`).join('') + '</tbody>';
+    if (!d.ventas.length) $('res-chq').innerHTML += ' — ✓ nada que revisar.';
+  } catch (e) { $('res-chq').textContent = ''; showToast(e.message, true); }
+  finally { b.disabled = false; }
+}
+async function excelChequeo() {
+  try { await descargar('/admin/chequeo-empresas-excel?' + chqQS().toString(), 'chequeo-empresas'); }
+  catch (e) { showToast(e.message, true); }
+}
+
+// ── Arranque ──
+(function () {
+  const g = leerFiltros();
+  setSevValor(g.sev || '');
+  ['f-web', 'f-estado', 'f-vista', 'p-motivo', 'p-prep', 'c-tipo', 'c-dias'].forEach(id => { if (g[id] != null) { $(id).value = g[id]; if ($(id).selectedIndex < 0) $(id).selectedIndex = 0; } });
+  $('p-mkp').checked = !!g.mkp;
+  let t = 'alertas'; try { t = localStorage.getItem('aud_tab') || 'alertas'; } catch (e) {}
+  verTab(t);
+  cargarGuardado();
+})();
+</script>
+</body>
+</html>

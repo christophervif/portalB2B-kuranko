@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<script src="/tema.js"></script>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Contabilidad — Kuranko</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<style>
+:root{
+  --bg:#0a1030;--surface:#111a44;--surface2:#0e1640;--surface3:#18224e;
+  --border:#212b54;--text:#eef1f8;--text2:#c6cee2;--muted:#8a93b4;--muted2:#a2abca;
+  --accent:#FFB30D;--accent-text:#000726;--accent-h:#e6a00c;--hover:#1a2450;--white:#ffffff;
+  --bg-ok:#163a29;--fg-ok:#6ee59a;--bg-warn:#3d3315;--fg-warn:#ffcb52;--bg-r:#3f1c20;--fg-r:#f79a9a;
+  --bg-v:#2a2766;--fg-v:#cecbf6;
+  --radius:18px;--radius-sm:12px;--shadow-sm:0 2px 8px rgba(0,0,0,.10);
+}
+[data-theme="light"]{
+  --bg:#f6f8fd;--surface:#ffffff;--surface2:#fbfcff;--surface3:#f2f5fb;
+  --border:#e3e9f5;--text:#1a2140;--text2:#4a5680;--muted:#9aa3c0;--muted2:#727e9f;
+  --hover:#f2f5fb;--white:#1a2140;
+  --bg-ok:#e8f8ef;--fg-ok:#1f9c56;--bg-warn:#fdf5db;--fg-warn:#9a6b00;--bg-r:#fdeded;--fg-r:#dc4b4b;
+  --bg-v:#eeedfc;--fg-v:#4b43b8;--shadow-sm:0 2px 10px rgba(30,45,90,.04);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{overflow-x:hidden}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px}
+.wrap{max-width:1320px;margin:0 auto;padding:1.25rem}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.1rem;box-shadow:var(--shadow-sm);margin-bottom:16px;min-width:0}
+.card h3{font-size:15px;font-weight:600;color:var(--white);margin-bottom:4px}
+.desc{font-size:12px;color:var(--muted);line-height:1.55}
+.fila{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px}
+.campo{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--muted2);min-width:0}
+.campo select,.campo input{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:8px 10px;font-size:13px;max-width:100%;min-width:130px}
+.campo input[type=text]{min-width:200px}
+.check{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);padding-bottom:9px;cursor:pointer}
+input:focus,select:focus{outline:none;border-color:var(--accent)}
+.btn{background:var(--accent);border:none;color:var(--accent-text);border-radius:var(--radius-sm);padding:9px 16px;font-size:13px;cursor:pointer;font-weight:600}
+.btn:hover{background:var(--accent-h)}
+.btn:disabled{opacity:.6;cursor:wait}
+.btn-sec{background:var(--surface3);border:1px solid var(--border);color:var(--text2)}
+.btn-sec:hover{background:var(--hover)}
+.tabs{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}
+.tabs button{background:var(--surface);border:1px solid var(--border);color:var(--text2);border-radius:12px;padding:9px 16px;font-size:13px;cursor:pointer;font-weight:600}
+.tabs button.on{background:var(--accent);color:var(--accent-text);border-color:var(--accent)}
+.seg{display:inline-flex;gap:4px;background:var(--surface3);padding:3px;border-radius:10px}
+.seg button{background:transparent;border:none;color:var(--text2);border-radius:8px;padding:5px 10px;font-size:12px;cursor:pointer;font-weight:600}
+.seg button.on{background:var(--accent);color:var(--accent-text)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-top:14px}
+.kpi{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:12px}
+.kpi.clic{cursor:pointer}.kpi.clic:hover{border-color:var(--accent)}
+.kpi .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.kpi .v{font-size:1.3rem;font-weight:700;color:var(--white);margin-top:4px;white-space:nowrap}
+.kpi .s{font-size:11px;color:var(--muted2);margin-top:2px}
+.kpi.r .v{color:var(--fg-r)}.kpi.w .v{color:var(--fg-warn)}.kpi.a .v{color:var(--accent)}
+.aviso{font-size:12px;border-radius:10px;padding:8px 10px;margin-top:10px;background:var(--bg-warn);color:var(--fg-warn)}
+.nota{font-size:12px;border-left:3px solid var(--accent);background:var(--surface2);padding:8px 12px;border-radius:8px;color:var(--muted2);margin-top:10px;line-height:1.5}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:14px}
+.hbar{margin-bottom:8px}
+.hbar .top{display:flex;justify-content:space-between;gap:8px;font-size:12px;margin-bottom:3px;color:var(--text2)}
+.hbar .top span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hbar .top b{white-space:nowrap;color:var(--white)}
+.hbar .pista{height:6px;background:var(--surface3);border-radius:4px;overflow:hidden}
+.hbar .pista div{height:100%;border-radius:4px;background:var(--accent)}
+.tabla-wrap{overflow:auto;max-height:68vh;margin-top:10px;border:1px solid var(--border);border-radius:12px}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{position:sticky;top:0;background:var(--surface3);text-align:left;padding:7px 8px;color:var(--muted2);font-weight:600;font-size:11px;border-bottom:1px solid var(--border);white-space:nowrap;z-index:1}
+thead tr.g th{top:0;text-align:center;border-bottom:none}
+thead tr.g+tr th{top:28px}
+th.n,td.n{text-align:right}
+td.n{white-space:nowrap;font-variant-numeric:tabular-nums}
+td{padding:7px 8px;border-bottom:1px solid var(--border);color:var(--text2);vertical-align:top}
+tr:hover td{background:var(--hover)}
+tr.clic{cursor:pointer}
+tr.sub td{background:var(--surface2);font-weight:700;color:var(--white)}
+tr.ini td{background:var(--surface2);color:var(--muted2);font-style:italic}
+td.ent{background:rgba(110,229,154,.05)}td.sal{background:rgba(247,154,154,.05)}
+td .nom{color:var(--white);font-weight:500;line-height:1.35}
+td .sku{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--muted)}
+.chip{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:20px;white-space:nowrap}
+.c-r{background:var(--bg-r);color:var(--fg-r)}.c-w{background:var(--bg-warn);color:var(--fg-warn)}.c-ok{background:var(--bg-ok);color:var(--fg-ok)}
+.c-v{background:var(--bg-v);color:var(--fg-v)}.c-g{background:var(--surface3);color:var(--text2);border:1px solid var(--border)}
+.vacio{color:var(--muted);text-align:center;padding:1.5rem;font-size:13px}
+.oculto{display:none}
+details.ayuda{margin-top:10px;font-size:12px;color:var(--text2)}
+details.ayuda summary{cursor:pointer;color:var(--muted2)}
+details.ayuda ul{margin:6px 0 0 18px;line-height:1.6}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--bg-ok);color:var(--fg-ok);padding:12px 18px;border-radius:12px;font-size:13px;display:none;z-index:100;border:1px solid var(--border);max-width:340px}
+.toast.err{background:var(--bg-r);color:var(--fg-r)}
+@media(max-width:860px){.grid2{grid-template-columns:1fr}}
+@media(max-width:640px){.wrap{padding:.75rem}.card{padding:.9rem}.fila>.campo{flex:1 1 140px}.campo select,.campo input,.campo input[type=text]{width:100%;min-width:0}}
+</style>
+</head>
+<body>
+<div class="toast" id="toast"></div>
+<div class="wrap">
+  <div class="tabs">
+    <button id="t-pagos" class="on" onclick="pestana('pagos')">Reporte de pagos</button>
+    <button id="t-kardex" onclick="pestana('kardex')">Kardex valorizado</button>
+  </div>
+
+  <!-- ══════════════════════ REPORTE DE PAGOS ══════════════════════ -->
+  <section id="s-pagos">
+    <div class="card">
+      <h3>Reporte de pagos</h3>
+      <div class="desc">Dinero recibido en el periodo, pago por pago: a qué cuenta y empresa entró, de qué venta y con qué comprobante. El Excel incluye además las hojas <b>Por facturas</b> y <b>Por boletas</b> (por fecha de emisión) para cuadrar con el contador.</div>
+      <div class="fila">
+        <label class="campo">Mes<input type="month" id="rp-mes" onchange="aplicarMes('rp')"></label>
+        <label class="campo">Desde<input type="date" id="rp-desde" onchange="$('rp-mes').value=''"></label>
+        <label class="campo">Hasta<input type="date" id="rp-hasta" onchange="$('rp-mes').value=''"></label>
+        <label class="campo" title="Empresa registrada en la venta">Empresa que gestiona<select id="rp-empresa"><option value="">Todas</option></select></label>
+        <label class="campo" title="Empresa dueña del lote que se vendió">Empresa del producto<select id="rp-empresa-prod"><option value="">Todas</option></select></label>
+        <label class="campo" title="Titular de la cuenta donde entró el dinero">Empresa dueña de la cuenta<select id="rp-empresa-cuenta" onchange="filtrarCuentas()"><option value="">Todas</option></select></label>
+        <label class="campo">Cuenta destino<select id="rp-cuenta"><option value="">Todas</option></select></label>
+        <label class="campo">Método<select id="rp-metodo"><option value="">Todos</option></select></label>
+      </div>
+      <div class="fila">
+        <label class="campo">Comprobante<select id="rp-tipocomp">
+          <option value="">Todos (con y sin comprobante)</option><option value="factura">Con factura</option>
+          <option value="boleta">Con boleta</option><option value="sin">Sin comprobante</option></select></label>
+        <label class="campo" title="Si el cierre de caja de ese día ya se hizo">Cierre de caja<select id="rp-cuadre">
+          <option value="">Todos</option><option value="cerrado">Día cerrado</option><option value="abierto">Día sin cerrar</option></select></label>
+        <label class="campo">Estado de la venta<select id="rp-estado">
+          <option value="">Todas</option><option value="validas">Sin canceladas</option><option value="canceladas">Solo canceladas</option></select></label>
+        <label class="campo">Saldo de la venta<select id="rp-saldo">
+          <option value="">Todas</option><option value="con_saldo">Con saldo por cobrar</option><option value="pagada">Pagadas completas</option></select></label>
+        <label class="campo">Buscar<input type="text" id="rp-q" placeholder="Cliente, DNI/RUC, venta, comprobante…" onkeydown="if(event.key==='Enter')verPagos()"></label>
+      </div>
+      <div class="fila">
+        <button class="btn" id="rp-btn" onclick="verPagos()">Ver</button>
+        <button class="btn btn-sec" onclick="excelPagos()">Excel</button>
+        <button class="btn btn-sec" onclick="pdfPagos()">PDF</button>
+        <button class="btn btn-sec" onclick="limpiar('rp')">Limpiar filtros</button>
+        <span class="desc" id="rp-hora"></span>
+      </div>
+      <div class="kpis" id="rp-kpis"></div>
+      <div class="grid2 oculto" id="rp-desglose">
+        <div><div class="desc" style="margin-bottom:8px"><b>Por empresa dueña de la cuenta</b></div><div id="rp-por-emp"></div></div>
+        <div><div class="desc" style="margin-bottom:8px"><b>Por método</b></div><div id="rp-por-met"></div></div>
+      </div>
+      <details class="ayuda"><summary>¿Cómo leer este reporte?</summary><ul>
+        <li>Todos los pagos listados son <b>dinero ya recibido</b>. <i>Cierre de caja</i> dice si el cierre administrativo de ese día se hizo, no si el pago está pendiente.</li>
+        <li><b>Monto del pago</b> = esa transacción · <b>Valor de la venta</b> = total de la venta · <b>Saldo por cobrar</b> = lo que falta, contando todos los pagos de la venta aunque estén fuera del periodo.</li>
+        <li>La empresa <b>emisora</b> de la factura no se guarda en el ERP; por eso se muestran la empresa que gestiona la venta, la del producto y la dueña de la cuenta.</li>
+        <li><b>Sin comprobante</b>: pagos de ventas sin factura ni boleta. Úsalo para detectar ventas por facturar.</li>
+        <li>Pagos de <b>ventas canceladas</b>: el dinero entró, pero la venta ya no existe (revisa si quedó como saldo a favor en <i>Créditos</i>).</li>
+      </ul></details>
+    </div>
+    <div class="card oculto" id="rp-card"><div class="tabla-wrap" id="rp-tabla"></div></div>
+  </section>
+
+  <!-- ══════════════════════ KARDEX ══════════════════════ -->
+  <section id="s-kardex" class="oculto">
+    <div class="card">
+      <h3>Kardex valorizado</h3>
+      <div class="desc">Entradas, salidas y saldo de cada producto en el periodo, valorizados por <b>FIFO</b>: cada salida toma el costo de los lotes más antiguos de su ubicación. Arranca con el <b>saldo inicial</b> (todo lo anterior a "Desde").</div>
+      <div class="fila">
+        <label class="campo">Mes<input type="month" id="kx-mes" onchange="aplicarMes('kx')"></label>
+        <label class="campo">Desde<input type="date" id="kx-desde" onchange="$('kx-mes').value=''"></label>
+        <label class="campo">Hasta<input type="date" id="kx-hasta" onchange="$('kx-mes').value=''"></label>
+        <label class="campo">Producto o SKU<input type="text" id="kx-texto" list="kx-lista" placeholder="Vacío = todos" autocomplete="off" onkeydown="if(event.key==='Enter')verKardex()"></label>
+        <datalist id="kx-lista"></datalist>
+        <label class="campo" title="Global: todas las ubicaciones juntas (las transferencias internas no cambian el saldo). Una ubicación: kardex de ese almacén/tienda.">Ubicación<select id="kx-ubic"><option value="">Todas (kardex global)</option></select></label>
+        <label class="campo">Movimiento<select id="kx-op">
+          <option value="">Todos</option>
+          <optgroup label="Dirección"><option value="dir:in">Solo entradas</option><option value="dir:out">Solo salidas</option><option value="dir:transfer">Transferencias internas</option></optgroup>
+          <optgroup label="Operación SUNAT" id="kx-ops"></optgroup>
+        </select></label>
+        <label class="check"><input type="checkbox" id="kx-alertas"> Solo con alertas</label>
+      </div>
+      <div class="fila">
+        <button class="btn" id="kx-btn" onclick="verKardex()">Ver</button>
+        <button class="btn btn-sec" onclick="excelKardex()">Excel</button>
+        <button class="btn btn-sec" onclick="pdfKardex()">PDF</button>
+        <button class="btn btn-sec" onclick="limpiar('kx')">Limpiar filtros</button>
+        <span class="desc" id="kx-hora"></span>
+      </div>
+      <div class="kpis" id="kx-kpis"></div>
+      <div id="kx-avisos"></div>
+      <details class="ayuda"><summary>¿Cómo se calcula?</summary><ul>
+        <li><b>Entradas</b> (compras, importaciones, saldo inicial…): al costo del lote que creó esa entrada en el ERP.</li>
+        <li><b>Salidas</b> (ventas, mermas, retiros…): consumen los lotes más antiguos de su ubicación. Si la ubicación no tenía stock se usa el lote más antiguo de otra (aviso azul); si no había stock en ningún lado, el último costo (aviso amarillo).</li>
+        <li><b>Transferencias</b>: en el kardex global no cambian el saldo (el producto sigue siendo de la empresa); al elegir una ubicación cuentan como entrada o salida.</li>
+        <li><b>Precio venta / margen</b>: con el costo del lote que el ERP asignó a la venta (igual que en Rentabilidad).</li>
+        <li>Si el periodo llega hasta hoy, el saldo final se compara con el stock actual del ERP (columna <i>Stock ERP</i>).</li>
+      </ul></details>
+    </div>
+    <div class="card oculto" id="kx-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <div class="seg"><button id="kx-v-res" class="on" onclick="vistaKx('res')">Resumen por producto</button><button id="kx-v-det" onclick="vistaKx('det')">Movimientos</button></div>
+        <span class="desc" id="kx-filtro-prod"></span>
+      </div>
+      <div class="tabla-wrap" id="kx-tabla"></div>
+    </div>
+  </section>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+//  Contabilidad — frontend (mini-app en iframe dentro de admin.html)
+//  Comparte token y origen con el panel (localStorage 'admtoken').
+//  Backend: modulos/contabilidad.js
+//    /admin/reporte-pagos[/filtros|-excel]   /admin/kardex[/opciones|/productos|-excel]
+// ═══════════════════════════════════════════════════════════════════════════
+let TOKEN = ''; try { TOKEN = localStorage.getItem('admtoken') || ''; } catch (e) {}
+const $ = id => document.getElementById(id);
+function esc(t) { return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function showToast(m, e) { const t = $('toast'); t.textContent = m; t.className = 'toast' + (e ? ' err' : ''); t.style.display = 'block'; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', 4000); }
+async function apiCall(ep) {
+  const r = await fetch(ep, { headers: { 'Authorization': 'Bearer ' + TOKEN } });
+  if (r.status === 401) throw new Error('Sesión del portal expirada — vuelve a entrar al panel.');
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || 'Error');
+  return d;
+}
+async function descargar(ep, nombreDef) {
+  const r = await fetch(ep, { headers: { 'Authorization': 'Bearer ' + TOKEN } });
+  if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || 'No se pudo generar el archivo'); }
+  const cd = r.headers.get('Content-Disposition') || '';
+  const nombre = (cd.match(/filename="([^"]+)"/) || [])[1] || nombreDef;
+  const url = URL.createObjectURL(await r.blob());
+  const a = document.createElement('a'); a.href = url; a.download = nombre; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+const money = n => n == null || n === '' ? '—' : 'S/ ' + Number(n).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const num = n => n == null || n === '' ? '' : Number(n).toLocaleString('es-PE', { maximumFractionDigits: 2 });
+// Fechas literales 'AAAA-MM-DD HH:MM' (tal cual en el ERP, sin convertir zona horaria)
+function fTxt(lit, hora) {
+  const m = String(lit || '').match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/);
+  if (!m) return lit || '';
+  return `${+m[3]}/${+m[2]}/${m[1]}` + (hora && m[4] ? ` ${m[4]}:${m[5]}` : '');
+}
+const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+function mesDe(v) { if (!v) return null; const [a, m] = v.split('-').map(Number); return { desde: `${a}-${String(m).padStart(2,'0')}-01`, hasta: `${a}-${String(m).padStart(2,'0')}-${String(new Date(a, m, 0).getDate()).padStart(2,'0')}`, txt: MESES[m-1] + a }; }
+function aplicarMes(p) { const r = mesDe($(p + '-mes').value); if (r) { $(p + '-desde').value = r.desde; $(p + '-hasta').value = r.hasta; } }
+function mesActual() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; }
+function periodoTxt(p) { const m = $(p + '-mes').value; return m ? mesDe(m).txt : `${$(p + '-desde').value}_a_${$(p + '-hasta').value}`; }
+const selTxt = id => { const s = $(id); return s.value ? s.options[s.selectedIndex].text : ''; };
+function hbars(cont, arr) {
+  const max = Math.max(1, ...arr.map(x => Math.abs(x.v)));
+  $(cont).innerHTML = arr.slice(0, 8).map(x => `<div class="hbar"><div class="top"><span>${esc(x.k)}</span><b>${money(x.v)}</b></div><div class="pista"><div style="width:${Math.abs(x.v) / max * 100}%"></div></div></div>`).join('') || '<div class="desc">—</div>';
+}
+
+// ── Pestañas y filtros recordados ──
+const CAMPOS = {
+  rp: ['mes', 'desde', 'hasta', 'empresa', 'empresa-prod', 'empresa-cuenta', 'cuenta', 'metodo', 'tipocomp', 'cuadre', 'estado', 'saldo', 'q'],
+  kx: ['mes', 'desde', 'hasta', 'texto', 'ubic', 'op']
+};
+function guardarFiltros(p) {
+  try { const o = {}; CAMPOS[p].forEach(c => o[c] = $(p + '-' + c).value); if (p === 'kx') o.alertas = $('kx-alertas').checked; localStorage.setItem('cont_filtros_' + p, JSON.stringify(o)); } catch (e) {}
+}
+function restaurarFiltros(p) {
+  let o = null; try { o = JSON.parse(localStorage.getItem('cont_filtros_' + p) || 'null'); } catch (e) {}
+  if (o) { CAMPOS[p].forEach(c => { if (o[c] != null && $(p + '-' + c)) $(p + '-' + c).value = o[c]; }); if (p === 'kx') $('kx-alertas').checked = !!o.alertas; }
+  if (!$(p + '-desde').value || !$(p + '-hasta').value) { $(p + '-mes').value = mesActual(); aplicarMes(p); }
+}
+function limpiar(p) {
+  CAMPOS[p].forEach(c => $(p + '-' + c).value = '');
+  if (p === 'kx') $('kx-alertas').checked = false;
+  if (p === 'rp') filtrarCuentas();
+  $(p + '-mes').value = mesActual(); aplicarMes(p);
+  guardarFiltros(p);
+}
+function pestana(c) {
+  ['pagos', 'kardex'].forEach(x => { $('s-' + x).classList.toggle('oculto', x !== c); $('t-' + x).classList.toggle('on', x === c); });
+  try { localStorage.setItem('cont_tab', c); } catch (e) {}
+  if (c === 'kardex') cargarOpcionesKx();
+}
+
+// ════════════════════════════ REPORTE DE PAGOS ════════════════════════════
+let RP = null, CUENTAS = [];
+async function cargarFiltrosRP() {
+  try {
+    const d = await apiCall('/admin/reporte-pagos/filtros');
+    const opt = (arr, v, t) => arr.map(x => `<option value="${esc(x[v])}">${esc(x[t])}</option>`).join('');
+    $('rp-metodo').innerHTML = '<option value="">Todos</option>' + opt(d.metodos, 'id', 'name');
+    $('rp-empresa').innerHTML = '<option value="">Todas</option>' + opt(d.empresas, 'id', 'nombre');
+    $('rp-empresa-prod').innerHTML = '<option value="">Todas</option>' + opt(d.empresas, 'id', 'nombre');
+    $('rp-empresa-cuenta').innerHTML = '<option value="">Todas</option>' + opt(d.duenos_cuenta || [], 'id', 'nombre') + '<option value="sin">Sin cuenta (efectivo u otros)</option>';
+    CUENTAS = d.cuentas;
+  } catch (e) { showToast('No se pudieron cargar los filtros: ' + e.message, true); }
+  restaurarFiltros('rp'); filtrarCuentas(true);
+}
+// La lista de cuentas se acota a la empresa dueña elegida
+function filtrarCuentas(conservar) {
+  const dueno = selTxt('rp-empresa-cuenta'), act = conservar ? (() => { try { return JSON.parse(localStorage.getItem('cont_filtros_rp') || '{}').cuenta || ''; } catch (e) { return ''; } })() : $('rp-cuenta').value;
+  const lista = !$('rp-empresa-cuenta').value || $('rp-empresa-cuenta').value === 'sin' ? CUENTAS : CUENTAS.filter(c => c.dueno === dueno);
+  $('rp-cuenta').innerHTML = '<option value="">Todas</option>' + lista.map(c => `<option value="${c.id}">${esc(c.etiqueta)}${c.dueno && !$('rp-empresa-cuenta').value ? ' · ' + esc(c.dueno) : ''}</option>`).join('');
+  if (lista.some(c => String(c.id) === String(act))) $('rp-cuenta').value = act;
+}
+function paramsRP() {
+  const p = new URLSearchParams();
+  const de = $('rp-desde').value, ha = $('rp-hasta').value;
+  if (!de || !ha) { showToast('Elige el periodo (desde y hasta)', true); return null; }
+  if (de > ha) { showToast('"Desde" es posterior a "Hasta"', true); return null; }
+  p.set('desde', de); p.set('hasta', ha);
+  [['empresa', 'empresa'], ['empresa-prod', 'empresa_producto'], ['empresa-cuenta', 'empresa_cuenta'], ['cuenta', 'cuenta'], ['metodo', 'metodo'],
+   ['tipocomp', 'tipo_comprobante'], ['cuadre', 'cuadre'], ['estado', 'estado_venta'], ['saldo', 'saldo']]
+    .forEach(([id, k]) => { const v = $('rp-' + id).value; if (v) p.set(k, v); });
+  const q = $('rp-q').value.trim(); if (q) p.set('q', q);
+  return p;
+}
+async function verPagos() {
+  const p = paramsRP(); if (!p) return;
+  guardarFiltros('rp');
+  const b = $('rp-btn'); b.disabled = true; b.textContent = 'Cargando…';
+  try {
+    RP = await apiCall('/admin/reporte-pagos?' + p.toString());
+    $('rp-hora').textContent = 'Actualizado ' + new Date().toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
+    pintarPagos();
+  } catch (e) { showToast(e.message, true); }
+  finally { b.disabled = false; b.textContent = 'Ver'; }
+}
+// Atajo desde las tarjetas: aplica un filtro y recarga
+function filtroRapido(id, v) { $(id).value = $(id).value === v ? '' : v; verPagos(); }
+function pintarPagos() {
+  const d = RP, r = d.resumen;
+  $('rp-kpis').innerHTML = `
+    <div class="kpi a"><div class="l">Total cobrado</div><div class="v">${money(r.suma)}</div><div class="s">${r.pagos} pagos · ${r.ventas} ventas</div></div>
+    <div class="kpi clic ${r.n_sin_comprobante ? 'w' : ''}" onclick="filtroRapido('rp-tipocomp','sin')" title="Clic para ver solo estos"><div class="l">Sin comprobante</div><div class="v">${money(r.sin_comprobante)}</div><div class="s">${r.n_sin_comprobante} pagos · posibles ventas por facturar</div></div>
+    <div class="kpi clic ${r.n_canceladas ? 'r' : ''}" onclick="filtroRapido('rp-estado','canceladas')" title="Clic para ver solo estos"><div class="l">De ventas canceladas</div><div class="v">${money(r.canceladas)}</div><div class="s">${r.n_canceladas} pagos · revisar saldo a favor</div></div>
+    <div class="kpi clic" onclick="filtroRapido('rp-cuadre','abierto')" title="Clic para ver solo estos"><div class="l">En días sin cierre</div><div class="v">${money(r.sin_cierre)}</div><div class="s">cierre de caja pendiente</div></div>`;
+  $('rp-desglose').classList.toggle('oculto', !d.pagos.length);
+  hbars('rp-por-emp', r.por_empresa_cuenta.map(x => ({ ...x, k: x.k === '—' ? 'Sin cuenta bancaria (efectivo u otros)' : x.k }))); hbars('rp-por-met', r.por_metodo);
+  $('rp-card').classList.remove('oculto');
+  if (!d.pagos.length) { $('rp-tabla').innerHTML = '<div class="vacio">No hay pagos con esos filtros.</div>'; return; }
+  let h = '';
+  d.pagos.forEach((x, i) => {
+    const canc = x.estado_venta === 'cancelled';
+    h += `<tr>
+      <td style="white-space:nowrap">${fTxt(x.fecha, true)}</td>
+      <td><div class="nom">${esc(x.cliente)}</div><div class="sku">${esc(x.cliente_doc_tipo)} ${esc(x.cliente_doc)}</div></td>
+      <td>${esc(x.metodo)}</td><td>${esc(x.cuenta)}</td><td>${esc(x.empresa_cuenta)}</td>
+      <td style="white-space:nowrap">${esc(x.venta)}${canc ? ' <span class="chip c-r">Cancelada</span>' : ''}</td>
+      <td>${esc(x.empresa_gestiona)}</td><td>${esc(x.empresa_producto)}</td>
+      <td>${x.tipo_comprobante ? esc(x.comprobante) : '<span class="chip c-w">Sin comprobante</span>'}</td>
+      <td>${esc(x.nota_pago)}${x.obs_venta ? `<div class="sku">${esc(x.obs_venta)}</div>` : ''}</td>
+      <td>${x.cuadre === 'Cerrado' ? '<span class="chip c-ok">Cerrado</span>' : '<span class="chip c-w">Sin cerrar</span>'}</td>
+      <td class="n"><b>${money(x.monto)}</b></td><td class="n">${money(x.venta_total)}</td>
+      <td class="n">${x.venta_saldo > 0 ? `<span style="color:var(--fg-r);font-weight:600">${money(x.venta_saldo)}</span>` : x.venta_sobrepago > 0 ? `<span class="chip c-v" title="Se pagó más que el total">+${money(x.venta_sobrepago)}</span>` : '<span class="chip c-ok">Pagada</span>'}</td>
+    </tr>`;
+    const sig = d.pagos[i + 1];
+    if (!sig || sig._sale_id !== x._sale_id) {
+      const n = d.pagos.filter(y => y._sale_id === x._sale_id).length;
+      if (n > 1 || x._pagos_fuera > 0) {
+        const aviso = x._pagos_fuera > 0 ? ` <span class="chip c-w" title="Pagos de esta venta fuera del periodo">+${x._pagos_fuera} pago(s) fuera del periodo: ${money(x._monto_fuera)}</span>` : '';
+        h += `<tr class="sub"><td colspan="11" class="n">Cobrado en el periodo · ${esc(x.venta)} (${n} pago${n > 1 ? 's' : ''})${aviso}</td><td class="n">${money(x._total_venta)}</td><td></td><td></td></tr>`;
+      }
+    }
+  });
+  $('rp-tabla').innerHTML = `<table><thead><tr><th>Fecha</th><th>Cliente</th><th>Método</th><th>Cuenta</th><th>Empresa cuenta</th><th>Venta</th><th>Gestiona</th><th>Empresa producto</th><th>Comprobante</th><th>Nota / obs.</th><th>Cierre</th><th class="n">Monto pago</th><th class="n">Valor venta</th><th class="n">Saldo</th></tr></thead><tbody>${h}</tbody></table>`;
+}
+async function excelPagos() {
+  const p = paramsRP(); if (!p) return;
+  [['cuenta', 'cuenta_nombre'], ['metodo', 'metodo_nombre'], ['empresa-cuenta', 'empresa_cuenta_nombre']].forEach(([id, k]) => { const t = selTxt('rp-' + id); if (t) p.set(k, t); });
+  showToast('Generando Excel…');
+  try { await descargar('/admin/reporte-pagos-excel?' + p.toString(), 'pagos.xlsx'); showToast('✓ Excel descargado'); } catch (e) { showToast(e.message, true); }
+}
+
+// ── PDF (jsPDF apaisado, membrete Kuranko) ──
+function exportarPDF(nombre, titulo, cols, filas, filtros, nota) {
+  if (!window.jspdf) { showToast('No cargó la librería de PDF; revisa tu conexión', true); return; }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+  const W = doc.internal.pageSize.getWidth();
+  doc.setFontSize(15); doc.setTextColor(0, 7, 38); doc.setFont(undefined, 'bold'); doc.text('Kuranko', 40, 34);
+  doc.setFontSize(12); doc.text(titulo, 40, 52);
+  doc.setFontSize(8); doc.setTextColor(90, 90, 90); doc.setFont(undefined, 'normal');
+  doc.text('Exportado: ' + new Date().toLocaleString('es-PE', { timeZone: 'America/Lima' }), W - 40, 34, { align: 'right' });
+  doc.text(doc.splitTextToSize(filtros || '', W / 2), W - 40, 48, { align: 'right' });
+  let y = 66;
+  if (nota) { doc.setFontSize(7.5); doc.setTextColor(60, 60, 60); const l = doc.splitTextToSize(nota, W - 80); doc.text(l, 40, 68); y = 68 + l.length * 9 + 4; }
+  doc.autoTable({
+    startY: y, head: [cols], body: filas, styles: { fontSize: 6, cellPadding: 2, overflow: 'linebreak' },
+    headStyles: { fillColor: [0, 7, 38], textColor: 255, fontSize: 6 }, alternateRowStyles: { fillColor: [245, 246, 250] },
+    margin: { left: 40, right: 40 },
+    didDrawPage: (dd) => { doc.setFontSize(7); doc.setTextColor(120); doc.text('Página ' + dd.pageNumber, W - 40, doc.internal.pageSize.getHeight() - 16, { align: 'right' }); }
+  });
+  doc.save(nombre);
+}
+const stamp = () => { const d = new Date(), p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`; };
+function textoFiltrosRP() {
+  const parts = [`${fTxt($('rp-desde').value)} – ${fTxt($('rp-hasta').value)}`];
+  [['rp-empresa', 'Gestiona'], ['rp-empresa-prod', 'Producto'], ['rp-empresa-cuenta', 'Dueña cuenta'], ['rp-cuenta', 'Cuenta'], ['rp-metodo', 'Método'], ['rp-tipocomp', 'Comprobante'], ['rp-cuadre', 'Cierre'], ['rp-estado', 'Ventas'], ['rp-saldo', 'Saldo']]
+    .forEach(([id, k]) => { if ($(id).value) parts.push(k + ': ' + selTxt(id)); });
+  if ($('rp-q').value.trim()) parts.push('Buscar: ' + $('rp-q').value.trim());
+  return parts.join(' · ');
+}
+async function pdfPagos() {
+  const p = paramsRP(); if (!p) return;
+  try {
+    const d = await apiCall('/admin/reporte-pagos?' + p.toString());
+    if (!d.pagos.length) { showToast('No hay pagos con esos filtros', true); return; }
+    const f2 = n => Number(n).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const cols = ['Fecha', 'Cliente', 'DNI/RUC', 'Método', 'Cuenta', 'Empresa cuenta', 'Venta', 'Estado', 'Gestiona', 'Comprobante', 'Nota', 'Cierre', 'Monto', 'Valor venta', 'Saldo'];
+    const sub = { fontStyle: 'bold', fillColor: [239, 239, 244] };
+    const filas = [];
+    d.pagos.forEach((x, i) => {
+      filas.push([fTxt(x.fecha, true), x.cliente, x.cliente_doc, x.metodo, x.cuenta, x.empresa_cuenta, x.venta, x.estado_venta_txt, x.empresa_gestiona,
+        x.tipo_comprobante ? x.comprobante : 'SIN COMPROBANTE', x.nota_pago, x.cuadre, f2(x.monto), f2(x.venta_total), x.venta_saldo > 0 ? f2(x.venta_saldo) : 'pagada']);
+      const sig = d.pagos[i + 1];
+      if (!sig || sig._sale_id !== x._sale_id) {
+        const n = d.pagos.filter(y => y._sale_id === x._sale_id).length;
+        if (n > 1 || x._pagos_fuera > 0) {
+          const av = x._pagos_fuera > 0 ? `  (+${x._pagos_fuera} pago(s) fuera del periodo: S/ ${f2(x._monto_fuera)})` : '';
+          filas.push([{ content: `Cobrado en el periodo · ${x.venta} (${n} pago${n > 1 ? 's' : ''})${av}`, colSpan: 12, styles: { ...sub, halign: 'right' } },
+            { content: f2(x._total_venta), styles: { ...sub, halign: 'right' } }, { content: '', colSpan: 2, styles: sub }]);
+        }
+      }
+    });
+    const r = d.resumen;
+    exportarPDF(`pagos-${stamp()}-${periodoTxt('rp')}.pdf`, 'Reporte de pagos', cols, filas,
+      textoFiltrosRP() + ` · ${r.pagos} pagos · Total S/ ${f2(r.suma)}`,
+      'Todos los pagos listados son dinero YA RECIBIDO. "Cierre" indica si el cierre administrativo del día se hizo, NO si el pago está pendiente. "Saldo" es lo que falta cobrar de la venta contando todos sus pagos.');
+  } catch (e) { showToast(e.message, true); }
+}
+
+// ════════════════════════════ KARDEX ════════════════════════════
+let KX = null, kxVista = 'res', kxVid = null, kxOpcionesOk = false;
+async function cargarOpcionesKx() {
+  if (kxOpcionesOk) return; kxOpcionesOk = true;
+  try {
+    const d = await apiCall('/admin/kardex/opciones');
+    const TIPO = { warehouse: 'Almacén', store: 'Tienda', consignment: 'Consignación' };
+    $('kx-ubic').innerHTML = '<option value="">Todas (kardex global)</option>' + d.ubicaciones.map(u => `<option value="${u.id}">${esc(u.nombre)}${TIPO[u.tipo] ? ' · ' + TIPO[u.tipo] : ''}</option>`).join('');
+    $('kx-ops').innerHTML = d.operaciones.map(o => `<option value="cod:${o.codigo}">${o.codigo} · ${esc(o.nombre)}</option>`).join('');
+  } catch (e) { kxOpcionesOk = false; showToast('No se pudieron cargar las ubicaciones: ' + e.message, true); }
+  restaurarFiltros('kx');
+  apiCall('/admin/kardex/productos').then(d => {
+    const vistos = new Set(), op = [];
+    d.productos.forEach(x => { if (x.sku) op.push(`<option value="${esc(x.sku)}">${esc(x.variacion || x.producto)}</option>`); if (!vistos.has(x.producto)) { vistos.add(x.producto); op.push(`<option value="${esc(x.producto)}">`); } });
+    $('kx-lista').innerHTML = op.join('');
+  }).catch(() => {});
+}
+function paramsKx() {
+  const p = new URLSearchParams();
+  const de = $('kx-desde').value, ha = $('kx-hasta').value;
+  if (!de || !ha) { showToast('Elige el periodo (desde y hasta)', true); return null; }
+  if (de > ha) { showToast('"Desde" es posterior a "Hasta"', true); return null; }
+  p.set('desde', de); p.set('hasta', ha);
+  const t = $('kx-texto').value.trim(); if (t) p.set('texto', t);
+  if ($('kx-ubic').value) p.set('ubicacion', $('kx-ubic').value);
+  if ($('kx-op').value) p.set('operacion', $('kx-op').value);
+  if ($('kx-alertas').checked) p.set('solo_alertas', '1');
+  return p;
+}
+async function verKardex() {
+  const p = paramsKx(); if (!p) return;
+  guardarFiltros('kx');
+  const b = $('kx-btn'); b.disabled = true; b.textContent = 'Calculando…';
+  try {
+    KX = await apiCall('/admin/kardex?' + p.toString());
+    kxVid = null;
+    $('kx-hora').textContent = 'Actualizado ' + new Date().toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
+    if ($('kx-op').value || $('kx-alertas').checked) kxVista = 'det';
+    pintarKardex();
+  } catch (e) { showToast(e.message, true); }
+  finally { b.disabled = false; b.textContent = 'Ver'; }
+}
+function vistaKx(v) { kxVista = v; if (v === 'res') kxVid = null; pintarKardex(); }
+function verProducto(vid) { kxVid = vid; kxVista = 'det'; pintarKardex(); }
+function pintarKardex() {
+  const d = KX, t = d.totales;
+  $('kx-kpis').innerHTML = t ? `
+    <div class="kpi"><div class="l">Saldo inicial</div><div class="v">${money(t.ini_v)}</div><div class="s">${num(t.ini_q)} und al ${fTxt(d.filtros.desde)}</div></div>
+    <div class="kpi"><div class="l">Entradas</div><div class="v" style="color:var(--fg-ok)">${money(t.ent_v)}</div><div class="s">${num(t.ent_q)} und</div></div>
+    <div class="kpi"><div class="l">Salidas (costo)</div><div class="v" style="color:var(--fg-r)">${money(t.sal_v)}</div><div class="s">${num(t.sal_q)} und</div></div>
+    <div class="kpi a"><div class="l">Saldo final</div><div class="v">${money(t.fin_v)}</div><div class="s">${num(t.fin_q)} und al ${fTxt(d.filtros.hasta)}</div></div>
+    <div class="kpi"><div class="l">Productos</div><div class="v">${num(t.productos)}</div><div class="s">${num(t.movimientos)} movimientos</div></div>` : '';
+  $('kx-avisos').innerHTML = (d.avisos || []).map(a => `<div class="aviso">⚠ ${esc(a)}</div>`).join('') +
+    (d.truncado ? `<div class="aviso">Se muestran ${d.filas.length.toLocaleString('es-PE')} de ${d.total.toLocaleString('es-PE')} movimientos. Acota el filtro o descarga el Excel para ver todo.</div>` : '');
+  $('kx-card').classList.remove('oculto');
+  $('kx-v-res').classList.toggle('on', kxVista === 'res'); $('kx-v-det').classList.toggle('on', kxVista === 'det');
+  const prodSel = kxVid ? d.resumen.find(r => r.vid === kxVid) : null;
+  $('kx-filtro-prod').innerHTML = prodSel ? `Mostrando: <b>${esc(prodSel.producto)}</b> <a href="#" onclick="kxVid=null;pintarKardex();return false">ver todos</a>` : '';
+  if (kxVista === 'res') return pintarResumenKx();
+  pintarDetalleKx();
+}
+function pintarResumenKx() {
+  const d = KX;
+  if (!d.resumen.length) { $('kx-tabla').innerHTML = '<div class="vacio">No hay movimientos ni saldos con esos filtros.</div>'; return; }
+  const conStock = d.resumen.some(r => r.stock_actual != null);
+  const filas = d.resumen.map(r => `<tr class="clic" onclick="verProducto(${r.vid})" title="Ver sus movimientos">
+    <td><div class="nom">${esc(r.producto)}</div><div class="sku">${esc(r.sku)}</div></td>
+    <td class="n">${num(r.ini_q)}</td><td class="n">${money(r.ini_v)}</td>
+    <td class="n ent">${num(r.ent_q)}</td><td class="n ent">${money(r.ent_v)}</td>
+    <td class="n sal">${num(r.sal_q)}</td><td class="n sal">${money(r.sal_v)}</td>
+    <td class="n"><b>${num(r.fin_q)}</b></td><td class="n"><b>${money(r.fin_v)}</b></td><td class="n">${money(r.fin_cu)}</td>
+    ${conStock ? `<td class="n">${r.cuadra ? num(r.stock_actual) : `<span class="chip c-r" title="El ERP tiene ${num(r.stock_actual)} und">${num(r.stock_actual)}</span>`}</td>` : ''}
+    <td>${r.n_alertas ? `<span class="chip c-w">${r.n_alertas}</span>` : ''}</td></tr>`).join('');
+  const t = d.totales;
+  $('kx-tabla').innerHTML = `<table><thead>
+    <tr class="g"><th></th><th colspan="2">Saldo inicial</th><th colspan="2">Entradas</th><th colspan="2">Salidas</th><th colspan="3">Saldo final</th>${conStock ? '<th></th>' : ''}<th></th></tr>
+    <tr><th>Producto</th><th class="n">Cant.</th><th class="n">Valor</th><th class="n">Cant.</th><th class="n">Valor</th><th class="n">Cant.</th><th class="n">Valor</th><th class="n">Cant.</th><th class="n">Valor</th><th class="n">C.u.</th>${conStock ? '<th class="n">Stock ERP</th>' : ''}<th>Alertas</th></tr>
+  </thead><tbody>${filas}<tr class="sub"><td>TOTAL</td><td class="n">${num(t.ini_q)}</td><td class="n">${money(t.ini_v)}</td><td class="n">${num(t.ent_q)}</td><td class="n">${money(t.ent_v)}</td><td class="n">${num(t.sal_q)}</td><td class="n">${money(t.sal_v)}</td><td class="n">${num(t.fin_q)}</td><td class="n">${money(t.fin_v)}</td><td></td>${conStock ? '<td></td>' : ''}<td></td></tr></tbody></table>`;
+}
+const NIVEL = { err: 'c-r', warn: 'c-w', info: 'c-v', ok: 'c-ok' };
+function pintarDetalleKx() {
+  const d = KX;
+  const filas = kxVid ? d.filas.filter(x => x.vid === kxVid) : d.filas;
+  if (!filas.length) { $('kx-tabla').innerHTML = '<div class="vacio">No hay movimientos con esos filtros.</div>'; return; }
+  const resPorVid = new Map(d.resumen.map(r => [r.vid, r]));
+  const mostrarIni = !d.filtros.operacion && !d.filtros.solo_alertas;
+  let h = '', prev = null;
+  // Se arma en bloques para no congelar la pantalla con miles de filas
+  filas.forEach(x => {
+    if (x.vid !== prev) {
+      const r = resPorVid.get(x.vid);
+      h += `<tr class="sub"><td colspan="15"><span>${esc(x.producto)}</span> <span class="sku">${esc(x.sku)}</span></td></tr>`;
+      if (mostrarIni && r) h += `<tr class="ini"><td>${fTxt(d.filtros.desde)}</td><td colspan="3">Saldo inicial</td><td class="n"></td><td></td><td></td><td class="n"></td><td></td><td></td><td class="n">${num(r.ini_q)}</td><td class="n">${r.ini_q > 0 ? money(r.ini_v / r.ini_q) : ''}</td><td class="n">${money(r.ini_v)}</td><td colspan="2"></td></tr>`;
+      prev = x.vid;
+    }
+    const interno = x.transf_q != null;
+    h += `<tr>
+      <td style="white-space:nowrap">${fTxt(x.fecha, true)}</td>
+      <td>${esc(x.tipo)}${x.codigo ? ` <span class="sku">${esc(x.codigo)}</span>` : ''}<div class="sku">${esc(x.operacion)}</div></td>
+      <td>${esc(x.documento)}${x.usuario ? `<div class="sku">${esc(x.usuario)}</div>` : ''}</td>
+      <td>${esc(x.ubicacion)}</td>
+      <td class="n ent">${interno ? `<span class="chip c-g" title="Transferencia interna: no cambia el saldo global">${num(x.transf_q)} ⇄</span>` : num(x.ent_q)}</td><td class="n ent">${x.ent_cu != null ? money(x.ent_cu) : ''}</td><td class="n ent">${x.ent_v != null ? money(x.ent_v) : ''}</td>
+      <td class="n sal">${num(x.sal_q)}</td><td class="n sal">${x.sal_cu != null ? money(x.sal_cu) : ''}</td><td class="n sal">${x.sal_v != null ? money(x.sal_v) : ''}</td>
+      <td class="n"><b>${num(x.saldo_q)}</b></td><td class="n">${x.saldo_cu != null ? money(x.saldo_cu) : ''}</td><td class="n"><b>${money(x.saldo_v)}</b></td>
+      <td class="n">${x.precio_unit != null ? money(x.precio_unit) : ''}${x.margen_unit != null ? `<div class="sku" style="color:${x.margen_unit < 0 ? 'var(--fg-r)' : 'var(--fg-ok)'}">${money(x.margen_unit)}</div>` : ''}</td>
+      <td>${x.alerta ? `<span class="chip ${NIVEL[x.alerta_nivel] || 'c-g'}">${esc(x.alerta)}</span>` : ''}${x.nota ? `<div class="sku" style="margin-top:3px">${esc(x.nota)}</div>` : ''}</td>
+    </tr>`;
+  });
+  $('kx-tabla').innerHTML = `<table><thead>
+    <tr class="g"><th colspan="4"></th><th colspan="3">Entradas</th><th colspan="3">Salidas</th><th colspan="3">Saldo</th><th colspan="2"></th></tr>
+    <tr><th>Fecha</th><th>Tipo / operación</th><th>Documento</th><th>Ubicación</th><th class="n">Cant.</th><th class="n">C.u.</th><th class="n">Total</th><th class="n">Cant.</th><th class="n">C.u.</th><th class="n">Total</th><th class="n">Cant.</th><th class="n">C.u.</th><th class="n">Total</th><th class="n">Precio / margen</th><th>Alerta / nota</th></tr>
+  </thead><tbody>${h}</tbody></table>`;
+}
+async function excelKardex() {
+  const p = paramsKx(); if (!p) return;
+  if ($('kx-ubic').value) p.set('ubicacion_nombre', selTxt('kx-ubic'));
+  showToast('Generando Excel… puede tardar unos segundos');
+  try { await descargar('/admin/kardex-excel?' + p.toString(), 'kardex.xlsx'); showToast('✓ Excel descargado'); } catch (e) { showToast(e.message, true); }
+}
+async function pdfKardex() {
+  if (!KX) { showToast('Primero pulsa "Ver"', true); return; }
+  const d = KX, f2 = n => n == null ? '' : Number(n).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const filtros = [`${fTxt(d.filtros.desde)} – ${fTxt(d.filtros.hasta)}`, d.filtros.texto && 'Producto: ' + d.filtros.texto,
+    $('kx-ubic').value ? 'Ubicación: ' + selTxt('kx-ubic') : 'Global', d.filtros.operacion && 'Movimiento: ' + selTxt('kx-op')].filter(Boolean).join(' · ');
+  if (kxVista === 'res') {
+    const cols = ['Producto', 'SKU', 'Ini. cant', 'Ini. valor', 'Ent. cant', 'Ent. valor', 'Sal. cant', 'Sal. valor', 'Final cant', 'Final valor', 'C.u. final'];
+    const filas = d.resumen.map(r => [r.producto, r.sku, num(r.ini_q), f2(r.ini_v), num(r.ent_q), f2(r.ent_v), num(r.sal_q), f2(r.sal_v), num(r.fin_q), f2(r.fin_v), f2(r.fin_cu)]);
+    const t = d.totales; filas.push(['TOTAL', '', num(t.ini_q), f2(t.ini_v), num(t.ent_q), f2(t.ent_v), num(t.sal_q), f2(t.sal_v), num(t.fin_q), f2(t.fin_v), '']);
+    exportarPDF(`kardex-resumen-${stamp()}-${periodoTxt('kx')}.pdf`, 'Kardex valorizado — resumen por producto (FIFO)', cols, filas, filtros);
+  } else {
+    const lista = kxVid ? d.filas.filter(x => x.vid === kxVid) : d.filas;
+    const cols = ['Fecha', 'Producto', 'Tipo', 'Cód', 'Documento', 'Ubicación', 'Ent. cant', 'Ent. c.u.', 'Ent. total', 'Sal. cant', 'Sal. c.u.', 'Sal. total', 'Saldo cant', 'Saldo c.u.', 'Saldo total', 'Alerta'];
+    const filas = lista.map(x => [fTxt(x.fecha, true), x.producto + (x.sku ? ' · ' + x.sku : ''), x.tipo, x.codigo, x.documento, x.ubicacion,
+      x.transf_q != null ? num(x.transf_q) + ' (interno)' : num(x.ent_q), f2(x.ent_cu), f2(x.ent_v), num(x.sal_q), f2(x.sal_cu), f2(x.sal_v), num(x.saldo_q), f2(x.saldo_cu), f2(x.saldo_v), x.alerta]);
+    exportarPDF(`kardex-${stamp()}-${periodoTxt('kx')}.pdf`, 'Kardex valorizado (FIFO)', cols, filas, filtros + ` · ${lista.length} movimientos`);
+  }
+}
+
+// ── Arranque ──
+cargarFiltrosRP();
+let tabIni = 'pagos'; try { tabIni = localStorage.getItem('cont_tab') || 'pagos'; } catch (e) {}
+restaurarFiltros('kx');
+pestana(tabIni === 'kardex' ? 'kardex' : 'pagos');
+</script>
+</body>
+</html>

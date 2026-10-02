@@ -139,33 +139,6 @@ module.exports = function registrarAccesos({
     } catch (e) { res.status(500).json({ error: 'Error: ' + e.message }); }
   });
 
-  // ════════════════════════════════════════════════════════════════════════════
-  // REPORTE 3.2 — LISTA DE PAGOS EN EL TIEMPO
-  // Cada fila es un pago: venta, empresa que gestiona la venta, empresa(s) del producto (por
-  // el lote FIFO), método, cuenta destino, comprobante, notas y cuadre de caja.
-  // ════════════════════════════════════════════════════════════════════════════
-
-  // Datos para poblar los filtros (métodos de pago y cuentas bancarias)
-  // ════════════════════════════════════════════════════════════════════════════
-  // REPORTE 3.1 — KARDEX VALORIZADO
-  // Movimientos de stock por producto, valorizados, en línea de tiempo, con código
-  // SUNAT real, saldo acumulado y totales por producto.
-  // ════════════════════════════════════════════════════════════════════════════
-
-  // Mapa de códigos SUNAT (catálogo Tipo de Operación) → nombre legible
-  const CODIGOS_SUNAT = {
-    '01': 'Venta Nacional', '02': 'Compra Nacional', '03': 'Consignación Recibida',
-    '04': 'Consignación Entregada', '05': 'Devolución Recibida', '06': 'Devolución Entregada',
-    '07': 'Bonificación', '08': 'Premio', '09': 'Donación', '10': 'Salida a Producción',
-    '11': 'Transferencia entre almacenes', '12': 'Retiro', '13': 'Mermas', '14': 'Desmedros',
-    '15': 'Destrucción', '16': 'Saldo Inicial', '17': 'Exportación', '18': 'Importación',
-    '19': 'Entrada de Producción'
-  };
-  const TIPO_MOV_NOM = {
-    purchase: 'Entrada', sale: 'Venta', transfer: 'Transferencia',
-    adjustment: 'Ajuste', return: 'Devolución'
-  };
-
   // ── Módulo Contabilidad (kardex + reporte de pagos) en modulos/contabilidad.js ──
   // Se carga más abajo, donde VV ya está definido.
 

@@ -235,7 +235,8 @@ let modSeguimiento = null;
   //    Frontend propio en public/restock.html (iframe dentro del panel).
   require('./modulos/restock')({ app, authAdmin, mRestock, prodPool, portalPool, VV });
 
-  // ── Módulo Promociones recomendadas ──
+  // ── Módulo Promociones recomendadas (candidatos a descuento/liquidación) ──
+  //    Frontend propio en public/promociones.html (iframe dentro del panel).
   require('./modulos/promociones')({ app, authAdmin, mInv, prodPool, VV });
 
   // ── Módulo Clientes BI (retención, estados, top, riesgo) ──
@@ -289,10 +290,6 @@ let modSeguimiento = null;
   // ── RESUMEN / KPIs ──
 
   // ── INVENTARIO ──
-  // ── CANDIDATOS A PROMOCIÓN ──
-  // Analiza stock y ventas para sugerir qué productos convendría promocionar.
-  // Criterios: estancado | sobrestock | margen_lento | lote_antiguo | casi_agotado
-
 
   // ── ANÁLISIS DE CAPITAL INMOVILIZADO (Inventario) ──
   // Solo stock, capital y rotación. NO incluye márgenes ni ganancias:

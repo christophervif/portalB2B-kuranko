@@ -613,29 +613,10 @@ tr:hover td{background:var(--hover)}
     </div>
 
     <div id="tab-promociones" class="panel">
-        <div class="dbcard">
-          <h4>Promociones recomendadas</h4>
-          <p class="card-note" id="promo-desc">Productos con stock que no venden hace 4+ meses: dinero congelado, candidatos clásicos a descuento.</p>
-          <div class="filtros-fila" style="align-items:center;gap:8px;flex-wrap:wrap">
-            <select id="promo-criterio" onchange="promoCambioCriterio()">
-              <option value="estancado">Stock estancado (4+ meses sin vender)</option>
-              <option value="sobrestock">Sobre-stock (12+ meses para agotar)</option>
-              <option value="margen_lento">Margen alto + venta lenta</option>
-              <option value="lote_antiguo">Lotes antiguos (1+ año en almacén)</option>
-              <option value="casi_agotado">Casi agotados con demanda (última unidad)</option>
-            </select>
-            <select id="promo-marca"><option value="">Todas las marcas</option></select>
-            <input id="promo-margen" type="number" min="0" max="100" placeholder="Margen mín. %" style="width:120px">
-            <input id="promo-capital" type="number" min="0" placeholder="Capital mín. S/" style="width:130px">
-            <button class="btn" onclick="cargarPromos()">Ver candidatos</button>
-            <button class="btn" onclick="descargarPromosExcel()">Excel</button>
-          </div>
-          <div class="filtros-fila" style="align-items:center;gap:8px">
-            <input id="promo-buscar" type="text" placeholder="Buscar por nombre o SKU..." oninput="promoFiltrarTexto()" style="flex:1;min-width:200px">
-          </div>
-          <div id="promo-resumen" style="margin:8px 0;font-size:13px;color:var(--muted)"></div>
-          <div id="promo-tabla" style="overflow-x:auto;max-height:60vh;overflow-y:auto"></div>
-        </div>
+      <div class="card" style="padding:0;overflow:hidden">
+        <iframe id="promo-frame" title="Promociones"
+          style="width:100%;height:calc(100vh - 150px);min-height:560px;border:0;display:block"></iframe>
+      </div>
     </div>
 
     <div id="tab-restock" class="panel">
@@ -1070,6 +1051,11 @@ function cargarDatosTab(id){
     // Inventario (foto del stock hoy) en iframe (public/inventario.html); comparte token/origen.
     const fr=document.getElementById('inv-frame');
     if(fr&&!fr.src){fr.src='/inventario.html?v='+Date.now();}
+  }
+  else if(id==='promociones'){
+    // Promociones recomendadas en iframe (public/promociones.html); comparte token/origen.
+    const fr=document.getElementById('promo-frame');
+    if(fr&&!fr.src){fr.src='/promociones.html?v='+Date.now();}
   }
   else if(id==='restock'){
     // Restock + exportador de inventario en iframe (public/restock.html); comparte token/origen.
@@ -1737,79 +1723,9 @@ function subtabAud(cual){
     if(t)t.classList.toggle('active',x===cual);
   });
 }
-// ══════════ Promociones recomendadas ══════════
-const PROMO_DESCS={
-  estancado:'Productos con stock que no venden hace 4+ meses: dinero congelado, candidatos clásicos a descuento.',
-  sobrestock:'Mucho stock para su ritmo de venta: a este paso tardarías 12+ meses en agotarlo.',
-  margen_lento:'Margen de 40%+ pero venta lenta: puedes bajar el precio sin perder plata.',
-  lote_antiguo:'El lote más viejo lleva 1+ año en almacén: riesgo de obsolescencia (los modelos cambian de temporada).',
-  casi_agotado:'Venden bien y quedan 3 o menos unidades: no para descuento, sino para promo de urgencia ("última unidad").'
-};
+// Promociones recomendadas → public/promociones.html (iframe)
 // Inventario (capital parado, ubicaciones, salud del stock) → public/inventario.html (iframe)
-
 // Restock y Exportar inventario → public/restock.html (iframe)
-
-function promoCambioCriterio(){
-  const c=document.getElementById('promo-criterio').value;
-  document.getElementById('promo-desc').textContent=PROMO_DESCS[c]||'';
-}
-function promoParams(){
-  const p=new URLSearchParams();
-  p.set('criterio',document.getElementById('promo-criterio').value);
-  const marca=document.getElementById('promo-marca').value; if(marca)p.set('marca',marca);
-  const margen=document.getElementById('promo-margen').value; if(margen)p.set('margen_min',margen);
-  const capital=document.getElementById('promo-capital').value; if(capital)p.set('capital_min',capital);
-  return p;
-}
-async function cargarPromos(){
-  const res=document.getElementById('promo-resumen');
-  const cont=document.getElementById('promo-tabla');
-  res.textContent='Analizando inventario y ventas...';
-  cont.innerHTML='';
-  try{
-    const d=await apiCall('/api/promo-candidatos?'+promoParams().toString(),'GET');
-    // Llenar el desplegable de marcas (con las del criterio actual), conservando la selección
-    const selMarca=document.getElementById('promo-marca');
-    const marcaActual=selMarca.value;
-    selMarca.innerHTML='<option value="">Todas las marcas</option>'+
-      (d.marcas||[]).map(m=>`<option value="${esc(m)}"${m===marcaActual?' selected':''}>${esc(m)}</option>`).join('');
-    const cap='S/ '+Number(d.capital_total||0).toLocaleString('es-PE',{minimumFractionDigits:2});
-    res.innerHTML=`<b>${d.total}</b> candidato(s) · Capital involucrado: <b>${cap}</b>`+(d.total>300?' <span class="badge-y">mostrando 300</span>':'');
-    if(!d.items.length){cont.innerHTML='<div class="muted">✓ Ningún producto cumple este criterio con esos filtros.</div>';return;}
-    const c=document.getElementById('promo-criterio').value;
-    const esUrgencia=c==='casi_agotado';
-    window._promoItems=d.items;
-    cont.innerHTML='<table class="deudas-tbl" id="promo-tbl"><thead><tr><th>SKU</th><th>Marca</th><th>Producto</th><th style="text-align:right">Stock</th><th style="text-align:right">Capital</th><th style="text-align:right">'+(esUrgencia?'Unid. 12m':'Días sin venta')+'</th><th style="text-align:right">Meses p/ agotar</th><th style="text-align:right">Precio prom.</th><th style="text-align:right">Margen</th></tr></thead><tbody>'+
-      d.items.map(x=>`<tr data-txt="${esc((x.sku+' '+x.producto).toLowerCase())}">
-        <td>${esc(x.sku)}</td>
-        <td>${esc(x.marca)}</td>
-        <td>${esc(x.producto)}</td>
-        <td style="text-align:right">${x.stock}</td>
-        <td style="text-align:right">S/ ${Number(x.capital).toLocaleString('es-PE',{minimumFractionDigits:2})}</td>
-        <td style="text-align:right">${esUrgencia?x.unidades_12m:(x.dias_sin_venta!=null?x.dias_sin_venta:'<span class="badge-r" style="font-size:9px">nunca (12m)</span>')}</td>
-        <td style="text-align:right">${x.meses_para_agotar!=null?x.meses_para_agotar:'—'}</td>
-        <td style="text-align:right">${x.precio_prom!=null?'S/ '+Number(x.precio_prom).toLocaleString('es-PE',{minimumFractionDigits:2}):'—'}</td>
-        <td style="text-align:right">${x.margen_pct!=null?x.margen_pct+'%':'—'}</td>
-      </tr>`).join('')+'</tbody></table>';
-    promoFiltrarTexto();
-  }catch(e){res.textContent='';showToast(e.message,true);}
-}
-function promoFiltrarTexto(){
-  const q=(document.getElementById('promo-buscar').value||'').toLowerCase().trim();
-  document.querySelectorAll('#promo-tbl tbody tr').forEach(tr=>{
-    tr.style.display=(!q||tr.dataset.txt.includes(q))?'':'none';
-  });
-}
-async function descargarPromosExcel(){
-  try{
-    const r=await fetch(API+'/api/promo-candidatos-excel?'+promoParams().toString(),{headers:{'Authorization':'Bearer '+TOKEN}});
-    if(!r.ok)throw new Error('No se pudo generar el Excel');
-    const blob=await r.blob();
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement('a');a.href=url;a.download=nombreArchivo('promociones','xlsx');a.click();
-    URL.revokeObjectURL(url);
-  }catch(e){showToast(e.message,true);}
-}
 
 function subtabSis(cual){
   // Grupo Sistemas: sync | pagos | accesos

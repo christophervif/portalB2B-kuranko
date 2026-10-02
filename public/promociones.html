@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<script src="/tema.js"></script>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Promociones — Kuranko</title>
+<style>
+:root{
+  --bg:#0a1030;--surface:#111a44;--surface2:#0e1640;--surface3:#18224e;
+  --border:#212b54;--text:#eef1f8;--text2:#c6cee2;--muted:#8a93b4;--muted2:#a2abca;
+  --accent:#FFB30D;--accent-text:#000726;--accent-h:#e6a00c;--hover:#1a2450;--white:#ffffff;
+  --bg-ok:#163a29;--fg-ok:#6ee59a;--bg-warn:#3d3315;--fg-warn:#ffcb52;--bg-r:#3f1c20;--fg-r:#f79a9a;
+  --bg-v:#2a2766;--fg-v:#cecbf6;
+  --radius:18px;--radius-sm:12px;
+  --shadow-sm:0 2px 8px rgba(0,0,0,.10);
+}
+[data-theme="light"]{
+  --bg:#f6f8fd;--surface:#ffffff;--surface2:#fbfcff;--surface3:#f2f5fb;
+  --border:#e3e9f5;--text:#1a2140;--text2:#4a5680;--muted:#9aa3c0;--muted2:#727e9f;
+  --hover:#f2f5fb;--white:#1a2140;
+  --bg-ok:#e8f8ef;--fg-ok:#1f9c56;--bg-warn:#fdf5db;--fg-warn:#9a6b00;--bg-r:#fdeded;--fg-r:#dc4b4b;
+  --bg-v:#eeedfc;--fg-v:#4b43b8;
+  --shadow-sm:0 2px 10px rgba(30,45,90,.04);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{overflow-x:hidden}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px}
+.wrap{max-width:1240px;margin:0 auto;padding:1.25rem}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.1rem;box-shadow:var(--shadow-sm);margin-bottom:16px}
+.card h3{font-size:15px;font-weight:600;color:var(--white);margin-bottom:4px}
+.desc{font-size:12px;color:var(--muted);line-height:1.55}
+.fila{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px}
+.campo{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--muted2)}
+.campo input,.campo select,.fila>select,.fila>input{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:8px 10px;font-size:13px}
+.campo input[type=number]{width:84px}
+input:focus,select:focus{outline:none;border-color:var(--accent)}
+.chk{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);cursor:pointer;white-space:nowrap;padding-bottom:8px}
+.btn{background:var(--accent);border:none;color:var(--accent-text);border-radius:var(--radius-sm);padding:9px 16px;font-size:13px;cursor:pointer;font-weight:600}
+.btn:hover{background:var(--accent-h)}
+.btn:disabled{opacity:.6;cursor:wait}
+.btn-sec{background:var(--surface3);border:1px solid var(--border);color:var(--text2)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:14px}
+.kpi{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:12px;cursor:default}
+.kpi.clic{cursor:pointer}.kpi.clic:hover{border-color:var(--accent)}
+.kpi .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.kpi .v{font-size:1.4rem;font-weight:700;color:var(--white);margin-top:4px}
+.kpi .s{font-size:11px;color:var(--muted2);margin-top:2px}
+.kpi.r .v{color:var(--fg-r)}.kpi.w .v{color:var(--fg-warn)}.kpi.a .v{color:var(--accent)}
+.aviso{font-size:12px;border-radius:10px;padding:8px 10px;margin-top:10px;background:var(--bg-warn);color:var(--fg-warn)}
+.tabla-wrap{overflow:auto;max-height:68vh;margin-top:10px;border:1px solid var(--border);border-radius:12px}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{position:sticky;top:0;background:var(--surface3);text-align:left;padding:8px;color:var(--muted2);font-weight:600;font-size:11px;border-bottom:1px solid var(--border);white-space:nowrap;cursor:pointer;user-select:none;z-index:1}
+th:hover{color:var(--white)}
+th.n,td.n{text-align:right}
+td.n{white-space:nowrap}
+#tbl-promo td:first-child{min-width:240px}
+th.asc::after{content:' ↑';color:var(--accent)}th.desc::after{content:' ↓';color:var(--accent)}
+td{padding:8px;border-bottom:1px solid var(--border);color:var(--text2);vertical-align:top}
+tr:hover td{background:var(--hover)}
+td .nom{color:var(--white);font-weight:500;line-height:1.35}
+td .sku{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--muted)}
+
+.chip{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:20px;white-space:nowrap}
+.c-r{background:var(--bg-r);color:var(--fg-r)}.c-w{background:var(--bg-warn);color:var(--fg-warn)}.c-ok{background:var(--bg-ok);color:var(--fg-ok)}
+.c-v{background:var(--bg-v);color:var(--fg-v)}.c-g{background:var(--surface3);color:var(--text2);border:1px solid var(--border)}
+.sub{font-size:10.5px;color:var(--muted);margin-top:2px;white-space:nowrap}
+.vacio{color:var(--muted);text-align:center;padding:1.5rem;font-size:13px}
+.leyenda{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font-size:11.5px;color:var(--muted)}
+.leyenda span{display:inline-flex;gap:6px;align-items:center}
+details.ayuda{margin-top:10px;font-size:12px;color:var(--text2)}
+details.ayuda summary{cursor:pointer;color:var(--muted2)}
+details.ayuda ul{margin:6px 0 0 18px;line-height:1.6}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--bg-ok);color:var(--fg-ok);padding:12px 18px;border-radius:12px;font-size:13px;display:none;z-index:100;border:1px solid var(--border);max-width:320px}
+.toast.err{background:var(--bg-r);color:var(--fg-r)}
+@media(max-width:640px){.wrap{padding:.75rem}.card{padding:.9rem}.campo input[type=number]{width:70px}}
+</style>
+<style>
+#pr-kpis{grid-template-columns:repeat(auto-fit,minmax(128px,1fr))}
+.kpi.sel{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+.chips{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
+.chip.m-estancado{background:var(--bg-r);color:var(--fg-r)}
+.chip.m-sobrestock{background:var(--bg-warn);color:var(--fg-warn)}
+.chip.m-lote_antiguo{background:var(--bg-warn);color:var(--fg-warn)}
+.chip.m-descontinuado{background:var(--surface3);color:var(--text2);border:1px solid var(--border)}
+.chip.m-modelo_anterior{background:var(--bg-v);color:var(--fg-v)}
+.chip.m-tallas_sueltas{background:var(--bg-v);color:var(--fg-v)}
+.chip.m-margen_lento{background:var(--bg-ok);color:var(--fg-ok)}
+.fila input[type=number]{width:120px}
+</style>
+</head>
+<body>
+<div class="toast" id="toast"></div>
+<div class="wrap">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
+      <div>
+        <h3>Promociones recomendadas</h3>
+        <div class="desc">Productos con stock que conviene mover con descuento, liquidación o empuje comercial. Cada producto muestra <b>por qué</b> es candidato (puede tener varios motivos).</div>
+      </div>
+      <div class="desc" id="pr-hora"></div>
+    </div>
+
+    <div class="fila">
+      <label class="campo" title="Qué stock se analiza">Stock
+        <select id="p-alcance">
+          <option value="propio">Propio (almacenes y tiendas)</option>
+          <option value="todo">Todo (incl. consignación y no vendibles)</option>
+        </select>
+      </label>
+      <label class="campo" title="Días sin vender para considerarlo estancado (los recién llegados no cuentan)">Estancado desde
+        <select id="p-umbral">
+          <option value="90">90 días sin venta</option>
+          <option value="120" selected>120 días sin venta</option>
+          <option value="180">180 días sin venta</option>
+          <option value="365">1 año sin venta</option>
+        </select>
+      </label>
+      <label class="campo" title="Meses que tardarías en agotar el stock al ritmo de venta de los últimos 12 meses">Sobre-stock desde
+        <select id="p-meses">
+          <option value="6">6 meses de stock</option>
+          <option value="12" selected>12 meses de stock</option>
+          <option value="18">18 meses de stock</option>
+          <option value="24">24 meses de stock</option>
+        </select>
+      </label>
+      <button class="btn" id="btn-calc" onclick="cargar()">Analizar</button>
+    </div>
+
+    <div class="kpis" id="pr-kpis"></div>
+
+    <div class="fila">
+      <input id="f-buscar" type="search" placeholder="Buscar SKU o nombre…" oninput="pintar()" style="flex:1;min-width:180px">
+      <select id="f-motivo" onchange="pintar()"><option value="">Todos los motivos</option></select>
+      <select id="f-marca" onchange="pintar()"><option value="">Todas las marcas</option></select>
+      <select id="f-cat" onchange="pintar()"><option value="">Todas las categorías</option></select>
+      <input id="f-capital" type="number" min="0" placeholder="Capital mín. S/" oninput="pintar()">
+      <input id="f-margen" type="number" min="0" max="100" placeholder="Margen mín. %" oninput="pintar()" style="display:none">
+      <button class="btn btn-sec" onclick="limpiar()">Limpiar</button>
+      <button class="btn btn-sec" onclick="excel()">Excel</button>
+    </div>
+    <div class="desc" id="pr-conteo" style="margin-top:8px"></div>
+    <div class="tabla-wrap"><table id="tbl-promo"></table></div>
+
+    <details class="ayuda">
+      <summary>¿Cómo se elige cada motivo?</summary>
+      <ul id="ayuda-lista">
+        <li><span class="chip m-estancado">Estancado</span> sin venta hace más de los días elegidos (o nunca vendió) <b>y</b> su lote más antiguo ya tiene esa edad. Un producto recién llegado que aún no vende no cuenta.</li>
+        <li><span class="chip m-sobrestock">Sobre-stock</span> sí vende, pero al ritmo de los últimos 12 meses tardarías más de los meses elegidos en agotarlo.</li>
+        <li><span class="chip m-lote_antiguo">Lote +1 año</span> tiene lotes con más de un año en almacén (riesgo de que el modelo pierda valor).</li>
+        <li><span class="chip m-descontinuado">Descontinuado</span> está inactivo o borrado en el ERP pero aún tiene stock: liquidar.</li>
+        <li><span class="chip m-modelo_anterior">Modelo anterior</span> el nombre trae un año de modelo anterior al actual (ej. 2025): la temporada nueva lo desplaza.</li>
+        <li><span class="chip m-tallas_sueltas">Tallas/colores sueltos</span> el producto tiene 3+ variaciones activas pero solo 40% o menos siguen con stock, y de esta quedan 3 unidades o menos: restos difíciles de vender a precio completo.</li>
+        <li class="solo-margen" style="display:none"><span class="chip m-margen_lento">Margen alto + lento</span> margen de 40%+ sobre el precio de lista, sin venta hace 60+ días y con 60+ días en almacén: hay espacio para bajar el precio.</li>
+        <li>Se usa el stock por ubicación (igual que Inventario) y se descuentan las unidades reservadas. Si todo está reservado, no aparece.</li>
+        <li class="solo-margen" style="display:none"><b>Desc. sugerido</b>: punto de partida (10% leve, 20% estancado/modelo anterior/lote viejo, 30% descontinuado o +1 año sin venta), nunca por debajo de costo + 5 puntos. <b>Desc. máx.</b> = hasta dónde bajar sin vender bajo costo.</li>
+      </ul>
+    </details>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+//  Promociones recomendadas — frontend (mini-app en iframe dentro de admin.html)
+//  Comparte token y origen con el panel (localStorage 'admtoken').
+//  Backend: modulos/promociones.js (/api/promo-candidatos, /api/promo-candidatos-excel)
+//  El servidor manda todos los candidatos; motivo/marca/categoría/búsqueda se
+//  filtran aquí sin volver a consultar.
+// ═══════════════════════════════════════════════════════════════════════════
+let TOKEN = ''; try { TOKEN = localStorage.getItem('admtoken') || ''; } catch (e) {}
+
+const $ = id => document.getElementById(id);
+function esc(t) { return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function showToast(m, e) { const t = $('toast'); t.textContent = m; t.className = 'toast' + (e ? ' err' : ''); t.style.display = 'block'; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', 3500); }
+async function apiCall(ep) {
+  const r = await fetch(ep, { headers: { 'Authorization': 'Bearer ' + TOKEN } });
+  if (r.status === 401) throw new Error('Sesión del portal expirada — vuelve a entrar al panel.');
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || 'Error');
+  return d;
+}
+async function descargar(ep, nombre) {
+  const r = await fetch(ep, { headers: { 'Authorization': 'Bearer ' + TOKEN } });
+  if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || 'No se pudo generar el archivo'); }
+  const blob = await r.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = nombre; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function nombreArchivo(base, ext) {
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  return `${base}-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.${ext}`;
+}
+const N = (n, dec = 0) => n == null ? '—' : Number(n).toLocaleString('es-PE', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+const S = n => n == null ? '—' : 'S/ ' + N(n, 2);
+const MAX_FILAS = 500; // filas pintadas en pantalla (el Excel trae todo)
+const PKEY = 'promo_params';
+
+let D = null;                               // última respuesta de /api/promo-candidatos
+let orden = { k: null, dir: 'desc' };       // null = orden del servidor (capital desc.)
+let NOM = {};                               // motivo → nombre
+
+function leerParams() { return { alcance: $('p-alcance').value, umbral: $('p-umbral').value, meses: $('p-meses').value }; }
+function leerFiltros() {
+  return { motivo: $('f-motivo').value, marca: $('f-marca').value, categoria: $('f-cat').value,
+    capital_min: $('f-capital').value, margen_min: D && D.con_margen ? $('f-margen').value : '', buscar: $('f-buscar').value.trim() };
+}
+function qs(o) { const p = new URLSearchParams(); Object.entries(o).forEach(([k, v]) => { if (v !== '' && v != null) p.set(k, v); }); return p.toString(); }
+function restaurar() {
+  try {
+    const g = JSON.parse(localStorage.getItem(PKEY) || 'null'); if (!g) return;
+    ['alcance', 'umbral', 'meses'].forEach(k => { if (g[k]) $('p-' + k).value = g[k]; });
+  } catch (e) {}
+}
+function opciones(sel, lista, todos) {
+  const act = sel.value;
+  sel.innerHTML = `<option value="">${todos}</option>` + lista.map(o => {
+    const [v, t] = Array.isArray(o) ? o : [o, o];
+    return `<option value="${esc(v)}"${v === act ? ' selected' : ''}>${esc(t)}</option>`;
+  }).join('');
+  if (sel.value !== act) sel.value = '';
+}
+
+async function cargar() {
+  const btn = $('btn-calc'); btn.disabled = true; btn.textContent = 'Analizando…';
+  $('pr-conteo').textContent = 'Analizando stock y ventas…';
+  try {
+    D = await apiCall('/api/promo-candidatos?' + qs(leerParams()));
+    try { localStorage.setItem(PKEY, JSON.stringify(leerParams())); } catch (e) {}
+    NOM = {}; D.motivos.forEach(m => NOM[m.k] = m.t);
+    $('pr-hora').textContent = 'Actualizado: ' + new Date().toLocaleString('es-PE');
+    opciones($('f-motivo'), D.motivos.map(m => [m.k, m.t]), 'Todos los motivos');
+    opciones($('f-marca'), D.opciones.marcas, 'Todas las marcas');
+    opciones($('f-cat'), D.opciones.categorias, 'Todas las categorías');
+    $('f-margen').style.display = D.con_margen ? '' : 'none';
+    document.querySelectorAll('.solo-margen').forEach(e => e.style.display = D.con_margen ? '' : 'none');
+    pintarKpis();
+    pintar();
+  } catch (e) {
+    $('pr-conteo').textContent = '';
+    showToast(e.message, true);
+  } finally { btn.disabled = false; btn.textContent = 'Analizar'; }
+}
+
+function pintarKpis() {
+  const m = $('f-motivo').value;
+  const kp = [`<div class="kpi clic a${m ? '' : ' sel'}" onclick="elegirMotivo('')"><div class="l">Todos los candidatos</div><div class="v">${N(D.total)}</div><div class="s">${S(D.capital_total)} en stock</div></div>`];
+  D.motivos.forEach(x => {
+    const c = D.conteo[x.k] || { skus: 0, capital: 0 };
+    kp.push(`<div class="kpi clic${m === x.k ? ' sel' : ''}" onclick="elegirMotivo('${x.k}')"><div class="l">${esc(x.t)}</div><div class="v">${N(c.skus)}</div><div class="s">${S(c.capital)}</div></div>`);
+  });
+  $('pr-kpis').innerHTML = kp.join('');
+}
+function elegirMotivo(k) { $('f-motivo').value = k; pintar(); }
+function limpiar() { ['f-buscar', 'f-motivo', 'f-marca', 'f-cat', 'f-capital', 'f-margen'].forEach(id => $(id).value = ''); pintar(); }
+
+function filasFiltradas() {
+  const f = leerFiltros(), txt = f.buscar.toLowerCase();
+  let rows = D.items.filter(x =>
+    (!f.motivo || x.motivos.includes(f.motivo)) &&
+    (!f.marca || x.marca === f.marca) &&
+    (!f.categoria || x.categoria.split(', ').includes(f.categoria)) &&
+    (!f.capital_min || x.capital >= Number(f.capital_min)) &&
+    (!f.margen_min || (x.margen_pct != null && x.margen_pct >= Number(f.margen_min))) &&
+    (!txt || (x.sku + ' ' + x.producto).toLowerCase().includes(txt)));
+  if (orden.k) {
+    const { k, dir } = orden, m = dir === 'asc' ? 1 : -1;
+    rows = rows.slice().sort((a, b) => {
+      let va = a[k], vb = b[k];
+      if (k === 'dias_sin_venta') { va = va == null ? 1e9 : va; vb = vb == null ? 1e9 : vb; } // "nunca" = el más viejo
+      if (va == null) return 1; if (vb == null) return -1;
+      return (typeof va === 'string' ? va.localeCompare(vb) : va - vb) * m;
+    });
+  }
+  return rows;
+}
+function columnas() {
+  const c = [
+    { k: 'producto', t: 'Producto / motivos' }, { k: 'marca', t: 'Marca' },
+    { k: 'stock', t: 'Stock', n: 1 }, { k: 'capital', t: 'Capital', n: 1 },
+    { k: 'dias_sin_venta', t: 'Días sin venta', n: 1 }, { k: 'und_12m', t: 'Vendido 12m', n: 1 },
+    { k: 'meses_para_agotar', t: 'Meses p/ agotar', n: 1 }, { k: 'edad_dias', t: 'Edad lote', n: 1 }
+  ];
+  if (D.con_margen) c.push({ k: 'precio', t: 'Precio lista', n: 1 }, { k: 'margen_pct', t: 'Margen', n: 1 },
+    { k: 'desc_sug_pct', t: 'Desc. sugerido', n: 1 }, { k: 'precio_sug', t: 'Precio promo', n: 1 });
+  return c;
+}
+function ordenar(k) {
+  if (orden.k === k) orden.dir = orden.dir === 'asc' ? 'desc' : 'asc';
+  else { orden.k = k; orden.dir = ['producto', 'marca'].includes(k) ? 'asc' : 'desc'; }
+  pintar();
+}
+
+function pintar() {
+  const t = $('tbl-promo');
+  if (!D) { t.innerHTML = ''; return; }
+  pintarKpis();
+  const rows = filasFiltradas(), cols = columnas();
+  const cap = rows.reduce((s, x) => s + x.capital, 0), und = rows.reduce((s, x) => s + x.stock, 0);
+  $('pr-conteo').innerHTML = `<b>${N(rows.length)}</b> de ${N(D.items.length)} candidato(s) · <b>${N(und)}</b> und · capital <b>${S(cap)}</b>` +
+    (rows.length > MAX_FILAS ? ` · mostrando ${MAX_FILAS} en pantalla (el Excel trae todo)` : '');
+  const head = '<thead><tr>' + cols.map(c => {
+    const cls = [c.n ? 'n' : '', orden.k === c.k ? orden.dir : ''].join(' ').trim();
+    return `<th class="${cls}" onclick="ordenar('${c.k}')">${c.t}</th>`;
+  }).join('') + '</tr></thead>';
+  if (!rows.length) {
+    t.innerHTML = head + `<tbody><tr><td colspan="${cols.length}" class="vacio">${D.items.length ? 'Sin productos con esos filtros.' : '✓ Ningún producto es candidato con estos parámetros.'}</td></tr></tbody>`;
+    return;
+  }
+  t.innerHTML = head + '<tbody>' + rows.slice(0, MAX_FILAS).map(x => {
+    const chips = x.motivos.map(k => {
+      let tt = NOM[k] || k;
+      if (k === 'modelo_anterior' && x.anio_modelo) tt += ' ' + x.anio_modelo;
+      if (k === 'tallas_sueltas' && x.variaciones) tt += ` (${x.variaciones.con_stock} de ${x.variaciones.activas})`;
+      return `<span class="chip m-${k}">${esc(tt)}</span>`;
+    }).join('');
+    const subStock = x.reservadas ? `<div class="sub">${N(x.disponibles)} disp. · ${N(x.reservadas)} reserv.</div>` : '';
+    const subCap = x.capital_antiguo > 0 && x.capital_antiguo < x.capital - 0.01 ? `<div class="sub" title="Parte del capital en lotes de más de 1 año">${S(x.capital_antiguo)} +1 año</div>` : '';
+    const dsv = x.dias_sin_venta == null ? '<span class="chip c-r">nunca</span>' : N(x.dias_sin_venta);
+    let extra = '';
+    if (D.con_margen) {
+      extra = `<td class="n">${S(x.precio)}${x.en_oferta ? '<div class="sub">en oferta</div>' : ''}</td>
+        <td class="n">${x.margen_pct == null ? '<span class="sub">sin precio/costo</span>' : N(x.margen_pct, 1) + '%'}</td>
+        <td class="n">${x.desc_sug_pct == null ? '—' : `<b>${x.desc_sug_pct}%</b><div class="sub">máx. ${x.desc_max_pct}%</div>`}</td>
+        <td class="n">${S(x.precio_sug)}</td>`;
+    }
+    return `<tr>
+      <td><div class="nom">${esc(x.producto)}</div><div class="sku">${esc(x.sku)}${x.categoria ? ' · ' + esc(x.categoria) : ''}</div><div class="chips">${chips}</div></td>
+      <td>${esc(x.marca)}</td>
+      <td class="n">${N(x.stock)}${subStock}</td>
+      <td class="n">${S(x.capital)}${subCap}</td>
+      <td class="n">${dsv}</td>
+      <td class="n">${N(x.und_12m)}<div class="sub">${N(x.und_90d)} en 90d</div></td>
+      <td class="n">${x.meses_para_agotar == null ? '—' : N(x.meses_para_agotar, 1)}</td>
+      <td class="n">${x.edad_dias == null ? '—' : N(x.edad_dias) + ' d'}</td>
+      ${extra}
+    </tr>`;
+  }).join('') + '</tbody>';
+}
+
+async function excel() {
+  if (!D) return;
+  try {
+    showToast('Generando Excel…');
+    await descargar('/api/promo-candidatos-excel?' + qs({ ...leerParams(), ...leerFiltros() }), nombreArchivo('promociones', 'xlsx'));
+  } catch (e) { showToast(e.message, true); }
+}
+
+restaurar();
+cargar();
+</script>
+</body>
+</html>

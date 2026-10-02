@@ -356,3 +356,5 @@ module.exports = function registrarInventario({ app, authAdmin, mInv, prodPool, 
 };
 
 module.exports._test = { calcularInventario, leerFiltros, estadoDe, claseUbicacion };
+// Reglas compartidas (Promociones usa la misma clasificación de ubicaciones)
+module.exports.comun = { claseUbicacion, normalizar, OTROS };

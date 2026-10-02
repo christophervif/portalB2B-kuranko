@@ -57,7 +57,6 @@ th:hover{color:var(--white)}
 th.n,td.n{text-align:right}
 td.n{white-space:nowrap}
 #tbl-restock td:first-child{min-width:220px}
-#inv-ex-tbl td:nth-child(2){min-width:200px}
 th.asc::after{content:' ↑';color:var(--accent)}th.desc::after{content:' ↓';color:var(--accent)}
 td{padding:8px;border-bottom:1px solid var(--border);color:var(--text2);vertical-align:top}
 tr:hover td{background:var(--hover)}
@@ -148,36 +147,13 @@ details.ayuda ul{margin:6px 0 0 18px;line-height:1.6}
     </details>
   </div>
 
-  <!-- ══════════ EXPORTAR INVENTARIO ══════════ -->
-  <div class="card">
-    <h3>Exportar inventario</h3>
-    <div class="desc">Catálogo completo con ventas, margen y rotación. Filtra y descárgalo en Excel o PDF.</div>
-    <div class="fila">
-      <select id="inv-ex-marca"><option value="">Todas las marcas</option></select>
-      <select id="inv-ex-cat"><option value="">Todas las categorías</option></select>
-      <select id="inv-ex-subcat"><option value="">Todas las subcategorías</option></select>
-      <input id="inv-ex-mgmin" type="number" placeholder="Margen mín. %" style="width:120px">
-      <input id="inv-ex-mgmax" type="number" placeholder="Margen máx. %" style="width:120px">
-    </div>
-    <div class="fila" style="align-items:center">
-      <label class="chk" style="padding:0"><input type="checkbox" id="inv-ex-stock"> Solo con stock</label>
-      <label class="chk" style="padding:0"><input type="checkbox" id="inv-ex-ventas"> Solo con ventas</label>
-      <input id="inv-ex-buscar" type="search" placeholder="Buscar SKU o nombre…" oninput="pintarInvExTabla()" style="flex:1;min-width:180px">
-      <button class="btn" onclick="cargarInvExport()">Ver</button>
-      <button class="btn btn-sec" onclick="invExportExcel()">Excel</button>
-      <button class="btn btn-sec" onclick="invExportPDF()">PDF</button>
-    </div>
-    <div class="desc" id="inv-ex-resumen" style="margin-top:8px"></div>
-    <div class="tabla-wrap" id="inv-ex-wrap" style="display:none"><table id="inv-ex-tbl"></table></div>
-  </div>
 </div>
 
 <script>
 // ═══════════════════════════════════════════════════════════════════════════
 //  Restock — frontend (mini-app en iframe dentro de admin.html)
 //  Comparte token y origen con el panel (localStorage 'admtoken').
-//  Backend: modulos/restock.js  (/api/restock, /api/restock-excel,
-//           /api/inventario-export*, /api/inventario-export-filtros)
+//  Backend: modulos/restock.js  (/api/restock, /api/restock-excel)
 // ═══════════════════════════════════════════════════════════════════════════
 let TOKEN = ''; try { TOKEN = localStorage.getItem('admtoken') || ''; } catch (e) {}
 
@@ -383,112 +359,14 @@ function restockPDF() {
   doc.save(nombreArchivo('restock', 'pdf'));
 }
 
-// ══════════════════════════ EXPORTAR INVENTARIO ══════════════════════════
-const INV_KEY = 'kuranko_ultima_invex_v2';
-let INV = null;
-
-function invExParams() {
-  const p = new URLSearchParams();
-  const g = id => $(id).value.trim();
-  if (g('inv-ex-marca')) p.set('marca', g('inv-ex-marca'));
-  if (g('inv-ex-cat')) p.set('categoria', g('inv-ex-cat'));
-  if (g('inv-ex-subcat')) p.set('subcategoria', g('inv-ex-subcat'));
-  if (g('inv-ex-mgmin')) p.set('margen_min', g('inv-ex-mgmin'));
-  if (g('inv-ex-mgmax')) p.set('margen_max', g('inv-ex-mgmax'));
-  if ($('inv-ex-stock').checked) p.set('solo_stock', '1');
-  if ($('inv-ex-ventas').checked) p.set('solo_ventas', '1');
-  return p.toString();
-}
-async function cargarInvExFiltros() {
-  try {
-    const d = await apiCall('/api/inventario-export-filtros');
-    const llenar = (id, lista, etiqueta) => {
-      const sel = $(id), act = sel.value;
-      sel.innerHTML = `<option value="">${etiqueta}</option>` +
-        (lista || []).map(x => `<option value="${esc(x)}"${x === act ? ' selected' : ''}>${esc(x)}</option>`).join('');
-    };
-    llenar('inv-ex-marca', d.marcas, 'Todas las marcas');
-    llenar('inv-ex-cat', d.categorias, 'Todas las categorías');
-    llenar('inv-ex-subcat', d.subcategorias, 'Todas las subcategorías');
-  } catch (e) { /* si falla, los desplegables quedan vacíos */ }
-}
-function pintarInvExport(d, horaTexto) {
-  INV = { d, hora: horaTexto };
-  pintarInvExTabla();
-}
-// La búsqueda filtra sobre TODOS los productos (no solo los 500 pintados)
-function pintarInvExTabla() {
-  if (!INV) return;
-  const { d, hora } = INV;
-  const q = ($('inv-ex-buscar').value || '').toLowerCase().trim();
-  const rows = q ? d.items.filter(x => ((x.sku || '') + ' ' + x.producto).toLowerCase().includes(q)) : d.items;
-  $('inv-ex-resumen').innerHTML = `<b>${d.total}</b> producto(s)` + (q ? ` · ${rows.length} coinciden con la búsqueda` : '') +
-    (rows.length > MAX_FILAS ? ` · mostrando ${MAX_FILAS} en pantalla (Excel/PDF traen todo)` : '') + (hora ? ` · Última corrida: ${esc(hora)}` : '');
-  const wrap = $('inv-ex-wrap');
-  if (!rows.length) { wrap.style.display = 'none'; return; }
-  wrap.style.display = '';
-  $('inv-ex-tbl').innerHTML = '<thead><tr><th>SKU</th><th>Producto</th><th>Marca</th><th>Categoría</th><th class="n">Stock</th><th class="n">Costo prom.</th><th class="n">Precio</th><th class="n">Margen</th><th class="n">Vend. 90d</th><th class="n">Vend. hist.</th><th class="n">Venta hist.</th><th class="n">Días s/venta</th></tr></thead><tbody>' +
-    rows.slice(0, MAX_FILAS).map(x => `<tr>
-      <td class="sku">${esc(x.sku)}</td><td>${esc(x.producto)}</td><td>${esc(x.marca)}</td><td>${esc(x.categoria)}</td>
-      <td class="n">${N(x.stock)}</td><td class="n">${x.costo_prom ? S(x.costo_prom) : '—'}</td><td class="n">${S(x.precio_venta)}</td>
-      <td class="n">${x.margen_pct != null ? x.margen_pct + '%' : '—'}</td>
-      <td class="n">${N(x.und_90d)}</td><td class="n">${N(x.und_hist)}</td><td class="n">${S(x.venta_hist)}</td>
-      <td class="n">${x.dias_sin_venta != null ? x.dias_sin_venta : '<span class="chip c-r">nunca</span>'}</td>
-    </tr>`).join('') + '</tbody>';
-}
-function restaurarInvEx() {
-  try {
-    const raw = localStorage.getItem(INV_KEY); if (!raw) return;
-    const g = JSON.parse(raw);
-    pintarInvExport(g.d, g.hora + ' (guardada)');
-  } catch (e) {}
-}
-async function cargarInvExport() {
-  $('inv-ex-resumen').textContent = 'Cargando inventario…';
-  $('inv-ex-wrap').style.display = 'none';
-  try {
-    const d = await apiCall('/api/inventario-export?' + invExParams());
-    const hora = new Date().toLocaleString('es-PE');
-    pintarInvExport(d, hora);
-    // Una sola corrida guardada (se reemplaza siempre)
-    try { localStorage.setItem(INV_KEY, JSON.stringify({ d, hora })); } catch (e) { /* cuota llena */ }
-  } catch (e) { $('inv-ex-resumen').textContent = ''; showToast(e.message, true); }
-}
-async function invExportExcel() {
-  try { await descargar('/api/inventario-export-excel?' + invExParams(), nombreArchivo('inventario', 'xlsx')); }
-  catch (e) { showToast(e.message, true); }
-}
-async function invExportPDF() {
-  try {
-    const d = await apiCall('/api/inventario-export?' + invExParams());
-    if (!d.items.length) { showToast('Sin productos para exportar', true); return; }
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
-    doc.setFontSize(14); doc.text('Inventario con ventas y margen', 40, 40);
-    doc.setFontSize(9); doc.setTextColor(120);
-    doc.text(`${d.total} productos · Generado: ${new Date().toLocaleString('es-PE')}`, 40, 56);
-    const f2 = v => v != null ? Number(v).toLocaleString('es-PE', { minimumFractionDigits: 2 }) : '—';
-    doc.autoTable({
-      startY: 66,
-      head: [['SKU', 'Producto', 'Marca', 'Cat.', 'Stock', 'Costo', 'Precio', 'Mg%', '90d', 'Hist.', 'Venta hist.', 'Días']],
-      body: d.items.map(x => [x.sku, x.producto, x.marca, x.categoria, x.stock, x.costo_prom ? f2(x.costo_prom) : '—', f2(x.precio_venta),
-        x.margen_pct != null ? x.margen_pct + '%' : '—', x.und_90d, x.und_hist, f2(x.venta_hist), x.dias_sin_venta != null ? x.dias_sin_venta : 'nunca']),
-      styles: { fontSize: 7, cellPadding: 2 }, headStyles: { fillColor: [0, 7, 38] },
-      columnStyles: { 1: { cellWidth: 150 } }, margin: { left: 40, right: 40 }
-    });
-    doc.save(nombreArchivo('inventario', 'pdf'));
-  } catch (e) { showToast(e.message, true); }
-}
-
 // ══════════════════════════ Arranque ══════════════════════════
-try { localStorage.removeItem('kuranko_ultima_invex'); } catch (e) {} // formato viejo (admin.html)
+// Limpia la corrida guardada del antiguo "Exportar inventario" (ya no existe aquí)
+try { localStorage.removeItem('kuranko_ultima_invex'); localStorage.removeItem('kuranko_ultima_invex_v2'); } catch (e) {}
 restaurarParams();
 if (!TOKEN) {
   $('rs-conteo').textContent = 'Entra al panel de administración para usar Restock.';
 } else {
   cargarRestock();
-  cargarInvExFiltros();
-  restaurarInvEx();
 }
 </script>
 </body>

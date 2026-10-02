@@ -232,7 +232,7 @@ let modSeguimiento = null;
   //    Frontend propio en public/inventario.html (iframe dentro del panel).
   require('./modulos/inventario')({ app, authAdmin, mInv, prodPool, VV });
 
-  // ── Módulo Restock (qué reponer y cuánto) + exportador de inventario ──
+  // ── Módulo Restock (qué reponer y cuánto) ──
   //    Frontend propio en public/restock.html (iframe dentro del panel).
   require('./modulos/restock')({ app, authAdmin, mRestock, prodPool, portalPool, VV });
 

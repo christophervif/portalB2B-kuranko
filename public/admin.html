@@ -956,7 +956,7 @@ function cargarDatosTab(id){
     if(fr&&!fr.src){fr.src='/promociones.html?v='+Date.now();}
   }
   else if(id==='restock'){
-    // Restock + exportador de inventario en iframe (public/restock.html); comparte token/origen.
+    // Restock en iframe (public/restock.html); comparte token/origen.
     const fr=document.getElementById('restock-frame');
     if(fr&&!fr.src){fr.src='/restock.html?v='+Date.now();}
   }
@@ -1531,7 +1531,7 @@ function esc(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'
 // Auditoría de catálogo y chequeo de empresas → public/auditoria.html (iframe)
 // Promociones recomendadas → public/promociones.html (iframe)
 // Inventario (capital parado, ubicaciones, salud del stock) → public/inventario.html (iframe)
-// Restock y Exportar inventario → public/restock.html (iframe)
+// Restock → public/restock.html (iframe)
 
 function subtabSis(cual){
   // Grupo Sistemas: sync | pagos | accesos

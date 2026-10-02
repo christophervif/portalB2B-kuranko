@@ -33,6 +33,8 @@ const REGLAS_BASE = {
   // Si el producto supera el umbral: (precio + envío) × este factor (impuestos)
   factor_impuestos: 1.23,
   igv: 1.18,
+  // Precio MÍNIMO de la cotización = costo puesto en Lima ÷ este factor
+  factor_minimo: 0.85,
   // Tiendas: moneda y envío aproximado (en su moneda). "dominios" sirve para
   // reconocerlas al pegar el link.
   tiendas: [
@@ -70,29 +72,34 @@ try {
 const TC_TTL = 3 * 60 * 60 * 1000;
 let tcCache = null; // { usd, eur, fecha, fuente, t }
 
+// Fuentes de tipo de cambio (de mercado, sin recargo). Se prueban en orden.
+const FUENTES_TC = [
+  { nombre: 'open.er-api.com', url: 'https://open.er-api.com/v6/latest/USD',
+    leer: d => ({ pen: +(d.rates || {}).PEN, eur: +(d.rates || {}).EUR, fecha: d.time_last_update_utc }) },
+  { nombre: 'currency-api (jsDelivr)', url: 'https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json',
+    leer: d => ({ pen: +(d.usd || {}).pen, eur: +(d.usd || {}).eur, fecha: d.date }) },
+  { nombre: 'currency-api (Cloudflare)', url: 'https://latest.currency-api.pages.dev/v1/currencies/usd.json',
+    leer: d => ({ pen: +(d.usd || {}).pen, eur: +(d.usd || {}).eur, fecha: d.date }) }
+];
 async function tipoCambio() {
   if (tcCache && Date.now() - tcCache.t < TC_TTL) return tcCache;
-  try {
-    const ctrl = new AbortController();
-    const to = setTimeout(() => ctrl.abort(), 6000);
-    const r = await fetch('https://open.er-api.com/v6/latest/USD', { signal: ctrl.signal });
-    clearTimeout(to);
-    const d = await r.json();
-    const pen = d && d.rates && +d.rates.PEN, eur = d && d.rates && +d.rates.EUR;
-    if (!(pen > 0 && eur > 0)) throw new Error('respuesta sin PEN/EUR');
-    tcCache = {
-      usd: pen, eur: pen / eur,
-      fecha: d.time_last_update_utc || new Date().toUTCString(),
-      fuente: 'open.er-api.com', t: Date.now()
-    };
-  } catch (e) {
-    console.warn('[precio-importado] no se pudo leer el tipo de cambio:', e.message);
-    if (!tcCache) tcCache = {
-      usd: +process.env.PRECIO_IMP_TC_USD || 3.44,
-      eur: +process.env.PRECIO_IMP_TC_EUR || 3.90,
-      fecha: null, fuente: 'respaldo (Railway)', t: Date.now() - TC_TTL + 10 * 60 * 1000 // reintenta en 10 min
-    };
+  for (const f of FUENTES_TC) {
+    try {
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), 6000);
+      const r = await fetch(f.url, { signal: ctrl.signal });
+      clearTimeout(to);
+      const x = f.leer(await r.json());
+      if (!(x.pen > 0 && x.eur > 0)) throw new Error('respuesta sin PEN/EUR');
+      tcCache = { usd: x.pen, eur: x.pen / x.eur, fecha: x.fecha || new Date().toUTCString(), fuente: f.nombre, t: Date.now() };
+      return tcCache;
+    } catch (e) { console.warn(`[precio-importado] tipo de cambio (${f.nombre}):`, e.message); }
   }
+  if (!tcCache || tcCache.fuente.startsWith('respaldo')) tcCache = {
+    usd: +process.env.PRECIO_IMP_TC_USD || 3.45,
+    eur: +process.env.PRECIO_IMP_TC_EUR || 3.95,
+    fecha: null, fuente: 'respaldo (Railway)', t: Date.now() - TC_TTL + 10 * 60 * 1000 // reintenta en 10 min
+  };
   return tcCache;
 }
 
@@ -325,8 +332,28 @@ module.exports = function registrarPrecioImportado({ app, authAdmin, requiereMod
   }
   const fichaItem = (it, score, via) => ({
     vid: it.vid, pid: it.pid, sku: it.sku, nombre: it.nombre, imagen: it.imagen, score, via: via || null,
-    precio_normal: it.precio_normal, stock: it.stock, stock_total: it.stock_total
+    precio_normal: it.precio_normal, precio_regular: it.precio_regular || null, precio_oferta: it.precio_oferta || null,
+    pvp_recomendado: it.pvp_recomendado || null,
+    ultimo_costo: it._costo_ultimo ?? it._costo ?? null, fecha_ultima_compra: it._fecha_ultima_compra || null,
+    stock: it.stock, stock_total: it.stock_total
   });
+  // Últimas ventas reales (precio efectivo = total / cantidad) de varios productos a la vez
+  const f10 = d => d ? (d instanceof Date ? d.toISOString() : String(d)).slice(0, 10) : null;
+  async function ventasRecientes(vids) {
+    const m = {};
+    if (!vids.length) return m;
+    try {
+      const [rows] = await prodPool.query(`
+        SELECT si.product_variation_id AS vid, s.created_at AS fecha, si.quantity AS cant, si.total
+        FROM sale_items si JOIN sales s ON s.id = si.sale_id
+        WHERE si.product_variation_id IN (?) AND s.deleted_at IS NULL AND s.status IN ${VV}
+          AND si.quantity > 0 AND si.total > 0
+        ORDER BY s.created_at DESC LIMIT 400`, [vids]);
+      rows.forEach(r => { const a = m[r.vid] = m[r.vid] || [];
+        if (a.length < 4) a.push({ fecha: f10(r.fecha), precio: Math.round(+r.total / +r.cant * 100) / 100, cant: +r.cant }); });
+    } catch (e) { console.warn('[precio-importado] ventas recientes:', e.message); }
+    return m;
+  }
 
   // Busca el producto en el sistema:
   //  1) por código (SKU/MPN/EAN de la página y códigos con números del nombre) → exacto
@@ -386,6 +413,11 @@ module.exports = function registrarPrecioImportado({ app, authAdmin, requiereMod
       const ex = [...exactos.values()].sort((a, b) => b.score - a.score).slice(0, 10);
       // no repetir abajo un producto simple que ya salió por código
       const grupos2 = salida.filter(g => !(g.tipo === 'simple' && exactos.has(g.items[0].vid)));
+      // Referencias de venta: últimas ventas de cada opción y, por grupo, las del producto (todas sus variantes)
+      const todos = [...ex, ...grupos2.flatMap(g => g.items)];
+      const vtas = await ventasRecientes([...new Set(todos.map(x => x.vid))]);
+      todos.forEach(x => { x.ventas = vtas[x.vid] || []; });
+      grupos2.forEach(g => { g.ventas = g.items.flatMap(x => x.ventas).sort((a, b) => String(b.fecha).localeCompare(String(a.fecha))).slice(0, 4); });
       res.json({ modo: ex.length ? 'codigo' : grupos2.length ? 'nombre' : 'nada', codigos: [...candidatos], exactos: ex, grupos: grupos2 });
     } catch (e) { console.error('[precio-importado] buscar', e.message); res.status(500).json({ error: 'No se pudo buscar: ' + e.message }); }
   });
@@ -438,7 +470,8 @@ module.exports = function registrarPrecioImportado({ app, authAdmin, requiereMod
           n: vs.length, unidades: uds,
           prom: vs.reduce((a, v) => a + +v.total, 0) / uds,
           min: Math.min(...unit), max: Math.max(...unit),
-          ultimo: { precio: unit[0], fecha: f10(vs[0].fecha) }
+          ultimo: { precio: unit[0], fecha: f10(vs[0].fecha) },
+          lista: vs.slice(0, 8).map((v, i) => ({ fecha: f10(v.fecha), precio: Math.round(unit[i] * 100) / 100, cant: +v.cant }))
         };
       }
       res.json({

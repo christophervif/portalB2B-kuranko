@@ -131,6 +131,8 @@ tr.mejor td{background:var(--bg-ok)}
 .confirmado .conf-tit{font-weight:700;color:var(--fg-ok);font-size:14px}
 .confirmado .conf-txt{margin-top:6px;font-size:13px;color:var(--text);line-height:1.5;user-select:all}
 .confirmado .conf-mail{margin-top:6px;font-size:12px;color:var(--text2)}
+.tc .rc{font-size:11px;color:var(--muted);font-weight:500;display:inline-flex;align-items:center;gap:1px}
+.tc .rc input{width:44px;padding:4px 4px;font-size:11px;border-style:dashed;background:transparent;color:var(--text2)}
 .valido{font-size:12px;color:var(--muted);display:inline-flex;align-items:center;gap:4px}
 .valido input{width:48px;background:transparent;border:1px dashed var(--border);color:var(--text2);border-radius:8px;padding:5px;font-size:12px;text-align:center}
 .elegido{margin-top:12px;font-size:13px;color:var(--text2)}
@@ -155,8 +157,8 @@ tr.mejor td{background:var(--bg-ok)}
       <div class="sub">Costo y precio de venta de un pedido especial a una tienda online.</div>
     </div>
     <div class="tc">
-      <label>USD <input id="tc-usd" type="number" step="0.0001" inputmode="decimal"></label>
-      <label>EUR <input id="tc-eur" type="number" step="0.0001" inputmode="decimal"></label>
+      <label title="Tipo de cambio usado = mercado + recargo">USD <input id="tc-usd" type="number" step="0.0001" inputmode="decimal"><span class="rc">+<input id="rc-usd" type="number" step="0.1" inputmode="decimal">%</span></label>
+      <label title="Tipo de cambio usado = mercado + recargo">EUR <input id="tc-eur" type="number" step="0.0001" inputmode="decimal"><span class="rc">+<input id="rc-eur" type="number" step="0.1" inputmode="decimal">%</span></label>
       <span class="src" id="tc-src">cargando tipo de cambio…</span>
     </div>
   </div>
@@ -264,7 +266,7 @@ let TOKEN='';try{TOKEN=localStorage.getItem('admtoken')||'';}catch(e){}
 let R=null;            // reglas del servidor
 let TC={USD:0,EUR:0};  // tipo de cambio con recargo (editable)
 let TIENDA=null;       // id de tienda elegida (null = otra)
-let ELEGIDO=null;      // precio elegido: etiqueta / margen / alto / mercado (o el que se escribe)
+let ELEGIDO=null;      // precio elegido: etiqueta / minimo / alto / mercado (o el que se escribe)
 let MERCADO=null;      // precio de mercado: Perú primero, si no internet ×1.18
 let SIS=null;          // producto del sistema elegido + historial
 let COINC=[];          // coincidencias de la búsqueda
@@ -322,15 +324,14 @@ function propuestas(c){
   // Etiqueta: costo + % por tramo; si pasa de S/ 40 redondea a la decena, si no al sol.
   const pe=pctTramo(c,P.etiqueta), ve=c*(100+pe)/100;
   const etiqueta=ve>40?redondeoArriba(ve,-1):redondeoArriba(ve,0);
-  // Margen objetivo: costo ÷ (1 − margen) × IGV
-  let pm=P.margen.resto;for(const [hasta,p] of P.margen.tramos){if(c<hasta){pm=p;break;}}
-  const margen=redondeoArriba(c/(1-pm/100)*R.igv,0);
+  // Mínimo: costo puesto en Lima ÷ 0.85 (hacia arriba al sol)
+  const fm=R.factor_minimo||0.85, minimo=redondeoArriba(c/fm,0);
   // Alto: igual que etiqueta con % mayores
   const pa=pctTramo(c,P.alto), va=c*(100+pa)/100;
   const alto=va>40?redondeoArriba(va,-1):redondeoArriba(va,0);
   return[
-    {id:'etiqueta',t:'Etiqueta',p:etiqueta,min:etiqueta*P.etiqueta.minimo,x:`Costo +${pe}%`},
-    {id:'margen',t:'Margen + IGV',p:margen,x:`Costo ÷ (1 − ${pm}%) × IGV 1.18`},
+    {id:'minimo',t:'Mínimo',p:minimo,x:`Costo ÷ ${fm}`},
+    {id:'etiqueta',t:'Etiqueta',p:etiqueta,x:`Costo +${pe}%`},
     {id:'alto',t:'Alto',p:alto,x:`Costo +${pa}%`}
   ];
 }
@@ -396,15 +397,15 @@ function recalcular(){
 function pintarLista(){
   if(!LISTA.length){$('lista').innerHTML='<div class="vacio">Aún no hay nada. Calcula un producto y pulsa “Agregar a la lista”.</div>';return;}
   const minC=Math.min(...LISTA.map(x=>x.costo).filter(x=>x>0));
-  $('lista').innerHTML=`<table><thead><tr><th>Producto</th><th>Tienda</th><th class="n">Precio tienda</th><th class="n">Internet c/IGV</th><th class="n">Costo S/</th><th class="n">Etiqueta</th><th class="n">Mínimo</th><th class="n">Margen+IGV</th><th class="n">Alto</th><th class="n">Ofrecido</th><th class="n">vs última compra</th><th></th></tr></thead><tbody>`+
+  $('lista').innerHTML=`<table><thead><tr><th>Producto</th><th>Tienda</th><th class="n">Precio tienda</th><th class="n">Internet c/IGV</th><th class="n">Costo S/</th><th class="n">Mínimo</th><th class="n">Etiqueta</th><th class="n">Alto</th><th class="n">Ofrecido</th><th class="n">vs última compra</th><th></th></tr></thead><tbody>`+
     LISTA.map((x,i)=>`<tr class="${LISTA.length>1&&x.costo===minC?'mejor':''}">
       <td><span class="nom" title="${esc(x.nombre)}">${x.url?`<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.nombre||'(sin nombre)')}</a>`:esc(x.nombre||'(sin nombre)')}</span><span class="desc">${esc(x.fecha)}</span></td>
       <td>${esc(x.tienda)}</td>
       <td class="n">${x.precio?mon(x.precio,x.moneda):'—'}</td>
       <td class="n">${x.internet?sol0(x.internet):'—'}</td>
       <td class="n"><b>${sol(x.costo)}</b></td>
-      <td class="n">${sol0(x.etiqueta)}${x.internet?'<div>'+difChip(x.etiqueta,x.internet,'Sobre','Bajo','warn','ok')+'</div>':''}</td><td class="n">${sol0(x.minimo)}</td>
-      <td class="n">${sol0(x.margen)}</td><td class="n">${sol0(x.alto)}</td>
+      <td class="n">${sol0(x.minimo)}</td><td class="n">${sol0(x.etiqueta)}${x.internet?'<div>'+difChip(x.etiqueta,x.internet,'Sobre','Bajo','warn','ok')+'</div>':''}</td>
+      <td class="n">${sol0(x.alto)}</td>
       <td class="n">${x.ofrecido?sol0(x.ofrecido):'—'}</td>
       <td class="n">${x.ult_costo?difChip(x.costo,x.ult_costo,'Más caro','Más barato','bad','ok'):'—'}</td>
       <td><button class="del" data-i="${i}" title="Quitar">✕</button></td></tr>`).join('')+'</tbody></table>';
@@ -445,10 +446,23 @@ async function buscarSistema(q,auto){
     else if(!auto&&!ex.length&&r.grupos.length===1&&r.grupos[0].items.length===1)elegirSistema(r.grupos[0].items[0].vid);
   }catch(e){$('coinc').innerHTML=`<div class="aviso bad" style="display:block">${esc(e.message)}</div>`;}
 }
+// fecha corta dd/mm/aa desde "aaaa-mm-dd"
+const fCorta=f=>{const m=String(f||'').match(/^(\d{4})-(\d{2})-(\d{2})/);return m?`${+m[3]}/${+m[2]}/${m[1].slice(2)}`:'';};
+const txtVentas=v=>(v||[]).map(x=>`${sol0(x.precio)} <span class="s">(${fCorta(x.fecha)})</span>`).join(' · ');
+function refsItem(c){
+  const r=[];
+  if(c.precio_oferta&&c.precio_regular&&c.precio_oferta<c.precio_regular)r.push('regular '+sol0(c.precio_regular));
+  if(c.pvp_recomendado)r.push('PVP rec. '+sol0(c.pvp_recomendado));
+  if(c.ultimo_costo)r.push('últ. compra '+sol0(c.ultimo_costo)+(c.fecha_ultima_compra?' ('+fCorta(c.fecha_ultima_compra)+')':''));
+  return r;
+}
 function filaItem(c,extra){
+  const refs=refsItem(c);
   return `<div class="it${SIS&&SIS.vid===c.vid?' on':''}" data-v="${c.vid}">
     ${c.imagen?`<img src="${esc(c.imagen)}" alt="" onerror="this.outerHTML='<div class=sinimg>🚲</div>'">`:'<div class="sinimg">🚲</div>'}
-    <div style="min-width:0"><div class="nm">${esc(c.nombre)}</div><div class="mt">${esc(c.sku||'sin SKU')} · ${c.precio_normal>0?'PVP '+sol0(c.precio_normal):'<b style="color:var(--fg-r)">sin precio</b>'} · stock ${c.stock_total}${c.via?' · <b>por '+esc(c.via)+'</b>':''}</div></div>
+    <div style="min-width:0"><div class="nm">${esc(c.nombre)}</div><div class="mt">${esc(c.sku||'sin SKU')} · ${c.precio_normal>0?'PVP '+sol0(c.precio_normal):'<b style="color:var(--fg-r)">sin precio</b>'} · stock ${c.stock_total}${c.via?' · <b>por '+esc(c.via)+'</b>':''}</div>
+    ${c.ventas&&c.ventas.length?`<div class="mt">🧾 Vendido: ${txtVentas(c.ventas)}</div>`:''}
+    ${refs.length?`<div class="mt">📌 ${refs.join(' · ')}</div>`:''}</div>
     <div class="sc">${extra||c.score+'%'}</div></div>`;
 }
 function pintarCoincidencias(){
@@ -463,7 +477,7 @@ function pintarCoincidencias(){
     const badge=g.alto?'<span class="chip ok">alto parecido</span>':'<span class="chip emp">'+g.score+'%</span>';
     if(g.tipo==='simple')return filaItem(g.items[0],badge+' <span class="s">simple</span>');
     const ab=ABIERTO===g.pid;
-    return `<div class="grupo${ab?' abierto':''}"><div class="ghead" data-g="${g.pid}"><span>${ab?'▾':'▸'} <b>${esc(g.nombre)}</b> <span class="s">${g.items.length} variantes</span></span>${badge}</div>
+    return `<div class="grupo${ab?' abierto':''}"><div class="ghead" data-g="${g.pid}"><span>${ab?'▾':'▸'} <b>${esc(g.nombre)}</b> <span class="s">${g.items.length} variantes</span>${g.ventas&&g.ventas.length?`<div class="mt" style="margin-top:3px">🧾 Ventas del producto: ${txtVentas(g.ventas)}</div>`:''}</span>${badge}</div>
       <div class="gitems">${ab?g.items.map(c=>filaItem(c)).join(''):''}</div></div>`;}).join('');
   if(SIS)h+='<div style="text-align:right"><button class="btn btn-sec btn-sm" id="btn-ninguno">No es ninguno</button></div>';
   $('coinc').innerHTML=h;
@@ -507,6 +521,10 @@ function pintarComparacion(){
   if(ve)filas.push(`<tr><td>${lblVenta}<div class="s">vs lo que se vendió (24 meses)</div></td>
       <td class="n"><span class="v">${sol0(ve.prom)}</span><div class="s">${ve.unidades} und · ${sol0(ve.min)}–${sol0(ve.max)} · último ${sol0(ve.ultimo.precio)} (${esc(ve.ultimo.fecha)})</div></td>
       <td class="n">${difChip(venta,ve.prom,'Más alto','Más bajo','warn','warn')}</td></tr>`);
+  if(ve&&ve.lista&&ve.lista.length)filas.push(`<tr><td>Últimas ventas<div class="s">precio cobrado y fecha</div></td>
+      <td class="n" colspan="2"><span class="s">${ve.lista.map(x=>`<b class="v">${sol0(x.precio)}</b> ${fCorta(x.fecha)}${x.cant>1?' ×'+x.cant:''}`).join(' · ')}</span></td></tr>`);
+  if(co&&co.lotes&&co.lotes.length>1)filas.push(`<tr><td>Compras<div class="s">costo por unidad y fecha</div></td>
+      <td class="n" colspan="2"><span class="s">${co.lotes.map(x=>`<b class="v">${sol0(x.costo)}</b> ${fCorta(x.fecha)}`).join(' · ')}</span></td></tr>`);
   if(pr.precio_normal>0&&c>0){
     const g=pr.precio_normal-c;
     filas.push(`<tr><td>Si lo vendes al precio del sistema<div class="s">ganancia con este costo</div></td><td class="n"><span class="v">${sol(g)}</span></td>
@@ -679,6 +697,7 @@ function resumenCorreo(e){
     if(pr.pvp_recomendado)f.push(['PVP recomendado',sol0(pr.pvp_recomendado)+' (costo ÷ 0.45)']);
     if(co)f.push(['Última compra',sol(co.ultimo.costo)+' el '+co.ultimo.fecha+' ('+co.n+' compra'+(co.n>1?'s':'')+')']);
     if(ve)f.push(['Vendido (24 meses)',ve.unidades+' und · promedio '+sol0(ve.prom)+' · último '+sol0(ve.ultimo.precio)]);
+    if(ve&&ve.lista)f.push(['Últimas ventas',ve.lista.map(x=>sol0(x.precio)+' ('+fCorta(x.fecha)+')').join(' · ')]);
     S.push({titulo:'En el sistema',filas:f});
   }
   return S;
@@ -723,21 +742,35 @@ function nuevo(){
 }
 
 // ── Arranque ────────────────────────────────────────────────────────────────
-function tcDesdeCampos(){
-  const u=num('tc-usd'),e=num('tc-eur');
-  if(u>0)TC.USD=u;if(e>0)TC.EUR=e;
-  try{localStorage.setItem('precio_imp_tc',JSON.stringify({USD:TC.USD,EUR:TC.EUR,dia:new Date().toDateString()}));}catch(x){}
-  $('tc-src').textContent='editado a mano (hoy)';recalcular();
+// Tipo de cambio automático: mercado (del servidor) + recargo % que se guarda en este navegador.
+// Si se escribe el TC a mano, se calcula y guarda el recargo equivalente: así sigue siendo
+// automático (se mueve con el mercado) pero a tu nivel (ej. EUR ≈ 4.20).
+let TCM={USD:0,EUR:0},RC={USD:1,EUR:1.5};
+function guardarRC(){try{localStorage.setItem('precio_imp_recargo',JSON.stringify(RC));}catch(x){}}
+function aplicarTC(){
+  TC.USD=+(TCM.USD*(1+RC.USD/100)).toFixed(4);TC.EUR=+(TCM.EUR*(1+RC.EUR/100)).toFixed(4);
+  $('tc-usd').value=TC.USD;$('tc-eur').value=TC.EUR;$('rc-usd').value=RC.USD;$('rc-eur').value=RC.EUR;
+  recalcular();
+}
+function tcDesdeCampos(ev){
+  const id=ev&&ev.target&&ev.target.id;
+  if(id==='tc-usd'&&num('tc-usd')>0)RC.USD=+((num('tc-usd')/TCM.USD-1)*100).toFixed(2);
+  if(id==='tc-eur'&&num('tc-eur')>0)RC.EUR=+((num('tc-eur')/TCM.EUR-1)*100).toFixed(2);
+  if(id==='rc-usd'&&num('rc-usd')!=null)RC.USD=num('rc-usd');
+  if(id==='rc-eur'&&num('rc-eur')!=null)RC.EUR=num('rc-eur');
+  guardarRC();aplicarTC();
 }
 
 async function iniciar(){
   try{
     const d=await api('/api/precio-importado/config');
     R=d.reglas;TC={USD:d.tc.USD,EUR:d.tc.EUR};
-    let src=d.tc.fuente==='open.er-api.com'?`Mercado ${d.tc.usd_mercado.toFixed(3)} / ${d.tc.eur_mercado.toFixed(3)} + recargo`:'⚠ '+d.tc.fuente;
-    // Si hoy se editó a mano, se respeta
-    try{const g=JSON.parse(localStorage.getItem('precio_imp_tc')||'null');if(g&&g.dia===new Date().toDateString()){TC={USD:g.USD,EUR:g.EUR};src='editado a mano (hoy)';}}catch(e){}
-    $('tc-usd').value=TC.USD;$('tc-eur').value=TC.EUR;$('tc-src').textContent=src;
+    TCM={USD:d.tc.usd_mercado,EUR:d.tc.eur_mercado};
+    RC={USD:+((R.recargo_tc.USD-1)*100).toFixed(2),EUR:+((R.recargo_tc.EUR-1)*100).toFixed(2)};
+    try{const g=JSON.parse(localStorage.getItem('precio_imp_recargo')||'null');if(g&&isFinite(g.USD)&&isFinite(g.EUR))RC=g;}catch(e){}
+    const fch=d.tc.fecha?new Date(d.tc.fecha):null;
+    $('tc-src').textContent=(d.tc.fuente.startsWith('respaldo')?'⚠ ':'')+`Mercado USD ${TCM.USD.toFixed(3)} · EUR ${TCM.EUR.toFixed(3)} · ${d.tc.fuente}${fch&&!isNaN(fch)?' · '+fch.toLocaleDateString('es-PE'):''}`;
+    TC={USD:+(TCM.USD*(1+RC.USD/100)).toFixed(4),EUR:+(TCM.EUR*(1+RC.EUR/100)).toFixed(4)};
   }catch(e){
     document.querySelector('.wrap').insertAdjacentHTML('afterbegin',`<div class="aviso bad" style="display:block;margin-bottom:12px">No se pudo cargar: ${esc(e.message)}. Vuelve a entrar al panel.</div>`);
     return;
@@ -753,7 +786,8 @@ async function iniciar(){
   $('buscar-sis').addEventListener('keydown',e=>{if(e.key==='Enter'){clearTimeout(_tBus);_ultimaBus='';buscarSistema($('buscar-sis').value,false);}});
   $('buscar-sis').addEventListener('input',()=>{CODIGOS=[];});
   $('moneda').addEventListener('change',()=>{$('envio').value='';recalcular();});
-  $('tc-usd').addEventListener('change',tcDesdeCampos);$('tc-eur').addEventListener('change',tcDesdeCampos);
+  ['tc-usd','tc-eur','rc-usd','rc-eur'].forEach(id=>$(id).addEventListener('change',tcDesdeCampos));
+  aplicarTC();
   $('btn-copiar').onclick=()=>{const r=resumen();if(r)copiar(r);else toast('Primero calcula un precio');};
   $('btn-nuevo').onclick=nuevo;
   $('btn-confirmar').onclick=confirmarCotizacion;
@@ -765,7 +799,7 @@ async function iniciar(){
     const t=R.tiendas.find(x=>x.id===TIENDA),P=Object.fromEntries(ULTIMO.props.map(p=>[p.id,p]));
     LISTA.unshift({fecha:new Date().toLocaleDateString('es-PE'),nombre:$('nombre').value.trim(),url:URL_ACT,
       tienda:t?t.nombre:'Otra',precio:num('precio'),moneda:$('moneda').value,costo:+ULTIMO.costo.toFixed(2),
-      etiqueta:P.etiqueta.p,minimo:+P.etiqueta.min.toFixed(2),margen:P.margen.p,alto:P.alto.p,ofrecido:num('ofrecido'),
+      etiqueta:P.etiqueta.p,minimo:P.minimo.p,alto:P.alto.p,ofrecido:num('ofrecido'),
       ult_costo:SIS&&SIS.compras?SIS.compras.ultimo.costo:null,internet:ULTIMO.inet?+ULTIMO.inet.toFixed(2):null,pvp:SIS&&SIS.producto?SIS.producto.precio_normal||null:null});
     LISTA=LISTA.slice(0,60);guardarLista();pintarLista();toast('Agregado a la lista');
   };

@@ -8,476 +8,393 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <style>
-/* ── Recepción de mercadería ── */
-.rec-badge{display:inline-block;min-width:18px;padding:0 5px;margin-left:4px;border-radius:9px;background:#e11d48;color:#fff;font-size:11px;font-weight:800;line-height:18px;text-align:center;vertical-align:middle}
-.rec-card{background:var(--surface,#111a44);border:1px solid var(--border,#212b54);border-radius:12px;padding:14px;margin:10px 0;cursor:pointer}
-.rec-card:hover{background:var(--hover,#1a2450)}
-.rec-card .r-top{display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap}
-.rec-chip{font-size:11px;font-weight:800;padding:3px 9px;border-radius:20px;white-space:nowrap}
-.rec-chip.pend{background:var(--bg-warn,#3d3315);color:var(--fg-warn,#ffcb52)}
-.rec-chip.bor{background:#1e335e;color:#8fb8ff}
-.rec-chip.val{background:var(--bg-ok,#163a29);color:var(--fg-ok,#6ee59a)}
-.rec-chip.dif{background:var(--bg-r,#3f1c20);color:var(--fg-r,#f79a9a)}
-.rec-item{background:var(--surface,#111a44);border:1px solid var(--border,#212b54);border-radius:12px;padding:12px;margin:10px 0}
-.rec-item.ok{border-left:4px solid #22c55e}
-.rec-item.diff{border-left:4px solid #ef4444}
-.rec-item .ri-desc{font-weight:700;font-size:14px;margin-bottom:2px}
-.rec-item .ri-cod{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--muted,#8a93b4)}
-.rec-field{margin-top:8px}
-.rec-field label{display:block;font-size:12px;font-weight:700;color:var(--text2,#c6cee2);margin-bottom:3px}
-.rec-input{width:100%;padding:9px;border:1px solid var(--border,#cbd5e1);border-radius:8px;background:var(--surface2,#0e1640);color:var(--text,#eef1f8);font-size:14px;box-sizing:border-box}
-.rec-cuadra{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
-.rec-cuadra button{flex:1;min-width:90px;padding:9px;border-radius:8px;border:1px solid var(--border,#cbd5e1);background:var(--surface2,#0e1640);color:var(--text2,#c6cee2);font-weight:700;font-size:13px;cursor:pointer}
-.rec-cuadra button.on-si{background:#14532d;border-color:#22c55e;color:#bbf7d0}
-.rec-cuadra button.on-no{background:#4c1d24;border-color:#ef4444;color:#fecaca}
-.rec-sug{margin-top:6px;position:relative}
-.rec-sug-list{position:absolute;left:0;right:0;z-index:20;background:var(--surface,#111a44);border:1px solid var(--border,#212b54);border-radius:8px;max-height:220px;overflow:auto;display:none}
-.rec-sug-list div{padding:8px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border,#212b54)}
-.rec-sug-list div:hover{background:var(--hover,#1a2450)}
-.rec-sug-list .rs-sku{font-family:ui-monospace,Menlo,monospace;font-weight:700}
-@media(max-width:640px){#tab-recepciones .card{padding:12px}}
-</style>
-<style>
 :root{
   --bg:#0a1030;--surface:#111a44;--surface2:#0e1640;--surface3:#18224e;
   --border:#212b54;--text:#eef1f8;--text2:#c6cee2;--muted:#8a93b4;--muted2:#a2abca;
   --accent:#FFB30D;--accent-text:#000726;--accent-h:#e6a00c;--hover:#1a2450;--white:#ffffff;
   --bg-ok:#163a29;--fg-ok:#6ee59a;--bg-warn:#3d3315;--fg-warn:#ffcb52;--bg-r:#3f1c20;--fg-r:#f79a9a;
-  --radius:18px;--radius-sm:12px;--radius-lg:22px;
-  --shadow:0 4px 20px rgba(0,0,0,.16);--shadow-sm:0 2px 8px rgba(0,0,0,.10);
+  --t1:#3fb37f;--t2:#e0b341;--t3:#e8833a;--t4:#e05252;
+  --radius:18px;--radius-sm:12px;--shadow-sm:0 2px 8px rgba(0,0,0,.10);
 }
 [data-theme="light"]{
   --bg:#f6f8fd;--surface:#ffffff;--surface2:#fbfcff;--surface3:#f2f5fb;
   --border:#eaeff8;--text:#1a2140;--text2:#4a5680;--muted:#9aa3c0;--muted2:#727e9f;
-  --accent:#FFB30D;--accent-text:#000726;--accent-h:#e6a00c;--hover:#f6f8fd;--white:#1a2140;
+  --hover:#f6f8fd;--white:#1a2140;
   --bg-ok:#e8f8ef;--fg-ok:#1f9c56;--bg-warn:#fdf5db;--fg-warn:#9a6b00;--bg-r:#fdeded;--fg-r:#dc4b4b;
-  --radius:18px;--radius-sm:12px;--radius-lg:22px;
-  --shadow:0 4px 24px rgba(30,45,90,.05);--shadow-sm:0 2px 10px rgba(30,45,90,.04);
+  --t1:#1f9c56;--t2:#c79a14;--t3:#d9691c;--t4:#dc4b4b;
+  --shadow-sm:0 2px 10px rgba(30,45,90,.04);
 }
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;transition:background .2s,color .2s}
-.header{background:var(--surface);border-bottom:1px solid var(--border);padding:1rem 1.5rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
-.header h1{font-size:1rem;font-weight:600;color:var(--white)}
-.header .sub{font-size:12px;color:var(--muted)}
-.btn{background:var(--accent);border:none;color:var(--accent-text);border-radius:var(--radius-sm);padding:10px 20px;font-size:13px;cursor:pointer;font-weight:600;transition:background .15s,transform .1s,box-shadow .15s;box-shadow:var(--shadow-sm)}
-.btn:hover{background:var(--accent-h);box-shadow:var(--shadow)}.btn:active{transform:scale(.97)}
-.btn-sec{background:var(--surface3);border:1px solid var(--border);color:var(--text2);box-shadow:none}
-.btn-sm{padding:6px 14px;font-size:12px;border-radius:10px}
-.btn-danger{background:var(--bg-r);color:var(--fg-r);box-shadow:none}.btn-ok{background:var(--bg-ok);color:var(--fg-ok);box-shadow:none}
-.wrap{max-width:1100px;margin:0 auto;padding:1.5rem}
-.login-box{max-width:380px;margin:5rem auto;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:2.25rem;position:relative;box-shadow:var(--shadow)}
-.login-box h2{font-size:1.1rem;margin-bottom:.5rem;color:var(--white)}
-.login-box p{font-size:13px;color:var(--muted);margin-bottom:1.5rem}
-.field{margin-bottom:12px}
-.field label{display:block;font-size:12px;color:var(--muted2);margin-bottom:4px}
-.field input,.field select{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:11px 13px;font-size:16px;transition:border-color .15s}
-.field input:focus,.field select:focus{outline:none;border-color:var(--accent)}
-.err{font-size:13px;color:var(--fg-r);margin-top:8px;display:none}
-.tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-bottom:1.5rem;overflow-x:auto}
-.tab{font-size:13px;padding:10px 17px;cursor:pointer;border:none;background:none;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;flex-shrink:0;transition:color .15s}
-.tab:hover{color:var(--text2)}
-.tab.active{color:var(--white);border-bottom-color:var(--accent)}
-.panel{display:none}.panel.active{display:block}
-.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.75rem;margin-bottom:1.35rem;box-shadow:var(--shadow-sm)}
-.card h3{font-size:14px;font-weight:600;margin-bottom:6px;color:var(--white)}
-.card .desc{font-size:12px;color:var(--muted);margin-bottom:1.15rem;line-height:1.6}
-.vincular-row{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end}
-@media(max-width:640px){.vincular-row{grid-template-columns:1fr}.vincular-row .btn{width:100%}}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding:16px;transition:background .2s,color .2s}
+.btn{background:var(--accent);border:none;color:var(--accent-text);border-radius:var(--radius-sm);padding:9px 16px;font-size:13px;cursor:pointer;font-weight:600;white-space:nowrap}
+.btn:hover{background:var(--accent-h)}
+.btn-sec{background:var(--surface3);border:1px solid var(--border);color:var(--text2)}
+.btn-sec:hover{background:var(--hover)}
+.btn-ok{background:var(--bg-ok);color:var(--fg-ok)}
+.btn-ico{padding:4px 9px;font-size:13px;border-radius:9px}
+.btn[disabled]{opacity:.35;cursor:not-allowed}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem;margin-bottom:1rem;box-shadow:var(--shadow-sm)}
+h1{font-size:1.05rem;font-weight:700;color:var(--white)}
+.nota{font-size:12px;color:var(--muted);line-height:1.55;margin-top:4px}
+.filtros{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:14px}
+.filtros label{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--muted2);font-weight:600}
+.filtros select,.filtros input{padding:8px 10px;border-radius:10px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:13px;width:100%}
+.filtros select:focus,.filtros input:focus{outline:none;border-color:var(--accent)}
+.acciones{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;align-items:center}
+.acciones .sp{flex:1}
+.estado{font-size:12px;color:var(--muted)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:1rem}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:.9rem 1rem}
+.kpi .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.kpi .v{font-size:1.25rem;font-weight:700;color:var(--white);margin-top:4px;font-variant-numeric:tabular-nums}
+.kpi .s{font-size:11px;color:var(--muted2);margin-top:2px}
+.kpi.alerta .v{color:var(--fg-r)}
+.aging-bar{display:flex;height:14px;border-radius:7px;overflow:hidden;background:var(--surface3);margin:10px 0 8px}
+.aging-bar div{height:100%}
+.aging-leg{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.aging-leg button{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:8px 10px;text-align:left;cursor:pointer;color:var(--text)}
+.aging-leg button.on{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+.aging-leg .n{font-size:11px;color:var(--muted2);display:flex;align-items:center;gap:6px}
+.aging-leg .m{font-size:14px;font-weight:700;margin-top:3px;font-variant-numeric:tabular-nums}
+.aging-leg .c{font-size:11px;color:var(--muted)}
+.dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+.tbl-wrap{overflow:auto;max-height:65vh;border:1px solid var(--border);border-radius:var(--radius-sm)}
 table{width:100%;border-collapse:collapse;font-size:13px}
-th{text-align:left;padding:8px;color:var(--muted2);font-weight:500;font-size:11px;border-bottom:1px solid var(--border);text-transform:uppercase}
-td{padding:8px;border-bottom:1px solid var(--border);color:var(--text2)}
-tr:hover td{background:var(--hover)}
-.badge{font-size:11px;padding:3px 10px;border-radius:20px;font-weight:600}
-.badge-on{background:var(--bg-ok);color:var(--fg-ok)}.badge-off{background:var(--bg-r);color:var(--fg-r)}
-.badge-warn{background:var(--bg-warn);color:var(--fg-warn)}
-.toast{position:fixed;bottom:20px;right:20px;background:var(--bg-ok);color:var(--fg-ok);padding:13px 20px;border-radius:var(--radius-sm);font-size:13px;display:none;z-index:100;border:1px solid var(--border);max-width:320px;box-shadow:var(--shadow)}
+.tbl{min-width:900px}
+.tbl th{position:sticky;top:0;z-index:1;background:var(--surface3);color:var(--muted2);padding:9px 10px;text-align:left;white-space:nowrap;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.03em}
+.tbl th.ord{cursor:pointer;user-select:none}
+.tbl th.ord:hover{color:var(--white)}
+.tbl th .fl{color:var(--accent)}
+.tbl td{padding:9px 10px;border-bottom:1px solid var(--border);vertical-align:middle;color:var(--text2)}
+.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.cen{text-align:center}
+tr.fila{cursor:pointer}
+tr.fila:hover td{background:var(--hover)}
+tr.fila td b{color:var(--text)}
+.arr{display:inline-block;transition:transform .15s;color:var(--muted);font-size:10px}
+.arr.on{transform:rotate(90deg)}
+.tag{display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:20px;margin-left:4px;white-space:nowrap;vertical-align:middle}
+.tag-y{background:var(--bg-warn);color:var(--fg-warn)}
+.tag-g{background:var(--bg-ok);color:var(--fg-ok)}
+.tag-r{background:var(--bg-r);color:var(--fg-r)}
+.tag-n{background:var(--surface3);color:var(--muted2)}
+.dias{font-weight:700;font-variant-numeric:tabular-nums}
+.ct{cursor:pointer;margin:0 2px;opacity:.85}
+.ct:hover{opacity:1}
+.det{background:var(--surface2)}
+.det td{padding:10px 14px}
+.det .info{font-size:11px;color:var(--muted);margin-bottom:6px}
+.sub{font-size:12px}
+.sub th{color:var(--muted);font-weight:600;text-align:left;padding:4px 8px;font-size:11px}
+.sub td{padding:5px 8px;border-bottom:1px solid var(--border)}
+.sub tr.v{cursor:pointer}
+.sub tr.v:hover td{background:var(--surface3)}
+.prods{font-size:11px;background:var(--surface3)}
+.prods td,.prods th{padding:3px 8px;border:none}
+.vacio{padding:2rem;text-align:center;color:var(--muted)}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--bg-ok);color:var(--fg-ok);padding:12px 18px;border-radius:var(--radius-sm);font-size:13px;display:none;z-index:100;border:1px solid var(--border);max-width:340px}
 .toast.err{background:var(--bg-r);color:var(--fg-r)}
-.search{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:10px 13px;font-size:14px;margin-bottom:10px}
-.muted{color:var(--muted);font-size:12px}
-.loading{text-align:center;padding:2rem;color:var(--muted)}
-.combo{position:relative}
-.combo-list{position:absolute;top:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-top:none;border-radius:0 0 8px 8px;max-height:240px;overflow-y:auto;z-index:50;display:none}
-.combo-list.show{display:block}
-.combo-item{padding:9px 12px;font-size:13px;cursor:pointer;border-bottom:1px solid var(--border)}
-.combo-item:hover,.combo-item.sel{background:var(--hover)}
-.combo-item .ruc{color:var(--muted);font-size:11px}
-@media(max-width:600px){
-  .wrap{padding:1rem}
-  table.cardmode thead{display:none}
-  table.cardmode,table.cardmode tbody,table.cardmode tr,table.cardmode td{display:block;width:100%}
-  table.cardmode tbody tr{background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;padding:6px}
-  table.cardmode td{border:none;padding:6px 10px;display:flex;justify-content:space-between;align-items:center;gap:10px;text-align:right}
-  table.cardmode td::before{content:attr(data-label);color:var(--muted);font-size:11px;text-transform:uppercase;font-weight:600;text-align:left}
-  table.cardmode td[data-label="Acciones"]{flex-wrap:wrap;justify-content:flex-end}
+.muted{color:var(--muted)}
+@media(max-width:640px){
+  body{padding:10px}
+  .aging-leg{grid-template-columns:1fr 1fr}
+  .kpis{grid-template-columns:1fr 1fr}
+  .acciones .btn{flex:1}
 }
-.modulos-check{display:flex;flex-wrap:wrap;gap:10px 20px;margin:8px 0}
-.chk{display:inline-flex;align-items:center;gap:7px;font-size:13px;cursor:pointer;white-space:nowrap}
-.chk input{cursor:pointer;margin:0;flex:none}
-.acc-row{border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:12px}
-.acc-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}
-.pill{display:inline-block;background:var(--accent);color:var(--accent-text);border-radius:12px;padding:3px 10px;font-size:12px;margin:2px}
-.cod{background:rgba(0,0,0,.25);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-family:monospace;font-size:13px;margin:8px 0;line-height:1.7}
-.cod-inline{font-family:monospace;background:rgba(0,0,0,.2);padding:2px 6px;border-radius:5px}
-.estado-box{border-radius:8px;padding:10px 14px;font-size:13px;line-height:1.5}
-.estado-box.activo{background:#fef3c7;color:#92400e;border:1px solid #fcd34d}
-.estado-box.inactivo{background:rgba(22,163,74,.12);color:#16a34a;border:1px solid rgba(22,163,74,.3)}
-.tabla{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}
-.tabla th{background:var(--surface3);color:var(--white);padding:8px 10px;text-align:left;white-space:nowrap}
-.tabla td{padding:7px 10px;border-bottom:1px solid var(--border)}
-.tabla tr:hover{background:rgba(0,0,0,.03)}
-.subtabs{display:flex;gap:6px;border-bottom:1px solid var(--border);margin-bottom:14px}
-.subtab{background:none;border:none;color:var(--muted);padding:8px 14px;font-size:14px;cursor:pointer;border-bottom:2px solid transparent;font-weight:600}
-.subtab.active{color:var(--accent);border-bottom-color:var(--accent)}
-.subpanel{display:none}
-.subpanel.active{display:block}
-.filtros-fila{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
-.filtros-fila select,.filtros-fila input{flex:1;min-width:180px;padding:9px 12px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--surface2);color:inherit;font-size:13px;transition:border-color .15s}
-.filtros-fila select:focus,.filtros-fila input:focus{outline:none;border-color:var(--accent)}
-.dbcard{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:1.15rem;margin-bottom:1.15rem;box-shadow:var(--shadow-sm)}
-.dbcard h4{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:1rem}
-.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:1.25rem}
-.kpi{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:1.1rem}
-.kpi-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
-.kpi-val{font-size:1.3rem;font-weight:600;color:var(--white)}
-.kpi-sub{font-size:11px;color:var(--accent);margin-top:3px}
-.kpi.accent{border-color:var(--accent)}
-.card-note{font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5}
-.two-col{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem}
-.deudas-tbl{width:100%;border-collapse:collapse;font-size:13px;min-width:640px}
-.deudas-tbl th{background:var(--surface3);color:var(--muted2);padding:10px 12px;text-align:left;white-space:nowrap;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.03em}
-.deudas-tbl td{padding:11px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
-.deudas-tbl tr.deu-main{cursor:pointer;transition:background .12s}
-.deudas-tbl tr.deu-main:hover td{background:var(--hover)}
-.deudas-tbl tr.deu-venta{cursor:pointer}
-.deudas-tbl tr.deu-venta:hover td{background:var(--surface3)}
-.deu-arrow{display:inline-block;transition:transform .15s;color:var(--muted);font-size:11px}
-.ct-ico{cursor:pointer;font-size:15px;margin:0 3px;opacity:.85;transition:opacity .12s}
-.ct-ico:hover{opacity:1}
-#deu-tabla{overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-sm)}
-.deudas-tbl thead th:first-child{border-top-left-radius:var(--radius)}
-.deudas-tbl thead th:last-child{border-top-right-radius:var(--radius)}
-@media(max-width:700px){.two-col{grid-template-columns:1fr}}
-.dtable{width:100%;border-collapse:collapse;font-size:13px}
-.dtable th{text-align:left;padding:7px 8px;color:var(--muted);font-weight:600;font-size:11px;border-bottom:1px solid var(--border);cursor:pointer;user-select:none;white-space:nowrap}
-.dtable th:hover{color:var(--white)}
-.dtable th.sortable::after{content:' ⇅';color:var(--muted);font-size:10px}
-.dtable th.sort-asc::after{content:' ↑';color:var(--accent)}
-.dtable th.sort-desc::after{content:' ↓';color:var(--accent)}
-.dtable td{padding:8px;border-bottom:1px solid var(--border)}
-.dtable tr:last-child td{border:none}
-.dtable tr:hover td{background:var(--hover)}
-.badge{font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600}
-.badge-g{background:var(--bg-ok);color:var(--fg-ok);padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600}.badge-y{background:var(--bg-warn);color:var(--fg-warn);padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600}.badge-r{background:var(--bg-r);color:var(--fg-r);padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600}
-.badge-alto{background:#3C3489;color:#CECBF6}.badge-medio{background:#633806;color:#FAC775}.badge-bajo{background:#444441;color:#D3D1C7}
-.empresa-card{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:1rem;margin-bottom:10px}
-.empresa-name{font-size:14px;font-weight:600;margin-bottom:10px}
-.empresa-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-.estat{background:var(--surface3);border-radius:8px;padding:8px}
-.estat-label{font-size:11px;color:var(--muted);margin-bottom:3px}.estat-val{font-size:15px;font-weight:600}
-.ret-bar{background:var(--surface3);border-radius:20px;height:8px;overflow:hidden;margin-top:6px}
-.ret-fill{height:100%;border-radius:20px;background:var(--accent)}
-.legend{display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap}
-.legend span{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
-.db-aviso{border-radius:6px;padding:10px 14px;margin-bottom:8px;font-size:13px;line-height:1.5}
-.db-aviso-y{background:rgba(186,117,23,.12);border-left:3px solid #BA7517}
-.db-aviso-r{background:rgba(226,75,74,.12);border-left:3px solid #E24B4A}
-@media(max-width:700px){
-  table.responsive thead{display:none}
-  table.responsive,table.responsive tbody,table.responsive tr,table.responsive td{display:block;width:100%}
-  table.responsive tr{background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;padding:6px 4px}
-  table.responsive td{border:none !important;padding:7px 12px;display:flex;justify-content:space-between;align-items:center;text-align:right;gap:12px}
-  table.responsive td::before{content:attr(data-label);color:var(--muted);font-size:11px;text-transform:uppercase;font-weight:600;text-align:left;flex-shrink:0}
-  table.responsive td[data-label=""]::before,table.responsive td:not([data-label])::before{content:none}
-  table.responsive{min-width:0 !important}
-  .kpi-grid{grid-template-columns:1fr 1fr}
-  .two-col{grid-template-columns:1fr}
-  .filtros-fila{flex-direction:column;align-items:stretch}
-  .filtros-fila input,.filtros-fila select,.filtros-fila .btn{width:100%}
-  .filtros-fila label{width:100%}
-  .filtros-fila label input{margin-top:2px}
-  /* Tablas nuevas (deudas, conciliación): mantener encabezado, scroll horizontal cómodo */
-  .deudas-tbl{font-size:12px;min-width:560px}
-  .deudas-tbl thead th{padding:8px 8px;font-size:10px}
-  .deudas-tbl td{padding:9px 8px}
-  #deu-tabla,#conc-tabla{-webkit-overflow-scrolling:touch}
-  .dbcard{padding:12px}
-  .card{padding:1.15rem}
-}
-/* ── Launcher de apps (pantalla inicial tipo escritorio) ── */
-#launcher{padding:8px 0 24px}
-.launcher-saludo{font-size:15px;color:var(--text-soft,#8ea0d0);margin-bottom:20px}
-.launcher-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:16px;max-width:760px}
-.app-card{border:1px solid var(--border);border-radius:18px;padding:24px 14px;text-align:center;background:var(--surface);cursor:pointer;transition:transform .12s,box-shadow .15s,background .15s;box-shadow:var(--shadow-sm)}
-.app-card:hover{transform:translateY(-3px);box-shadow:0 8px 24px rgba(0,0,0,.18);background:var(--surface3)}
-.app-card:active{transform:translateY(-1px)}
-.app-card .ico{font-size:34px;line-height:1;margin-bottom:10px;display:block}
-.app-card .nom{font-size:13px;font-weight:600;color:var(--text)}
-.btn-inicio{background:var(--surface3);color:var(--text);border:1px solid var(--border)}
-</style>
-<style>
-  body{padding:16px}
-  @media(max-width:640px){body{padding:10px}}
 </style>
 </head>
 <body>
 <div class="toast" id="toast"></div>
-<div class="card">
-        <div class="dbcard">
-          <h4>Clientes que deben (cuentas por cobrar)</h4>
-          <p class="card-note">Ventas confirmadas o pendientes de pago con saldo. La deuda "a pedido" se separa en su propia columna.</p>
-          <div class="filtros-fila" style="align-items:center;gap:8px;flex-wrap:wrap">
-            <select id="deu-empresa"><option value="">Todas las empresas</option></select>
-            <select id="deu-pedido">
-              <option value="ocultar" selected>Ocultar a pedido</option>
-              <option value="todos">Ver todos</option>
-              <option value="solo">Solo a pedido</option>
-            </select>
-            <button class="btn" onclick="cargarDeudas()">Ver deudas</button>
-            <button class="btn" onclick="descargarDeudasExcel()">Excel</button>
-            <button class="btn" onclick="descargarDeudasPDF()">PDF</button>
-            <button class="btn btn-ok" onclick="enviarCobranza()">✉ Enviar cobranza a seleccionados</button>
-          </div>
-          <div id="deu-resumen" style="margin:8px 0;font-weight:600"></div>
-          <div id="deu-tabla" style="overflow-x:auto;max-height:60vh;overflow-y:auto"></div>
-        </div>
-</div>
-<script>
 
-// ── Bootstrap compartido (mini-app en iframe; comparte token y origen con admin.html) ──
+<div class="card">
+  <h1>Cuentas por cobrar</h1>
+  <p class="nota">Ventas confirmadas o pendientes de pago con saldo. <b>Exigible</b> = lo que el cliente ya recibió y falta pagar.
+    <b>A pedido</b> = la parte de la venta cuyo producto aún no llega (se separa porque no se cobra hasta entregar).
+    La antigüedad se cuenta desde la fecha de la venta.</p>
+  <div class="filtros">
+    <label>Empresa<select id="f-empresa"><option value="">Todas</option></select></label>
+    <label>Qué deuda<select id="f-a_pedido">
+      <option value="exigible">Exigible (sin a pedido)</option>
+      <option value="todos">Todo (incluye a pedido)</option>
+      <option value="solo">Solo a pedido</option>
+    </select></label>
+    <label>Antigüedad<select id="f-antiguedad">
+      <option value="">Todas</option><option value="0-30">0–30 días</option><option value="31-60">31–60 días</option>
+      <option value="61-90">61–90 días</option><option value="90+">Más de 90 días</option>
+    </select></label>
+    <label>Tipo de cliente<select id="f-tipo">
+      <option value="">Todos</option><option value="empresa">Empresas (B2B)</option><option value="persona">Personas (B2C)</option>
+    </select></label>
+    <label>Contacto<select id="f-contacto">
+      <option value="">Todos</option><option value="correo">Con correo</option><option value="whatsapp">Con teléfono</option><option value="sin">Sin contacto</option>
+    </select></label>
+    <label>Saldo mínimo<select id="f-min">
+      <option value="0">Cualquiera</option><option value="1">S/ 1+</option><option value="50">S/ 50+</option>
+      <option value="100">S/ 100+</option><option value="500">S/ 500+</option><option value="1000">S/ 1,000+</option>
+    </select></label>
+    <label style="grid-column:span 2">Buscar<input id="f-q" type="search" placeholder="Cliente, RUC/DNI o código de venta"></label>
+  </div>
+  <div class="acciones">
+    <button class="btn btn-sec" onclick="cargar(true)" title="Vuelve a leer del sistema">↻ Actualizar</button>
+    <button class="btn btn-sec" onclick="descargarExcel()">Excel</button>
+    <button class="btn btn-sec" onclick="descargarPDF()">PDF</button>
+    <span class="sp"></span>
+    <span class="estado" id="estado"></span>
+    <button class="btn btn-ok" onclick="enviarSeleccionados()">✉ Enviar correo a seleccionados</button>
+  </div>
+</div>
+
+<div class="kpis" id="kpis"></div>
+
+<div class="card" id="aging-card" style="display:none">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap">
+    <b style="font-size:13px">Antigüedad del saldo</b>
+    <span class="muted" style="font-size:11px">Clic en un tramo para filtrar</span>
+  </div>
+  <div class="aging-bar" id="aging-bar"></div>
+  <div class="aging-leg" id="aging-leg"></div>
+</div>
+
+<div class="tbl-wrap" id="tabla"><div class="vacio">Cargando…</div></div>
+
+<script>
+// ── Base compartida (mini-app en iframe; comparte token y origen con admin.html) ──
 let TOKEN='';try{TOKEN=localStorage.getItem('admtoken')||'';}catch(e){}
-let ES_MAESTRO=false;try{ES_MAESTRO=localStorage.getItem('admmaestro')==='1';}catch(e){}
-const API='';
-const MEM_VERSION=7;
-function esc(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-function showToast(m,e){const t=document.getElementById('toast');if(!t)return;t.textContent=m;t.className='toast'+(e?' err':'');t.style.display='block';setTimeout(()=>t.style.display='none',3500);}
-async function apiCall(ep,method='GET',body){
+const FILTROS=['empresa','a_pedido','antiguedad','tipo','contacto','min','q'];
+const TRAMO_COLOR={'0-30':'var(--t1)','31-60':'var(--t2)','61-90':'var(--t3)','90+':'var(--t4)'};
+let DATOS=null, ORDEN={campo:'saldo',dir:-1}, ABIERTOS=new Set(), PETICION=0;
+
+function esc(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+function toast(m,e){const t=document.getElementById('toast');t.textContent=m;t.className='toast'+(e?' err':'');t.style.display='block';clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',4000);}
+const soles=n=>'S/ '+Number(n||0).toLocaleString('es-PE',{minimumFractionDigits:2,maximumFractionDigits:2});
+const fecha=v=>v?new Date(v).toLocaleDateString('es-PE',{timeZone:'America/Lima'}):'—';
+const haceDias=v=>{if(!v)return null;return Math.max(0,Math.floor((Date.now()-new Date(v).getTime())/86400000));};
+async function api(ep,method='GET',body){
   const opt={method,headers:{'Authorization':'Bearer '+TOKEN}};
   if(body){opt.headers['Content-Type']='application/json';opt.body=JSON.stringify(body);}
-  const r=await fetch(API+ep,opt);
-  if(r.status===401||r.status===403){throw new Error('Sesión del portal expirada — vuelve a entrar al panel.');}
-  const d=await r.json();if(!r.ok)throw new Error(d.error||'Error');return d;
+  const r=await fetch(ep,opt);
+  if(r.status===401)throw new Error('Sesión del portal expirada — vuelve a entrar al panel.');
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok)throw new Error(d.error||'Error');
+  return d;
 }
-function nombreArchivo(base, ext, periodo){
-  const d=new Date();const p=n=>String(n).padStart(2,'0');
-  const stamp=`${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
-  const suf=periodo?('-'+periodo):'';
-  return `${base}-${stamp}${suf}.${ext}`;
+function nombreArchivo(base,ext){
+  const d=new Date(),p=n=>String(n).padStart(2,'0');
+  return `${base}-${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.${ext}`;
 }
 
-// ══════════ Clientes que deben (cuentas por cobrar) ══════════
-function deuParams(){
-  const p=new URLSearchParams();
-  const emp=document.getElementById('deu-empresa').value; if(emp)p.set('empresa',emp);
-  const ped=document.getElementById('deu-pedido').value; if(ped&&ped!=='todos')p.set('a_pedido',ped);
-  return p;
+// ── Filtros ──
+function leerFiltros(){const f={};FILTROS.forEach(k=>{const v=document.getElementById('f-'+k).value.trim();if(v&&v!=='0')f[k]=v;});return f;}
+function params(extra){const p=new URLSearchParams(leerFiltros());if(extra)Object.entries(extra).forEach(([k,v])=>p.set(k,v));return p.toString();}
+function guardarFiltros(){try{localStorage.setItem('cxc_filtros',JSON.stringify(leerFiltros()));}catch(e){}}
+function restaurarFiltros(){
+  try{const f=JSON.parse(localStorage.getItem('cxc_filtros')||'{}');
+    FILTROS.forEach(k=>{if(k!=='q'&&f[k]!=null){const el=document.getElementById('f-'+k);if([...el.options||[]].some(o=>o.value===f[k]))el.value=f[k];}});
+  }catch(e){}
 }
-const deuFmt=n=>n==null?'—':'S/ '+Number(n).toLocaleString('es-PE',{minimumFractionDigits:2});
-function pintarDeudas(d, horaTexto){
-  document.getElementById('deu-resumen').textContent=
-    `${d.total} clientes deben · Total: ${deuFmt(d.suma_total)} (normal ${deuFmt(d.suma_normal)} · a pedido ${deuFmt(d.suma_pedido)}) · ${horaTexto}`;
-  const cont=document.getElementById('deu-tabla');
-  if(!d.clientes.length){cont.innerHTML='<div class="muted">No hay clientes con deuda para ese filtro.</div>';return;}
-  const fFecha=v=>v?new Date(v).toLocaleDateString('es-PE'):'—';
-  let html='<table class="deudas-tbl"><thead><tr>'+
-    '<th style="width:30px"><input type="checkbox" id="deu-check-all" onclick="deuToggleAll(this)"></th>'+
-    '<th style="width:22px"></th><th>Cliente</th><th>RUC/Doc</th><th style="text-align:center">Contacto</th>'+
-    '<th style="text-align:right">Deuda total</th><th style="text-align:center">Ventas</th><th style="text-align:center">Cobrar</th></tr></thead><tbody>';
-  d.clientes.forEach((x,i)=>{
-    // Contacto: solo aviso con copiar al clic y tooltip
+function textoFiltros(){
+  const t=[];FILTROS.forEach(k=>{const el=document.getElementById('f-'+k);const v=el.value.trim();if(!v||v==='0')return;
+    const lbl=el.closest('label').firstChild.textContent.trim();t.push(lbl+': '+(el.tagName==='SELECT'?el.options[el.selectedIndex].text:v));});
+  return t.join('  ·  ')||'Sin filtros';
+}
+
+// ── Carga ──
+async function cargar(fresco){
+  const n=++PETICION;
+  document.getElementById('estado').textContent='Cargando…';
+  guardarFiltros();
+  try{
+    const d=await api('/api/cxc?'+params(fresco?{fresco:1}:null));
+    if(n!==PETICION)return; // llegó una respuesta más nueva
+    DATOS=d;
+    pintar();
+    document.getElementById('estado').textContent='Actualizado '+new Date().toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'});
+  }catch(e){if(n===PETICION){document.getElementById('estado').textContent='';toast(e.message,true);}}
+}
+
+// ── Pintado ──
+function pintar(){
+  const d=DATOS, r=d.resumen, f=d.filtros;
+  const kp=[];
+  kp.push({l:f.a_pedido==='solo'?'A pedido':f.a_pedido==='todos'?'Por cobrar (todo)':'Exigible',v:soles(r.total),s:`${r.clientes} clientes · ${r.ventas} ventas`});
+  if(f.a_pedido==='exigible')kp.push({l:'A pedido (aparte)',v:soles(r.pedido_cartera),s:'producto aún no entregado'});
+  else if(f.a_pedido==='todos')kp.push({l:'De eso, a pedido',v:soles(r.pedido_cartera),s:'exigible '+soles(r.exigible_cartera)});
+  else kp.push({l:'Exigible (aparte)',v:soles(r.exigible_cartera),s:'producto ya entregado'});
+  kp.push({l:'Más de 90 días',v:soles(r.mas_90),s:r.pct_mas_90+'% del saldo',alerta:r.pct_mas_90>=30});
+  kp.push({l:'Antigüedad promedio',v:r.dias_promedio+' días',s:'ponderada por saldo'});
+  kp.push({l:'Con saldo a favor',v:r.con_credito+(r.con_credito===1?' cliente':' clientes'),s:r.con_credito?soles(r.credito_favor)+' que les debemos':'ninguno'});
+  kp.push({l:'Sin contacto',v:r.sin_contacto+(r.sin_contacto===1?' cliente':' clientes'),s:'sin correo ni teléfono',alerta:r.sin_contacto>0});
+  document.getElementById('kpis').innerHTML=kp.map(k=>`<div class="kpi${k.alerta?' alerta':''}"><div class="l">${k.l}</div><div class="v">${k.v}</div><div class="s">${k.s}</div></div>`).join('');
+
+  // Antigüedad
+  const ac=document.getElementById('aging-card');
+  ac.style.display=r.total>0?'':'none';
+  document.getElementById('aging-bar').innerHTML=d.tramos.map(t=>t.pct>0?`<div style="width:${t.pct}%;background:${TRAMO_COLOR[t.id]}" title="${t.nombre}: ${soles(t.monto)}"></div>`:'').join('');
+  document.getElementById('aging-leg').innerHTML=d.tramos.map(t=>`<button class="${f.antiguedad===t.id?'on':''}" onclick="filtrarTramo('${t.id}')">
+      <div class="n"><span class="dot" style="background:${TRAMO_COLOR[t.id]}"></span>${t.nombre}</div>
+      <div class="m">${soles(t.monto)}</div><div class="c">${t.pct}% · ${t.clientes} clientes</div></button>`).join('');
+  pintarTabla();
+}
+function filtrarTramo(id){const s=document.getElementById('f-antiguedad');s.value=s.value===id?'':id;cargar();}
+
+function ordenar(campo){ORDEN={campo,dir:ORDEN.campo===campo?-ORDEN.dir:(campo==='cliente'?1:-1)};pintarTabla();}
+function valorOrden(x,c){
+  if(c==='cliente')return (x.cliente||'').toLowerCase();
+  if(c==='ultimo_pago')return x.ultimo_pago?new Date(x.ultimo_pago).getTime():0;
+  if(c==='recordatorio')return x.ultimo_recordatorio?new Date(x.ultimo_recordatorio.fecha).getTime():0;
+  return Number(x[c]||0);
+}
+function colorDias(d){return d>90?'var(--t4)':d>60?'var(--t3)':d>30?'var(--t2)':'var(--t1)';}
+
+function pintarTabla(){
+  const cont=document.getElementById('tabla');
+  const lista=[...DATOS.clientes].sort((a,b)=>{const va=valorOrden(a,ORDEN.campo),vb=valorOrden(b,ORDEN.campo);return (va>vb?1:va<vb?-1:0)*ORDEN.dir;});
+  if(!lista.length){cont.innerHTML='<div class="vacio">No hay clientes con saldo para estos filtros. 🎉</div>';return;}
+  const th=(campo,txt,cls='')=>`<th class="ord ${cls}" onclick="ordenar('${campo}')">${txt}${ORDEN.campo===campo?` <span class="fl">${ORDEN.dir>0?'↑':'↓'}</span>`:''}</th>`;
+  let h=`<table class="tbl"><thead><tr>
+    <th style="width:30px"><input type="checkbox" title="Seleccionar todos los que tienen correo" onclick="marcarTodos(this)"></th>
+    <th style="width:18px"></th>${th('cliente','Cliente')}<th>RUC/Doc</th><th class="cen">Contacto</th>
+    ${th('saldo','Saldo','num')}${th('dias_max','Días','num')}${th('ultimo_pago','Último pago')}${th('recordatorio','Último aviso')}
+    ${th('num_ventas','Ventas','cen')}<th class="cen">Cobrar</th></tr></thead><tbody>`;
+  lista.forEach(x=>{
+    const k=esc(x.clave);
+    const tags=(x.pedido>0&&DATOS.filtros.a_pedido==='todos'?`<span class="tag tag-y" title="Parte del saldo que corresponde a productos que aún no llegan">a pedido ${soles(x.pedido)}</span>`:'')+
+      (x.credito_favor>0?`<span class="tag tag-g" title="Tiene crédito a favor sin usar (módulo Saldo a favor)">saldo a favor ${soles(x.credito_favor)}</span>`:'')+
+      (x.es_empresa?'':'<span class="tag tag-n">persona</span>');
     let contacto='';
-    if(x.email)contacto+=`<span class="ct-ico" title="${esc(x.email)} (clic para copiar)" onclick="event.stopPropagation();copiarDato('${esc(x.email)}','Correo')">✉</span>`;
-    if(x.phone)contacto+=`<span class="ct-ico" title="${esc(x.phone)} (clic para copiar)" onclick="event.stopPropagation();copiarDato('${esc(x.phone)}','Teléfono')">📱</span>`;
-    if(!x.email&&!x.phone)contacto='<span class="badge-r" style="font-size:9px">sin contacto</span>';
-    // Cobrar: ambos íconos, activos solo si hay ese medio
-    const btnMail=x.email
-      ?`<button class="btn btn-sm" style="padding:3px 9px" title="Enviar correo" onclick="event.stopPropagation();enviarCobranzaUno(${i})">✉</button>`
-      :`<button class="btn btn-sm" style="padding:3px 9px;opacity:.35;cursor:not-allowed" title="Sin correo" disabled>✉</button>`;
-    const btnWa=x.phone
-      ?`<button class="btn btn-sm btn-ok" style="padding:3px 9px" title="Enviar WhatsApp" onclick="event.stopPropagation();waCobranza(${i})">📱</button>`
-      :`<button class="btn btn-sm" style="padding:3px 9px;opacity:.35;cursor:not-allowed" title="Sin teléfono" disabled>📱</button>`;
-    const pedidoTag=x.deuda_pedido>0?` <span class="badge-y" style="font-size:9px">a pedido ${deuFmt(x.deuda_pedido)}</span>`:'';
-    html+=`<tr class="deu-main" onclick="deuToggle(${i})">
-      <td onclick="event.stopPropagation()">${x.email?`<input type="checkbox" class="deu-check" data-ids="${(x.customer_ids||[x.customer_id]).join(',')}">`:''}</td>
-      <td><span id="deu-arrow-${i}" class="deu-arrow">▶</span></td>
-      <td><b>${esc(x.cliente)}</b>${pedidoTag}</td>
+    if(x.email)contacto+=`<span class="ct" title="${esc(x.email)} — clic para copiar" onclick="event.stopPropagation();copiar('${esc(x.email)}')">✉</span>`;
+    if(x.phone)contacto+=`<span class="ct" title="${esc(x.phone)} — clic para copiar" onclick="event.stopPropagation();copiar('${esc(x.phone)}')">📱</span>`;
+    if(!contacto)contacto='<span class="tag tag-r">sin contacto</span>';
+    const up=x.ultimo_pago?`${fecha(x.ultimo_pago)}<div class="muted" style="font-size:11px">hace ${x.dias_sin_pago} d</div>`:'<span class="muted">nunca</span>';
+    const rec=x.ultimo_recordatorio?`${fecha(x.ultimo_recordatorio.fecha)}<div class="muted" style="font-size:11px">${x.ultimo_recordatorio.canal==='correo'?'✉ correo':'📱 WhatsApp'} · hace ${haceDias(x.ultimo_recordatorio.fecha)} d</div>`:'<span class="muted">—</span>';
+    const abierto=ABIERTOS.has(x.clave);
+    h+=`<tr class="fila" onclick="alternar('${k}')">
+      <td onclick="event.stopPropagation()">${x.email?`<input type="checkbox" class="sel" value="${k}">`:''}</td>
+      <td><span class="arr${abierto?' on':''}">▶</span></td>
+      <td><b>${esc(x.cliente)}</b>${tags}</td>
       <td>${esc(x.ruc)||'—'}</td>
-      <td style="text-align:center;white-space:nowrap">${contacto}</td>
-      <td style="text-align:right;font-weight:700">${deuFmt(x.deuda_total)}</td>
-      <td style="text-align:center">${x.num_ventas}</td>
-      <td style="text-align:center;white-space:nowrap">${btnMail} ${btnWa}</td>
-    </tr>`;
-    // Detalle nivel 1: ventas (cada una expandible a productos)
-    const ventasRows=(x.ventas||[]).map((v,j)=>{
-      const prods=(v.productos||[]).map(pr=>`<tr>
-        <td style="padding:3px 10px 3px 24px">${esc(pr.producto)}${pr.variacion&&pr.variacion!==pr.producto?' — '+esc(pr.variacion):''}</td>
-        <td style="padding:3px 10px">${esc(pr.sku)}</td>
-        <td style="padding:3px 10px;text-align:right">${pr.cantidad}</td>
-        <td style="padding:3px 10px;text-align:right">${deuFmt(pr.precio)}</td>
-      </tr>`).join('')||'<tr><td colspan="5" style="padding:3px 24px;color:var(--muted)">Sin productos registrados</td></tr>';
-      return `<tr class="deu-venta" onclick="deuToggleVenta(${i},${j})">
-          <td style="padding:5px 10px"><span id="deu-varrow-${i}-${j}" class="deu-arrow" style="font-size:9px">▶</span> ${esc(v.codigo)}</td>
-          <td style="padding:5px 10px">${fFecha(v.fecha)}</td>
-          <td style="padding:5px 10px">${v.ultimo_pago_venta?fFecha(v.ultimo_pago_venta):'<span style="color:var(--muted)">sin abonos</span>'}</td>
-          <td style="padding:5px 10px">${esc(v.comprobante)}${v.a_pedido?' <span class="badge-y" style="font-size:9px">a pedido</span>':''}</td>
-          <td style="padding:5px 10px;text-align:right;font-weight:600">${deuFmt(v.deuda)}</td>
-        </tr>
-        <tr id="deu-prod-${i}-${j}" style="display:none"><td colspan="5" style="padding:0">
-          <table style="width:100%;font-size:11px;border-collapse:collapse;background:var(--surface3)">
-            <thead><tr style="color:var(--muted)"><th style="padding:3px 10px 3px 24px;text-align:left">Producto</th><th style="padding:3px 10px;text-align:left">SKU</th><th style="padding:3px 10px;text-align:right">Cant.</th><th style="padding:3px 10px;text-align:right">Precio</th></tr></thead>
-            <tbody>${prods}</tbody>
-          </table>
-        </td></tr>`;
-    }).join('');
-    html+=`<tr id="deu-det-${i}" style="display:none"><td colspan="8" style="background:var(--surface2);padding:8px 14px">
-      <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Ventas con saldo (clic en cada una para ver productos) · Venta más antigua: ${fFecha(x.venta_mas_antigua)} · Último pago: ${fFecha(x.ultimo_pago)}</div>
-      <table style="width:100%;font-size:12px;border-collapse:collapse">
-        <thead><tr style="color:var(--muted);text-align:left">
-          <th style="padding:4px 10px">Venta</th><th style="padding:4px 10px">Fecha</th><th style="padding:4px 10px">Último abono</th><th style="padding:4px 10px">Comprobante</th><th style="padding:4px 10px;text-align:right">Saldo</th>
-        </tr></thead><tbody>${ventasRows}</tbody>
-      </table>
-    </td></tr>`;
+      <td class="cen" style="white-space:nowrap">${contacto}</td>
+      <td class="num"><b>${soles(x.saldo)}</b></td>
+      <td class="num"><span class="dias" style="color:${colorDias(x.dias_max)}" title="Días desde su venta con saldo más antigua">${x.dias_max}</span></td>
+      <td style="white-space:nowrap">${up}</td>
+      <td style="white-space:nowrap">${rec}</td>
+      <td class="cen">${x.num_ventas}</td>
+      <td class="cen" style="white-space:nowrap" onclick="event.stopPropagation()">
+        <button class="btn btn-ico" ${x.email?'':'disabled'} title="${x.email?'Enviar correo':'Sin correo'}" onclick="enviarUno('${k}')">✉</button>
+        <button class="btn btn-ico btn-ok" ${x.phone?'':'disabled'} title="${x.phone?'Abrir WhatsApp':'Sin teléfono'}" onclick="whatsapp('${k}')">📱</button>
+      </td></tr>`;
+    if(abierto)h+=detalle(x);
   });
-  html+='</tbody></table>';
-  cont.innerHTML=html;
-  window._deudasActuales=d.clientes;
+  cont.innerHTML=h+'</tbody></table>';
 }
-function deuToggle(i){
-  const det=document.getElementById('deu-det-'+i);
-  const arr=document.getElementById('deu-arrow-'+i);
-  if(!det)return;
-  const abierto=det.style.display!=='none';
-  det.style.display=abierto?'none':'table-row';
-  if(arr)arr.style.transform=abierto?'rotate(0deg)':'rotate(90deg)';
+function detalle(x){
+  const filas=x.ventas.map(v=>{
+    const prods=v.productos.map(p=>`<tr><td style="padding-left:26px">${esc(p.producto)}${p.a_pedido?' <span class="tag tag-y">a pedido</span>':''}</td><td>${esc(p.sku)}</td><td class="num">${p.cantidad}</td><td class="num">${soles(p.precio)}</td><td class="num">${soles(p.total)}</td></tr>`).join('')
+      ||'<tr><td colspan="5" class="muted" style="padding-left:26px">Sin productos registrados</td></tr>';
+    const id=`p-${esc(x.clave)}-${v.id}`;
+    return `<tr class="v" onclick="event.stopPropagation();const r=document.getElementById('${id}');r.style.display=r.style.display==='none'?'':'none'">
+        <td>▸ ${esc(v.codigo)}</td><td>${fecha(v.fecha)}</td><td class="num"><span style="color:${colorDias(v.dias)};font-weight:700">${v.dias}</span></td>
+        <td>${esc(v.empresa)}</td><td>${esc(v.comprobante)}</td>
+        <td class="num">${soles(v.total)}</td><td class="num">${soles(v.pagado)}</td>
+        <td>${v.ultimo_pago_venta?fecha(v.ultimo_pago_venta):'<span class="muted">sin abonos</span>'}</td>
+        <td class="num"><b>${soles(v.saldo)}</b>${v.deuda_pedido>0?`<div class="muted" style="font-size:10px">a pedido ${soles(v.deuda_pedido)}</div>`:''}</td></tr>
+      <tr id="${id}" style="display:none"><td colspan="9" style="padding:0"><table class="prods"><thead><tr><th style="padding-left:26px">Producto</th><th>SKU</th><th class="num">Cant.</th><th class="num">Precio</th><th class="num">Total</th></tr></thead><tbody>${prods}</tbody></table></td></tr>`;
+  }).join('');
+  return `<tr class="det"><td colspan="11">
+    <div class="info">Venta más antigua: ${fecha(x.venta_mas_antigua)} · Empresa(s): ${esc(x.empresas)}${x.email?' · '+esc(x.email):''}${x.phone?' · '+esc(x.phone):''} · clic en una venta para ver sus productos</div>
+    <table class="sub"><thead><tr><th>Venta</th><th>Fecha</th><th class="num">Días</th><th>Empresa</th><th>Comprobante</th><th class="num">Total</th><th class="num">Pagado</th><th>Último abono</th><th class="num">Saldo</th></tr></thead><tbody>${filas}</tbody></table>
+  </td></tr>`;
 }
-function deuToggleVenta(i,j){
-  event.stopPropagation();
-  const det=document.getElementById('deu-prod-'+i+'-'+j);
-  const arr=document.getElementById('deu-varrow-'+i+'-'+j);
-  if(!det)return;
-  const abierto=det.style.display!=='none';
-  det.style.display=abierto?'none':'table-row';
-  if(arr)arr.style.transform=abierto?'rotate(0deg)':'rotate(90deg)';
-}
-function restaurarDeudas(){
+function alternar(clave){ABIERTOS.has(clave)?ABIERTOS.delete(clave):ABIERTOS.add(clave);pintarTabla();}
+function marcarTodos(m){document.querySelectorAll('.sel').forEach(c=>c.checked=m.checked);}
+function cliente(clave){return (DATOS&&DATOS.clientes||[]).find(x=>x.clave===clave);}
+function copiar(t){navigator.clipboard.writeText(t).then(()=>toast('Copiado: '+t)).catch(()=>toast('No se pudo copiar',true));}
+
+// ── Cobranza ──
+async function enviar(claves){
+  document.getElementById('estado').textContent='Enviando correos…';
   try{
-    const raw=localStorage.getItem('kuranko_ultima_deudas');
-    if(!raw)return;
-    const g=JSON.parse(raw);
-    if(g.v!==MEM_VERSION){localStorage.removeItem('kuranko_ultima_deudas');return;}
-    pintarDeudas(g.d, g.hora+' (guardada)');
-  }catch(e){}
+    const r=await api('/api/cxc-cobrar','POST',{claves,filtros:leerFiltros()});
+    let m=`Correos enviados: ${r.enviados} de ${r.total}`;
+    if(r.sin_correo&&r.sin_correo.length)m+=` · sin correo: ${r.sin_correo.length}`;
+    toast(m,r.enviados<r.total);
+    cargar();
+  }catch(e){document.getElementById('estado').textContent='';toast(e.message,true);}
 }
-async function cargarDeudas(){
-  const res=document.getElementById('deu-resumen');
-  res.textContent='Cargando deudas...';
-  try{
-    const d=await apiCall('/api/clientes-deudas?'+deuParams().toString(),'GET');
-    const hora=new Date().toLocaleString('es-PE');
-    pintarDeudas(d, hora);
-    try{ localStorage.setItem('kuranko_ultima_deudas', JSON.stringify({v:MEM_VERSION,d,hora})); }catch(e){}
-  }catch(e){res.textContent='';showToast(e.message,true);}
+function avisoReciente(x){
+  const d=x.ultimo_recordatorio?haceDias(x.ultimo_recordatorio.fecha):null;
+  return d!=null&&d<7?` (ya se le avisó hace ${d} día${d===1?'':'s'})`:'';
 }
-async function descargarDeudasExcel(){
-  try{
-    const r=await fetch(API+'/api/clientes-deudas-excel?'+deuParams().toString(),{headers:{'Authorization':'Bearer '+TOKEN}});
-    if(!r.ok)throw new Error('No se pudo generar el Excel');
-    const blob=await r.blob();
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement('a');a.href=url;a.download=nombreArchivo('clientes-deudas','xlsx');a.click();
-    URL.revokeObjectURL(url);
-  }catch(e){showToast(e.message,true);}
+function enviarSeleccionados(){
+  const claves=[...document.querySelectorAll('.sel:checked')].map(c=>c.value);
+  if(!claves.length){toast('Marca al menos un cliente con correo',true);return;}
+  const nombres=claves.map(k=>{const x=cliente(k);return `• ${x.cliente} — ${soles(x.saldo)}${avisoReciente(x)}`;}).join('\n');
+  if(!confirm(`Se enviará un recordatorio de pago a ${claves.length} cliente(s), con copia a info@kuranko.pe.\nEl correo muestra el saldo según el filtro "Qué deuda" actual.\n\n${nombres}\n\n¿Confirmas?`))return;
+  enviar(claves);
 }
-async function descargarDeudasPDF(){
-  try{
-    const d=await apiCall('/api/clientes-deudas?'+deuParams().toString(),'GET');
-    if(!d.clientes.length){showToast('No hay deudas para ese filtro',true);return;}
-    const cols=['Cliente','RUC/Doc','Venta','Fecha','Último abono','Comprobante','Saldo','A pedido'];
-    const filas=[];
-    d.clientes.forEach(x=>{
-      (x.ventas||[]).forEach(v=>{
-        filas.push([
-          x.cliente, x.ruc, v.codigo,
-          v.fecha?new Date(v.fecha).toLocaleDateString('es-PE'):'—',
-          v.ultimo_pago_venta?new Date(v.ultimo_pago_venta).toLocaleDateString('es-PE'):'—',
-          v.comprobante||'—',
-          Number(v.deuda).toLocaleString('es-PE',{minimumFractionDigits:2}),
-          v.a_pedido?'Sí':''
-        ]);
-      });
-    });
-    const ft=`Total: S/ ${d.suma_total.toLocaleString('es-PE',{minimumFractionDigits:2})} · ${d.total} clientes · ${filas.length} ventas`;
-    exportarPDF(nombreArchivo('clientes-deudas','pdf'),'Clientes que deben (detalle por venta)',cols,filas,ft);
-  }catch(e){showToast(e.message,true);}
+function enviarUno(clave){
+  const x=cliente(clave);if(!x)return;
+  if(!confirm(`Enviar recordatorio de ${soles(x.saldo)} a ${x.cliente} (${x.email}), con copia a info@kuranko.pe${avisoReciente(x)}. ¿Confirmas?`))return;
+  enviar([clave]);
 }
-function deuToggleAll(master){
-  document.querySelectorAll('.deu-check').forEach(ch=>ch.checked=master.checked);
-}
-function copiarDato(texto,tipo){
-  navigator.clipboard.writeText(texto).then(()=>{
-    showToast(tipo+' copiado: '+texto);
-  }).catch(()=>{
-    showToast('No se pudo copiar',true);
-  });
-}
-function waCobranza(indice){
-  const x=(window._deudasActuales||[])[indice];
-  if(!x||!x.phone){showToast('Este cliente no tiene teléfono',true);return;}
-  // Normalizar número: quitar todo lo que no sea dígito; si tiene 9 dígitos, anteponer 51 (Perú)
-  let num=(''+x.phone).replace(/\D/g,'');
-  if(num.length===9)num='51'+num;
-  const monto='S/ '+Number(x.deuda_total).toLocaleString('es-PE',{minimumFractionDigits:2});
-  const fFecha=d=>d?new Date(d).toLocaleDateString('es-PE'):'—';
-  const detalle=(x.ventas||[]).map(v=>{
-    const m='S/ '+Number(v.deuda).toLocaleString('es-PE',{minimumFractionDigits:2});
-    return `• ${v.codigo} (${fFecha(v.fecha)}) — ${v.comprobante}${v.a_pedido?' (a pedido)':''} — ${m}`;
-  }).join('\n')||'—';
+function whatsapp(clave){
+  const x=cliente(clave);if(!x||!x.phone)return;
+  let num=String(x.phone).replace(/\D/g,'');
+  if(num.length===9)num='51'+num;             // celular peruano sin código de país
+  if(num.startsWith('0051'))num=num.slice(2);
+  const det=x.ventas.map(v=>`• ${v.codigo} (${fecha(v.fecha)}) — ${v.comprobante} — ${soles(v.saldo)}`).join('\n');
   const msg=`Hola ${x.cliente} 👋, le saludamos de *Kuranko*.\n\n`+
-    `Le escribimos para recordarle de manera amable que tiene un saldo pendiente de *${monto}* por ${x.num_ventas} compra(s) registrada(s).\n\n`+
-    `*Detalle:*\n${detalle}\n\n`+
-    `Cuando pueda, agradeceríamos mucho coordinar el pago. Si ya lo realizó, por favor háganoslo saber para actualizar su estado. 🙏\n\n`+
-    `_(También le enviamos esta información por correo electrónico.)_\n\n`+
-    `¡Gracias por su preferencia!`;
-  const url='https://wa.me/'+num+'?text='+encodeURIComponent(msg);
-  window.open(url,'_blank');
-}
-async function enviarCobranza(){
-  const checks=[...document.querySelectorAll('.deu-check:checked')];
-  if(!checks.length){showToast('Selecciona al menos un cliente con correo',true);return;}
-  let ids=[];
-  checks.forEach(c=>{ (c.dataset.ids||'').split(',').forEach(x=>{if(x)ids.push(Number(x));}); });
-  const nombres=checks.map(c=>{
-    const tr=c.closest('tr');
-    return '• '+tr.querySelector('td:nth-child(3) b').textContent.trim();
-  }).join('\n');
-  if(!confirm(`Se enviará un recordatorio formal de pago pendiente a ${checks.length} cliente(s), con copia a info@kuranko.pe:\n\n${nombres}\n\n¿Confirmas el envío?`))return;
-  await ejecutarEnvio(ids);
-}
-async function enviarCobranzaUno(indice){
-  const x=(window._deudasActuales||[])[indice];
-  if(!x||!x.email){showToast('Este cliente no tiene correo',true);return;}
-  if(!confirm(`Enviar recordatorio de pago a ${x.cliente} (${x.email}), con copia a info@kuranko.pe. ¿Confirmas?`))return;
-  await ejecutarEnvio(x.customer_ids||[x.customer_id]);
-}
-async function ejecutarEnvio(ids){
-  const res=document.getElementById('deu-resumen');
-  const prev=res.textContent;
-  res.textContent='Enviando correos...';
-  try{
-    const r=await apiCall('/api/clientes-deudas-cobrar','POST',{customer_ids:ids});
-    res.textContent=prev;
-    showToast(`Correos enviados: ${r.enviados} de ${r.total}`, r.enviados<r.total);
-  }catch(e){res.textContent=prev;showToast(e.message,true);}
+    `Le escribimos para recordarle de manera amable que tiene un saldo pendiente de *${soles(x.saldo)}* por ${x.num_ventas} compra(s):\n\n${det}\n\n`+
+    `Cuando pueda, agradeceríamos coordinar el pago. Si ya lo realizó, por favor háganoslo saber para actualizar su estado. 🙏\n\n¡Gracias por su preferencia!`;
+  window.open('https://wa.me/'+num+'?text='+encodeURIComponent(msg),'_blank');
+  api('/api/cxc-recordatorio','POST',{clave:x.clave,customer_id:x.customer_id,cliente:x.cliente,monto:x.saldo})
+    .then(()=>{x.ultimo_recordatorio={fecha:new Date().toISOString(),canal:'whatsapp'};pintarTabla();}).catch(()=>{});
 }
 
-// ── Init ──
-(async function(){
-  // Poblar el filtro de empresas (si el usuario tiene permiso de reportes; si no, queda "Todas las empresas")
+// ── Exportar ──
+async function descargarExcel(){
   try{
-    const f=await apiCall('/admin/reporte-pagos/filtros','GET');
-    const sel=document.getElementById('deu-empresa');
-    if(sel)sel.innerHTML='<option value="">Todas las empresas</option>'+f.empresas.map(e=>`<option value="${e.id}">${esc(e.nombre)}</option>`).join('');
+    const r=await fetch('/api/cxc-excel?'+params(),{headers:{'Authorization':'Bearer '+TOKEN}});
+    if(!r.ok)throw new Error('No se pudo generar el Excel');
+    const url=URL.createObjectURL(await r.blob());
+    const a=document.createElement('a');a.href=url;a.download=nombreArchivo('cuentas-por-cobrar','xlsx');a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }catch(e){toast(e.message,true);}
+}
+function descargarPDF(){
+  if(!DATOS||!DATOS.clientes.length){toast('No hay datos para exportar',true);return;}
+  if(!window.jspdf){toast('No cargó la librería de PDF; revisa tu conexión',true);return;}
+  const {jsPDF}=window.jspdf;
+  const doc=new jsPDF({orientation:'landscape',unit:'pt',format:'a4'});
+  const ancho=doc.internal.pageSize.getWidth(), r=DATOS.resumen;
+  doc.setFont(undefined,'bold');doc.setFontSize(15);doc.setTextColor(0,7,38);doc.text('Kuranko',40,34);
+  doc.setFontSize(12);doc.text('Cuentas por cobrar',40,52);
+  doc.setFont(undefined,'normal');doc.setFontSize(8);doc.setTextColor(90,90,90);
+  doc.text('Exportado: '+new Date().toLocaleString('es-PE',{timeZone:'America/Lima'}),ancho-40,34,{align:'right'});
+  doc.text(doc.splitTextToSize(textoFiltros(),420),ancho-40,46,{align:'right'});
+  doc.setFontSize(9);doc.setTextColor(30,30,30);
+  doc.text(`Total ${soles(r.total)} · ${r.clientes} clientes · ${r.ventas} ventas · `+DATOS.tramos.map(t=>`${t.nombre}: ${soles(t.monto)}`).join(' · '),40,72);
+  const filas=[];
+  DATOS.clientes.forEach(x=>x.ventas.forEach(v=>filas.push([x.cliente,x.ruc||'—',v.codigo,fecha(v.fecha),String(v.dias),v.comprobante,
+    soles(v.total),soles(v.pagado),soles(v.saldo),v.deuda_pedido>0?soles(v.deuda_pedido):''])));
+  doc.autoTable({startY:82,head:[['Cliente','RUC/Doc','Venta','Fecha','Días','Comprobante','Total','Pagado','Saldo','A pedido']],body:filas,
+    styles:{fontSize:7,cellPadding:2.5,overflow:'linebreak'},headStyles:{fillColor:[0,7,38],textColor:255},
+    columnStyles:{4:{halign:'right'},6:{halign:'right'},7:{halign:'right'},8:{halign:'right',fontStyle:'bold'},9:{halign:'right'}},
+    alternateRowStyles:{fillColor:[245,246,250]},margin:{left:40,right:40},
+    didDrawPage:dt=>{doc.setFontSize(7);doc.setTextColor(120);doc.text('Página '+dt.pageNumber,ancho-40,doc.internal.pageSize.getHeight()-16,{align:'right'});}});
+  doc.save(nombreArchivo('cuentas-por-cobrar','pdf'));
+}
+
+// ── Inicio ──
+(async function(){
+  try{
+    const emps=await api('/api/empresas-bi');
+    document.getElementById('f-empresa').innerHTML='<option value="">Todas</option>'+emps.map(e=>`<option value="${e.id}">${esc(e.nombre)}</option>`).join('');
   }catch(e){}
-  if(typeof restaurarDeudas==='function')restaurarDeudas();
+  restaurarFiltros();
+  ['empresa','a_pedido','antiguedad','tipo','contacto','min'].forEach(k=>document.getElementById('f-'+k).addEventListener('change',()=>cargar()));
+  let t;document.getElementById('f-q').addEventListener('input',()=>{clearTimeout(t);t=setTimeout(()=>cargar(),350);});
+  cargar();
 })();
 </script>
 </body>

@@ -243,7 +243,8 @@ let modSeguimiento = null;
   require('./modulos/clientes-bi')({ app, authAdmin, mClientes, mResumen, prodPool, VV });
 
   // ── Módulo Cuentas por cobrar (deudas) — public/cuentas-por-cobrar.html ──
-  require('./modulos/cuentas-cobrar')({ app, authAdmin, mCxc, prodPool });
+  //    (portalPool: lee el saldo a favor y guarda los recordatorios de cobranza)
+  require('./modulos/cuentas-cobrar')({ app, authAdmin, mCxc, prodPool, portalPool });
 
   // ── Módulo Créditos (saldo a favor del cliente y de la empresa) — public/saldo-a-favor.html ──
   require('./modulos/creditos')({ app, authAdmin, mSaldo, prodPool, portalPool });

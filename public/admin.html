@@ -1077,9 +1077,9 @@ function cargarDatosTab(id){
     if(fr&&!fr.src){fr.src='/restock.html?v='+Date.now();}
   }
   else if(id==='saldo_favor'){
-    // App de saldo a favor (créditos) en iframe; comparte token/origen. Carga perezosa.
+    // App de Créditos (public/creditos.html) en iframe; comparte token/origen. Carga perezosa.
     const fr=document.getElementById('saldo-frame');
-    if(fr&&!fr.src){fr.src='/saldo-a-favor.html?v='+Date.now();}
+    if(fr&&!fr.src){fr.src='/creditos.html?v='+Date.now();}
   }
 }
 

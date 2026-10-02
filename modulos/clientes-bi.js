@@ -1,667 +1,354 @@
 // ═══════════════════════════════════════════════════════════════════════════
-//  MÓDULO: Clientes-BI
-//  Créditos a favor del cliente, cuentas por cobrar (deudas), retención,
-//  clientes en riesgo, conciliación bancaria y tipo de cliente.
-//  Recibe del index.js las piezas compartidas y usa comunes.js para helpers.
+//  MÓDULO: Clientes BI — quiénes compran, quiénes vuelven y quiénes se van
+//  Backend aquí; frontend propio en public/clientes-bi.html (iframe en el panel).
+//  (Cuentas por cobrar → modulos/cuentas-cobrar.js · Créditos → modulos/creditos.js)
+//
+//  Endpoints
+//    GET /api/clientes-bi        (permiso clientes_bi)  → KPIs, retención, evolución
+//                                 mensual, estados, top del período y lista de clientes
+//    GET /api/clientes-bi-excel  (permiso clientes_bi)  → lo mismo en Excel
+//    GET /api/tipo-cliente       (permiso resumen)      → B2B/B2C para "Ventas e ingresos"
+//
+//  Filtros (query)
+//    desde, hasta  período a analizar (AAAA-MM-DD). Por defecto: últimos 12 meses.
+//    empresa       '' (todas) | company_id conocido (EMPRESAS_BI)
+//    tipo          '' (todos) | b2b (empresas) | b2c (personas)
+//    umbral        días sin comprar para "en riesgo": 60 | 90 (def.) | 120 | 180
+//    genericos     excluir (def.) | incluir  — "clientes varios", DNI 00000000, etc.
+//
+//  Reglas
+//  · Ventas válidas: status IN VV y sin borrar (igual que el resto del panel).
+//  · Un cliente = mismo RUC/DNI (une duplicados del ERP); sin documento → su id.
+//  · "Compra" = día distinto con venta. Dos ventas el mismo día cuentan como una
+//    visita (antes un cliente con 2 boletas el mismo día salía "recurrente").
+//  · Estado (al día de referencia = "hasta", o hoy si "hasta" es futuro):
+//      nuevo      su primera compra cae dentro del período
+//      activo     compró hace menos de U días (U = umbral)
+//      en_riesgo  2+ compras, sin comprar hace U…364 días
+//      no_volvio  1 sola compra, sin comprar hace U…364 días
+//      perdido    sin comprar hace 365+ días
+//    Además "atrasado": 3+ compras y lleva más del doble de su ritmo habitual sin
+//    comprar (aunque aún no llegue a U). Sirve para avisar antes.
+//  · Retención = de los clientes que compraron en el período ANTERIOR (mismo largo),
+//    qué % volvió a comprar en este período. (La versión anterior medía la distancia
+//    entre la primera y la última compra de toda la historia, que no es retención.)
+//  · Montos = sales.total (con IGV), igual que "Ventas e ingresos".
 // ═══════════════════════════════════════════════════════════════════════════
 
 const { EMPRESAS_BI, rango, nombreTrazable, cabeceraExcel } = require('./comunes');
 
-module.exports = function registrarClientesBI({
-  app, authAdmin, mClientes, mResumen, mCxc, mSaldo, prodPool, portalPool, VV
-}) {
+const UMBRALES = [60, 90, 120, 180];
+const DEF_UMBRAL = 90;
+const PERDIDO_DIAS = 365;
+const MAX_MESES = 24;
+const DIA = 864e5;
+const ESTADOS = ['nuevo', 'activo', 'en_riesgo', 'no_volvio', 'perdido'];
 
-  // Calcula las cuentas por cobrar (deudas) de clientes
-  async function obtenerDeudas(q) {
-    const { empresa, a_pedido } = q; // a_pedido: 'todos' | 'solo' | 'ocultar'
-    const w = ["s.deleted_at IS NULL", "s.status IN ('confirmed','pending_payment')"];
-    const p = [];
-    if (empresa) { w.push('s.company_id = ?'); p.push(empresa); }
+const esFecha = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
+const aUTC = f => Date.UTC(+f.slice(0, 4), +f.slice(5, 7) - 1, +f.slice(8, 10));
+const deUTC = t => new Date(t).toISOString().slice(0, 10);
+const sumarDias = (f, n) => deUTC(aUTC(f) + n * DIA);
+const difDias = (a, b) => Math.round((aUTC(a) - aUTC(b)) / DIA);
+const hoyLima = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+const r1 = n => Math.round(n * 10) / 10;
+const r2 = n => Math.round(n * 100) / 100;
+const pct = (a, b) => (b > 0 ? r1((a / b) * 100) : null);
 
-    // Ventas con deuda (total - pagado > 0), marcando si son a pedido y contando items
+// ── Clientes genéricos ("clientes varios", público general, DNI de relleno) ──
+const DOCS_GENERICOS = new Set(['', '0', '00000000', '000000000', '00000000000', '11111111', '99999999', '99999999999', '12345678']);
+const RE_NOMBRE_GENERICO = /\b(clientes?\s+varios|varios|p[uú]blico(\s+en)?\s+general|cliente\s+general|consumidor\s+final|sin\s+nombre|an[oó]nimo)\b/i;
+const IDS_GENERICOS = new Set(String(process.env.CLIENTES_GENERICOS || '').split(',').map(x => x.trim()).filter(Boolean));
+const limpiarDoc = d => String(d || '').replace(/[^0-9A-Za-z]/g, '').toUpperCase();
+function esGenerico(p) {
+  if (IDS_GENERICOS.has(String(p.id))) return true;
+  const doc = limpiarDoc(p.document_number);
+  if (doc && (DOCS_GENERICOS.has(doc) || /^(\d)\1+$/.test(doc))) return true;
+  return RE_NOMBRE_GENERICO.test(p.nombre || '');
+}
+const nombreParte = p => ((p.is_company ? p.business_name : `${p.first_name || ''} ${p.last_name || ''}`) || '').replace(/\s+/g, ' ').trim();
+
+function leerFiltros(q, hoy) {
+  q = q || {}; hoy = hoy || hoyLima();
+  let hasta = esFecha(q.hasta) ? q.hasta : hoy;
+  let desde = esFecha(q.desde) ? q.desde : sumarDias(hasta, -364);
+  if (desde > hasta) [desde, hasta] = [hasta, desde];
+  const emp = parseInt(q.empresa, 10);
+  const u = Number(q.umbral);
+  return {
+    desde, hasta,
+    empresa: EMPRESAS_BI[emp] ? emp : '',
+    tipo: q.tipo === 'b2b' || q.tipo === 'b2c' ? q.tipo : '',
+    umbral: UMBRALES.includes(u) ? u : DEF_UMBRAL,
+    genericos: q.genericos === 'incluir' ? 'incluir' : 'excluir'
+  };
+}
+
+// Meses (AAAA-MM) entre dos fechas, como máximo los últimos MAX_MESES
+function mesesEntre(desde, hasta) {
+  const out = []; let a = +desde.slice(0, 4), m = +desde.slice(5, 7);
+  const fa = +hasta.slice(0, 4), fm = +hasta.slice(5, 7);
+  while (a < fa || (a === fa && m <= fm)) { out.push(`${a}-${String(m).padStart(2, '0')}`); if (++m > 12) { m = 1; a++; } }
+  return out.slice(-MAX_MESES);
+}
+
+// ═══ Cálculo puro (sin base de datos) — se exporta para pruebas ═══
+//  ventas: [{ customer_id, company_id, total, dia:'AAAA-MM-DD' }]  (todas ≤ hasta)
+//  partes: [{ id, is_company, business_name, first_name, last_name, document_number, email, phone }]
+function calcularClientes(ventas, partes, f, hoy) {
+  hoy = hoy || hoyLima();
+  const ref = f.hasta < hoy ? f.hasta : hoy;               // día de referencia para "días sin comprar"
+  const largo = difDias(f.hasta, f.desde) + 1;
+  const prevHasta = sumarDias(f.desde, -1), prevDesde = sumarDias(f.desde, -largo);
+
+  // Partes → grupo (RUC/DNI o id)
+  const grupoDe = {}; const grupos = {};
+  partes.forEach(p => {
+    const nombre = nombreParte(p);
+    const doc = limpiarDoc(p.document_number);
+    const gen = esGenerico({ ...p, nombre });
+    const clave = gen ? 'gen:' + p.id : (doc.length >= 8 ? 'doc:' + doc : 'id:' + p.id);
+    grupoDe[p.id] = clave;
+    const g = grupos[clave] || (grupos[clave] = {
+      clave, ids: [], nombre: '', doc: p.document_number || '', tipo: p.is_company ? 'b2b' : 'b2c',
+      email: '', telefono: '', generico: gen, compras: {}, empresas: new Set()
+    });
+    g.ids.push(p.id);
+    if (!g.nombre || (nombre && nombre.length > g.nombre.length)) g.nombre = nombre;
+    if (p.is_company) g.tipo = 'b2b';
+    if (!g.email && p.email) g.email = p.email;
+    if (!g.telefono && p.phone) g.telefono = p.phone;
+  });
+
+  // Ventas → compras por día
+  ventas.forEach(v => {
+    const clave = grupoDe[v.customer_id] || ('id:' + v.customer_id);
+    const g = grupos[clave] || (grupos[clave] = {
+      clave, ids: [v.customer_id], nombre: '', doc: '', tipo: 'b2c', email: '', telefono: '', generico: false, compras: {}, empresas: new Set()
+    });
+    const d = g.compras[v.dia] || (g.compras[v.dia] = { n: 0, monto: 0 });
+    d.n++; d.monto += Number(v.total) || 0;
+    if (v.company_id != null) g.empresas.add(Number(v.company_id));
+  });
+
+  const genericosExcluidos = { clientes: 0, ventas: 0, monto: 0 };
+  const clientes = []; const comprasDe = new Map();
+  Object.values(grupos).forEach(g => {
+    const dias = Object.keys(g.compras).sort();
+    if (!dias.length) return;
+    if (f.tipo && g.tipo !== f.tipo) return;
+    let hv = 0, hm = 0, pv = 0, pm = 0, av = 0, am = 0, pdias = 0, adias = 0;
+    dias.forEach(d => {
+      const c = g.compras[d]; hv += c.n; hm += c.monto;
+      if (d >= f.desde && d <= f.hasta) { pv += c.n; pm += c.monto; pdias++; }
+      else if (d >= prevDesde && d <= prevHasta) { av += c.n; am += c.monto; adias++; }
+    });
+    if (g.generico && f.genericos === 'excluir') {
+      if (pv) { genericosExcluidos.clientes++; genericosExcluidos.ventas += pv; genericosExcluidos.monto += pm; }
+      return;
+    }
+    const primera = dias[0], ultima = dias[dias.length - 1];
+    const visitas = dias.length;
+    const sinComprar = Math.max(0, difDias(ref, ultima));
+    const ritmo = visitas >= 2 ? Math.round(difDias(ultima, primera) / (visitas - 1)) : null;
+    let estado;
+    if (primera >= f.desde && primera <= f.hasta) estado = 'nuevo';
+    else if (sinComprar >= PERDIDO_DIAS) estado = 'perdido';
+    else if (sinComprar < f.umbral) estado = 'activo';
+    else estado = visitas >= 2 ? 'en_riesgo' : 'no_volvio';
+    const atrasado = estado !== 'perdido' && visitas >= 3 && ritmo != null && sinComprar >= 30 && sinComprar > 2 * Math.max(ritmo, 7);
+    const cli = {
+      id: g.ids[0], ids: g.ids, cliente: g.nombre || `Cliente ${g.ids[0]}`, doc: g.doc || '', tipo: g.tipo,
+      email: g.email, telefono: g.telefono, generico: g.generico,
+      empresas: [...g.empresas].map(e => EMPRESAS_BI[e] || `Empresa ${e}`),
+      estado, atrasado,
+      per_ventas: pv, per_compras: pdias, per_monto: r2(pm), per_ticket: pv ? r2(pm / pv) : 0,
+      ant_ventas: av, ant_monto: r2(am),
+      var_monto: am > 0 ? r1(((pm - am) / am) * 100) : null,
+      hist_ventas: hv, hist_compras: visitas, hist_monto: r2(hm), hist_ticket: r2(hm / hv),
+      primera, ultima, dias_sin_comprar: sinComprar, ritmo_dias: ritmo,
+      atraso: ritmo ? r1(sinComprar / Math.max(ritmo, 1)) : null
+    };
+    clientes.push(cli); comprasDe.set(cli, g.compras);
+  });
+
+  // ── KPIs del período ──
+  const enPer = clientes.filter(c => c.per_ventas > 0);
+  const enAnt = clientes.filter(c => c.ant_ventas > 0);
+  const nuevos = clientes.filter(c => c.estado === 'nuevo');
+  const volvieron = enPer.filter(c => c.estado !== 'nuevo');
+  const retenidos = enAnt.filter(c => c.per_ventas > 0);
+  const montoPer = enPer.reduce((s, c) => s + c.per_monto, 0);
+  const ventasPer = enPer.reduce((s, c) => s + c.per_ventas, 0);
+  const montoAnt = enAnt.reduce((s, c) => s + c.ant_monto, 0);
+  const nuevosRecompra = nuevos.filter(c => c.hist_compras >= 2).length;
+
+  // Ranking del período (con % del total y % acumulado → concentración / Pareto)
+  const top = [...enPer].sort((a, b) => b.per_monto - a.per_monto);
+  let acum = 0, n80 = 0;
+  top.forEach((c, i) => {
+    acum += c.per_monto;
+    c.rank = i + 1; c.part = pct(c.per_monto, montoPer); c.part_acum = pct(acum, montoPer);
+    if (!n80 && montoPer > 0 && acum >= montoPer * 0.8) n80 = i + 1;
+  });
+  const top10 = top.slice(0, 10).reduce((s, c) => s + c.per_monto, 0);
+
+  const kpis = {
+    activos: enPer.length, activos_ant: enAnt.length,
+    nuevos: nuevos.length, volvieron: volvieron.length,
+    ventas: ventasPer, monto: r2(montoPer), monto_ant: r2(montoAnt),
+    var_monto: montoAnt > 0 ? r1(((montoPer - montoAnt) / montoAnt) * 100) : null,
+    ticket: ventasPer ? r2(montoPer / ventasPer) : 0,
+    monto_por_cliente: enPer.length ? r2(montoPer / enPer.length) : 0,
+    retencion: pct(retenidos.length, enAnt.length), retenidos: retenidos.length,
+    recompra_nuevos: pct(nuevosRecompra, nuevos.length), nuevos_recompra: nuevosRecompra,
+    recurrencia_hist: pct(clientes.filter(c => c.hist_compras >= 2).length, clientes.length),
+    clientes_hist: clientes.length,
+    concentracion_top10: pct(top10, montoPer), clientes_80: n80,
+    riesgo_monto_hist: r2(clientes.filter(c => c.estado === 'en_riesgo').reduce((s, c) => s + c.hist_monto, 0))
+  };
+
+  // ── Estados ──
+  const estados = {};
+  ESTADOS.forEach(e => { estados[e] = { clientes: 0, hist_monto: 0, per_monto: 0 }; });
+  clientes.forEach(c => { const e = estados[c.estado]; e.clientes++; e.hist_monto += c.hist_monto; e.per_monto += c.per_monto; });
+  ESTADOS.forEach(e => { estados[e].hist_monto = r2(estados[e].hist_monto); estados[e].per_monto = r2(estados[e].per_monto); });
+  const atrasados = clientes.filter(c => c.atrasado && c.estado === 'activo').length;
+
+  // ── B2B / B2C en el período ──
+  const porTipo = ['b2b', 'b2c'].map(t => {
+    const l = enPer.filter(c => c.tipo === t);
+    const m = l.reduce((s, c) => s + c.per_monto, 0), v = l.reduce((s, c) => s + c.per_ventas, 0);
+    return { tipo: t, clientes: l.length, ventas: v, monto: r2(m), ticket: v ? r2(m / v) : 0, part: pct(m, montoPer) };
+  });
+
+  // ── Evolución mensual: clientes con compra en el mes, nuevos vs. que vuelven ──
+  // 12 meses hasta "hasta" (o todo el período si es más largo, máx. 24)
+  const ini12 = sumarDias(f.hasta.slice(0, 8) + '01', -1).slice(0, 8) + '01';
+  const desdeMes = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].reduce(x => sumarDias(x, -1).slice(0, 8) + '01', ini12);
+  const meses = mesesEntre(f.desde < desdeMes ? f.desde : desdeMes, f.hasta);
+  const mapaMes = {}; meses.forEach(m => { mapaMes[m] = { mes: m, activos: 0, nuevos: 0, recurrentes: 0, monto: 0 }; });
+  clientes.forEach(c => {
+    const vistos = new Set();
+    Object.entries(comprasDe.get(c)).forEach(([d, x]) => {
+      const m = d.slice(0, 7); const mm = mapaMes[m]; if (!mm) return;
+      mm.monto += x.monto;
+      if (!vistos.has(m)) {
+        vistos.add(m); mm.activos++;
+        if (c.primera.slice(0, 7) === m) mm.nuevos++; else mm.recurrentes++;
+      }
+    });
+  });
+  const mensual = meses.map(m => ({ ...mapaMes[m], monto: r2(mapaMes[m].monto) }));
+
+  // Lista ordenada por lo comprado en el período y luego por historia
+  clientes.sort((a, b) => b.per_monto - a.per_monto || b.hist_monto - a.hist_monto);
+
+  return {
+    filtros: f, referencia: ref,
+    periodo_anterior: { desde: prevDesde, hasta: prevHasta },
+    kpis, estados, atrasados, por_tipo: porTipo, mensual,
+    genericos_excluidos: { ...genericosExcluidos, monto: r2(genericosExcluidos.monto) },
+    clientes
+  };
+}
+
+module.exports = function registrarClientesBI({ app, authAdmin, mClientes, mResumen, prodPool, VV }) {
+
+  async function obtener(q) {
+    const f = leerFiltros(q);
+    const p = [f.hasta + ' 23:59:59'];
+    let w = `s.deleted_at IS NULL AND s.status IN ${VV} AND s.created_at <= ?`;
+    if (f.empresa) { w += ' AND s.company_id = ?'; p.push(f.empresa); }
     const [ventas] = await prodPool.query(`
-      SELECT s.id, s.code, s.customer_id, s.company_id, s.total, s.created_at,
-        COALESCE((SELECT SUM(sp.amount) FROM sale_payments sp WHERE sp.sale_id = s.id AND sp.voided_at IS NULL),0) AS pagado,
-        (SELECT COALESCE(SUM(si.quantity),0) FROM sale_items si WHERE si.sale_id = s.id) AS items,
-        (SELECT MAX(CASE WHEN si2.pending_stock_entry_id IS NOT NULL OR si2.is_backorder = 1 THEN 1 ELSE 0 END)
-         FROM sale_items si2 WHERE si2.sale_id = s.id) AS es_a_pedido
-      FROM sales s
-      WHERE ${w.join(' AND ')}
-      HAVING (s.total - pagado) > 0`, p);
-
-    if (!ventas.length) return [];
-
-    const custIds = [...new Set(ventas.map(v => v.customer_id))];
-    const saleIds = ventas.map(v => v.id);
-
-    // Último pago (abono) de cada venta con deuda
-    const [pagosPorVenta] = await prodPool.query(`
-      SELECT sale_id, MAX(paid_at) AS ultimo_pago
-      FROM sale_payments
-      WHERE voided_at IS NULL AND sale_id IN (?)
-      GROUP BY sale_id`, [saleIds]);
-    const ultPagoVenta = {};
-    pagosPorVenta.forEach(r => ultPagoVenta[Number(r.sale_id)] = r.ultimo_pago);
-
-    // Productos (items) de cada venta con deuda.
-    // Se filtran con la MISMA condición de las ventas con deuda (subconsulta),
-    // en vez de un IN con miles de IDs que podía saturarse.
-    const itemsWhere = w.map(x => x.replace(/\bs\./g, 'sv.')).join(' AND ');
-    const [items] = await prodPool.query(`
-      SELECT si.sale_id, si.quantity, si.unit_price, si.product_variation_id,
-        pv.sku, pv.name AS variacion, p.name AS producto
-      FROM sale_items si
-      LEFT JOIN product_variations pv ON pv.id = si.product_variation_id
-      LEFT JOIN products p ON p.id = pv.product_id
-      WHERE si.sale_id IN (
-        SELECT sv.id FROM sales sv
-        WHERE ${itemsWhere}
-          AND (sv.total - COALESCE((SELECT SUM(sp.amount) FROM sale_payments sp WHERE sp.sale_id = sv.id AND sp.voided_at IS NULL),0)) > 0
-      )`, p);
-    const itemsPorVenta = {};
-    items.forEach(it => {
-      const k = Number(it.sale_id);
-      (itemsPorVenta[k] = itemsPorVenta[k] || []).push({
-        producto: it.producto || (it.variacion ? '' : `(producto #${it.product_variation_id})`),
-        variacion: it.variacion || '', sku: it.sku || '—',
-        cantidad: Number(it.quantity), precio: Number(it.unit_price)
-      });
-    });
-
-    // Datos de cliente
-    const [clientes] = await prodPool.query(`
-      SELECT id, is_company, business_name, first_name, last_name, document_number, email, phone
-      FROM parties WHERE id IN (?)`, [custIds]);
-    const cliMap = {};
-    clientes.forEach(c => cliMap[c.id] = {
-      nombre: c.is_company ? c.business_name : `${c.first_name || ''} ${c.last_name || ''}`.trim(),
-      ruc: c.document_number || '', email: c.email || '', phone: c.phone || ''
-    });
-
-    // Último pago registrado por cliente (sobre cualquier venta suya)
-    const [ultPagos] = await prodPool.query(`
-      SELECT s.customer_id, MAX(sp.paid_at) AS ultimo_pago
-      FROM sale_payments sp JOIN sales s ON s.id = sp.sale_id
-      WHERE sp.voided_at IS NULL AND s.customer_id IN (?)
-      GROUP BY s.customer_id`, [custIds]);
-    const ultPagoMap = {};
-    ultPagos.forEach(r => ultPagoMap[r.customer_id] = r.ultimo_pago);
-
-    // Comprobantes de esas ventas
-    const [vouchers] = await prodPool.query(`
-      SELECT sale_id, type, serie, number FROM sale_vouchers WHERE sale_id IN (?)`, [saleIds]);
-    const vouchPorVenta = {};
-    vouchers.forEach(v => {
-      const t = v.type === 'factura' ? 'Factura' : v.type === 'boleta' ? 'Boleta' : v.type;
-      (vouchPorVenta[v.sale_id] = vouchPorVenta[v.sale_id] || []).push(`${t} ${v.serie}-${v.number}`);
-    });
-
-    // Agrupar por cliente. Clave: RUC/documento si existe (une duplicados con
-    // mismo RUC pero nombre distinto); si no hay documento, por customer_id.
-    const porCliente = {};
-    ventas.forEach(v => {
-      const deuda = Number(v.total) - Number(v.pagado);
-      const esPedido = !!v.es_a_pedido;
-      const info = cliMap[v.customer_id] || {};
-      const clave = (info.ruc && info.ruc.trim()) ? 'doc:' + info.ruc.trim() : 'id:' + v.customer_id;
-      if (!porCliente[clave]) {
-        porCliente[clave] = {
-          customer_id: v.customer_id,
-          cliente: info.nombre || `Cliente ${v.customer_id}`,
-          ruc: info.ruc || '',
-          email: info.email || '',
-          phone: info.phone || '',
-          deuda_normal: 0, deuda_pedido: 0, items: 0, num_ventas: 0,
-          venta_mas_antigua: null, ultimo_pago: ultPagoMap[v.customer_id] || null,
-          comprobantes: new Set(), tiene_pedido: false, empresas: new Set(), ventas: [],
-          customer_ids: new Set()
-        };
-      }
-      const c = porCliente[clave];
-      c.customer_ids.add(v.customer_id);
-      // Si algún registro del grupo tiene email/teléfono, conservarlo
-      if (!c.email && info.email) c.email = info.email;
-      if (!c.phone && info.phone) c.phone = info.phone;
-      // Último pago: el más reciente entre los customer_ids del grupo
-      const up = ultPagoMap[v.customer_id];
-      if (up && (!c.ultimo_pago || new Date(up) > new Date(c.ultimo_pago))) c.ultimo_pago = up;
-      if (esPedido) { c.deuda_pedido += deuda; c.tiene_pedido = true; }
-      else c.deuda_normal += deuda;
-      c.items += Number(v.items);
-      c.num_ventas += 1;
-      if (!c.venta_mas_antigua || new Date(v.created_at) < new Date(c.venta_mas_antigua)) c.venta_mas_antigua = v.created_at;
-      (vouchPorVenta[v.id] || []).forEach(x => c.comprobantes.add(x));
-      c.empresas.add(EMPRESAS_BI[v.company_id] || `Empresa ${v.company_id}`);
-      // Detalle de esta venta
-      c.ventas.push({
-        codigo: v.code, fecha: v.created_at, deuda: deuda,
-        ultimo_pago_venta: ultPagoVenta[Number(v.id)] || null,
-        comprobante: (vouchPorVenta[v.id] || []).join(' · ') || '—',
-        a_pedido: esPedido,
-        productos: itemsPorVenta[Number(v.id)] || []
-      });
-    });
-
-    let lista = Object.values(porCliente).map(c => ({
-      customer_id: c.customer_id,
-      customer_ids: [...c.customer_ids],
-      cliente: c.cliente, ruc: c.ruc, email: c.email, phone: c.phone,
-      deuda_normal: c.deuda_normal, deuda_pedido: c.deuda_pedido,
-      deuda_total: c.deuda_normal + c.deuda_pedido,
-      items: c.items, num_ventas: c.num_ventas,
-      venta_mas_antigua: c.venta_mas_antigua, ultimo_pago: c.ultimo_pago,
-      comprobantes: [...c.comprobantes].join(' · ') || '—',
-      comprobantes_lista: [...c.comprobantes],
-      ventas: c.ventas.sort((a, b) => new Date(a.fecha) - new Date(b.fecha)),
-      empresas: [...c.empresas].join(', '),
-      tiene_pedido: c.tiene_pedido
-    }));
-
-    // Filtro a pedido
-    if (a_pedido === 'solo') lista = lista.filter(x => x.tiene_pedido);
-    else if (a_pedido === 'ocultar') lista = lista.filter(x => x.deuda_normal > 0).map(x => ({ ...x, deuda_pedido: 0, deuda_total: x.deuda_normal }));
-
-    lista.sort((a, b) => b.deuda_total - a.deuda_total);
-    return lista;
+      SELECT s.customer_id, s.company_id, s.total, DATE_FORMAT(s.created_at, '%Y-%m-%d') AS dia
+      FROM sales s WHERE ${w} AND s.customer_id IS NOT NULL`, p);
+    const ids = [...new Set(ventas.map(v => v.customer_id))];
+    let partes = [];
+    if (ids.length) {
+      [partes] = await prodPool.query(`
+        SELECT id, is_company, business_name, first_name, last_name, document_number, email, phone
+        FROM parties WHERE id IN (?)`, [ids]);
+    }
+    return calcularClientes(ventas, partes, f);
   }
 
-  async function asegurarTablaCreditos() {
-    await portalPool.query(`
-      CREATE TABLE IF NOT EXISTS creditos_cliente (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        customer_id BIGINT,
-        cliente_nombre VARCHAR(255),
-        cliente_doc VARCHAR(50),
-        monto DECIMAL(12,2) NOT NULL,
-        usado DECIMAL(12,2) NOT NULL DEFAULT 0,
-        fecha DATE,
-        origen VARCHAR(500),
-        venta_ref VARCHAR(50),
-        cuenta_ref VARCHAR(255),
-        empresa_id BIGINT,
-        empresa_vendedora BIGINT,
-        estado VARCHAR(20) DEFAULT 'disponible',
-        registrado_por VARCHAR(100),
-        creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
-        anulado TINYINT(1) DEFAULT 0,
-        anulado_por VARCHAR(100),
-        anulado_en DATETIME NULL
-      )`);
-    // Por si la tabla ya existía sin la columna de empresa vendedora
+  app.get('/api/clientes-bi', authAdmin, mClientes, async (req, res) => {
     try {
-      await portalPool.query(`ALTER TABLE creditos_cliente ADD COLUMN empresa_vendedora BIGINT`);
-    } catch (e) { /* la columna ya existe */ }
-  }
-
-
-  app.get('/api/creditos-ventas-canceladas', authAdmin, mSaldo, async (req, res) => {
-    try {
-      const q = (req.query.q || '').trim();
-      const [rows] = await prodPool.query(`
-        SELECT s.id, s.code, s.total, s.created_at, s.customer_id,
-          s.company_id AS empresa_vendedora,
-          COALESCE(SUM(CASE WHEN sp.voided_at IS NULL THEN sp.amount ELSE 0 END),0) AS pagado_activo,
-          COALESCE(SUM(CASE WHEN sp.voided_at IS NOT NULL THEN sp.amount ELSE 0 END),0) AS pagado_anulado,
-          CASE WHEN cli.is_company=1 THEN cli.business_name
-               ELSE TRIM(CONCAT(COALESCE(cli.first_name,''),' ',COALESCE(cli.last_name,''))) END AS cliente,
-          cli.document_number AS cliente_doc,
-          (SELECT ba.party_id FROM sale_payments sp2
-           LEFT JOIN bank_accounts ba ON ba.id = sp2.bank_account_id
-           WHERE sp2.sale_id = s.id AND ba.party_id IS NOT NULL
-           LIMIT 1) AS empresa_id
-        FROM sales s
-        LEFT JOIN sale_payments sp ON sp.sale_id = s.id
-        LEFT JOIN parties cli ON cli.id = s.customer_id
-        WHERE s.status = 'cancelled' AND s.deleted_at IS NULL
-        GROUP BY s.id
-        HAVING (pagado_activo + pagado_anulado) > 0
-        ORDER BY s.created_at DESC
-        LIMIT 500`);
-      // Marcar cuáles ya tienen crédito registrado (para no duplicar)
-      await asegurarTablaCreditos();
-      const [yaReg] = await portalPool.query(
-        `SELECT venta_ref FROM creditos_cliente WHERE anulado = 0 AND venta_ref IS NOT NULL`);
-      const registradas = new Set(yaReg.map(r => r.venta_ref));
-      let lista = rows.map(r => {
-        const activo = Number(r.pagado_activo), anulado = Number(r.pagado_anulado);
-        // El "dinero que entró" es el total pagado (activo + anulado); ese es el tope del crédito
-        const pagado = Math.round((activo + anulado) * 100) / 100;
-        return {
-          code: r.code, total: Number(r.total), pagado,
-          pagado_activo: activo, pagado_anulado: anulado,
-          // Etiqueta: normal = pago anulado (esperado al cancelar); "activo" = anomalía
-          tiene_pago_activo: activo > 0,
-          fecha: r.created_at, customer_id: r.customer_id,
-          cliente: (r.cliente || '').trim() || '—', cliente_doc: r.cliente_doc || '—',
-          empresa_id: r.empresa_id,
-          empresa_vendedora: r.empresa_vendedora,
-          ya_registrada: registradas.has(r.code)
-        };
-      });
-      if (q) {
-        const ql = q.toLowerCase();
-        lista = lista.filter(x =>
-          x.code.toLowerCase().includes(ql) ||
-          x.cliente.toLowerCase().includes(ql) ||
-          (x.cliente_doc || '').includes(q));
-      }
-      res.json({ total: lista.length, ventas: lista });
+      const d = await obtener(req.query);
+      d.opciones = {
+        empresas: Object.entries(EMPRESAS_BI).map(([id, nombre]) => ({ id: +id, nombre })),
+        umbrales: UMBRALES
+      };
+      res.json(d);
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-
-  app.post('/api/creditos', authAdmin, mSaldo, async (req, res) => {
+  app.get('/api/clientes-bi-excel', authAdmin, mClientes, async (req, res) => {
     try {
-      await asegurarTablaCreditos();
-      const b = req.body || {};
-      if (!b.venta_ref) return res.status(400).json({ error: 'Falta la venta de referencia.' });
-      const monto = Number(b.monto);
-      if (!(monto > 0)) return res.status(400).json({ error: 'El monto debe ser mayor a cero.' });
-      // Verificar contra el ERP que el monto no exceda lo realmente pagado en esa venta
-      // (cuenta pagos activos Y anulados: al cancelar se anula el pago, pero el dinero entró)
-      const [[vRef]] = await prodPool.query(`
-        SELECT COALESCE(SUM(sp.amount),0) AS pagado
-        FROM sales s
-        LEFT JOIN sale_payments sp ON sp.sale_id = s.id
-        WHERE s.code = ? AND s.status = 'cancelled' AND s.deleted_at IS NULL
-        GROUP BY s.id`, [b.venta_ref]);
-      if (!vRef) return res.status(400).json({ error: 'No se encontró esa venta cancelada con pago.' });
-      const pagadoReal = Number(vRef.pagado);
-      // Tolerancia de 1 céntimo por redondeo
-      if (monto > pagadoReal + 0.01) {
-        return res.status(400).json({
-          error: `El monto (S/ ${monto.toFixed(2)}) no puede superar lo pagado en la venta (S/ ${pagadoReal.toFixed(2)}).`
-        });
-      }
-      // Evitar duplicar el crédito de una misma venta
-      const [dup] = await portalPool.query(
-        `SELECT id FROM creditos_cliente WHERE venta_ref = ? AND anulado = 0`, [b.venta_ref]);
-      if (dup.length) return res.status(400).json({ error: 'Esa venta ya tiene un crédito registrado.' });
-      const CONC = { 1: 'Diseños Corporativos SAC', 2: 'Christopher Villasante F.' };
-      // El origen combina el motivo base con la nota del usuario (en qué se usó el resto)
-      let origen = b.origen || `Pago de venta cancelada ${b.venta_ref}`;
-      if (b.nota && b.nota.trim()) origen += ` — ${b.nota.trim()}`;
-      await portalPool.query(
-        `INSERT INTO creditos_cliente
-          (customer_id, cliente_nombre, cliente_doc, monto, fecha, origen, venta_ref, cuenta_ref, empresa_id, empresa_vendedora, registrado_por)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-        [b.customer_id || null, b.cliente_nombre || null, b.cliente_doc || null,
-         monto, b.fecha || new Date().toISOString().slice(0, 10),
-         origen, b.venta_ref, (b.empresa_id ? CONC[b.empresa_id] : null) || b.cuenta_ref || null,
-         b.empresa_id || null, b.empresa_vendedora || null, (req.admin && req.admin.usuario) || 'admin']);
-      res.json({ ok: true });
-    } catch (e) { res.status(500).json({ error: e.message }); }
-  });
-
-
-  app.get('/api/creditos', authAdmin, mSaldo, async (req, res) => {
-    try {
-      await asegurarTablaCreditos();
-      const [rows] = await portalPool.query(
-        `SELECT * FROM creditos_cliente ORDER BY anulado ASC, creado_en DESC`);
-      const CONC = { 1: 'Diseños Corporativos SAC', 2: 'Christopher Villasante F.' };
-
-      // Para créditos viejos sin empresa vendedora guardada, buscarla en el ERP por su venta
-      const sinVendedora = rows.filter(c => !c.empresa_vendedora && c.venta_ref && c.anulado !== 1);
-      const vendedoraPorVenta = {};
-      if (sinVendedora.length) {
-        const codes = [...new Set(sinVendedora.map(c => c.venta_ref))];
-        try {
-          const [ventas] = await prodPool.query(
-            `SELECT code, company_id FROM sales WHERE code IN (?)`, [codes]);
-          ventas.forEach(v => { vendedoraPorVenta[v.code] = v.company_id; });
-        } catch (e) { /* si falla, quedan en '—' */ }
-      }
-
-      const lista = rows.map(c => {
-        const saldo = Math.round((Number(c.monto) - Number(c.usado)) * 100) / 100;
-        // Empresa vendedora: la guardada, o la recuperada del ERP para registros viejos
-        const vendId = c.empresa_vendedora || vendedoraPorVenta[c.venta_ref] || null;
-        const anulado = c.anulado === 1;
-        return {
-          id: c.id, cliente: c.cliente_nombre || '—', cliente_doc: c.cliente_doc || '—',
-          monto: Number(c.monto), usado: Number(c.usado), saldo,
-          fecha: c.fecha, origen: c.origen, venta_ref: c.venta_ref,
-          empresa_cuenta: c.empresa_id ? (CONC[c.empresa_id] || c.cuenta_ref) : (c.cuenta_ref || '—'),
-          empresa_vendedora: vendId ? (CONC[vendId] || ('Empresa ' + vendId)) : '—',
-          estado: anulado ? 'anulado'
-            : (saldo <= 0 ? 'agotado' : (Number(c.usado) > 0 ? 'parcial' : 'disponible')),
-          anulado,
-          anulado_por: c.anulado_por || null,
-          anulado_en: c.anulado_en || null,
-          registrado_por: c.registrado_por, creado_en: c.creado_en
-        };
-      });
-      // El total disponible NO cuenta los anulados
-      const totalDisponible = lista.filter(x => !x.anulado).reduce((s, x) => s + x.saldo, 0);
-      const activos = lista.filter(x => !x.anulado).length;
-      res.json({ total: lista.length, activos, total_disponible: totalDisponible, creditos: lista });
-    } catch (e) { res.status(500).json({ error: e.message }); }
-  });
-
-
-  app.post('/api/creditos/:id/anular', authAdmin, mSaldo, async (req, res) => {
-    try {
-      if (!req.admin || !req.admin.maestro)
-        return res.status(403).json({ error: 'Solo el administrador maestro puede anular créditos.' });
-      await portalPool.query(
-        `UPDATE creditos_cliente SET anulado = 1, anulado_por = ?, anulado_en = NOW() WHERE id = ?`,
-        [req.admin.usuario, req.params.id]);
-      res.json({ ok: true });
-    } catch (e) { res.status(500).json({ error: e.message }); }
-  });
-
-
-  // ═══════════════════════════════════════════════════════════════════════
-  //  CRÉDITOS A FAVOR DE LA EMPRESA (anotados a mano)
-  //  Dinero que queda a favor de la empresa (p.ej. con un proveedor). Se anota
-  //  manualmente y se marca "saldado" de un golpe. Vive en la base del PORTAL.
-  // ═══════════════════════════════════════════════════════════════════════
-  const CONC_EMP = { 1: 'Diseños Corporativos SAC', 2: 'Christopher Villasante F.' };
-
-  async function asegurarTablaCreditosEmpresa() {
-    await portalPool.query(`
-      CREATE TABLE IF NOT EXISTS creditos_empresa (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        empresa_id INT,
-        contraparte VARCHAR(255),
-        monto DECIMAL(12,2) NOT NULL,
-        fecha DATE,
-        nota VARCHAR(500),
-        estado VARCHAR(20) DEFAULT 'disponible',
-        saldado_por VARCHAR(100),
-        saldado_en DATETIME NULL,
-        registrado_por VARCHAR(100),
-        creado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
-        anulado TINYINT(1) DEFAULT 0,
-        anulado_por VARCHAR(100),
-        anulado_en DATETIME NULL
-      )`);
-  }
-
-  // Listar créditos a favor de la empresa
-  app.get('/api/creditos-empresa', authAdmin, mSaldo, async (req, res) => {
-    try {
-      await asegurarTablaCreditosEmpresa();
-      const [rows] = await portalPool.query(
-        `SELECT * FROM creditos_empresa ORDER BY anulado ASC, estado ASC, creado_en DESC`);
-      const lista = rows.map(c => {
-        const anulado = c.anulado === 1;
-        const saldado = c.estado === 'saldado';
-        return {
-          id: c.id,
-          empresa_id: c.empresa_id,
-          empresa: CONC_EMP[c.empresa_id] || (c.empresa_id ? ('Empresa ' + c.empresa_id) : '—'),
-          contraparte: c.contraparte || '—',
-          monto: Number(c.monto),
-          fecha: c.fecha,
-          nota: c.nota || '',
-          estado: anulado ? 'anulado' : (saldado ? 'saldado' : 'disponible'),
-          anulado, saldado,
-          saldado_por: c.saldado_por || null, saldado_en: c.saldado_en || null,
-          anulado_por: c.anulado_por || null, anulado_en: c.anulado_en || null,
-          registrado_por: c.registrado_por, creado_en: c.creado_en
-        };
-      });
-      // El total disponible NO cuenta ni saldados ni anulados
-      const totalDisponible = lista
-        .filter(x => x.estado === 'disponible')
-        .reduce((s, x) => s + x.monto, 0);
-      const disponibles = lista.filter(x => x.estado === 'disponible').length;
-      res.json({ total: lista.length, disponibles, total_disponible: totalDisponible, creditos: lista });
-    } catch (e) { res.status(500).json({ error: e.message }); }
-  });
-
-  // Registrar un crédito a favor de la empresa
-  app.post('/api/creditos-empresa', authAdmin, mSaldo, async (req, res) => {
-    try {
-      await asegurarTablaCreditosEmpresa();
-      const b = req.body || {};
-      const empresa_id = Number(b.empresa_id);
-      if (!CONC_EMP[empresa_id]) return res.status(400).json({ error: 'Elige la empresa beneficiaria.' });
-      const monto = Number(b.monto);
-      if (!(monto > 0)) return res.status(400).json({ error: 'El monto debe ser mayor a cero.' });
-      const contraparte = (b.contraparte || '').trim();
-      if (!contraparte) return res.status(400).json({ error: 'Indica la contraparte (de quién es el crédito).' });
-      await portalPool.query(
-        `INSERT INTO creditos_empresa (empresa_id, contraparte, monto, fecha, nota, registrado_por)
-         VALUES (?,?,?,?,?,?)`,
-        [empresa_id, contraparte, monto,
-         b.fecha || new Date().toISOString().slice(0, 10),
-         (b.nota || '').trim() || null,
-         (req.admin && req.admin.usuario) || 'admin']);
-      res.json({ ok: true });
-    } catch (e) { res.status(500).json({ error: e.message }); }
-  });
-
-  // Saldar / reabrir un crédito a favor de la empresa (marcar como usado de un golpe)
-  app.post('/api/creditos-empresa/:id/saldar', authAdmin, mSaldo, async (req, res) => {
-    try {
-      const saldar = req.body && req.body.saldar === false ? false : true;
-      if (saldar) {
-        await portalPool.query(
-          `UPDATE creditos_empresa SET estado='saldado', saldado_por=?, saldado_en=NOW() WHERE id=? AND anulado=0`,
-          [(req.admin && req.admin.usuario) || 'admin', req.params.id]);
-      } else {
-        await portalPool.query(
-          `UPDATE creditos_empresa SET estado='disponible', saldado_por=NULL, saldado_en=NULL WHERE id=? AND anulado=0`,
-          [req.params.id]);
-      }
-      res.json({ ok: true });
-    } catch (e) { res.status(500).json({ error: e.message }); }
-  });
-
-  // Anular un crédito a favor de la empresa (solo maestro)
-  app.post('/api/creditos-empresa/:id/anular', authAdmin, mSaldo, async (req, res) => {
-    try {
-      if (!req.admin || !req.admin.maestro)
-        return res.status(403).json({ error: 'Solo el administrador maestro puede anular créditos.' });
-      await portalPool.query(
-        `UPDATE creditos_empresa SET anulado=1, anulado_por=?, anulado_en=NOW() WHERE id=?`,
-        [req.admin.usuario, req.params.id]);
-      res.json({ ok: true });
-    } catch (e) { res.status(500).json({ error: e.message }); }
-  });
-
-
-  app.get('/api/retencion', authAdmin, mClientes, async (req, res) => {
-    try {
-      const [rows] = await prodPool.query(`
-        SELECT customer_id, COUNT(DISTINCT id) AS pedidos, MIN(created_at) AS primera, MAX(created_at) AS ultima
-        FROM sales WHERE deleted_at IS NULL AND status IN ${VV} GROUP BY customer_id`);
-      const total = rows.length, dias = r => (new Date(r.ultima) - new Date(r.primera)) / 86400000;
-      const rec = rows.filter(r => r.pedidos >= 2);
-      const r30 = rec.filter(r => dias(r) <= 30).length, r90 = rec.filter(r => dias(r) <= 90).length;
-      res.json({
-        total_clientes: total, recurrentes: rec.length, unicos: rows.filter(r => r.pedidos === 1).length,
-        tasa_recurrencia: total > 0 ? ((rec.length/total)*100).toFixed(1) : '0.0',
-        ret_30d: total > 0 ? ((r30/total)*100).toFixed(1) : '0.0',
-        ret_90d: total > 0 ? ((r90/total)*100).toFixed(1) : '0.0'
-      });
-    } catch (e) { res.status(500).json({ error: e.message }); }
-  });
-
-
-  app.get('/api/clientes-riesgo', authAdmin, mClientes, async (req, res) => {
-    const umbral = parseInt(req.query.dias) || 60;
-    try {
-      const [rows] = await prodPool.query(`
-        SELECT p.id, p.kommo_id,
-          CASE WHEN p.is_company=1 THEN p.business_name
-               ELSE CONCAT(COALESCE(p.first_name,''),' ',COALESCE(p.last_name,'')) END AS cliente,
-          COUNT(s.id) AS pedidos_hist, MAX(s.created_at) AS ultima_compra,
-          DATEDIFF(NOW(), MAX(s.created_at)) AS dias_sin_comprar
-        FROM parties p JOIN sales s ON s.customer_id = p.id
-        WHERE s.deleted_at IS NULL AND s.status IN ${VV}
-        GROUP BY p.id, p.kommo_id, cliente
-        HAVING pedidos_hist >= 2 AND dias_sin_comprar >= ? ORDER BY dias_sin_comprar DESC LIMIT 50`, [umbral]);
-      res.json({ umbral_dias: umbral, total: rows.length, detalle: rows });
-    } catch (e) { res.status(500).json({ error: e.message }); }
-  });
-
-
-  app.get('/api/clientes-deudas', authAdmin, mCxc, async (req, res) => {
-    try {
-      const lista = await obtenerDeudas(req.query);
-      res.json({
-        total: lista.length,
-        suma_total: lista.reduce((s, x) => s + x.deuda_total, 0),
-        suma_normal: lista.reduce((s, x) => s + x.deuda_normal, 0),
-        suma_pedido: lista.reduce((s, x) => s + x.deuda_pedido, 0),
-        clientes: lista
-      });
-    } catch (e) { res.status(500).json({ error: e.message }); }
-  });
-
-
-  app.get('/api/clientes-deudas-excel', authAdmin, mCxc, async (req, res) => {
-    try {
-      const lista = await obtenerDeudas(req.query);
+      const d = await obtener(req.query);
+      const f = d.filtros;
       const ExcelJS = require('exceljs');
       const wb = new ExcelJS.Workbook();
-      const ws = wb.addWorksheet('Clientes que deben');
-      const fechaLima = (d) => d ? new Date(d).toLocaleDateString('es-PE', { timeZone: 'America/Lima' }) : '—';
-
-      const empTxt = req.query.empresa ? (EMPRESAS_BI[req.query.empresa] || `Empresa ${req.query.empresa}`) : 'Todas';
-      const pedTxt = req.query.a_pedido === 'solo' ? 'Solo a pedido' : req.query.a_pedido === 'ocultar' ? 'Ocultando a pedido' : 'Todas';
-      const filasCab = cabeceraExcel(ws, 'Clientes que deben', [
-        ['Empresa', empTxt], ['Ventas a pedido', pedTxt], ['Clientes', lista.length]
-      ], 8);
-
-      const colDefs = [
-        { header: 'Cliente', width: 32 }, { header: 'RUC/Doc', width: 16 },
-        { header: 'Venta', width: 15 }, { header: 'Fecha', width: 12 },
-        { header: 'Último abono', width: 13 },
-        { header: 'Comprobante', width: 28 }, { header: 'Saldo', width: 14 },
-        { header: 'A pedido', width: 10 }
+      const ESTADO_TXT = { nuevo: 'Nuevo', activo: 'Activo', en_riesgo: 'En riesgo', no_volvio: 'No volvió', perdido: 'Perdido' };
+      const filtrosTxt = [
+        ['Período', `${f.desde} a ${f.hasta}`],
+        ['Empresa', f.empresa ? EMPRESAS_BI[f.empresa] : 'Todas'],
+        ['Tipo', f.tipo === 'b2b' ? 'Empresas (B2B)' : f.tipo === 'b2c' ? 'Personas (B2C)' : 'Todos'],
+        ['En riesgo desde', f.umbral + ' días'],
+        ['Genéricos', f.genericos === 'incluir' ? 'Incluidos' : 'Excluidos']
       ];
-      colDefs.forEach((c, i) => ws.getColumn(i + 1).width = c.width);
-      const headerRowNum = filasCab + 1;
-      const hr = ws.addRow(colDefs.map(c => c.header));
-      hr.font = { bold: true, color: { argb: 'FFFFFFFF' } };
-      hr.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000726' } };
+      const cabecera = (ws) => {
+        const h = ws.lastRow; h.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        h.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000726' } };
+      };
 
-      // Una fila por venta (desglosado)
-      let sumaTotal = 0;
-      lista.forEach(x => {
-        (x.ventas || []).forEach(v => {
-          ws.addRow([
-            x.cliente, x.ruc, v.codigo, fechaLima(v.fecha),
-            v.ultimo_pago_venta ? fechaLima(v.ultimo_pago_venta) : '—',
-            v.comprobante || '—', v.deuda, v.a_pedido ? 'Sí' : ''
-          ]);
-          sumaTotal += v.deuda;
-        });
-      });
-      ws.views = [{ state: 'frozen', ySplit: headerRowNum }];
-      ws.autoFilter = { from: { row: headerRowNum, column: 1 }, to: { row: headerRowNum, column: 8 } };
-      ws.getColumn(7).numFmt = '#,##0.00';
+      // Hoja 1: Clientes
+      const ws = wb.addWorksheet('Clientes');
+      const cols = [
+        ['Cliente', 34], ['RUC/DNI', 14], ['Tipo', 8], ['Estado', 11], ['Atrasado', 9],
+        ['Ventas período', 10], ['Monto período', 14], ['% del período', 10], ['Monto período anterior', 14], ['Var. %', 9],
+        ['Ventas hist.', 10], ['Monto hist.', 14], ['Ticket hist.', 12],
+        ['Primera compra', 12], ['Última compra', 12], ['Días sin comprar', 10], ['Ritmo (días)', 10],
+        ['Empresas', 28], ['Email', 26], ['Teléfono', 14]
+      ];
+      const filasCab = cabeceraExcel(ws, 'Clientes BI', filtrosTxt, cols.length);
+      cols.forEach((c, i) => { ws.getColumn(i + 1).width = c[1]; });
+      ws.addRow(cols.map(c => c[0])); cabecera(ws);
+      d.clientes.forEach(c => ws.addRow([
+        c.cliente, c.doc, c.tipo.toUpperCase(), ESTADO_TXT[c.estado], c.atrasado ? 'Sí' : '',
+        c.per_ventas, c.per_monto, c.part != null ? c.part / 100 : null, c.ant_monto, c.var_monto != null ? c.var_monto / 100 : null,
+        c.hist_ventas, c.hist_monto, c.hist_ticket,
+        c.primera, c.ultima, c.dias_sin_comprar, c.ritmo_dias,
+        c.empresas.join(', '), c.email, c.telefono
+      ]));
+      [7, 9, 12, 13].forEach(i => { ws.getColumn(i).numFmt = '#,##0.00'; });
+      [8, 10].forEach(i => { ws.getColumn(i).numFmt = '0.0%'; });
+      const hr = filasCab + 1;
+      ws.views = [{ state: 'frozen', ySplit: hr }];
+      ws.autoFilter = { from: { row: hr, column: 1 }, to: { row: hr, column: cols.length } };
 
-      // Total
-      ws.addRow([]);
-      const t = ws.addRow(['TOTAL']); t.font = { bold: true };
-      t.getCell(7).value = sumaTotal;
-      t.getCell(7).numFmt = '#,##0.00';
+      // Hoja 2: Mensual
+      const wm = wb.addWorksheet('Mensual');
+      cabeceraExcel(wm, 'Clientes por mes', filtrosTxt, 5);
+      [10, 12, 10, 12, 14].forEach((w, i) => { wm.getColumn(i + 1).width = w; });
+      wm.addRow(['Mes', 'Con compra', 'Nuevos', 'Volvieron', 'Monto']); cabecera(wm);
+      d.mensual.forEach(m => wm.addRow([m.mes, m.activos, m.nuevos, m.recurrentes, m.monto]));
+      wm.getColumn(5).numFmt = '#,##0.00';
 
-      const nombre = nombreTrazable('clientes-deudas');
+      const nombre = nombreTrazable('clientes-bi');
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename="${nombre}.xlsx"`);
       await wb.xlsx.write(res);
       res.end();
-    } catch (e) { res.status(500).json({ error: 'Error al generar el reporte: ' + e.message }); }
+    } catch (e) { res.status(500).json({ error: 'Error al generar el Excel: ' + e.message }); }
   });
 
-
-  app.post('/api/clientes-deudas-cobrar', authAdmin, mCxc, async (req, res) => {
-    const { customer_ids } = req.body;
-    if (!Array.isArray(customer_ids) || !customer_ids.length) {
-      return res.status(400).json({ error: 'No se seleccionaron clientes.' });
-    }
-    if (!process.env.RESEND_API_KEY) {
-      return res.status(400).json({ error: 'El envío de correos no está configurado (falta RESEND_API_KEY).' });
-    }
-    try {
-      // Obtener todas las deudas y filtrar los seleccionados que tengan email
-      const todas = await obtenerDeudas({});
-      const seleccionados = todas.filter(x =>
-        x.email && (x.customer_ids || [x.customer_id]).some(id => customer_ids.includes(id)));
-      if (!seleccionados.length) {
-        return res.status(400).json({ error: 'Ninguno de los seleccionados tiene correo válido.' });
-      }
-
-      const fmtS = (n) => 'S/ ' + Number(n).toLocaleString('es-PE', { minimumFractionDigits: 2 });
-      const resultados = [];
-      for (const c of seleccionados) {
-        const ventas = c.ventas || [];
-        const fFecha = (d) => d ? new Date(d).toLocaleDateString('es-PE', { timeZone: 'America/Lima' }) : '—';
-        const filasHtml = ventas.map(v =>
-          `<tr>` +
-          `<td style="padding:6px 10px;border:1px solid #ddd">${v.codigo}</td>` +
-          `<td style="padding:6px 10px;border:1px solid #ddd">${fFecha(v.fecha)}</td>` +
-          `<td style="padding:6px 10px;border:1px solid #ddd">${v.comprobante}${v.a_pedido ? ' <i>(a pedido)</i>' : ''}</td>` +
-          `<td style="padding:6px 10px;border:1px solid #ddd;text-align:right">${fmtS(v.deuda)}</td>` +
-          `</tr>`).join('');
-        const tablaHtml =
-          `<table style="border-collapse:collapse;font-size:13px;margin:8px 0">` +
-          `<thead><tr style="background:#000726;color:#fff">` +
-          `<th style="padding:6px 10px;border:1px solid #000726;text-align:left">Venta</th>` +
-          `<th style="padding:6px 10px;border:1px solid #000726;text-align:left">Fecha</th>` +
-          `<th style="padding:6px 10px;border:1px solid #000726;text-align:left">Comprobante</th>` +
-          `<th style="padding:6px 10px;border:1px solid #000726;text-align:right">Saldo</th>` +
-          `</tr></thead><tbody>${filasHtml}</tbody></table>`;
-        const detalleTxt = ventas.map(v =>
-          `  • ${v.codigo} (${fFecha(v.fecha)}) — ${v.comprobante}${v.a_pedido ? ' [a pedido]' : ''} — ${fmtS(v.deuda)}`
-        ).join('\n') || '  —';
-
-        const html =
-          `<div style="font-family:Arial,sans-serif;color:#222;max-width:600px">` +
-          `<h2 style="color:#000726">Recordatorio de pago pendiente</h2>` +
-          `<p>Estimado(a) <b>${c.cliente}</b>,</p>` +
-          `<p>Le escribimos de <b>Kuranko</b> para recordarle que, según nuestros registros, mantiene un saldo pendiente de pago por el monto de <b>${fmtS(c.deuda_total)}</b>, correspondiente a ${c.num_ventas} operación(es). El detalle es el siguiente:</p>` +
-          tablaHtml +
-          `<p>Le agradeceremos regularizar el pago a la brevedad. Si ya realizó el pago, por favor haga caso omiso de este mensaje o comuníquese con nosotros para actualizar su estado.</p>` +
-          `<p>Para coordinar el pago o cualquier consulta, puede responder a este correo o escribir a ventas@kuranko.pe.</p>` +
-          `<p>Atentamente,<br><b>Equipo Kuranko</b></p>` +
-          `</div>`;
-        const texto =
-          `Recordatorio de pago pendiente\n\n` +
-          `Estimado(a) ${c.cliente},\n\n` +
-          `Le escribimos de Kuranko para recordarle que mantiene un saldo pendiente de pago por ${fmtS(c.deuda_total)}, correspondiente a ${c.num_ventas} operación(es). Detalle:\n\n${detalleTxt}\n\n` +
-          `Le agradeceremos regularizar el pago a la brevedad. Si ya realizó el pago, haga caso omiso de este mensaje.\n\n` +
-          `Para coordinar el pago escriba a ventas@kuranko.pe.\n\nAtentamente,\nEquipo Kuranko`;
-
-        try {
-          const payload = {
-            from: process.env.RESEND_FROM || 'Portal Kuranko <noreply@kuranko.pe>',
-            to: [c.email],
-            cc: ['info@kuranko.pe'],
-            reply_to: 'ventas@kuranko.pe',
-            subject: `Recordatorio de pago pendiente — ${c.cliente}`,
-            html, text: texto
-          };
-          const r = await fetch('https://api.resend.com/emails', {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-          });
-          resultados.push({ cliente: c.cliente, email: c.email, ok: r.ok });
-        } catch (e) {
-          resultados.push({ cliente: c.cliente, email: c.email, ok: false });
-        }
-      }
-      const enviados = resultados.filter(r => r.ok).length;
-      res.json({ enviados, total: resultados.length, resultados });
-    } catch (e) { res.status(500).json({ error: e.message }); }
-  });
-
-
-
-
+  // B2B vs B2C (lo usa la pestaña "Ventas e ingresos"; permiso resumen)
   app.get('/api/tipo-cliente', authAdmin, mResumen, async (req, res) => {
     const { desde, hasta, empresa } = req.query;
-    // Filtro opcional por empresa (panel Ventas e ingresos); solo ids conocidos
     const emp = EMPRESAS_BI[parseInt(empresa, 10)] ? `AND s.company_id = ${parseInt(empresa, 10)}` : '';
-    const f = rango(desde, hasta) + ' ' + emp;
+    // Solo fechas válidas (rango() interpola el texto en el SQL)
+    const f = (esFecha(desde) && esFecha(hasta) ? rango(desde, hasta) : '') + ' ' + emp;
     try {
       const [rows] = await prodPool.query(`
         SELECT p.is_company, COUNT(DISTINCT p.id) AS clientes, COUNT(s.id) AS ventas, COALESCE(SUM(s.total),0) AS total
@@ -670,21 +357,6 @@ module.exports = function registrarClientesBI({
       res.json(rows.map(r => ({ ...r, tipo: r.is_company ? 'Empresa (B2B)' : 'Persona (B2C)' })));
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
-
-
-  app.get('/api/top-clientes', authAdmin, mClientes, async (req, res) => {
-    const { desde, hasta } = req.query; const f = rango(desde, hasta);
-    try {
-      const [rows] = await prodPool.query(`
-        SELECT p.id, p.is_company,
-          CASE WHEN p.is_company=1 THEN p.business_name
-               ELSE CONCAT(COALESCE(p.first_name,''),' ',COALESCE(p.last_name,'')) END AS cliente,
-          p.document_number, COUNT(s.id) AS pedidos, COALESCE(SUM(s.total),0) AS total_comprado
-        FROM sales s JOIN parties p ON p.id = s.customer_id
-        WHERE s.deleted_at IS NULL AND s.status IN ${VV} ${f}
-        GROUP BY p.id, cliente, p.document_number, p.is_company ORDER BY total_comprado DESC LIMIT 15`);
-      res.json(rows);
-    } catch (e) { res.status(500).json({ error: e.message }); }
-  });
-
 };
+
+module.exports._test = { calcularClientes, leerFiltros, esGenerico, mesesEntre };

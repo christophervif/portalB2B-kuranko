@@ -646,25 +646,11 @@ tr:hover td{background:var(--hover)}
     </div>
 
     <div id="tab-clientes_bi" class="panel">
-      <div class="card">
-        <div class="filtros-fila" style="align-items:center">
-          <label style="font-size:13px">Mes: <input type="month" class="db-mes" onchange="dbAplicarMes(this)"></label>
-          <label style="font-size:13px">Desde: <input type="date" class="db-desde"></label>
-          <label style="font-size:13px">Hasta: <input type="date" class="db-hasta"></label>
-          <button class="btn" onclick="dbCargarActual()">Actualizar</button>
-        </div>
-        <div id="ret-kpis" class="kpi-grid"></div>
-        <div class="dbcard"><h4>Tasa de retención</h4>
-          <p class="card-note">Cliente recurrente = 2+ ventas válidas (excluye canceladas).</p>
-          <div id="ret-barras"></div></div>
-        <div class="two-col">
-          <div class="dbcard"><h4>Top clientes</h4><div style="overflow-x:auto"><table class="dtable" id="tbl-clientes"></table></div></div>
-          <div class="dbcard"><h4>Clientes en riesgo de fuga (60+ días)</h4><div style="overflow-x:auto"><table class="dtable" id="tbl-riesgo"></table></div></div>
-        </div>
+      <div class="card" style="padding:0;overflow:hidden">
+        <iframe id="cbi-frame" title="Clientes BI"
+          style="width:100%;height:calc(100vh - 150px);min-height:560px;border:0;display:block"></iframe>
       </div>
     </div>
-
-    
 
     <div id="tab-crm" class="panel">
       <div class="card">
@@ -1041,7 +1027,12 @@ function cargarDatosTab(id){
   }
   else if(id==='sync'){cargarEstadoActualizacion();}
   else if(id==='auditoria'){if(!auditoriaCache)cargarAuditoriaGuardada();}
-  else if(['resumen','rentabilidad','clientes_bi','caja_bi','crm'].includes(id)){
+  else if(id==='clientes_bi'){
+    // Clientes BI en iframe (public/clientes-bi.html); comparte token/origen. Carga perezosa.
+    const fr=document.getElementById('cbi-frame');
+    if(fr&&!fr.src){fr.src='/clientes-bi.html?v='+Date.now();}
+  }
+  else if(['resumen','rentabilidad','caja_bi','crm'].includes(id)){
     dbInitFechas('tab-'+id);
     if(!dbCargadas[id])dbCargarModulo(id);
   }
@@ -2300,7 +2291,6 @@ async function dbCargarModulo(id){
   try{
     if(id==='resumen')await dbResumen();
     else if(id==='rentabilidad')await dbRentabilidad();
-    else if(id==='clientes_bi')await dbClientes();
     else if(id==='caja_bi')await dbCaja();
     else if(id==='crm')await dbCRM();
     dbCargadas[id]=1;
@@ -2690,30 +2680,7 @@ async function dbRentabilidad(){
   ],'ganancia');
 }
 
-async function dbClientes(){
-  const r=await dbApi('/api/retencion');
-  document.getElementById('ret-kpis').innerHTML=[
-    {l:'Total clientes',v:dbFmtN(r.total_clientes),s:'con compras',a:1},
-    {l:'Recurrentes',v:dbFmtN(r.recurrentes),s:'2+ pedidos'},
-    {l:'Una sola compra',v:dbFmtN(r.unicos),s:'únicos'},
-    {l:'Tasa recurrencia',v:r.tasa_recurrencia+'%',s:'del total',a:1},
-  ].map(x=>`<div class="kpi ${x.a?'accent':''}"><div class="kpi-label">${x.l}</div><div class="kpi-val">${x.v}</div><div class="kpi-sub">${x.s}</div></div>`).join('');
-  document.getElementById('ret-barras').innerHTML=[
-    {l:'Retención 30 días',v:r.ret_30d},{l:'Retención 90 días',v:r.ret_90d},{l:'Tasa recurrencia',v:r.tasa_recurrencia}
-  ].map(b=>`<div style="margin-bottom:14px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:13px">${b.l}</span><span style="font-size:13px;font-weight:600;color:var(--accent)">${b.v}%</span></div><div class="ret-bar"><div class="ret-fill" style="width:${Math.min(b.v,100)}%"></div></div></div>`).join('');
-  const cli=await dbApi('/api/top-clientes');
-  dbSortTable('tbl-clientes',cli,[
-    {k:'cliente',t:'Cliente',fmt:(v,r)=>`${v}${r.is_company?' <span class="badge badge-alto">B2B</span>':''}`},
-    {k:'pedidos',t:'Pedidos',fmt:dbFmtN,num:1},
-    {k:'total_comprado',t:'Total',fmt:dbFmt,num:1}
-  ],'total_comprado');
-  const riesgo=await dbApi('/api/clientes-riesgo');
-  dbSortTable('tbl-riesgo',riesgo.detalle,[
-    {k:'cliente',t:'Cliente',fmt:v=>v},
-    {k:'pedidos_hist',t:'Pedidos',fmt:dbFmtN,num:1},
-    {k:'dias_sin_comprar',t:'Días sin comprar',fmt:v=>`<span class="badge badge-r">${dbFmtN(v)}</span>`,num:1}
-  ],'dias_sin_comprar');
-}
+// Clientes BI → public/clientes-bi.html (iframe)
 
 // ══════════ Conciliación de pagos online (Google Sheet) ══════════
 // Mapa empresa del Sheet (texto) → company_id del sistema

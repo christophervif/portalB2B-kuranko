@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<script src="/tema.js"></script>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Clientes BI — Kuranko</title>
+<style>
+:root{
+  --bg:#0a1030;--surface:#111a44;--surface2:#0e1640;--surface3:#18224e;
+  --border:#212b54;--text:#eef1f8;--text2:#c6cee2;--muted:#8a93b4;--muted2:#a2abca;
+  --accent:#FFB30D;--accent-text:#000726;--accent-h:#e6a00c;--hover:#1a2450;--white:#ffffff;
+  --bg-ok:#163a29;--fg-ok:#6ee59a;--bg-warn:#3d3315;--fg-warn:#ffcb52;--bg-r:#3f1c20;--fg-r:#f79a9a;
+  --bg-v:#2a2766;--fg-v:#cecbf6;
+  --radius:18px;--radius-sm:12px;
+  --shadow-sm:0 2px 8px rgba(0,0,0,.10);
+}
+[data-theme="light"]{
+  --bg:#f6f8fd;--surface:#ffffff;--surface2:#fbfcff;--surface3:#f2f5fb;
+  --border:#e3e9f5;--text:#1a2140;--text2:#4a5680;--muted:#9aa3c0;--muted2:#727e9f;
+  --hover:#f2f5fb;--white:#1a2140;
+  --bg-ok:#e8f8ef;--fg-ok:#1f9c56;--bg-warn:#fdf5db;--fg-warn:#9a6b00;--bg-r:#fdeded;--fg-r:#dc4b4b;
+  --bg-v:#eeedfc;--fg-v:#4b43b8;
+  --shadow-sm:0 2px 10px rgba(30,45,90,.04);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{overflow-x:hidden}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px}
+.wrap{max-width:1240px;margin:0 auto;padding:1.25rem}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.1rem;box-shadow:var(--shadow-sm);margin-bottom:16px;min-width:0}
+.card h3{font-size:15px;font-weight:600;color:var(--white);margin-bottom:4px}
+.desc{font-size:12px;color:var(--muted);line-height:1.55}
+.fila{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px}
+.campo{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--muted2)}
+.campo select,.fila>select,.fila>input{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:8px 10px;font-size:13px;max-width:100%}
+input:focus,select:focus{outline:none;border-color:var(--accent)}
+.btn{background:var(--accent);border:none;color:var(--accent-text);border-radius:var(--radius-sm);padding:9px 16px;font-size:13px;cursor:pointer;font-weight:600}
+.btn:hover{background:var(--accent-h)}
+.btn:disabled{opacity:.6;cursor:wait}
+.btn-sec{background:var(--surface3);border:1px solid var(--border);color:var(--text2)}
+.btn-sec:hover{background:var(--hover)}
+.seg{display:inline-flex;gap:4px;background:var(--surface3);padding:3px;border-radius:10px}
+.seg button{background:transparent;border:none;color:var(--text2);border-radius:8px;padding:5px 10px;font-size:12px;cursor:pointer;font-weight:600}
+.seg button.on{background:var(--accent);color:var(--accent-text)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:14px}
+.kpi{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:12px}
+.kpi.clic{cursor:pointer}.kpi.clic:hover{border-color:var(--accent)}
+.kpi .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.kpi .v{font-size:1.35rem;font-weight:700;color:var(--white);margin-top:4px;white-space:nowrap}
+.kpi .s{font-size:11px;color:var(--muted2);margin-top:2px}
+.kpi.r .v{color:var(--fg-r)}.kpi.w .v{color:var(--fg-warn)}.kpi.a .v{color:var(--accent)}
+.aviso{font-size:12px;border-radius:10px;padding:8px 10px;margin-top:10px;background:var(--bg-warn);color:var(--fg-warn)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.barra-salud{display:flex;height:16px;border-radius:8px;overflow:hidden;background:var(--surface3);margin:12px 0 10px}
+.barra-salud div{height:100%;cursor:pointer}
+.leyenda-salud{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
+.ls-item{border:1px solid var(--border);border-radius:10px;padding:8px 10px;cursor:pointer;background:var(--surface2)}
+.ls-item:hover{border-color:var(--accent)}
+.ls-item .t{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--white)}
+.ls-item .t i{width:10px;height:10px;border-radius:3px;display:inline-block}
+.ls-item .n{font-size:15px;font-weight:700;color:var(--white);margin-top:3px}
+.ls-item .s{font-size:11px;color:var(--muted)}
+.hbar{margin-bottom:9px}
+.hbar .top{display:flex;justify-content:space-between;gap:8px;font-size:12px;margin-bottom:3px;color:var(--text2)}
+.hbar .top span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hbar .top b{white-space:nowrap;color:var(--white)}
+.hbar .pista{height:6px;background:var(--surface3);border-radius:4px;overflow:hidden}
+.hbar .pista div{height:100%;border-radius:4px}
+.hbar .sub{font-size:10.5px;color:var(--muted);margin-top:2px}
+.c-ok-bg{background:var(--fg-ok)}.c-w-bg{background:var(--fg-warn)}.c-r-bg{background:var(--fg-r)}.c-v-bg{background:var(--fg-v)}.c-a-bg{background:var(--accent)}.c-g-bg{background:var(--muted)}
+.tabla-wrap{overflow:auto;max-height:68vh;margin-top:10px;border:1px solid var(--border);border-radius:12px}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{position:sticky;top:0;background:var(--surface3);text-align:left;padding:8px;color:var(--muted2);font-weight:600;font-size:11px;border-bottom:1px solid var(--border);white-space:nowrap;cursor:pointer;user-select:none;z-index:1}
+th:hover{color:var(--white)}
+th.n,td.n{text-align:right}
+td.n{white-space:nowrap}
+th.asc::after{content:' ↑';color:var(--accent)}th.desc::after{content:' ↓';color:var(--accent)}
+td{padding:8px;border-bottom:1px solid var(--border);color:var(--text2);vertical-align:top}
+tr:hover td{background:var(--hover)}
+tr.clic{cursor:pointer}
+tr.sel td{background:var(--surface3)}
+tr.fuera td{opacity:.55}
+td .nom{color:var(--white);font-weight:500;line-height:1.35}
+td .sku{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--muted)}
+#tbl-det td:nth-child(2){min-width:220px}
+.chip{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:20px;white-space:nowrap}
+.c-r{background:var(--bg-r);color:var(--fg-r)}.c-w{background:var(--bg-warn);color:var(--fg-warn)}.c-ok{background:var(--bg-ok);color:var(--fg-ok)}
+.c-v{background:var(--bg-v);color:var(--fg-v)}.c-g{background:var(--surface3);color:var(--text2);border:1px solid var(--border)}
+.vacio{color:var(--muted);text-align:center;padding:1.5rem;font-size:13px}
+details.ayuda{margin-top:10px;font-size:12px;color:var(--text2)}
+details.ayuda summary{cursor:pointer;color:var(--muted2)}
+details.ayuda ul{margin:6px 0 0 18px;line-height:1.6}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--bg-ok);color:var(--fg-ok);padding:12px 18px;border-radius:12px;font-size:13px;display:none;z-index:100;border:1px solid var(--border);max-width:320px}
+.toast.err{background:var(--bg-r);color:var(--fg-r)}
+@media(max-width:860px){.grid2{grid-template-columns:1fr}}
+@media(max-width:640px){.wrap{padding:.75rem}.card{padding:.9rem}.fila>.campo,.fila>select{flex:1 1 140px}.campo select{width:100%}}
+.kpi .v{white-space:normal}
+.kpi .v small{font-size:12px;font-weight:600;margin-left:6px;white-space:nowrap}
+.kpis{grid-template-columns:repeat(auto-fit,minmax(135px,1fr))}
+@media(max-width:640px){.meses .col:nth-child(even) .lab{visibility:hidden}.meses .col .num{font-size:9px}}
+.up{color:var(--fg-ok)}.down{color:var(--fg-r)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.chips button{background:var(--surface3);border:1px solid var(--border);color:var(--text2);border-radius:20px;padding:5px 11px;font-size:12px;cursor:pointer;font-weight:600}
+.chips button.on{background:var(--accent);border-color:var(--accent);color:var(--accent-text)}
+.chips button b{font-weight:700;margin-left:4px;opacity:.8}
+.campo input[type=date],.campo input[type=month]{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:7px 9px;font-size:13px}
+.chk{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);padding-bottom:9px;cursor:pointer}
+.meses{display:flex;align-items:flex-end;gap:4px;height:170px;margin-top:14px;padding-bottom:20px;position:relative}
+.meses .col{flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%;position:relative;min-width:0;cursor:default}
+.meses .col .seg-n{background:var(--fg-v)}
+.meses .col .seg-r{background:var(--accent)}
+.meses .col .seg-n,.meses .col .seg-r{width:100%}
+.meses .col .seg-r{border-radius:4px 4px 0 0}
+.meses .col .num{font-size:10px;color:var(--muted2);text-align:center;margin-bottom:2px}
+.meses .col .lab{position:absolute;bottom:-18px;left:0;right:0;font-size:10px;color:var(--muted);text-align:center;white-space:nowrap}
+.meses .col.fuera{opacity:.45}
+.ley{display:flex;gap:14px;font-size:11px;color:var(--muted2);margin-top:8px;flex-wrap:wrap}
+.ley i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+.mini{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+.mini .kpi .v{font-size:1.05rem}
+.mas{display:block;margin:10px auto 0}
+td .ct{font-size:11px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="toast" id="toast"></div>
+<div class="wrap">
+
+  <!-- ══════════ FILTROS + KPIs ══════════ -->
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
+      <div>
+        <h3>Clientes BI</h3>
+        <div class="desc">Quién compra, quién vuelve y quién se está yendo. Todo se compara con el <b>período anterior del mismo largo</b>.</div>
+      </div>
+      <div class="desc" id="hora"></div>
+    </div>
+
+    <div class="fila">
+      <div class="campo">Período rápido
+        <div class="seg" id="presets">
+          <button data-p="30">30 días</button><button data-p="90">3 meses</button><button data-p="180">6 meses</button>
+          <button data-p="365">12 meses</button><button data-p="anio">Este año</button>
+        </div>
+      </div>
+      <label class="campo">Mes<input type="month" id="f-mes"></label>
+      <label class="campo">Desde<input type="date" id="f-desde"></label>
+      <label class="campo">Hasta<input type="date" id="f-hasta"></label>
+    </div>
+    <div class="fila">
+      <label class="campo" title="Empresa que gestionó la venta">Empresa<select id="f-empresa"><option value="">Todas</option></select></label>
+      <label class="campo">Tipo de cliente
+        <select id="f-tipo"><option value="">Todos</option><option value="b2b">Empresas (B2B)</option><option value="b2c">Personas (B2C)</option></select>
+      </label>
+      <label class="campo" title="Días sin comprar a partir de los cuales un cliente con 2+ compras pasa a 'en riesgo'">En riesgo si no compra hace
+        <select id="f-umbral"><option value="60">60+ días</option><option value="90">90+ días</option><option value="120">120+ días</option><option value="180">180+ días</option></select>
+      </label>
+      <label class="chk" title="Clientes varios, público general, DNI 00000000…: no son un cliente real y distorsionan el ranking"><input type="checkbox" id="f-gen" checked> Excluir clientes genéricos</label>
+      <button class="btn" id="btn-act" onclick="cargar()">Actualizar</button>
+      <button class="btn btn-sec" onclick="excel()">Excel</button>
+    </div>
+
+    <div class="kpis" id="kpis"></div>
+    <div id="avisos"></div>
+  </div>
+
+  <!-- ══════════ EVOLUCIÓN + ESTADOS ══════════ -->
+  <div class="grid2">
+    <div class="card">
+      <h3>Clientes con compra por mes</h3>
+      <div class="desc">Cada mes: clientes <b>nuevos</b> (su primera compra) y clientes que <b>volvieron</b>. Atenuados: meses fuera del período elegido.</div>
+      <div class="meses" id="meses"></div>
+      <div class="ley"><span><i style="background:var(--accent)"></i>Volvieron</span><span><i style="background:var(--fg-v)"></i>Nuevos</span></div>
+    </div>
+    <div class="card">
+      <h3>Estado de la cartera</h3>
+      <div class="desc" id="est-desc"></div>
+      <div class="barra-salud" id="est-barra"></div>
+      <div class="leyenda-salud" id="est-ley"></div>
+      <div class="mini" id="tipos"></div>
+    </div>
+  </div>
+
+  <!-- ══════════ LISTA ══════════ -->
+  <div class="card">
+    <h3 id="l-titulo">Clientes</h3>
+    <div class="chips" id="vistas"></div>
+    <div class="fila">
+      <input id="l-buscar" type="search" placeholder="Buscar nombre, RUC/DNI, correo…" oninput="pintarLista()" style="flex:1;min-width:200px">
+    </div>
+    <div class="desc" id="l-conteo" style="margin-top:8px"></div>
+    <div class="tabla-wrap"><table id="tbl"></table></div>
+    <button class="btn btn-sec mas" id="l-mas" onclick="limite+=200;pintarLista()" style="display:none">Ver más</button>
+    <details class="ayuda">
+      <summary>¿Cómo se calcula?</summary>
+      <ul>
+        <li><b>Ventas válidas</b>: pagadas, confirmadas o pendientes de pago (sin canceladas ni borradas). Montos con IGV, igual que <i>Ventas e ingresos</i>.</li>
+        <li><b>Un cliente</b> = un mismo RUC/DNI: si el ERP tiene el cliente duplicado con nombres distintos, se suma como uno.</li>
+        <li><b>Compra</b> = un día con venta. Dos boletas del mismo día cuentan como una sola visita.</li>
+        <li><b>Nuevo</b>: su primera compra es dentro del período. <b>Activo</b>: compró hace menos del umbral. <b>En riesgo</b>: 2+ compras y lleva el umbral o más sin comprar (menos de 1 año). <b>No volvió</b>: compró una sola vez y lleva el umbral o más sin volver. <b>Perdido</b>: 1 año o más sin comprar.</li>
+        <li><b>Atrasado</b>: cliente activo con 3+ compras que lleva más del doble de su ritmo habitual sin comprar. Es un aviso temprano, antes de llegar a "en riesgo".</li>
+        <li><b>Retención</b>: de los clientes que compraron en el período anterior (mismo largo), cuántos volvieron a comprar en este. <b>Recompra de nuevos</b>: de los nuevos del período, cuántos ya hicieron una 2.ª compra.</li>
+        <li><b>Concentración</b>: % de las ventas del período que hacen los 10 mejores clientes, y cuántos clientes suman el 80%.</li>
+        <li>"Días sin comprar" se cuenta al día <i>Hasta</i> (o a hoy si <i>Hasta</i> es futuro).</li>
+      </ul>
+    </details>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+//  Clientes BI — frontend (mini-app en iframe dentro de admin.html)
+//  Comparte token y origen con el panel (localStorage 'admtoken').
+//  Backend: modulos/clientes-bi.js  (/api/clientes-bi, /api/clientes-bi-excel)
+// ═══════════════════════════════════════════════════════════════════════════
+let TOKEN = ''; try { TOKEN = localStorage.getItem('admtoken') || ''; } catch (e) {}
+const $ = id => document.getElementById(id);
+function esc(t) { return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function showToast(m, e) { const t = $('toast'); t.textContent = m; t.className = 'toast' + (e ? ' err' : ''); t.style.display = 'block'; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', 3500); }
+async function apiCall(ep) {
+  const r = await fetch(ep, { headers: { 'Authorization': 'Bearer ' + TOKEN } });
+  if (r.status === 401) throw new Error('Sesión del portal expirada — vuelve a entrar al panel.');
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || 'Error');
+  return d;
+}
+const money = n => 'S/\u00a0' + Number(n || 0).toLocaleString('es-PE', { maximumFractionDigits: 0 });
+const nfmt = n => Number(n || 0).toLocaleString('es-PE');
+const pctTxt = v => v == null ? '—' : v + '%';
+const fecha = f => f ? f.slice(8, 10) + '/' + f.slice(5, 7) + '/' + f.slice(0, 4) : '—';
+const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+const mesCorto = m => MESES[+m.slice(5, 7) - 1] + (m.slice(5, 7) === '01' ? ' ' + m.slice(2, 4) : '');
+function variacion(v, invertir) {
+  if (v == null) return '';
+  const bueno = invertir ? v < 0 : v > 0;
+  return `<small class="${v === 0 ? '' : bueno ? 'up' : 'down'}">${v > 0 ? '▲' : v < 0 ? '▼' : ''}${Math.abs(v)}%</small>`;
+}
+
+const EST = {
+  nuevo:     { t: 'Nuevo',     chip: 'c-v',  bg: 'c-v-bg' },
+  activo:    { t: 'Activo',    chip: 'c-ok', bg: 'c-ok-bg' },
+  en_riesgo: { t: 'En riesgo', chip: 'c-r',  bg: 'c-r-bg' },
+  no_volvio: { t: 'No volvió', chip: 'c-w',  bg: 'c-w-bg' },
+  perdido:   { t: 'Perdido',   chip: 'c-g',  bg: 'c-g-bg' }
+};
+const ORDEN_EST = ['nuevo', 'activo', 'en_riesgo', 'no_volvio', 'perdido'];
+
+let D = null, vista = 'periodo', limite = 200;
+let orden = { k: 'per_monto', dir: 'desc' };
+
+// ── Fechas ──
+const hoy = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+const masDias = (f, n) => { const d = new Date(f + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+function aplicarPreset(p) {
+  const h = hoy();
+  $('f-hasta').value = h;
+  $('f-desde').value = p === 'anio' ? h.slice(0, 4) + '-01-01' : masDias(h, -(Number(p) - 1));
+  $('f-mes').value = '';
+  marcarPreset(); cargar();
+}
+function marcarPreset() {
+  const h = hoy(), d = $('f-desde').value, a = $('f-hasta').value;
+  document.querySelectorAll('#presets button').forEach(b => {
+    const p = b.dataset.p;
+    const desde = p === 'anio' ? h.slice(0, 4) + '-01-01' : masDias(h, -(Number(p) - 1));
+    b.classList.toggle('on', a === h && d === desde);
+  });
+}
+document.querySelectorAll('#presets button').forEach(b => b.onclick = () => aplicarPreset(b.dataset.p));
+$('f-mes').onchange = () => {
+  const v = $('f-mes').value; if (!v) return;
+  const [a, m] = v.split('-').map(Number);
+  $('f-desde').value = `${v}-01`;
+  $('f-hasta').value = `${v}-${String(new Date(a, m, 0).getDate()).padStart(2, '0')}`;
+  marcarPreset(); cargar();
+};
+['f-desde', 'f-hasta'].forEach(id => $(id).onchange = () => { $('f-mes').value = ''; marcarPreset(); });
+['f-empresa', 'f-tipo', 'f-umbral', 'f-gen'].forEach(id => $(id).onchange = () => cargar());
+
+// ── Filtros (se recuerdan entre visitas; las fechas no, salvo que sean un preset) ──
+function filtrosQS() {
+  const p = new URLSearchParams();
+  if ($('f-desde').value) p.set('desde', $('f-desde').value);
+  if ($('f-hasta').value) p.set('hasta', $('f-hasta').value);
+  if ($('f-empresa').value) p.set('empresa', $('f-empresa').value);
+  if ($('f-tipo').value) p.set('tipo', $('f-tipo').value);
+  p.set('umbral', $('f-umbral').value);
+  p.set('genericos', $('f-gen').checked ? 'excluir' : 'incluir');
+  return p;
+}
+function guardarFiltros() {
+  try {
+    const p = filtrosQS(); p.delete('desde'); p.delete('hasta');
+    const on = document.querySelector('#presets button.on'); if (on) p.set('preset', on.dataset.p);
+    localStorage.setItem('cbi_filtros', p.toString());
+  } catch (e) {}
+}
+function restaurar() {
+  let g; try { g = new URLSearchParams(localStorage.getItem('cbi_filtros') || ''); } catch (e) { g = new URLSearchParams(); }
+  if (g.get('empresa')) $('f-empresa').dataset.v = g.get('empresa');
+  if (g.get('tipo')) $('f-tipo').value = g.get('tipo');
+  $('f-umbral').value = g.get('umbral') || '90';
+  $('f-gen').checked = g.get('genericos') !== 'incluir';
+  const p = g.get('preset') || '365', h = hoy();
+  $('f-hasta').value = h;
+  $('f-desde').value = p === 'anio' ? h.slice(0, 4) + '-01-01' : masDias(h, -(Number(p) - 1));
+  marcarPreset();
+}
+
+// ── Carga ──
+async function cargar() {
+  const btn = $('btn-act'); btn.disabled = true; btn.textContent = 'Cargando…';
+  try {
+    D = await apiCall('/api/clientes-bi?' + filtrosQS().toString());
+    const f = D.filtros;
+    const selE = $('f-empresa'), quiere = selE.dataset.v != null ? selE.dataset.v : String(f.empresa || '');
+    selE.innerHTML = '<option value="">Todas</option>' + D.opciones.empresas.map(e => `<option value="${e.id}">${esc(e.nombre)}</option>`).join('');
+    selE.value = quiere; delete selE.dataset.v;
+    if (selE.value !== String(f.empresa || '')) { selE.value = String(f.empresa || ''); }
+    $('f-desde').value = f.desde; $('f-hasta').value = f.hasta; marcarPreset();
+    guardarFiltros();
+    $('hora').textContent = 'Actualizado: ' + new Date().toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
+    limite = 200;
+    pintarTodo();
+  } catch (e) {
+    showToast(e.message, true);
+    $('kpis').innerHTML = `<div class="vacio" style="grid-column:1/-1">No se pudo cargar: ${esc(e.message)}</div>`;
+  } finally { btn.disabled = false; btn.textContent = 'Actualizar'; }
+}
+function pintarTodo() { pintarKpis(); pintarMeses(); pintarEstados(); pintarVistas(); pintarLista(); }
+
+function pintarKpis() {
+  const k = D.kpis, pa = D.periodo_anterior;
+  const varAct = k.activos_ant ? Math.round((k.activos - k.activos_ant) / k.activos_ant * 1000) / 10 : null;
+  const kp = [
+    { l: 'Clientes con compra', v: nfmt(k.activos) + variacion(varAct), s: `antes: ${nfmt(k.activos_ant)} (${fecha(pa.desde)}–${fecha(pa.hasta)})`, c: 'a', click: "verVista('periodo')" },
+    { l: 'Ventas del período', v: money(k.monto) + variacion(k.var_monto), s: `${nfmt(k.ventas)} ventas · ticket ${money(k.ticket)}` },
+    { l: 'Nuevos', v: nfmt(k.nuevos), s: `${pctTxt(k.recompra_nuevos)} ya volvió a comprar`, click: "verVista('nuevo')" },
+    { l: 'Volvieron', v: nfmt(k.volvieron), s: 'compraron antes y en el período' },
+    { l: 'Retención', v: pctTxt(k.retencion), s: `${nfmt(k.retenidos)} de ${nfmt(k.activos_ant)} del período anterior`, c: k.retencion != null && k.retencion < 30 ? 'w' : '' },
+    { l: 'Concentración', v: pctTxt(k.concentracion_top10), s: `top 10 · ${nfmt(k.clientes_80)} clientes hacen el 80%`, c: k.concentracion_top10 > 60 ? 'w' : '' },
+    { l: 'En riesgo', v: nfmt(D.estados.en_riesgo.clientes), s: `compraron ${money(k.riesgo_monto_hist)} en su historia`, c: D.estados.en_riesgo.clientes ? 'r' : '', click: "verVista('en_riesgo')" },
+    { l: 'Atrasados', v: nfmt(D.atrasados), s: 'activos, pero fuera de su ritmo', c: D.atrasados ? 'w' : '', click: "verVista('atrasado')" }
+  ];
+  $('kpis').innerHTML = kp.map(x => `<div class="kpi ${x.c || ''} ${x.click ? 'clic' : ''}" ${x.click ? `onclick="${x.click}"` : ''}>
+    <div class="l">${x.l}</div><div class="v">${x.v}</div><div class="s">${esc(x.s)}</div></div>`).join('');
+  const av = [];
+  const g = D.genericos_excluidos;
+  if (g.ventas) av.push(`Se excluyeron ${nfmt(g.ventas)} venta(s) por ${money(g.monto)} a clientes genéricos (clientes varios, DNI de relleno…). Desmarca "Excluir clientes genéricos" para incluirlas.`);
+  $('avisos').innerHTML = av.map(t => `<div class="aviso">${t}</div>`).join('');
+}
+
+function pintarMeses() {
+  const m = D.mensual, max = Math.max(1, ...m.map(x => x.activos)), f = D.filtros;
+  $('meses').innerHTML = m.map(x => {
+    const fuera = x.mes < f.desde.slice(0, 7) || x.mes > f.hasta.slice(0, 7);
+    const hN = x.nuevos / max * 100, hR = x.recurrentes / max * 100;
+    return `<div class="col ${fuera ? 'fuera' : ''}" title="${mesCorto(x.mes)} ${x.mes.slice(0, 4)}: ${x.activos} clientes (${x.nuevos} nuevos, ${x.recurrentes} volvieron) · ${money(x.monto)}">
+      <div class="num">${x.activos || ''}</div>
+      <div class="seg-r" style="height:${hR}%"></div><div class="seg-n" style="height:${hN}%"></div>
+      <div class="lab">${mesCorto(x.mes)}</div></div>`;
+  }).join('');
+}
+
+function pintarEstados() {
+  const e = D.estados, tot = ORDEN_EST.reduce((s, k) => s + e[k].clientes, 0);
+  $('est-desc').innerHTML = `${nfmt(tot)} clientes con compras hasta el ${fecha(D.referencia)}, según cuándo compraron por última vez. Clic para ver la lista.`;
+  $('est-barra').innerHTML = tot ? ORDEN_EST.filter(k => e[k].clientes).map(k =>
+    `<div class="${EST[k].bg}" style="width:${e[k].clientes / tot * 100}%" title="${EST[k].t}: ${e[k].clientes}" onclick="verVista('${k}')"></div>`).join('') : '';
+  const u = D.filtros.umbral;
+  const sub = { nuevo: 'primera compra en el período', activo: `compró hace < ${u} días`, en_riesgo: `2+ compras, ${u}+ días sin comprar`,
+    no_volvio: `1 compra, ${u}+ días sin volver`, perdido: '1 año o más sin comprar' };
+  $('est-ley').innerHTML = ORDEN_EST.map(k => `<div class="ls-item" onclick="verVista('${k}')">
+    <div class="t"><i class="${EST[k].bg}"></i>${EST[k].t}</div>
+    <div class="n">${nfmt(e[k].clientes)}</div>
+    <div class="s">${sub[k]} · hist. ${money(e[k].hist_monto)}</div></div>`).join('');
+  $('tipos').innerHTML = D.por_tipo.map(t => `<div class="kpi"><div class="l">${t.tipo === 'b2b' ? 'Empresas (B2B)' : 'Personas (B2C)'}</div>
+    <div class="v">${money(t.monto)} <small>${pctTxt(t.part)}</small></div>
+    <div class="s">${nfmt(t.clientes)} clientes · ticket ${money(t.ticket)}</div></div>`).join('');
+}
+
+// ── Lista ──
+const VISTAS = [
+  { k: 'periodo', t: 'Compraron en el período', f: c => c.per_ventas > 0, ord: 'per_monto' },
+  { k: 'nuevo', t: 'Nuevos', f: c => c.estado === 'nuevo', ord: 'per_monto' },
+  { k: 'atrasado', t: 'Atrasados', f: c => c.atrasado && c.estado === 'activo', ord: 'hist_monto' },
+  { k: 'en_riesgo', t: 'En riesgo', f: c => c.estado === 'en_riesgo', ord: 'hist_monto' },
+  { k: 'no_volvio', t: 'No volvieron', f: c => c.estado === 'no_volvio', ord: 'hist_monto' },
+  { k: 'perdido', t: 'Perdidos', f: c => c.estado === 'perdido', ord: 'hist_monto' },
+  { k: 'cayeron', t: 'Compraron menos', f: c => c.ant_monto > 0 && c.per_monto < c.ant_monto, ord: 'caida' },
+  { k: 'todos', t: 'Todos', f: () => true, ord: 'hist_monto' }
+];
+function pintarVistas() {
+  $('vistas').innerHTML = VISTAS.map(v => `<button class="${v.k === vista ? 'on' : ''}" onclick="verVista('${v.k}')">${v.t}<b>${nfmt(D.clientes.filter(v.f).length)}</b></button>`).join('');
+}
+function verVista(k) {
+  vista = k; limite = 200;
+  orden = { k: VISTAS.find(v => v.k === k).ord, dir: 'desc' };
+  pintarVistas(); pintarLista();
+  $('vistas').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+const COLS = [
+  { k: 'cliente', t: 'Cliente' },
+  { k: 'estado', t: 'Estado' },
+  { k: 'per_monto', t: 'Período', n: 1 },
+  { k: 'part_acum', t: '% acum.', n: 1 },
+  { k: 'var_monto', t: 'vs. anterior', n: 1 },
+  { k: 'hist_monto', t: 'Histórico', n: 1 },
+  { k: 'ultima', t: 'Última compra', n: 1 },
+  { k: 'dias_sin_comprar', t: 'Días sin comprar', n: 1 },
+  { k: 'ritmo_dias', t: 'Compra cada', n: 1 }
+];
+function ordenar(k) {
+  if (orden.k === k) orden.dir = orden.dir === 'desc' ? 'asc' : 'desc'; else orden = { k, dir: k === 'cliente' ? 'asc' : 'desc' };
+  pintarLista();
+}
+function valorOrden(c, k) { return k === 'caida' ? (c.ant_monto - c.per_monto) : c[k]; }
+function pintarLista() {
+  if (!D) return;
+  const v = VISTAS.find(x => x.k === vista);
+  const q = $('l-buscar').value.trim().toLowerCase();
+  let rows = D.clientes.filter(v.f);
+  if (q) rows = rows.filter(c => (c.cliente + ' ' + c.doc + ' ' + c.email + ' ' + c.telefono).toLowerCase().includes(q));
+  const m = orden.dir === 'asc' ? 1 : -1;
+  rows.sort((a, b) => {
+    const x = valorOrden(a, orden.k), y = valorOrden(b, orden.k);
+    if (x == null && y == null) return 0; if (x == null) return 1; if (y == null) return -1;
+    return (typeof x === 'string' ? x.localeCompare(y) : x - y) * m;
+  });
+  $('l-titulo').textContent = 'Clientes — ' + v.t.toLowerCase();
+  const sumP = rows.reduce((s, c) => s + c.per_monto, 0), sumH = rows.reduce((s, c) => s + c.hist_monto, 0);
+  $('l-conteo').innerHTML = `<b>${nfmt(rows.length)}</b> cliente(s) · período ${money(sumP)} · histórico ${money(sumH)}` + (rows.length > limite ? ` · mostrando ${nfmt(limite)} (el Excel trae todo)` : '');
+  $('l-mas').style.display = rows.length > limite ? '' : 'none';
+  if (!rows.length) { $('tbl').innerHTML = '<tr><td class="vacio">Ningún cliente con estos filtros.</td></tr>'; return; }
+  $('tbl').innerHTML = '<thead><tr>' + COLS.map(c => `<th class="${c.n ? 'n' : ''} ${orden.k === c.k ? orden.dir : ''}" onclick="ordenar('${c.k}')">${c.t}</th>`).join('') + '</tr></thead><tbody>' +
+    rows.slice(0, limite).map(c => {
+      const contacto = [c.telefono, c.email].filter(Boolean).map(esc).join(' · ');
+      return `<tr>
+      <td><div class="nom">${esc(c.cliente)} ${c.tipo === 'b2b' ? '<span class="chip c-v">B2B</span>' : ''}${c.generico ? ' <span class="chip c-g">genérico</span>' : ''}</div>
+        <div class="sku">${esc(c.doc || 'sin documento')}${c.ids.length > 1 ? ` · ${c.ids.length} registros unidos` : ''}</div>${contacto ? `<div class="ct">${contacto}</div>` : ''}</td>
+      <td><span class="chip ${EST[c.estado].chip}">${EST[c.estado].t}</span>${c.atrasado && c.estado === 'activo' ? ' <span class="chip c-w" title="Lleva ' + c.atraso + '× su ritmo habitual sin comprar">atrasado</span>' : ''}</td>
+      <td class="n">${c.per_ventas ? `<b>${money(c.per_monto)}</b><div class="ct">${nfmt(c.per_ventas)} venta(s)</div>` : '—'}</td>
+      <td class="n">${c.part_acum != null ? c.part_acum + '%' : '—'}</td>
+      <td class="n">${c.ant_monto ? `${money(c.ant_monto)}<div class="ct">${c.var_monto == null ? '' : variacion(c.var_monto)}</div>` : '<span class="ct">sin compras</span>'}</td>
+      <td class="n">${money(c.hist_monto)}<div class="ct">${nfmt(c.hist_compras)} compra(s) desde ${fecha(c.primera)}</div></td>
+      <td class="n">${fecha(c.ultima)}</td>
+      <td class="n">${nfmt(c.dias_sin_comprar)}</td>
+      <td class="n">${c.ritmo_dias != null ? nfmt(c.ritmo_dias) + ' d' : '—'}</td></tr>`;
+    }).join('') + '</tbody>';
+}
+
+async function excel() {
+  try {
+    const r = await fetch('/api/clientes-bi-excel?' + filtrosQS().toString(), { headers: { 'Authorization': 'Bearer ' + TOKEN } });
+    if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || 'No se pudo generar el Excel'); }
+    const cd = r.headers.get('Content-Disposition') || '';
+    const nombre = (cd.match(/filename="([^"]+)"/) || [])[1] || 'clientes-bi.xlsx';
+    const url = URL.createObjectURL(await r.blob());
+    const a = document.createElement('a'); a.href = url; a.download = nombre; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (e) { showToast(e.message, true); }
+}
+
+// Primera carga con los filtros de la última visita (por defecto: últimos 12 meses)
+restaurar();
+cargar();
+</script>
+</body>
+</html>

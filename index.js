@@ -238,9 +238,15 @@ let modSeguimiento = null;
   // ── Módulo Promociones recomendadas ──
   require('./modulos/promociones')({ app, authAdmin, mInv, prodPool, VV });
 
-  // ── Módulo Clientes-BI (retención/top/riesgo) + Cuentas por cobrar + Saldo a favor ──
-  // Deudas y créditos ahora son módulos aislados (mCxc / mSaldo); el resto sigue en clientes_bi.
-  require('./modulos/clientes-bi')({ app, authAdmin, mClientes, mResumen, mCxc, mSaldo, prodPool, portalPool, VV });
+  // ── Módulo Clientes BI (retención, estados, top, riesgo) ──
+  //    Frontend propio en public/clientes-bi.html (iframe dentro del panel).
+  require('./modulos/clientes-bi')({ app, authAdmin, mClientes, mResumen, prodPool, VV });
+
+  // ── Módulo Cuentas por cobrar (deudas) — public/cuentas-por-cobrar.html ──
+  require('./modulos/cuentas-cobrar')({ app, authAdmin, mCxc, prodPool });
+
+  // ── Módulo Créditos (saldo a favor del cliente y de la empresa) — public/saldo-a-favor.html ──
+  require('./modulos/creditos')({ app, authAdmin, mSaldo, prodPool, portalPool });
 
   // ── Módulo Conciliación de pagos online (módulo aislado: conciliacion) ──
   require('./modulos/conciliacion')({ app, authAdmin, mConc, prodPool, VV });

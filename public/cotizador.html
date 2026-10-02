@@ -316,7 +316,7 @@ function pintarComparacion(){
   const normal=x.precio_normal>0?x.precio_normal:null;
   const filas=[];
   // 1) PVP recomendado
-  filas.push(`<div class="fila-c"><div class="t">PVP recomendado<small>costo de la última compra ÷ ${p.factor_pvp||0.45}</small></div>
+  filas.push(`<div class="fila-c"><div class="t">PVP recomendado<small>costo de la última compra ÷ ${p.factor_pvp||0.65}</small></div>
     <div class="v"><b>${x.pvp_recomendado?S(x.pvp_recomendado):'—'}</b><br>${normal?chipComp(c.vs_pvp_recomendado,'rec'):'<span class="chip bad">sin precio en sistema</span>'}</div></div>`);
   // 2) Ventas registradas
   const v=p.vendido;
@@ -434,7 +434,7 @@ function pintarPrecios(){
       <div class="pbox${x.sin_precio?' falta':''}"><div class="lbl">Precio normal (sistema)</div><div class="val">${x.sin_precio?'Sin precio':S(x.precio_normal)}</div>
         <div class="sub">${x.sin_precio?'se usa el PVP recomendado':(x.precio_oferta!=null&&x.precio_oferta<x.precio_regular?'Oferta · regular '+S(x.precio_regular):'por unidad')}${n>1&&!x.sin_precio?' · total '+S(x.precio_normal*n):''}</div></div>
       <div class="pbox rec"><div class="lbl">PVP recomendado</div><div class="val">${x.pvp_recomendado?S(x.pvp_recomendado):'—'}</div>
-        <div class="sub">${x.pvp_recomendado?'costo última compra ÷ '+(p.factor_pvp||0.45):'sin costo de compra'}</div></div>
+        <div class="sub">${x.pvp_recomendado?'costo última compra ÷ '+(p.factor_pvp||0.65):'sin costo de compra'}</div></div>
       <div class="pbox sug"><div class="lbl">Precio sugerido</div><div class="val">${p.precio_sugerido!=null?S(p.precio_sugerido):'—'}</div>
         <div class="sub">${p.sugerido?(p.sugerido.descuento_pct>0?'desc. '+p.sugerido.descuento_pct+'%':'sin descuento')+' · '+esc(p.sugerido.motivo)+(n>1?' · total '+S(p.precio_sugerido*n):''):''}</div></div>
       <div class="pbox min"><div class="lbl">Precio mínimo${n>1?' ('+n+' u.)':''}</div><div class="val">${minTxt}</div>

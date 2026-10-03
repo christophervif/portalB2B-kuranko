@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<script src="/tema.js"></script>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Asistencia — Kuranko</title>
+<style>
+:root{
+  --bg:#0a1030;--surface:#111a44;--surface2:#0e1640;--surface3:#18224e;
+  --border:#212b54;--text:#eef1f8;--text2:#c6cee2;--muted:#8a93b4;--muted2:#a2abca;
+  --accent:#FFB30D;--accent-text:#000726;--accent-h:#e6a00c;--hover:#1a2450;--white:#ffffff;
+  --bg-ok:#163a29;--fg-ok:#6ee59a;--bg-warn:#3d3315;--fg-warn:#ffcb52;--bg-r:#3f1c20;--fg-r:#f79a9a;
+  --radius:18px;--radius-sm:12px;--shadow-sm:0 2px 8px rgba(0,0,0,.10);
+}
+[data-theme="light"]{
+  --bg:#f6f8fd;--surface:#ffffff;--surface2:#fbfcff;--surface3:#f2f5fb;
+  --border:#e3e9f5;--text:#1a2140;--text2:#4a5680;--muted:#9aa3c0;--muted2:#727e9f;
+  --hover:#f2f5fb;--white:#1a2140;
+  --bg-ok:#e8f8ef;--fg-ok:#1f9c56;--bg-warn:#fdf5db;--fg-warn:#9a6b00;--bg-r:#fdeded;--fg-r:#dc4b4b;
+  --shadow-sm:0 2px 10px rgba(30,45,90,.04);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{overflow-x:hidden}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px}
+.wrap{max-width:1180px;margin:0 auto;padding:1.25rem}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.1rem;box-shadow:var(--shadow-sm);margin-bottom:16px}
+.card h3{font-size:14px;font-weight:600;color:var(--white);margin-bottom:4px}
+.desc{font-size:12px;color:var(--muted);line-height:1.5}
+.btn{background:var(--accent);border:none;color:var(--accent-text);border-radius:var(--radius-sm);padding:10px 16px;font-size:13px;cursor:pointer;font-weight:600}
+.btn:hover{background:var(--accent-h)}
+.btn:disabled{opacity:.5;cursor:default}
+.btn-sec{background:var(--surface3);border:1px solid var(--border);color:var(--text2)}
+.btn-sec:hover{background:var(--hover)}
+.btn-ok{background:var(--bg-ok);color:var(--fg-ok);border:1px solid transparent}
+.btn-bad{background:var(--bg-r);color:var(--fg-r);border:1px solid transparent}
+.btn-sm{padding:6px 11px;font-size:12px;border-radius:9px}
+input,select,textarea{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:8px 10px;font-size:13px;font-family:inherit}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--muted2)}
+.fila{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}
+.chip{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;white-space:nowrap}
+.ok{background:var(--bg-ok);color:var(--fg-ok)}.warn{background:var(--bg-warn);color:var(--fg-warn)}.bad{background:var(--bg-r);color:var(--fg-r)}
+.neu{background:var(--surface3);color:var(--text2);border:1px solid var(--border)}
+.vacio{color:var(--muted);text-align:center;padding:1.5rem;font-size:13px}
+.aviso{border-radius:12px;padding:10px 12px;font-size:12.5px;line-height:1.5;margin-bottom:12px}
+/* Pestañas internas (solo para quien controla) */
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+.tabs button{background:var(--surface);border:1px solid var(--border);color:var(--text2);padding:8px 13px;border-radius:20px;font-size:12.5px;cursor:pointer;font-weight:600}
+.tabs button.on{background:var(--accent);color:var(--accent-text);border-color:var(--accent)}
+.tabs .num{display:inline-block;min-width:18px;padding:0 5px;border-radius:9px;background:var(--fg-r);color:#fff;font-size:10.5px;margin-left:4px}
+.vista{display:none}.vista.on{display:block}
+/* Mi jornada */
+.jornada{max-width:520px;margin:0 auto;text-align:center}
+.saludo{font-size:15px;color:var(--text2)}
+.fecha{font-size:12.5px;color:var(--muted);margin-top:2px;text-transform:capitalize}
+.reloj{font-size:58px;font-weight:800;letter-spacing:1px;color:var(--white);margin:14px 0 4px;font-variant-numeric:tabular-nums}
+.marcas{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0}
+.marca{background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:12px}
+.marca .t{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.marca .h{font-size:24px;font-weight:700;color:var(--white);margin-top:4px;font-variant-numeric:tabular-nums}
+.btn-marcar{width:100%;padding:20px;font-size:18px;border-radius:16px;font-weight:800}
+.btn-marcar.salida{background:#3b82f6;color:#fff}
+.btn-marcar.salida:hover{background:#2f6fd6}
+.red{font-size:12px;color:var(--muted);margin-top:10px}
+.resultado{margin-top:14px;text-align:left}
+/* Tablas */
+.tabla-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{font-size:11px;color:var(--muted);font-weight:600;text-align:left;padding:8px;border-bottom:1px solid var(--border);white-space:nowrap}
+td{padding:8px;border-bottom:1px solid var(--border);vertical-align:top}
+tr:hover td{background:var(--hover)}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.mono{font-family:ui-monospace,Menlo,monospace;font-size:11.5px}
+.sub{font-size:11px;color:var(--muted)}
+.rev{border:1px solid var(--border);border-radius:14px;padding:12px;margin-bottom:10px;background:var(--surface2)}
+.rev .cab{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.rev .nom{font-weight:700;color:var(--white)}
+.dias label{display:inline-flex;align-items:center;gap:3px;font-size:12px;margin-right:6px;color:var(--text2)}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:flex-start;justify-content:center;z-index:150;padding:40px 16px;overflow:auto}
+.modal .caja{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:16px;width:100%;max-width:480px;box-shadow:0 10px 40px rgba(0,0,0,.35)}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--surface3);border:1px solid var(--border);color:var(--text);padding:10px 16px;border-radius:12px;font-size:13px;z-index:300;display:none;max-width:90vw}
+.toast.err{background:var(--bg-r);color:var(--fg-r)}
+@media(max-width:600px){.wrap{padding:.8rem}.reloj{font-size:46px}td,th{padding:6px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="tabs" id="tabs" style="display:none">
+    <button data-v="mi" id="tab-mi" class="on">Mi jornada</button>
+    <button data-v="reporte">Reporte</button>
+    <button data-v="revisar">Por revisar <span class="num" id="num-obs" style="display:none">0</span></button>
+    <button data-v="personal">Personal</button>
+    <button data-v="sedes">Sedes</button>
+    <button data-v="ajustes">Ajustes</button>
+  </div>
+
+  <!-- ═══ MI JORNADA ═══ -->
+  <div class="vista on" id="v-mi">
+    <div class="card jornada">
+      <div class="saludo" id="mi-saludo">Cargando…</div>
+      <div class="fecha" id="mi-fecha"></div>
+      <div class="reloj" id="mi-reloj">--:--:--</div>
+      <div class="sub" id="mi-horario"></div>
+      <div class="marcas">
+        <div class="marca"><div class="t">Entrada</div><div class="h" id="mi-ent">—</div><div id="mi-ent-e"></div></div>
+        <div class="marca"><div class="t">Salida</div><div class="h" id="mi-sal">—</div><div id="mi-sal-e"></div></div>
+      </div>
+      <button class="btn btn-marcar" id="btn-marcar" disabled>…</button>
+      <div class="red" id="mi-red"></div>
+      <div class="resultado" id="mi-resultado"></div>
+    </div>
+    <div class="card" id="mi-hist-card">
+      <div class="fila" style="justify-content:space-between;margin-bottom:8px">
+        <h3>Mis marcas del mes</h3>
+        <input type="month" id="mi-mes">
+      </div>
+      <div class="desc" id="mi-tot" style="margin-bottom:8px"></div>
+      <div class="tabla-wrap"><table><thead><tr><th>Fecha</th><th>Entrada</th><th>Salida</th><th class="num">Horas</th><th>Estado</th></tr></thead><tbody id="mi-hist"></tbody></table></div>
+    </div>
+  </div>
+
+  <!-- ═══ REPORTE ═══ -->
+  <div class="vista" id="v-reporte">
+    <div id="rep-aviso"></div>
+    <div class="card">
+      <div class="fila">
+        <label class="f">Desde<input type="date" id="rep-desde"></label>
+        <label class="f">Hasta<input type="date" id="rep-hasta"></label>
+        <label class="f">Trabajador<select id="rep-usuario"><option value="">Todos</option></select></label>
+        <button class="btn" onclick="cargarReporte()">Ver</button>
+        <button class="btn btn-sec" onclick="descargarExcel()">⬇ Excel</button>
+        <button class="btn btn-sec" onclick="abrirManual()">+ Marca manual</button>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Resumen por trabajador</h3>
+      <div class="tabla-wrap"><table><thead><tr><th>Trabajador</th><th class="num">Asistió</th><th class="num">Faltas</th><th class="num">Tardanzas</th><th class="num">Min. tarde</th><th class="num">Sin salida</th><th class="num">Horas</th><th class="num">Observadas</th><th class="num">Fuera del local</th></tr></thead><tbody id="rep-tot"></tbody></table></div>
+    </div>
+    <div class="card">
+      <h3>Detalle por día</h3>
+      <div class="desc" style="margin-bottom:8px">"Sistema" = primera y última acción del trabajador en el sistema principal (ventas, movimientos de stock…). <b>+min</b> = cuánto tardó en empezar a trabajar después de marcar. "Fuera del local" = salidas detectadas por el celular de empresa durante la jornada.</div>
+      <div class="tabla-wrap"><table><thead><tr><th>Fecha</th><th>Trabajador</th><th>Entrada</th><th>Salida</th><th class="num">Horas</th><th>Estado</th><th>Sistema</th><th>Fuera del local</th><th>Observaciones</th><th></th></tr></thead><tbody id="rep-det"></tbody></table></div>
+    </div>
+  </div>
+
+  <!-- ═══ POR REVISAR ═══ -->
+  <div class="vista" id="v-revisar">
+    <div class="card">
+      <div class="fila" style="justify-content:space-between">
+        <div><h3>Marcas observadas</h3><div class="desc">Se guardaron, pero algo no cuadró (fuera del local, GPS impreciso, equipo nuevo…). Apruébalas o recházalas. Una marca rechazada no cuenta como asistencia.</div></div>
+        <select id="rev-estado" onchange="cargarRevisar()"><option value="observada">Pendientes</option><option value="aprobada">Aprobadas</option><option value="rechazada">Rechazadas</option><option value="manual">Manuales</option></select>
+      </div>
+    </div>
+    <div id="rev-lista"></div>
+  </div>
+
+  <!-- ═══ PERSONAL ═══ -->
+  <div class="vista" id="v-personal">
+    <div class="card">
+      <h3>Personal controlado</h3>
+      <div class="desc">Aparecen solos los usuarios que entran al panel. Deja el horario vacío para usar el general (Ajustes). Vincula a cada uno con su usuario del sistema principal para ver su actividad real. <span id="per-fuentes"></span></div>
+    </div>
+    <div id="per-lista"></div>
+  </div>
+
+  <!-- ═══ SEDES ═══ -->
+  <div class="vista" id="v-sedes">
+    <div class="card">
+      <h3>Sedes / locales</h3>
+      <div class="desc">Una marca es válida si se hace desde el <b>internet del local</b> (IP) o si el <b>GPS</b> está dentro del radio. Para registrar la IP, abre esta pantalla desde una PC conectada al internet del local y pulsa "Agregar mi IP actual". Tu IP ahora: <b class="mono" id="sed-miip">—</b></div>
+    </div>
+    <div class="card">
+      <h3 id="sed-titulo">Nueva sede</h3>
+      <input type="hidden" id="sed-id">
+      <div class="fila" style="margin-top:8px">
+        <label class="f" style="flex:1;min-width:160px">Nombre<input id="sed-nombre" placeholder="Tienda principal"></label>
+        <label class="f">Latitud<input id="sed-lat" style="width:120px"></label>
+        <label class="f">Longitud<input id="sed-lng" style="width:120px"></label>
+        <label class="f">Radio (m)<input id="sed-radio" type="number" value="100" style="width:90px"></label>
+        <button class="btn btn-sec btn-sm" onclick="usarMiUbicacion()">📍 Usar mi ubicación</button>
+      </div>
+      <div class="fila" style="margin-top:10px">
+        <label class="f" style="flex:1;min-width:220px">IPs públicas del local (separadas por coma)<input id="sed-ips" placeholder="190.12.34.56"></label>
+        <button class="btn btn-sec btn-sm" onclick="agregarMiIp()">🌐 Agregar mi IP actual</button>
+        <label class="f" style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="sed-activo" checked> Activa</label>
+      </div>
+      <div class="fila" style="margin-top:12px">
+        <button class="btn" onclick="guardarSede()">Guardar sede</button>
+        <button class="btn btn-sec" onclick="limpiarSede()">Limpiar</button>
+      </div>
+    </div>
+    <div class="card"><div class="tabla-wrap"><table><thead><tr><th>Sede</th><th>Ubicación</th><th class="num">Radio</th><th>IPs</th><th>Estado</th><th></th></tr></thead><tbody id="sed-lista"></tbody></table></div></div>
+  </div>
+
+  <!-- ═══ AJUSTES ═══ -->
+  <div class="vista" id="v-ajustes">
+    <div class="card">
+      <h3>Horario general</h3>
+      <div class="desc">Se aplica a quien no tenga horario propio en Personal.</div>
+      <div class="fila" style="margin-top:10px">
+        <label class="f">Entrada<input type="time" id="cfg-ent"></label>
+        <label class="f">Salida<input type="time" id="cfg-sal"></label>
+        <label class="f">Tolerancia (min)<input type="number" id="cfg-tol" style="width:100px"></label>
+      </div>
+      <div class="dias" id="cfg-dias" style="margin-top:10px"></div>
+    </div>
+    <div class="card">
+      <h3>Validación</h3>
+      <div class="fila" style="margin-top:10px">
+        <label class="f">Precisión GPS máxima (m)<input type="number" id="cfg-prec" style="width:120px"></label>
+        <label class="f">Mínimo entre entrada y salida (min)<input type="number" id="cfg-min" style="width:120px"></label>
+        <label class="f">Hora guardada en el sistema principal<select id="cfg-tz"><option value="+00:00">UTC (habitual)</option><option value="-05:00">Hora de Lima</option></select></label>
+      </div>
+      <div class="desc" style="margin-top:8px">Si las horas de "Sistema" en el reporte salen corridas 5 horas, cambia la última opción.</div>
+      <button class="btn" style="margin-top:12px" onclick="guardarConfig()">Guardar ajustes</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: marca manual -->
+<div class="modal" id="modal-manual">
+  <div class="caja">
+    <h3 style="margin-bottom:10px">Marca manual</h3>
+    <div class="desc" style="margin-bottom:10px">Para olvidos o problemas con el equipo. Queda registrado quién la puso y por qué.</div>
+    <div class="fila">
+      <label class="f" style="flex:1">Trabajador<select id="man-usuario"></select></label>
+      <label class="f">Tipo<select id="man-tipo"><option value="entrada">Entrada</option><option value="salida">Salida</option></select></label>
+    </div>
+    <div class="fila" style="margin-top:10px">
+      <label class="f">Fecha<input type="date" id="man-fecha"></label>
+      <label class="f">Hora<input type="time" id="man-hora"></label>
+    </div>
+    <label class="f" style="margin-top:10px">Motivo<textarea id="man-nota" rows="2" placeholder="Olvidó marcar la salida; confirmado con el encargado"></textarea></label>
+    <div class="fila" style="margin-top:12px;justify-content:flex-end">
+      <button class="btn btn-sec" onclick="cerrarManual()">Cancelar</button>
+      <button class="btn" onclick="guardarManual()">Guardar</button>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ═════════ Base ═════════
+let TOKEN='';try{TOKEN=localStorage.getItem('admtoken')||'';}catch(e){}
+let ESTADO=null, OFFSET=0, PERSONAL=[], USUARIOS_SIS=null;
+const $=id=>document.getElementById(id);
+const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+async function api(ep,body){
+  const r=await fetch(ep,body?{method:'POST',headers:{'Authorization':'Bearer '+TOKEN,'Content-Type':'application/json'},body:JSON.stringify(body)}:{headers:{'Authorization':'Bearer '+TOKEN}});
+  let d={};try{d=await r.json();}catch(e){}
+  if(!r.ok)throw new Error(d.error||'Error '+r.status);
+  return d;
+}
+function toast(m,err){const t=$('toast');t.textContent=m;t.className='toast'+(err?' err':'');t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',3800);}
+const hhmm=m=>m==null?'—':Math.floor(m/60)+':'+String(m%60).padStart(2,'0');
+const hoyLima=()=>new Date(Date.now()+OFFSET-5*3600e3).toISOString().slice(0,10);
+const sumarDias=(f,n)=>{const d=new Date(f+'T00:00:00Z');d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10);};
+const DIAS=['','Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+const ESTADOS={completo:['Completo','ok'],en_curso:['En curso','neu'],sin_salida:['Sin salida','warn'],pendiente:['Pendiente','neu'],falta:['Falta','bad'],sin_entrada:['Sin entrada','warn']};
+const chipEstado=e=>{const x=ESTADOS[e]||[e,'neu'];return '<span class="chip '+x[1]+'">'+x[0]+'</span>';};
+const chipMarca=e=>e==='observada'?'<span class="chip warn">observada</span>':e==='rechazada'?'<span class="chip bad">rechazada</span>':e==='manual'?'<span class="chip neu">manual</span>':e==='aprobada'?'<span class="chip ok">aprobada</span>':'';
+
+// Pestañas internas
+document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>verVista(b.dataset.v));
+const cargadas={};
+function verVista(v){
+  document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));
+  document.querySelectorAll('.vista').forEach(x=>x.classList.toggle('on',x.id==='v-'+v));
+  if(v==='reporte'&&!cargadas.reporte){cargadas.reporte=1;iniciarReporte();}
+  if(v==='revisar')cargarRevisar();
+  if(v==='personal')cargarPersonal();
+  if(v==='sedes')cargarSedes();
+  if(v==='ajustes')cargarConfig();
+}
+
+// ═════════ MI JORNADA ═════════
+// Identificador del equipo (se guarda en este navegador; no es dato personal)
+function idEquipo(){
+  let id='';try{id=localStorage.getItem('asist_equipo')||'';}catch(e){}
+  if(!/^[A-Za-z0-9-]{8,64}$/.test(id)){
+    id=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():('eq-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,12));
+    try{localStorage.setItem('asist_equipo',id);}catch(e){}
+  }
+  return id;
+}
+function nombreEquipo(){
+  const u=navigator.userAgent||'';
+  if(/iPhone/.test(u))return 'iPhone';
+  if(/iPad/.test(u))return 'iPad';
+  if(/Android/.test(u))return /Mobile/.test(u)?'Celular Android':'Tablet Android';
+  if(/Windows/.test(u))return 'PC Windows';
+  if(/Mac OS X/.test(u))return 'Mac';
+  return 'Equipo';
+}
+
+async function cargarMiEstado(){
+  try{
+    ESTADO=await api('/api/asistencia/mi-estado');
+    OFFSET=ESTADO.servidor_ts-Date.now();
+    pintarMiEstado();
+    if(ESTADO.puede_controlar){
+      $('tabs').style.display='';
+      if(!ESTADO.controlar){ // el maestro no marca: entra directo al reporte
+        $('tab-mi').style.display='none';
+        verVista('reporte');
+      }
+      actualizarNumObs();
+    }
+    if(ESTADO.controlar)cargarMisMarcas();
+    else $('mi-hist-card').style.display='none';
+  }catch(e){$('mi-saludo').textContent=e.message;}
+}
+function pintarMiEstado(){
+  const e=ESTADO;
+  $('mi-saludo').textContent='Hola, '+(e.nombre||e.usuario);
+  $('mi-fecha').textContent=new Date(e.hoy+'T12:00:00Z').toLocaleDateString('es-PE',{weekday:'long',day:'numeric',month:'long',timeZone:'UTC'});
+  $('mi-horario').textContent=e.controlar?('Tu horario: '+e.horario.entrada+' – '+e.horario.salida+(e.laborable?'':' · hoy no es día laborable')):'Tu usuario no tiene control de asistencia.';
+  $('mi-ent').textContent=e.entrada?e.entrada.hora:'—';$('mi-ent-e').innerHTML=e.entrada?chipMarca(e.entrada.estado):'';
+  $('mi-sal').textContent=e.salida?e.salida.hora:'—';$('mi-sal-e').innerHTML=e.salida?chipMarca(e.salida.estado):'';
+  const b=$('btn-marcar');
+  b.classList.remove('salida');
+  if(!e.controlar){b.style.display='none';}
+  else if(e.siguiente==='entrada'){b.disabled=false;b.textContent='▶ Iniciar jornada';}
+  else if(e.siguiente==='salida'){b.disabled=false;b.textContent='■ Terminar jornada';b.classList.add('salida');}
+  else{b.disabled=true;b.textContent='✓ Jornada de hoy completa';}
+  $('mi-red').innerHTML=!e.controlar?'':e.ip_local
+    ?'🟢 Conectado al internet de <b>'+esc(e.sede_ip)+'</b>. No se necesita ubicación.'
+    :(e.hay_sedes?'📍 Al marcar se pedirá tu ubicación una sola vez (no se rastrea después).':'');
+}
+setInterval(()=>{
+  const d=new Date(Date.now()+OFFSET-5*3600e3);
+  $('mi-reloj').textContent=d.toISOString().slice(11,19);
+},1000);
+
+function pedirUbicacion(){
+  return new Promise(res=>{
+    if(!navigator.geolocation)return res({error:'El navegador no permite ubicación'});
+    navigator.geolocation.getCurrentPosition(
+      p=>res({gps:{lat:p.coords.latitude,lng:p.coords.longitude,precision:p.coords.accuracy}}),
+      err=>res({error:err.code===1?'Permiso de ubicación denegado':err.code===3?'Tiempo de espera agotado':'Ubicación no disponible'}),
+      {enableHighAccuracy:true,timeout:12000,maximumAge:0});
+  });
+}
+
+$('btn-marcar').onclick=async()=>{
+  const b=$('btn-marcar');const txt=b.textContent;
+  b.disabled=true;
+  try{
+    const body={equipo:idEquipo(),equipo_nombre:nombreEquipo()};
+    // Si ya está en la red del local no hace falta GPS (cero batería, cero permisos)
+    if(!ESTADO.ip_local&&ESTADO.hay_sedes){
+      b.textContent='Obteniendo ubicación…';
+      const u=await pedirUbicacion();
+      if(u.gps)body.gps=u.gps;else body.gps_error=u.error;
+    }
+    b.textContent='Registrando…';
+    const r=await api('/api/asistencia/marcar',body);
+    const box=$('mi-resultado');
+    const titulo=(r.tipo==='entrada'?'Entrada':'Salida')+' registrada a las '+r.hora;
+    if(r.estado==='ok'){
+      box.innerHTML='<div class="aviso ok">✓ '+esc(titulo)+'</div>';
+    }else{
+      box.innerHTML='<div class="aviso warn"><b>'+esc(titulo)+', pero quedó observada:</b> '+esc(r.motivos.join(' · '))+
+        '<br>El administrador la revisará. Si quieres, explica el motivo:'+
+        '<textarea id="mi-nota" rows="2" style="width:100%;margin-top:8px" placeholder="Ej.: estaba en el almacén de atrás"></textarea>'+
+        '<button class="btn btn-sm" style="margin-top:6px" onclick="enviarNota('+r.id+')">Enviar explicación</button></div>';
+    }
+    await cargarMiEstado();
+  }catch(e){toast(e.message,true);b.disabled=false;b.textContent=txt;}
+};
+async function enviarNota(id){
+  try{await api('/api/asistencia/nota',{id,nota:$('mi-nota').value});toast('Explicación enviada');$('mi-resultado').innerHTML='';}
+  catch(e){toast(e.message,true);}
+}
+
+async function cargarMisMarcas(){
+  const mes=$('mi-mes').value||(ESTADO?ESTADO.hoy.slice(0,7):'');
+  if(!$('mi-mes').value)$('mi-mes').value=mes;
+  try{
+    const d=await api('/api/asistencia/mis-marcas?mes='+encodeURIComponent(mes));
+    const t=d.totales||{};
+    $('mi-tot').textContent=d.filas.length?('Asistió '+(t.asistidos||0)+' de '+(t.dias_lab||0)+' días · '+(t.tardanzas||0)+' tardanzas · '+hhmm(t.min_trabajados||0)+' h trabajadas'):'';
+    $('mi-hist').innerHTML=d.filas.map(f=>'<tr><td>'+DIAS[f.dia]+' '+f.fecha.slice(8)+'/'+f.fecha.slice(5,7)+'</td><td>'+(f.entrada||'—')+(f.min_tardanza?' <span class="chip warn">+'+f.min_tardanza+'</span>':'')+' '+chipMarca(f.entrada_estado)+'</td><td>'+(f.salida||'—')+' '+chipMarca(f.salida_estado)+'</td><td class="num">'+hhmm(f.min_trabajados)+'</td><td>'+chipEstado(f.estado)+'</td></tr>').join('')||'<tr><td colspan="5" class="vacio">Sin marcas este mes</td></tr>';
+  }catch(e){$('mi-hist').innerHTML='<tr><td colspan="5" class="vacio">'+esc(e.message)+'</td></tr>';}
+}
+$('mi-mes').onchange=cargarMisMarcas;
+
+// ═════════ REPORTE ═════════
+async function iniciarReporte(){
+  const h=hoyLima();
+  $('rep-desde').value=sumarDias(h,-6);$('rep-hasta').value=h;
+  await asegurarPersonal();
+  $('rep-usuario').innerHTML='<option value="">Todos</option>'+PERSONAL.filter(p=>p.controlar).map(p=>'<option value="'+esc(p.usuario)+'">'+esc(p.nombre||p.usuario)+'</option>').join('');
+  cargarReporte();
+}
+async function asegurarPersonal(forzar){
+  if(PERSONAL.length&&!forzar)return;
+  try{PERSONAL=await api('/api/asistencia/admin/personal');}catch(e){toast(e.message,true);}
+}
+function qsRango(){return 'desde='+$('rep-desde').value+'&hasta='+$('rep-hasta').value;}
+async function cargarReporte(){
+  $('rep-det').innerHTML='<tr><td colspan="10" class="vacio">Cargando…</td></tr>';
+  try{
+    const d=await api('/api/asistencia/admin/reporte?'+qsRango()+'&usuario='+encodeURIComponent($('rep-usuario').value));
+    $('rep-aviso').innerHTML=d.hay_sedes?'':'<div class="aviso warn">⚠ Aún no hay sedes configuradas: las marcas no se validan por ubicación. Ve a <b>Sedes</b> para registrar el local.</div>';
+    pintarNumObs(d.observadas_pendientes);
+    $('rep-tot').innerHTML=d.totales.map(t=>'<tr><td><b>'+esc(t.nombre)+'</b></td><td class="num">'+t.asistidos+' / '+t.dias_lab+'</td><td class="num">'+(t.faltas?'<span class="chip bad">'+t.faltas+'</span>':'0')+'</td><td class="num">'+(t.tardanzas?'<span class="chip warn">'+t.tardanzas+'</span>':'0')+'</td><td class="num">'+t.min_tardanza+'</td><td class="num">'+t.sin_salida+'</td><td class="num">'+hhmm(t.min_trabajados)+'</td><td class="num">'+t.observadas+'</td><td class="num">'+(t.salidas?'<span class="chip warn">'+t.salidas+' · '+hhmm(t.min_fuera)+'</span>':'<span class="sub">—</span>')+'</td></tr>').join('')||'<tr><td colspan="9" class="vacio">No hay personal controlado</td></tr>';
+    $('rep-det').innerHTML=d.filas.map(f=>{
+      let sis='<span class="sub">—</span>';
+      if(f.act_primera){
+        const g=f.min_hasta_actividad;
+        const cls=g==null?'neu':g>30?'bad':g>15?'warn':'ok';
+        sis=f.act_primera+'–'+f.act_ultima+(g!=null?' <span class="chip '+cls+'">'+(g>=0?'+':'')+g+' min</span>':'')+'<div class="sub">'+f.act_acciones+' acciones</div>';
+      }
+      const accion=(f.estado==='falta'||f.estado==='sin_salida'||f.estado==='sin_entrada')
+        ?'<button class="btn btn-sec btn-sm" onclick="abrirManual(\''+esc(f.usuario)+'\',\''+f.fecha+'\',\''+(f.estado==='sin_salida'?'salida':'entrada')+'\')">Corregir</button>':'';
+      return '<tr><td>'+DIAS[f.dia]+' '+f.fecha.slice(8)+'/'+f.fecha.slice(5,7)+(f.laborable?'':'<div class="sub">no laborable</div>')+'</td>'+
+        '<td>'+esc(f.nombre)+'<div class="sub">'+f.horario+'</div></td>'+
+        '<td>'+(f.entrada||'—')+(f.min_tardanza?' <span class="chip warn">+'+f.min_tardanza+'</span>':'')+'<div>'+chipMarca(f.entrada_estado)+'</div></td>'+
+        '<td>'+(f.salida||'—')+(f.min_salida_antes?' <span class="chip warn">-'+f.min_salida_antes+'</span>':'')+'<div>'+chipMarca(f.salida_estado)+'</div></td>'+
+        '<td class="num">'+hhmm(f.min_trabajados)+'</td><td>'+chipEstado(f.estado)+'</td><td>'+sis+'</td>'+
+        '<td>'+(f.fuera?f.fuera.map(x=>'<div><span class="chip '+(x.min>=30?'bad':'warn')+'">'+x.desde+'–'+(x.hasta||'sigue fuera')+'</span> <span class="sub">'+x.min+' min</span></div>').join(''):'<span class="sub">—</span>')+'</td>'+
+        '<td class="sub" style="max-width:260px">'+esc(f.motivos)+(f.notas?'<div>💬 '+esc(f.notas)+'</div>':'')+'</td><td>'+accion+'</td></tr>';
+    }).join('')||'<tr><td colspan="10" class="vacio">Sin datos en el rango</td></tr>';
+  }catch(e){$('rep-det').innerHTML='<tr><td colspan="10" class="vacio">'+esc(e.message)+'</td></tr>';}
+}
+async function descargarExcel(){
+  try{
+    const r=await fetch('/api/asistencia/admin/excel?'+qsRango(),{headers:{'Authorization':'Bearer '+TOKEN}});
+    if(!r.ok){let d={};try{d=await r.json();}catch(e){}throw new Error(d.error||'Error al descargar');}
+    const blob=await r.blob();
+    const nombre=((r.headers.get('Content-Disposition')||'').match(/filename="([^"]+)"/)||[])[1]||'asistencia.xlsx';
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=nombre;document.body.appendChild(a);a.click();a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+  }catch(e){toast(e.message,true);}
+}
+
+// Marca manual
+async function abrirManual(usuario,fecha,tipo){
+  await asegurarPersonal();
+  $('man-usuario').innerHTML=PERSONAL.map(p=>'<option value="'+esc(p.usuario)+'">'+esc(p.nombre||p.usuario)+'</option>').join('');
+  if(usuario)$('man-usuario').value=usuario;
+  $('man-fecha').value=fecha||hoyLima();$('man-tipo').value=tipo||'entrada';
+  const p=PERSONAL.find(x=>x.usuario===$('man-usuario').value)||{};
+  $('man-hora').value=(tipo==='salida'?p.hora_salida:p.hora_entrada)||'';
+  $('man-nota').value='';
+  $('modal-manual').style.display='flex';
+}
+function cerrarManual(){$('modal-manual').style.display='none';}
+async function guardarManual(){
+  try{
+    await api('/api/asistencia/admin/marca-manual',{usuario:$('man-usuario').value,fecha:$('man-fecha').value,hora:$('man-hora').value,tipo:$('man-tipo').value,nota:$('man-nota').value});
+    cerrarManual();toast('Marca guardada');cargarReporte();
+  }catch(e){toast(e.message,true);}
+}
+
+// ═════════ POR REVISAR ═════════
+function pintarNumObs(n){const el=$('num-obs');el.textContent=n;el.style.display=n?'':'none';}
+async function actualizarNumObs(){try{const r=await api('/api/asistencia/admin/marcas?estado=observada');pintarNumObs(r.length);}catch(e){}}
+async function cargarRevisar(){
+  const estado=$('rev-estado').value;
+  $('rev-lista').innerHTML='<div class="vacio">Cargando…</div>';
+  try{
+    const r=await api('/api/asistencia/admin/marcas?estado='+estado);
+    if(estado==='observada')pintarNumObs(r.length);
+    $('rev-lista').innerHTML=r.map(m=>{
+      const mapa=m.lat!=null?'<a href="https://www.google.com/maps?q='+m.lat+','+m.lng+'" target="_blank" rel="noopener">ver en mapa</a>':'';
+      const ubic=m.metodo==='ip'?'Internet del local'+(m.sede?' ('+esc(m.sede)+')':''):m.lat!=null?('GPS ±'+(m.precision_m??'?')+' m'+(m.distancia_m!=null?' · a '+m.distancia_m+' m de '+esc(m.sede||'la sede'):'')+' · '+mapa):'Sin ubicación';
+      const botones=estado==='observada'?'<div class="fila" style="margin-top:8px"><input id="rn-'+m.id+'" placeholder="Nota (opcional)" style="flex:1;min-width:160px"><button class="btn btn-ok btn-sm" onclick="revisar('+m.id+',\'aprobada\')">✓ Aprobar</button><button class="btn btn-bad btn-sm" onclick="revisar('+m.id+',\'rechazada\')">✕ Rechazar</button></div>'
+        :(m.revisado_por?'<div class="sub" style="margin-top:6px">Por '+esc(m.revisado_por)+(m.nota_revision?': '+esc(m.nota_revision):'')+'</div>':'');
+      return '<div class="rev"><div class="cab"><div><span class="nom">'+esc(m.nombre||m.usuario)+'</span> · '+(m.tipo==='entrada'?'Entrada':'Salida')+' '+m.fecha.slice(8)+'/'+m.fecha.slice(5,7)+' a las <b>'+m.hora+'</b></div>'+chipMarca(m.estado)+'</div>'+
+        (m.motivos?'<div style="margin-top:6px;color:var(--fg-warn)">'+esc(m.motivos)+'</div>':'')+
+        (m.nota_trabajador?'<div style="margin-top:4px">💬 '+esc(m.nota_trabajador)+'</div>':'')+
+        '<div class="sub" style="margin-top:6px">'+ubic+(m.ip?' · IP <span class="mono">'+esc(m.ip)+'</span>':'')+'</div>'+botones+'</div>';
+    }).join('')||'<div class="card vacio">Nada por aquí 👌</div>';
+  }catch(e){$('rev-lista').innerHTML='<div class="vacio">'+esc(e.message)+'</div>';}
+}
+async function revisar(id,estado){
+  try{await api('/api/asistencia/admin/revisar',{id,estado,nota:($('rn-'+id)||{}).value||''});toast(estado==='aprobada'?'Aprobada':'Rechazada');cargarRevisar();}
+  catch(e){toast(e.message,true);}
+}
+
+// ═════════ PERSONAL ═════════
+function checkDias(prefijo,valor){
+  const sel=String(valor||'').split(',').map(Number);
+  return [1,2,3,4,5,6,7].map(n=>'<label><input type="checkbox" class="'+prefijo+'" value="'+n+'"'+(sel.includes(n)?' checked':'')+'>'+DIAS[n]+'</label>').join('');
+}
+const diasMarcados=sel=>Array.from(document.querySelectorAll(sel)).filter(x=>x.checked).map(x=>x.value).join(',');
+async function cargarPersonal(){
+  $('per-lista').innerHTML='<div class="vacio">Cargando…</div>';
+  await asegurarPersonal(true);
+  if(!USUARIOS_SIS){try{USUARIOS_SIS=await api('/api/asistencia/admin/usuarios-sistema');}catch(e){USUARIOS_SIS={usuarios:[],fuentes:[],error:e.message};}}
+  $('per-fuentes').textContent=USUARIOS_SIS.error?('('+USUARIOS_SIS.error+')'):(USUARIOS_SIS.fuentes.length?'Actividad leída de: '+USUARIOS_SIS.fuentes.join(', ')+'.':'No se encontraron tablas de actividad en el sistema.');
+  const opcSis=sel=>'<option value="">— sin vincular —</option>'+USUARIOS_SIS.usuarios.map(u=>'<option value="'+u.id+'"'+(String(sel)===String(u.id)?' selected':'')+'>'+esc(u.name)+'</option>').join('');
+  $('per-lista').innerHTML=PERSONAL.map((p,i)=>'<div class="card">'+
+    '<div class="fila" style="justify-content:space-between"><div><b>'+esc(p.usuario)+'</b>'+(p.en_railway?'':' <span class="chip neu">ya no existe en Railway</span>')+'</div>'+
+    '<label style="display:flex;gap:6px;align-items:center;font-size:12.5px"><input type="checkbox" id="pc-'+i+'"'+(p.controlar?' checked':'')+'> Controlar asistencia</label></div>'+
+    '<div class="fila" style="margin-top:10px">'+
+      '<label class="f" style="flex:1;min-width:150px">Nombre<input id="pn-'+i+'" value="'+esc(p.nombre||'')+'"></label>'+
+      '<label class="f">Entrada<input type="time" id="pe-'+i+'" value="'+esc(p.hora_entrada||'')+'"></label>'+
+      '<label class="f">Salida<input type="time" id="ps-'+i+'" value="'+esc(p.hora_salida||'')+'"></label>'+
+      '<label class="f" style="min-width:180px">Usuario en el sistema<select id="pu-'+i+'">'+opcSis(p.prod_user_id)+'</select></label>'+
+    '</div>'+
+    '<div class="dias" style="margin-top:8px"><span class="sub">Días propios (vacío = general): </span>'+checkDias('pd-'+i,p.dias)+'</div>'+
+    '<div class="sub" style="margin-top:8px">Equipos registrados: '+(p.equipos.length?p.equipos.map(e=>esc(e.etiqueta)+' <span class="sub">(desde '+esc(e.desde||'')+')</span> <a href="#" onclick="quitarEquipo('+i+',\''+esc(e.id)+'\');return false">quitar</a>').join(' · '):'ninguno (se registra al marcar)')+'</div>'+
+    '<div class="sub" style="margin-top:8px">📱 Celular de empresa: '+(p.tiene_geo
+      ?'<span class="chip ok">detección de salidas activa</span>'+(p.ult_geo?' · última señal '+esc(p.ult_geo)+(p.ult_evento?' ('+(p.ult_evento==='salida'?'fuera':'en el local')+')':''):' · aún sin señal')+' · <a href="#" onclick="geoToken('+i+');return false">ver nueva clave</a> · <a href="#" onclick="geoToken('+i+',true);return false">desactivar</a>'
+      :'<a href="#" onclick="geoToken('+i+');return false">activar detección de salidas</a>')+'</div><div id="geo-'+i+'"></div>'+
+    '<button class="btn btn-sm" style="margin-top:10px" onclick="guardarPersona('+i+')">Guardar</button>'+
+  '</div>').join('')||'<div class="card vacio">No hay usuarios todavía</div>';
+}
+async function guardarPersona(i){
+  const p=PERSONAL[i];
+  try{
+    await api('/api/asistencia/admin/personal',{usuario:p.usuario,nombre:$('pn-'+i).value,controlar:$('pc-'+i).checked,hora_entrada:$('pe-'+i).value,hora_salida:$('ps-'+i).value,dias:diasMarcados('.pd-'+i),prod_user_id:$('pu-'+i).value});
+    toast('Guardado');cargadas.reporte=0;
+  }catch(e){toast(e.message,true);}
+}
+async function geoToken(i,quitar){
+  const p=PERSONAL[i];
+  if(quitar&&!confirm('¿Desactivar la detección de salidas de '+(p.nombre||p.usuario)+'? El celular dejará de poder enviar avisos.'))return;
+  if(!quitar&&p.tiene_geo&&!confirm('Se generará una clave NUEVA y la anterior dejará de funcionar. Tendrás que actualizar las URLs en el celular. ¿Continuar?'))return;
+  try{
+    const r=await api('/api/asistencia/admin/personal/geo-token',{usuario:p.usuario,quitar:!!quitar});
+    if(quitar){toast('Desactivado');return cargarPersonal();}
+    const base=location.origin+'/api/asistencia/geo?k='+r.token+'&e=';
+    p.tiene_geo=true;
+    $('geo-'+i).innerHTML='<div class="aviso neu" style="margin-top:8px">Configura estas dos direcciones en la app de geocerca del celular (Automate o Tasker). <b>Guárdalas ahora</b>: la clave no se vuelve a mostrar.'+
+      ['salida','entrada'].map(e=>'<div style="margin-top:8px"><b>'+(e==='salida'?'Al SALIR del local':'Al VOLVER al local')+':</b><div class="fila" style="margin-top:4px"><input readonly value="'+esc(base+e)+'" style="flex:1;min-width:200px" class="mono" onclick="this.select()"><button class="btn btn-sec btn-sm" onclick="copiar(\''+esc(base+e)+'\')">Copiar</button></div></div>').join('')+
+      '<div class="sub" style="margin-top:8px">Centro de la geocerca: las coordenadas de la sede (pestaña Sedes), radio recomendado 150 m.</div></div>';
+  }catch(e){toast(e.message,true);}
+}
+function copiar(t){(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast('Copiado')).catch(()=>toast('Selecciona y copia manualmente',true));}
+async function quitarEquipo(i,equipo){
+  if(!confirm('¿Quitar este equipo? La próxima vez que marque desde otro, se registrará solo.'))return;
+  try{await api('/api/asistencia/admin/personal/quitar-equipo',{usuario:PERSONAL[i].usuario,equipo});toast('Equipo quitado');cargarPersonal();}
+  catch(e){toast(e.message,true);}
+}
+
+// ═════════ SEDES ═════════
+let SEDES=[];
+async function cargarSedes(){
+  try{
+    const d=await api('/api/asistencia/admin/sedes');SEDES=d.sedes;$('sed-miip').textContent=d.mi_ip||'—';
+    $('sed-lista').innerHTML=SEDES.map((s,i)=>'<tr><td><b>'+esc(s.nombre)+'</b></td><td>'+(s.lat!=null?'<a href="https://www.google.com/maps?q='+s.lat+','+s.lng+'" target="_blank" rel="noopener" class="mono">'+s.lat.toFixed(5)+', '+s.lng.toFixed(5)+'</a>':'<span class="sub">sin GPS</span>')+'</td><td class="num">'+s.radio_m+' m</td><td class="mono">'+(s.ips.map(esc).join(', ')||'<span class="sub">—</span>')+'</td><td>'+(s.activo?'<span class="chip ok">activa</span>':'<span class="chip neu">inactiva</span>')+'</td><td style="white-space:nowrap"><button class="btn btn-sec btn-sm" onclick="editarSede('+i+')">Editar</button> <button class="btn btn-bad btn-sm" onclick="eliminarSede('+s.id+')">✕</button></td></tr>').join('')||'<tr><td colspan="6" class="vacio">Aún no hay sedes</td></tr>';
+  }catch(e){toast(e.message,true);}
+}
+function editarSede(i){const s=SEDES[i];$('sed-titulo').textContent='Editar sede';$('sed-id').value=s.id;$('sed-nombre').value=s.nombre;$('sed-lat').value=s.lat??'';$('sed-lng').value=s.lng??'';$('sed-radio').value=s.radio_m;$('sed-ips').value=s.ips.join(', ');$('sed-activo').checked=!!s.activo;window.scrollTo({top:0,behavior:'smooth'});}
+function limpiarSede(){$('sed-titulo').textContent='Nueva sede';['sed-id','sed-nombre','sed-lat','sed-lng','sed-ips'].forEach(id=>$(id).value='');$('sed-radio').value=100;$('sed-activo').checked=true;}
+async function usarMiUbicacion(){
+  toast('Obteniendo ubicación…');
+  const u=await pedirUbicacion();
+  if(!u.gps)return toast(u.error,true);
+  $('sed-lat').value=u.gps.lat.toFixed(7);$('sed-lng').value=u.gps.lng.toFixed(7);
+  toast('Ubicación tomada (precisión ±'+Math.round(u.gps.precision)+' m)');
+}
+function agregarMiIp(){
+  const ip=$('sed-miip').textContent.trim();if(!ip||ip==='—')return;
+  const l=$('sed-ips').value.split(/[\s,;]+/).filter(Boolean);if(!l.includes(ip))l.push(ip);$('sed-ips').value=l.join(', ');
+}
+async function guardarSede(){
+  try{
+    await api('/api/asistencia/admin/sedes',{id:$('sed-id').value||null,nombre:$('sed-nombre').value,lat:$('sed-lat').value,lng:$('sed-lng').value,radio_m:$('sed-radio').value,ips:$('sed-ips').value,activo:$('sed-activo').checked});
+    toast('Sede guardada');limpiarSede();cargarSedes();cargarMiEstado();
+  }catch(e){toast(e.message,true);}
+}
+async function eliminarSede(id){
+  if(!confirm('¿Eliminar esta sede?'))return;
+  try{await api('/api/asistencia/admin/sedes/eliminar',{id});cargarSedes();}catch(e){toast(e.message,true);}
+}
+
+// ═════════ AJUSTES ═════════
+async function cargarConfig(){
+  try{
+    const c=await api('/api/asistencia/admin/config');
+    $('cfg-ent').value=c.hora_entrada;$('cfg-sal').value=c.hora_salida;$('cfg-tol').value=c.tolerancia_min;
+    $('cfg-prec').value=c.precision_max_m;$('cfg-min').value=c.min_jornada_min;$('cfg-tz').value=c.prod_tz;
+    $('cfg-dias').innerHTML='<span class="sub">Días laborables: </span>'+checkDias('cd',c.dias);
+  }catch(e){toast(e.message,true);}
+}
+async function guardarConfig(){
+  try{
+    await api('/api/asistencia/admin/config',{hora_entrada:$('cfg-ent').value,hora_salida:$('cfg-sal').value,tolerancia_min:$('cfg-tol').value,precision_max_m:$('cfg-prec').value,min_jornada_min:$('cfg-min').value,prod_tz:$('cfg-tz').value,dias:diasMarcados('.cd')});
+    toast('Ajustes guardados');cargadas.reporte=0;
+  }catch(e){toast(e.message,true);}
+}
+
+cargarMiEstado();
+</script>
+</body>
+</html>

@@ -20,6 +20,11 @@
 //  automatización (Automate/Tasker) con geocerca llama a /api/asistencia/geo
 //  al salir o volver al local. El reporte muestra "Fuera del local 11:20–12:40".
 //
+//  Horario por día (p. ej. lun–vie 09:00–18:00 y sábado 09:00–13:00) y SALDO
+//  DE HORAS: si llega 30 min tarde y se queda 30 min más, queda compensado. Lo
+//  que falte o sobre en la semana se cuadra normalmente el sábado (el reporte
+//  sugiere a qué hora salir). El saldo se cuenta por mes.
+//
 //  Control cruzado (pasivo): lee del sistema principal (solo lectura) la primera
 //  y la última acción de cada usuario en el día (ventas, movimientos de stock…)
 //  para comparar "marcó a las 8:55" con "empezó a trabajar a las 9:30".
@@ -120,6 +125,9 @@ module.exports = function registrarAsistencia({
         geo_token VARCHAR(48) NULL,
         UNIQUE KEY uq_geo (geo_token)
       )`);
+    // Horario por día (JSON {"1":["09:00","18:00"],…,"6":["09:00","13:00"]})
+    for (const t of ['asist_config', 'asist_personal'])
+      try { await portalPool.query(`ALTER TABLE ${t} ADD COLUMN horario_json TEXT NULL`); } catch (e) { /* ya existe */ }
     // Para quien ya tenía la tabla creada (versión anterior del módulo)
     try { await portalPool.query(`ALTER TABLE asist_personal ADD COLUMN geo_token VARCHAR(48) NULL, ADD UNIQUE KEY uq_geo (geo_token)`); } catch (e) { /* ya existe */ }
     await portalPool.query(`
@@ -183,11 +191,73 @@ module.exports = function registrarAsistencia({
     for (const u of sec) await portalPool.query(`INSERT IGNORE INTO asist_personal (usuario, nombre, creado) VALUES (?, ?, ?)`, [u, u, fechaLimaDe(new Date())]);
     return new Set(sec);
   }
-  const horarioDe = (p, c) => ({
-    entrada: p.hora_entrada || c.hora_entrada,
-    salida: p.hora_salida || c.hora_salida,
-    dias: listaDias(p.dias || c.dias)
-  });
+  // Horario por día de la semana: { 1: {entrada, salida}, …, 6: {…} } (día ausente = no laborable)
+  function parsearHorario(txt) {
+    let o; try { o = JSON.parse(txt || 'null'); } catch (e) { return null; }
+    if (!o || typeof o !== 'object') return null;
+    const h = {};
+    for (let d = 1; d <= 7; d++) {
+      const v = o[d];
+      if (Array.isArray(v) && horaValida(v[0]) && horaValida(v[1]) && aMin(v[1]) > aMin(v[0])) h[d] = { entrada: v[0], salida: v[1] };
+    }
+    return Object.keys(h).length ? h : null;
+  }
+  const horarioSimple = (ent, sal, dias) => { const h = {}; listaDias(dias).forEach(d => { h[d] = { entrada: ent, salida: sal }; }); return h; };
+  const horarioGeneral = c => parsearHorario(c.horario_json) || horarioSimple(c.hora_entrada, c.hora_salida, c.dias);
+  // Propio si lo tiene; si no, el general (compatible con la versión anterior: entrada/salida/días sueltos)
+  function horarioPropio(p, c) {
+    const j = parsearHorario(p.horario_json);
+    if (j) return j;
+    if (p.hora_entrada || p.hora_salida || p.dias) {
+      const g = horarioGeneral(c), g1 = g[1] || Object.values(g)[0] || { entrada: c.hora_entrada, salida: c.hora_salida };
+      return horarioSimple(p.hora_entrada || g1.entrada, p.hora_salida || g1.salida, p.dias || Object.keys(g).join(','));
+    }
+    return null;
+  }
+  const horarioDe = (p, c) => horarioPropio(p, c) || horarioGeneral(c);
+  const aJson = h => JSON.stringify(Object.fromEntries(Object.entries(h).map(([d, v]) => [d, [v.entrada, v.salida]])));
+  // Valida lo que manda la pantalla: { "1": ["09:00","18:00"], … }
+  function horarioDeBody(o) {
+    if (!o || typeof o !== 'object') return null;
+    const h = {};
+    for (const [d, v] of Object.entries(o)) {
+      const n = Number(d);
+      if (!(n >= 1 && n <= 7) || !Array.isArray(v)) continue;
+      if (!horaValida(v[0]) || !horaValida(v[1])) throw new Error('Hora inválida (usa HH:MM)');
+      if (aMin(v[1]) <= aMin(v[0])) throw new Error('La salida debe ser después de la entrada');
+      h[n] = { entrada: v[0], salida: v[1] };
+    }
+    return Object.keys(h).length ? h : null;
+  }
+  const minEsperados = hd => hd ? aMin(hd.salida) - aMin(hd.entrada) : 0;
+  const lunesDe = f => sumarDias(f, 1 - diaSemana(f));
+
+  // Saldo de horas de la semana y del mes en curso (+ sugerencia para el sábado)
+  async function saldosActuales(usuario = null) {
+    const hoy = fechaLimaDe(new Date());
+    const lunes = lunesDe(hoy), mes1 = hoy.slice(0, 8) + '01';
+    const r = await construirResumen(lunes < mes1 ? lunes : mes1, hoy, { usuario, conActividad: false });
+    const out = {};
+    r.totales.forEach(t => { out[t.usuario] = { usuario: t.usuario, nombre: t.nombre, semana: 0, mes: 0, dias_semana: 0 }; });
+    r.filas.forEach(f => {
+      if (f.saldo == null) return;
+      const o = out[f.usuario]; if (!o) return;
+      if (f.fecha >= lunes) { o.semana += f.saldo; o.dias_semana++; if (f.dia !== 6) o.semana_lv = (o.semana_lv || 0) + f.saldo; }
+      if (f.fecha >= mes1) o.mes += f.saldo;
+    });
+    // Sábado de esta semana: a qué hora debería salir para cuadrar la semana
+    const sab = sumarDias(lunes, 5);
+    for (const t of r.totales) {
+      const o = out[t.usuario], hs = r.horarios[t.usuario] || {};
+      const hd = hs[6];
+      if (hd && sab >= hoy) {
+        const sug = aMin(hd.salida) - (o.semana_lv || 0); // debe (saldo negativo) → sale más tarde
+        const fmt = m => p2(Math.floor(((m % 1440) + 1440) % 1440 / 60)) + ':' + p2(((m % 60) + 60) % 60);
+        o.sabado = { fecha: sab, entrada: hd.entrada, salida_base: hd.salida, salida_sugerida: fmt(Math.max(aMin(hd.entrada), sug)) };
+      }
+    }
+    return Object.values(out);
+  }
 
   async function marcasDelDia(usuario, fecha) {
     const [r] = await portalPool.query(
@@ -220,7 +290,8 @@ module.exports = function registrarAsistencia({
         maestro: !!(req.admin && req.admin.maestro), puede_controlar: puedeControlar(req.admin),
         hoy, servidor_ts: ahora.getTime(),
         entrada: marcas.entrada || null, salida: marcas.salida || null, siguiente,
-        horario: horarioDe(p, c), laborable: horarioDe(p, c).dias.includes(diaSemana(hoy)),
+        horario: horarioDe(p, c)[diaSemana(hoy)] || null, laborable: !!horarioDe(p, c)[diaSemana(hoy)],
+        saldo: p.controlar ? ((await saldosActuales(usuario))[0] || null) : null,
         ip, ip_local: !!sedeIp, sede_ip: sedeIp ? sedeIp.nombre : null,
         hay_sedes: sedes.length > 0
       });
@@ -323,10 +394,14 @@ module.exports = function registrarAsistencia({
     try {
       await asegurarTablas();
       const q = { ...(req.query || {}), ...(typeof req.body === 'object' ? req.body : {}) };
-      const k = String(q.k || '');
+      // Tolerante a espacios, mayúsculas o signos pegados al copiar el link
+      const k = String(q.k || '').toLowerCase().replace(/[^a-f0-9]/g, '');
+      const eTxt = String(q.e || q['amp;e'] || '').toLowerCase().replace(/[^a-z]/g, '');
       const e = { salida: 'salida', sale: 'salida', out: 'salida', exit: 'salida',
-        entrada: 'entrada', vuelve: 'entrada', in: 'entrada', enter: 'entrada', latido: 'latido', ping: 'latido' }[String(q.e || '').toLowerCase()];
-      if (!/^[a-f0-9]{32,48}$/.test(k) || !e) return res.status(400).send('Parámetros inválidos');
+        entrada: 'entrada', vuelve: 'entrada', in: 'entrada', enter: 'entrada', latido: 'latido', ping: 'latido' }[eTxt];
+      if (!k) return res.status(400).send('Falta la clave (k=...) en el link');
+      if (k.length < 32) return res.status(400).send(`Clave incompleta: tiene ${k.length} caracteres y debe tener 40. Copia el link completo.`);
+      if (!e) return res.status(400).send('El link debe terminar en &e=salida o &e=entrada');
       const [[p]] = await portalPool.query(`SELECT usuario FROM asist_personal WHERE geo_token=?`, [k]);
       if (!p) return res.status(403).send('Clave no válida');
       // Evita duplicados si la app reintenta (mismo evento en los últimos 2 min)
@@ -463,12 +538,14 @@ module.exports = function registrarAsistencia({
 
     const ahora = new Date();
     const hoy = fechaLimaDe(ahora), minAhora = minDelDia(ahora);
-    const filas = [], totales = [];
+    const filas = [], totales = [], horarios = {};
     for (const p of pers) {
       const h = horarioDe(p, c);
-      const t = { usuario: p.usuario, nombre: p.nombre || p.usuario, dias_lab: 0, asistidos: 0, faltas: 0, tardanzas: 0, min_tardanza: 0, min_trabajados: 0, sin_salida: 0, observadas: 0, salidas: 0, min_fuera: 0 };
+      horarios[p.usuario] = h;
+      const t = { usuario: p.usuario, nombre: p.nombre || p.usuario, dias_lab: 0, asistidos: 0, faltas: 0, tardanzas: 0, min_tardanza: 0, min_trabajados: 0, sin_salida: 0, observadas: 0, salidas: 0, min_fuera: 0, saldo: 0, compensadas: 0 };
       for (let f = desde; f <= hasta && f <= hoy; f = sumarDias(f, 1)) {
-        const lab = h.dias.includes(diaSemana(f));
+        const hd = h[diaSemana(f)] || null;
+        const lab = !!hd;
         const en = idx[p.usuario + '|' + f + '|entrada'], sa = idx[p.usuario + '|' + f + '|salida'];
         if (!en && !sa && (!lab || (p.creado_f && f < p.creado_f))) continue; // sin faltas antes de entrar al control
         const valida = m => m && m.estado !== 'rechazada' ? m : null;
@@ -476,7 +553,7 @@ module.exports = function registrarAsistencia({
         const de = e ? deUtcSql(e.ts) : null, ds = s ? deUtcSql(s.ts) : null;
         const fila = {
           fecha: f, dia: diaSemana(f), usuario: p.usuario, nombre: p.nombre || p.usuario, laborable: lab,
-          horario: h.entrada + '–' + h.salida,
+          horario: hd ? hd.entrada + '–' + hd.salida : '—',
           entrada: de ? horaLimaDe(de) : null, salida: ds ? horaLimaDe(ds) : null,
           entrada_estado: en ? en.estado : null, salida_estado: sa ? sa.estado : null,
           entrada_id: en ? en.id : null, salida_id: sa ? sa.id : null,
@@ -486,20 +563,25 @@ module.exports = function registrarAsistencia({
           min_tardanza: 0, min_salida_antes: 0, estado: ''
         };
         if (de && lab) {
-          const tarde = minDelDia(de) - aMin(h.entrada);
+          const tarde = minDelDia(de) - aMin(hd.entrada);
           if (tarde > c.tolerancia_min) fila.min_tardanza = tarde;
         }
-        if (ds && lab) { const antes = aMin(h.salida) - minDelDia(ds); if (antes > 0) fila.min_salida_antes = antes; }
+        if (ds && lab) { const antes = aMin(hd.salida) - minDelDia(ds); if (antes > 0) fila.min_salida_antes = antes; }
+        // Saldo del día: trabajado − esperado (en día no laborable, todo es a favor)
+        if (fila.min_trabajados != null) {
+          fila.saldo = fila.min_trabajados - minEsperados(hd);
+          if (fila.min_tardanza && fila.saldo >= 0) fila.tardanza_compensada = true;
+        }
         if (e && s) fila.estado = 'completo';
         else if (e && !s) fila.estado = f === hoy ? 'en_curso' : 'sin_salida';
-        else if (!e && lab) fila.estado = (f === hoy && minAhora < aMin(h.salida)) ? 'pendiente' : 'falta';
+        else if (!e && lab) fila.estado = (f === hoy && minAhora < aMin(hd.salida)) ? 'pendiente' : 'falta';
         else fila.estado = 'sin_entrada';
         if ([en, sa].some(m => m && m.estado === 'observada')) fila.observada = true;
         // Salidas del local durante la jornada (solo celulares con geocerca)
         if (geo[p.usuario]) {
           const iniDia = Date.parse(f + 'T00:00:00Z') + OFFSET_LIMA_MS;
-          const desdeT = de ? de.getTime() : iniDia + aMin(h.entrada) * 60000;
-          let hastaT = ds ? ds.getTime() : (f === hoy ? ahora.getTime() : iniDia + aMin(h.salida) * 60000);
+          const desdeT = de ? de.getTime() : iniDia + aMin(hd ? hd.entrada : '00:00') * 60000;
+          let hastaT = ds ? ds.getTime() : (f === hoy ? ahora.getTime() : (hd ? iniDia + aMin(hd.salida) * 60000 : desdeT + 12 * 3600000));
           if (f === hoy) hastaT = Math.min(hastaT, ahora.getTime());
           const ints = salidasEn(geo[p.usuario], desdeT, hastaT, !!(e && ['ok', 'aprobada', 'manual'].includes(e.estado)));
           if (ints.length) {
@@ -521,14 +603,16 @@ module.exports = function registrarAsistencia({
         if (e) t.asistidos++;
         if (fila.estado === 'falta') t.faltas++;
         if (fila.estado === 'sin_salida') t.sin_salida++;
-        if (fila.min_tardanza) { t.tardanzas++; t.min_tardanza += fila.min_tardanza; }
+        if (fila.min_tardanza && fila.tardanza_compensada) t.compensadas++;
+        else if (fila.min_tardanza) { t.tardanzas++; t.min_tardanza += fila.min_tardanza; }
+        if (fila.saldo != null) t.saldo += fila.saldo;
         if (fila.min_trabajados) t.min_trabajados += fila.min_trabajados;
         if (fila.observada) t.observadas++;
       }
       totales.push(t);
     }
     filas.sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0) || a.nombre.localeCompare(b.nombre));
-    return { filas, totales, config: c };
+    return { filas, totales, horarios, config: c };
   }
 
   function rangoDe(q) {
@@ -553,7 +637,8 @@ module.exports = function registrarAsistencia({
       const r = await construirResumen(desde, hasta, { usuario });
       const [[obs]] = await portalPool.query(`SELECT COUNT(*) AS n FROM asist_marcas WHERE estado='observada'`);
       const sedes = await leerSedes();
-      res.json({ desde, hasta, filas: r.filas, totales: r.totales, observadas_pendientes: obs.n, hay_sedes: sedes.length > 0 });
+      const saldos = await saldosActuales(usuario);
+      res.json({ desde, hasta, filas: r.filas, totales: r.totales, saldos, observadas_pendientes: obs.n, hay_sedes: sedes.length > 0 });
     } catch (e) { res.status(500).json({ error: 'Error al armar el reporte: ' + e.message }); }
   });
 
@@ -617,7 +702,10 @@ module.exports = function registrarAsistencia({
         `SELECT p.*, (SELECT DATE_FORMAT(MAX(g.ts),'%Y-%m-%d %H:%i:%s') FROM asist_geo g WHERE g.usuario=p.usuario) AS ult_geo,
            (SELECT g.evento FROM asist_geo g WHERE g.usuario=p.usuario AND g.evento<>'latido' ORDER BY g.ts DESC LIMIT 1) AS ult_evento
          FROM asist_personal p ORDER BY p.controlar DESC, p.nombre, p.usuario`);
+      const c = await leerConfig();
       r.forEach(p => {
+        p.horario_propio = horarioPropio(p, c);
+        p.horario = horarioDe(p, c);
         if (p.ult_geo) { const d = deUtcSql(p.ult_geo); p.ult_geo = fechaLimaDe(d) + ' ' + horaLimaDe(d); }
         p.tiene_geo = !!p.geo_token; delete p.geo_token; // la clave solo se muestra al generarla
       });
@@ -630,13 +718,14 @@ module.exports = function registrarAsistencia({
       await asegurarTablas();
       const b = req.body || {};
       if (!b.usuario) return res.status(400).json({ error: 'Falta el usuario' });
-      for (const k of ['hora_entrada', 'hora_salida']) if (b[k] && !horaValida(b[k])) return res.status(400).json({ error: 'Hora inválida (usa HH:MM)' });
-      const dias = b.dias ? listaDias(b.dias).join(',') : null;
+      let h = null;
+      try { h = horarioDeBody(b.horario); } catch (err) { return res.status(400).json({ error: err.message }); }
+      if (b.horario && !h) return res.status(400).json({ error: 'Marca al menos un día laborable' });
       await fichaDe(b.usuario);
+      // horario null = usa el general. Se limpian los campos sueltos de la versión anterior.
       await portalPool.query(
-        `UPDATE asist_personal SET nombre=?, controlar=?, hora_entrada=?, hora_salida=?, dias=?, prod_user_id=? WHERE usuario=?`,
-        [recortar(b.nombre, 120) || b.usuario, b.controlar ? 1 : 0, b.hora_entrada || null, b.hora_salida || null,
-          dias || null, Number(b.prod_user_id) || null, b.usuario]);
+        `UPDATE asist_personal SET nombre=?, controlar=?, horario_json=?, hora_entrada=NULL, hora_salida=NULL, dias=NULL, prod_user_id=? WHERE usuario=?`,
+        [recortar(b.nombre, 120) || b.usuario, b.controlar ? 1 : 0, h ? aJson(h) : null, Number(b.prod_user_id) || null, b.usuario]);
       res.json({ ok: true });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
@@ -707,7 +796,7 @@ module.exports = function registrarAsistencia({
 
   // ── Configuración general ──
   app.get('/api/asistencia/admin/config', authAdmin, mAsis, async (req, res) => {
-    try { await asegurarTablas(); res.json(await leerConfig()); }
+    try { await asegurarTablas(); const c = await leerConfig(); res.json({ ...c, horario: horarioGeneral(c) }); }
     catch (e) { res.status(500).json({ error: e.message }); }
   });
 
@@ -715,14 +804,15 @@ module.exports = function registrarAsistencia({
     try {
       await asegurarTablas();
       const b = req.body || {};
-      if (!horaValida(b.hora_entrada) || !horaValida(b.hora_salida)) return res.status(400).json({ error: 'Hora inválida (usa HH:MM)' });
-      const dias = listaDias(b.dias).join(',');
-      if (!dias) return res.status(400).json({ error: 'Elige al menos un día laborable' });
+      let h;
+      try { h = horarioDeBody(b.horario); } catch (err) { return res.status(400).json({ error: err.message }); }
+      if (!h) return res.status(400).json({ error: 'Marca al menos un día laborable' });
+      const d1 = h[1] || Object.values(h)[0], dias = Object.keys(h).join(',');
       const ent = (v, min, max, def) => { const n = Math.round(Number(v)); return isFinite(n) ? Math.min(max, Math.max(min, n)) : def; };
       const tz = ['+00:00', '-05:00'].includes(b.prod_tz) ? b.prod_tz : '+00:00';
       await portalPool.query(
-        `UPDATE asist_config SET hora_entrada=?, hora_salida=?, dias=?, tolerancia_min=?, precision_max_m=?, min_jornada_min=?, prod_tz=? WHERE id=1`,
-        [b.hora_entrada, b.hora_salida, dias, ent(b.tolerancia_min, 0, 120, 10), ent(b.precision_max_m, 20, 2000, 150),
+        `UPDATE asist_config SET horario_json=?, hora_entrada=?, hora_salida=?, dias=?, tolerancia_min=?, precision_max_m=?, min_jornada_min=?, prod_tz=? WHERE id=1`,
+        [aJson(h), d1.entrada, d1.salida, dias, ent(b.tolerancia_min, 0, 120, 10), ent(b.precision_max_m, 20, 2000, 150),
           ent(b.min_jornada_min, 0, 600, 30), tz]);
       res.json({ ok: true });
     } catch (e) { res.status(500).json({ error: e.message }); }
@@ -744,28 +834,29 @@ module.exports = function registrarAsistencia({
         return hr.number;
       };
       const hhmm = m => m == null ? '' : `${Math.floor(m / 60)}:${p2(m % 60)}`;
+      const sgn = m => m == null ? '' : (m < 0 ? '-' : '+') + hhmm(Math.abs(m));
       const ESTADO = { completo: 'Completo', en_curso: 'En curso', sin_salida: 'Sin salida', pendiente: 'Pendiente', falta: 'Falta', sin_entrada: 'Sin entrada' };
       const DIAS = ['', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
       const ws1 = wb.addWorksheet('Resumen');
-      cabeceraExcel(ws1, 'Asistencia — resumen', [['Desde', desde], ['Hasta', hasta]], 11);
+      cabeceraExcel(ws1, 'Asistencia — resumen', [['Desde', desde], ['Hasta', hasta]], 13);
       const h1 = cabecera(ws1, [['Trabajador', 26], ['Días laborables', 14], ['Asistió', 10], ['Faltas', 10], ['Tardanzas', 11],
-        ['Min. tardanza', 13], ['Sin salida', 11], ['Horas trabajadas', 15], ['Observadas', 12], ['Salidas del local', 15], ['Tiempo fuera', 12]]);
-      r.totales.forEach(t => ws1.addRow([t.nombre, t.dias_lab, t.asistidos, t.faltas, t.tardanzas, t.min_tardanza, t.sin_salida, hhmm(t.min_trabajados), t.observadas, t.salidas, hhmm(t.min_fuera)]));
+        ['Min. tardanza', 13], ['Sin salida', 11], ['Horas trabajadas', 15], ['Observadas', 12], ['Salidas del local', 15], ['Tiempo fuera', 12], ['Tard. compensadas', 15], ['Saldo de horas', 14]]);
+      r.totales.forEach(t => ws1.addRow([t.nombre, t.dias_lab, t.asistidos, t.faltas, t.tardanzas, t.min_tardanza, t.sin_salida, hhmm(t.min_trabajados), t.observadas, t.salidas, hhmm(t.min_fuera), t.compensadas, sgn(t.saldo)]));
       ws1.views = [{ state: 'frozen', ySplit: h1 }];
 
       const ws2 = wb.addWorksheet('Detalle diario');
-      cabeceraExcel(ws2, 'Asistencia — detalle diario', [['Desde', desde], ['Hasta', hasta]], 17);
+      cabeceraExcel(ws2, 'Asistencia — detalle diario', [['Desde', desde], ['Hasta', hasta]], 18);
       const h2 = cabecera(ws2, [['Fecha', 11], ['Día', 6], ['Trabajador', 24], ['Horario', 12], ['Entrada', 9], ['Salida', 9],
-        ['Horas', 8], ['Tardanza (min)', 13], ['Salió antes (min)', 15], ['Estado', 12], ['1ª acción sistema', 15],
+        ['Horas', 8], ['Saldo', 8], ['Tardanza (min)', 13], ['Salió antes (min)', 15], ['Estado', 12], ['1ª acción sistema', 15],
         ['Últ. acción sistema', 16], ['Min. hasta 1ª acción', 17], ['Acciones', 9], ['Fuera del local', 26], ['Observaciones', 40], ['Nota trabajador', 30]]);
       r.filas.forEach(f => ws2.addRow([f.fecha, DIAS[f.dia], f.nombre, f.horario, f.entrada || '', f.salida || '',
-        hhmm(f.min_trabajados), f.min_tardanza || '', f.min_salida_antes || '', ESTADO[f.estado] || f.estado,
+        hhmm(f.min_trabajados), sgn(f.saldo), f.min_tardanza ? f.min_tardanza + (f.tardanza_compensada ? ' (compensada)' : '') : '', f.min_salida_antes || '', ESTADO[f.estado] || f.estado,
         f.act_primera || '', f.act_ultima || '', f.min_hasta_actividad == null ? '' : f.min_hasta_actividad, f.act_acciones || '',
         (f.fuera || []).map(x => `${x.desde}–${x.hasta || '…'} (${x.min} min)`).join(', '),
         f.motivos, f.notas]));
       ws2.views = [{ state: 'frozen', ySplit: h2 }];
-      ws2.autoFilter = { from: { row: h2, column: 1 }, to: { row: h2, column: 17 } };
+      ws2.autoFilter = { from: { row: h2, column: 1 }, to: { row: h2, column: 18 } };
 
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename="${nombreTrazable('asistencia')}.xlsx"`);

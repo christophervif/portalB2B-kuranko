@@ -189,6 +189,7 @@ let modImportacion = null;
 let modRecepciones = null;
 let modSeguimiento = null;
 let modAsistencia = null;
+let modGestion = null;
 
 // Registro de endpoints del dashboard (inyectado directamente)
 (function(){
@@ -223,8 +224,13 @@ let modAsistencia = null;
   // ── Módulo CRM Kommo (separado en modulos/crm-kommo.js) ──
   require('./modulos/crm-kommo')({ app, authAdmin, mCrm, prodPool, VV });
 
+  // ── Módulo Gestión de clientes del portal (accesos, consignaciones, RUC agrupados) ──
+  //    Frontend propio en public/clientes-gestion.html (iframe dentro del panel).
+  //    Expone los "grupos de RUC" que usan el portal del cliente y Clientes BI.
+  modGestion = require('./modulos/clientes-gestion')({ app, authAdmin, requiereModulo, prodPool, portalPool, JWT_SECRET });
+
   // ── Módulo Portal del cliente (B2B) ──
-  modPortal = require('./modulos/portal-cliente')({ app, authAdmin, requiereModulo, prodPool, portalPool, JWT_SECRET });
+  modPortal = require('./modulos/portal-cliente')({ app, authAdmin, requiereModulo, prodPool, portalPool, JWT_SECRET, grupos: modGestion });
 
   // ── Módulo Ventas-BI (KPIs, rentabilidad, top productos) ──
   require('./modulos/ventas-bi')({ app, authAdmin, mResumen, mRent, mCaja, prodPool, portalPool, VV });
@@ -243,7 +249,7 @@ let modAsistencia = null;
 
   // ── Módulo Clientes BI (retención, estados, top, riesgo) ──
   //    Frontend propio en public/clientes-bi.html (iframe dentro del panel).
-  require('./modulos/clientes-bi')({ app, authAdmin, mClientes, mResumen, prodPool, VV });
+  require('./modulos/clientes-bi')({ app, authAdmin, mClientes, mResumen, prodPool, VV, grupos: modGestion });
 
   // ── Módulo Cuentas por cobrar (deudas) — public/cuentas-por-cobrar.html ──
   //    (portalPool: lee el saldo a favor y guarda los recordatorios de cobranza)
@@ -347,6 +353,7 @@ app.listen(PORT, async () => {
   console.log(`Portal B2B en puerto ${PORT}`);
   // Preparar tablas una vez al arrancar (evita que el primer login pague la espera)
   try {
+    if (modGestion && modGestion.prepararTablas) await modGestion.prepararTablas();
     if (modPortal && modPortal.prepararTablas) await modPortal.prepararTablas();
     if (modAuditoria && modAuditoria.prepararTablas) await modAuditoria.prepararTablas();
     if (modImportacion && modImportacion.prepararTablas) await modImportacion.prepararTablas();

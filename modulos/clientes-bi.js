@@ -19,6 +19,8 @@
 //  Reglas
 //  · Ventas válidas: status IN VV y sin borrar (igual que el resto del panel).
 //  · Un cliente = mismo RUC/DNI (une duplicados del ERP); sin documento → su id.
+//    Empresas con varios RUC agrupados en Gestión de clientes (ej. Puntobike SAC
+//    + Frisancho Pereyra Sadith) cuentan como un solo cliente.
 //  · "Compra" = día distinto con venta. Dos ventas el mismo día cuentan como una
 //    visita (antes un cliente con 2 boletas el mismo día salía "recurrente").
 //  · Estado (al día de referencia = "hasta", o hoy si "hasta" es futuro):
@@ -94,7 +96,8 @@ function mesesEntre(desde, hasta) {
 // ═══ Cálculo puro (sin base de datos) — se exporta para pruebas ═══
 //  ventas: [{ customer_id, company_id, total, dia:'AAAA-MM-DD' }]  (todas ≤ hasta)
 //  partes: [{ id, is_company, business_name, first_name, last_name, document_number, email, phone }]
-function calcularClientes(ventas, partes, f, hoy) {
+//  unir:   Map customer_id → customer_id principal (RUC agrupados en Gestión de clientes)
+function calcularClientes(ventas, partes, f, hoy, unir) {
   hoy = hoy || hoyLima();
   const ref = f.hasta < hoy ? f.hasta : hoy;               // día de referencia para "días sin comprar"
   const largo = difDias(f.hasta, f.desde) + 1;
@@ -102,18 +105,27 @@ function calcularClientes(ventas, partes, f, hoy) {
 
   // Partes → grupo (RUC/DNI o id)
   const grupoDe = {}; const grupos = {};
+  // Un RUC agrupado arrastra también a otras fichas del ERP con el mismo documento
+  const grupoDeDoc = new Map();
+  if (unir) partes.forEach(p => {
+    const doc = limpiarDoc(p.document_number);
+    if (doc.length >= 8 && unir.has(Number(p.id))) grupoDeDoc.set(doc, unir.get(Number(p.id)));
+  });
   partes.forEach(p => {
     const nombre = nombreParte(p);
     const doc = limpiarDoc(p.document_number);
     const gen = esGenerico({ ...p, nombre });
-    const clave = gen ? 'gen:' + p.id : (doc.length >= 8 ? 'doc:' + doc : 'id:' + p.id);
+    const principal = unir ? (unir.has(Number(p.id)) ? unir.get(Number(p.id)) : grupoDeDoc.get(doc)) : undefined;
+    const clave = principal != null ? 'grp:' + principal
+      : gen ? 'gen:' + p.id : (doc.length >= 8 ? 'doc:' + doc : 'id:' + p.id);
     grupoDe[p.id] = clave;
     const g = grupos[clave] || (grupos[clave] = {
       clave, ids: [], nombre: '', doc: p.document_number || '', tipo: p.is_company ? 'b2b' : 'b2c',
       email: '', telefono: '', generico: gen, compras: {}, empresas: new Set()
     });
     g.ids.push(p.id);
-    if (!g.nombre || (nombre && nombre.length > g.nombre.length)) g.nombre = nombre;
+    if (principal != null && Number(p.id) === principal) { if (nombre) g.nombre = nombre; g.doc = p.document_number || g.doc; g.principal = true; }
+    else if (!g.principal && (!g.nombre || (nombre && nombre.length > g.nombre.length))) g.nombre = nombre;
     if (p.is_company) g.tipo = 'b2b';
     if (!g.email && p.email) g.email = p.email;
     if (!g.telefono && p.phone) g.telefono = p.phone;
@@ -252,7 +264,7 @@ function calcularClientes(ventas, partes, f, hoy) {
   };
 }
 
-module.exports = function registrarClientesBI({ app, authAdmin, mClientes, mResumen, prodPool, VV }) {
+module.exports = function registrarClientesBI({ app, authAdmin, mClientes, mResumen, prodPool, VV, grupos }) {
 
   async function obtener(q) {
     const f = leerFiltros(q);
@@ -269,7 +281,8 @@ module.exports = function registrarClientesBI({ app, authAdmin, mClientes, mResu
         SELECT id, is_company, business_name, first_name, last_name, document_number, email, phone
         FROM parties WHERE id IN (?)`, [ids]);
     }
-    return calcularClientes(ventas, partes, f);
+    const unir = grupos && grupos.mapaAlias ? await grupos.mapaAlias() : null;
+    return calcularClientes(ventas, partes, f, undefined, unir);
   }
 
   app.get('/api/clientes-bi', authAdmin, mClientes, async (req, res) => {

@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<script src="/tema.js"></script>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Gestión de clientes — Kuranko</title>
+<style>
+:root{
+  --bg:#0a1030;--surface:#111a44;--surface2:#0e1640;--surface3:#18224e;
+  --border:#212b54;--text:#eef1f8;--text2:#c6cee2;--muted:#8a93b4;--muted2:#a2abca;
+  --accent:#FFB30D;--accent-text:#000726;--accent-h:#e6a00c;--hover:#1a2450;--white:#ffffff;
+  --bg-ok:#163a29;--fg-ok:#6ee59a;--bg-warn:#3d3315;--fg-warn:#ffcb52;--bg-r:#3f1c20;--fg-r:#f79a9a;
+  --bg-v:#2a2766;--fg-v:#cecbf6;
+  --radius:18px;--radius-sm:12px;
+  --shadow-sm:0 2px 8px rgba(0,0,0,.10);
+}
+[data-theme="light"]{
+  --bg:#f6f8fd;--surface:#ffffff;--surface2:#fbfcff;--surface3:#f2f5fb;
+  --border:#e3e9f5;--text:#1a2140;--text2:#4a5680;--muted:#9aa3c0;--muted2:#727e9f;
+  --hover:#f2f5fb;--white:#1a2140;
+  --bg-ok:#e8f8ef;--fg-ok:#1f9c56;--bg-warn:#fdf5db;--fg-warn:#9a6b00;--bg-r:#fdeded;--fg-r:#dc4b4b;
+  --bg-v:#eeedfc;--fg-v:#4b43b8;
+  --shadow-sm:0 2px 10px rgba(30,45,90,.04);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{overflow-x:hidden}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px}
+.wrap{max-width:1240px;margin:0 auto;padding:1.25rem}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.1rem;box-shadow:var(--shadow-sm);margin-bottom:16px}
+.card h3{font-size:15px;font-weight:600;color:var(--white);margin-bottom:4px}
+.desc{font-size:12px;color:var(--muted);line-height:1.55}
+.fila{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px}
+.fila>select,.fila>input,.inp{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:8px 10px;font-size:13px}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
+.btn{background:var(--accent);border:none;color:var(--accent-text);border-radius:var(--radius-sm);padding:9px 16px;font-size:13px;cursor:pointer;font-weight:600;white-space:nowrap}
+.btn:hover{background:var(--accent-h)}
+.btn:disabled{opacity:.6;cursor:wait}
+.btn-sec{background:var(--surface3);border:1px solid var(--border);color:var(--text2)}
+.btn-sec:hover{background:var(--hover)}
+.btn-sm{padding:5px 10px;font-size:12px;border-radius:9px}
+.btn-r{background:var(--bg-r);color:var(--fg-r);border:1px solid var(--border)}
+.btn-ok{background:var(--bg-ok);color:var(--fg-ok);border:1px solid var(--border)}
+.cab{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:14px}
+.kpi{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:12px;cursor:pointer;text-align:left;color:inherit;font:inherit}
+.kpi:hover,.kpi.on{border-color:var(--accent)}
+.kpi .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.kpi .v{font-size:1.4rem;font-weight:700;color:var(--white);margin-top:4px}
+.kpi .s{font-size:11px;color:var(--muted2);margin-top:2px}
+.kpi.r .v{color:var(--fg-r)}.kpi.w .v{color:var(--fg-warn)}
+.seg{display:inline-flex;background:var(--surface3);border:1px solid var(--border);border-radius:12px;padding:3px;gap:2px}
+.seg button{background:none;border:none;color:var(--text2);padding:7px 14px;border-radius:9px;cursor:pointer;font-size:13px;font-weight:600}
+.seg button.on{background:var(--accent);color:var(--accent-text)}
+.seg .cnt{font-size:11px;opacity:.8;margin-left:4px}
+.tabla-wrap{overflow:auto;max-height:66vh;margin-top:10px;border:1px solid var(--border);border-radius:12px}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{position:sticky;top:0;background:var(--surface3);text-align:left;padding:8px;color:var(--muted2);font-weight:600;font-size:11px;border-bottom:1px solid var(--border);white-space:nowrap;z-index:1}
+th.ord{cursor:pointer;user-select:none}th.ord:hover{color:var(--white)}
+th.asc::after{content:' ↑';color:var(--accent)}th.desc::after{content:' ↓';color:var(--accent)}
+td{padding:8px;border-bottom:1px solid var(--border);color:var(--text2);vertical-align:top}
+tr.clic{cursor:pointer}
+tr:hover td{background:var(--hover)}
+tr.inact td{opacity:.6}
+td .nom{color:var(--white);font-weight:500;line-height:1.35}
+.mono{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--muted)}
+.sub{font-size:11px;color:var(--muted);margin-top:2px}
+.chip{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:20px;white-space:nowrap;margin:1px 2px 1px 0}
+.c-r{background:var(--bg-r);color:var(--fg-r)}.c-w{background:var(--bg-warn);color:var(--fg-warn)}.c-ok{background:var(--bg-ok);color:var(--fg-ok)}
+.c-v{background:var(--bg-v);color:var(--fg-v)}.c-g{background:var(--surface3);color:var(--text2);border:1px solid var(--border)}
+.vacio{color:var(--muted);text-align:center;padding:1.5rem;font-size:13px}
+.aviso{font-size:12px;border-radius:10px;padding:8px 10px;margin-top:10px;background:var(--bg-warn);color:var(--fg-warn);line-height:1.5}
+.aviso.r{background:var(--bg-r);color:var(--fg-r)}
+.aviso.i{background:var(--surface3);color:var(--text2);border:1px solid var(--border)}
+details.ayuda{margin-top:10px;font-size:12px;color:var(--text2)}
+details.ayuda summary{cursor:pointer;color:var(--muted2)}
+details.ayuda ul{margin:6px 0 0 18px;line-height:1.6}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--bg-ok);color:var(--fg-ok);padding:12px 18px;border-radius:12px;font-size:13px;display:none;z-index:300;border:1px solid var(--border);max-width:360px}
+.toast.err{background:var(--bg-r);color:var(--fg-r)}
+/* combos con búsqueda */
+.combo{position:relative;flex:1;min-width:220px}
+.combo input{width:100%}
+.combo-list{position:absolute;top:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:0 0 10px 10px;max-height:260px;overflow-y:auto;z-index:60;display:none;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+.combo-list.show{display:block}
+.combo-item{padding:8px 12px;font-size:13px;cursor:pointer;border-bottom:1px solid var(--border)}
+.combo-item:hover{background:var(--hover)}
+.combo-item .s{color:var(--muted);font-size:11px}
+/* modal */
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:flex-start;justify-content:center;z-index:200;padding:24px 12px;overflow:auto}
+.modal-bg.show{display:flex}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);width:100%;max-width:760px;padding:1.2rem;box-shadow:0 20px 50px rgba(0,0,0,.35)}
+.modal h3{font-size:16px;color:var(--white)}
+.modal .x{float:right;background:none;border:none;color:var(--muted);font-size:20px;cursor:pointer;line-height:1}
+.bloque{border-top:1px solid var(--border);margin-top:14px;padding-top:12px}
+.bloque h4{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted2);margin-bottom:8px}
+.ruc-row{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-bottom:6px;flex-wrap:wrap}
+.ruc-row .acc{display:flex;gap:6px;flex-wrap:wrap}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;font-size:12.5px}
+.grid2 b{color:var(--white);font-weight:500}
+.lst{max-height:300px;overflow:auto;border:1px solid var(--border);border-radius:10px;margin-top:8px;font-size:12px}
+.lst div{padding:6px 10px;border-bottom:1px solid var(--border)}
+@media(max-width:640px){.wrap{padding:.75rem}.card{padding:.9rem}.grid2{grid-template-columns:1fr}.kpis{grid-template-columns:1fr 1fr}.combo{min-width:0;width:100%}}
+</style>
+</head>
+<body>
+<div class="toast" id="toast"></div>
+<div class="wrap">
+
+  <div class="card">
+    <div class="cab">
+      <div>
+        <h3>Gestión de clientes del portal</h3>
+        <div class="desc">Quién entra al portal, qué consignación ve, qué RUC agrupa cada empresa y qué hay que corregir.</div>
+      </div>
+      <div class="fila" style="margin-top:0">
+        <span class="desc" id="hora"></span>
+        <button class="btn btn-sec" onclick="cargar()" id="btn-act">Actualizar</button>
+        <button class="btn btn-sec" onclick="abrirCrearTodos()">Crear varios</button>
+        <button class="btn" onclick="abrirCrear()">+ Nuevo acceso</button>
+      </div>
+    </div>
+    <div class="kpis" id="kpis"></div>
+    <div id="aviso-global"></div>
+  </div>
+
+  <div class="card">
+    <div class="seg" id="vistas">
+      <button class="on" data-v="accesos" onclick="setVista('accesos')">Accesos<span class="cnt" id="cnt-accesos"></span></button>
+      <button data-v="puntos" onclick="setVista('puntos')">Puntos de venta<span class="cnt" id="cnt-puntos"></span></button>
+    </div>
+
+    <!-- ══════════ ACCESOS ══════════ -->
+    <div id="v-accesos">
+      <div class="fila">
+        <input id="f-q" type="search" placeholder="Buscar nombre, RUC (también los adicionales) o consignación…" oninput="pintarAccesos()" style="flex:1;min-width:220px">
+        <select id="f-estado" onchange="pintarAccesos()">
+          <option value="activos">Activos</option><option value="inactivos">Inactivos</option><option value="">Todos</option>
+        </select>
+        <select id="f-consig" onchange="pintarAccesos()">
+          <option value="">Con y sin consignación</option><option value="con">Con consignación</option><option value="sin">Sin consignación</option>
+        </select>
+        <select id="f-alerta" onchange="pintarAccesos()">
+          <option value="">Todas las alertas</option>
+          <option value="*">Con algo por corregir</option>
+          <option value="otro_ruc">Posible otro RUC</option>
+          <option value="varios_ruc">Agrupa varios RUC</option>
+          <option value="consig">Consignación inactiva / compartida</option>
+          <option value="sin_correo">Sin correo</option>
+          <option value="clave_inicial">Clave inicial sin cambiar</option>
+          <option value="desfase">Nombre o RUC distinto al ERP</option>
+          <option value="factura">RUC de facturación por revisar</option>
+          <option value="sin_ventas">Sin ventas recientes</option>
+          <option value="nunca_entro">Nunca entró al portal</option>
+        </select>
+      </div>
+      <div class="desc" id="conteo-accesos" style="margin-top:8px"></div>
+      <div class="tabla-wrap"><table id="tbl-accesos"></table></div>
+    </div>
+
+    <!-- ══════════ PUNTOS DE VENTA ══════════ -->
+    <div id="v-puntos" style="display:none">
+      <div class="fila">
+        <input id="p-q" type="search" placeholder="Buscar punto de venta o comprador…" oninput="pintarPuntos()" style="flex:1;min-width:220px">
+        <select id="p-estado" onchange="pintarPuntos()">
+          <option value="problema">Sin empresa o compartidos</option>
+          <option value="sin_empresa">Sin empresa asignada</option>
+          <option value="compartida">Compartidos por 2+ accesos</option>
+          <option value="factura">Sin RUC en notas o con varios</option>
+          <option value="ok">Con empresa</option>
+          <option value="">Todos</option>
+        </select>
+        <label class="desc" style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" id="p-stock" onchange="pintarPuntos()"> Solo con stock</label>
+      </div>
+      <div class="desc" id="conteo-puntos" style="margin-top:8px"></div>
+      <div class="tabla-wrap"><table id="tbl-puntos"></table></div>
+    </div>
+
+    <details class="ayuda">
+      <summary>¿Qué significa cada alerta?</summary>
+      <ul>
+        <li><b>Posible otro RUC</b>: ventas que salieron de su consignación (últimos 180 días) se facturaron a otro RUC, o hay otra empresa en el ERP con su mismo correo o teléfono. Si es la misma empresa, agrégalo como <b>RUC adicional</b>: el cliente verá todas sus ventas y pagos, puede entrar con cualquiera de sus RUC y Clientes BI lo cuenta como un solo cliente.</li>
+        <li><b>Cambio de RUC</b> (ej. dieron de baja Puntobike SAC y ahora usan Frisancho Pereyra Sadith): agrega el nuevo RUC y pulsa <b>Hacer principal</b>. El anterior queda como adicional para no perder su historial.</li>
+        <li><b>Consignación inactiva / compartida</b>: su punto de venta está desactivado en el ERP, o dos accesos activos ven el mismo stock.</li>
+        <li><b>Sin correo</b>: no tiene correo en el ERP, así que el reporte de venta de consignación solo llega a Kuranko.</li>
+        <li><b>Clave inicial</b>: sigue entrando con su RUC como contraseña (cualquiera que sepa el RUC puede entrar).</li>
+        <li><b>Nombre o RUC distinto</b>: el ERP cambió la razón social o el documento y el acceso quedó con el dato viejo.</li>
+        <li><b>RUC de facturación</b>: sale de las notas de cada consignación en el ERP (un RUC de 11 dígitos). Con un solo RUC, el reporte de venta dice "Facturar a…" y el cliente no puede elegir otro. Sin RUC o con varios, el reporte dice "RUC por definir" y el vendedor verifica con la guía de remisión. "RUC ajeno" = el RUC de las notas no es de ese cliente (revisar).</li>
+        <li><b>Puntos de venta sin empresa</b>: consignaciones activas que ningún acceso activo tiene asignadas. Se muestra quién compró ahí, para saber a quién asignarla.</li>
+      </ul>
+    </details>
+  </div>
+</div>
+
+<!-- ══════════ MODAL DETALLE ══════════ -->
+<div class="modal-bg" id="m-det" onclick="if(event.target===this)cerrar('m-det')">
+  <div class="modal" id="det"></div>
+</div>
+
+<!-- ══════════ MODAL NUEVO ACCESO ══════════ -->
+<div class="modal-bg" id="m-crear" onclick="if(event.target===this)cerrar('m-crear')">
+  <div class="modal">
+    <button class="x" onclick="cerrar('m-crear')">×</button>
+    <h3>Nuevo acceso al portal</h3>
+    <div class="desc" style="margin-top:4px">Usuario y clave inicial = su RUC. Si la empresa ya existe con otro RUC, mejor agrégalo como RUC adicional desde su ficha.</div>
+    <div class="bloque">
+      <h4>Empresa del ERP</h4>
+      <div class="combo" id="cb-crear-emp"></div>
+      <div id="crear-aviso"></div>
+    </div>
+    <div class="bloque">
+      <h4>Consignación (opcional)</h4>
+      <div class="combo" id="cb-crear-loc"></div>
+    </div>
+    <div class="fila" style="justify-content:flex-end;margin-top:16px">
+      <button class="btn btn-sec" onclick="cerrar('m-crear')">Cancelar</button>
+      <button class="btn" id="btn-crear" onclick="crearAcceso()">Crear acceso</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ MODAL CREAR VARIOS ══════════ -->
+<div class="modal-bg" id="m-todos" onclick="if(event.target===this)cerrar('m-todos')">
+  <div class="modal">
+    <button class="x" onclick="cerrar('m-todos')">×</button>
+    <h3>Crear accesos a varios clientes</h3>
+    <div class="desc" style="margin-top:4px">Empresas con ventas recientes que aún no tienen acceso. Se saltan las que ya están en un acceso (como principal o RUC adicional) y las fichas con RUC repetido. Primero revisa la lista.</div>
+    <div class="fila">
+      <span class="desc">Con ventas en los últimos</span>
+      <select id="t-meses" class="inp"><option value="3">3 meses</option><option value="6">6 meses</option><option value="12" selected>12 meses</option><option value="24">24 meses</option></select>
+      <button class="btn btn-sec" onclick="simularTodos()" id="btn-sim">Ver lista</button>
+    </div>
+    <div id="t-res"></div>
+    <div class="fila" style="justify-content:flex-end;margin-top:16px">
+      <button class="btn btn-sec" onclick="cerrar('m-todos')">Cerrar</button>
+      <button class="btn" id="btn-todos" onclick="crearTodos()" disabled>Crear</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+//  Gestión de clientes — frontend (mini-app en iframe dentro de admin.html)
+//  Comparte token y origen con el panel (localStorage 'admtoken').
+//  Backend: modulos/clientes-gestion.js  (/api/clientes-gestion…)
+// ═══════════════════════════════════════════════════════════════════════════
+let TOKEN = ''; try { TOKEN = localStorage.getItem('admtoken') || ''; } catch (e) {}
+const $ = id => document.getElementById(id);
+function esc(t) { return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+function showToast(m, e) { const t = $('toast'); t.textContent = m; t.className = 'toast' + (e ? ' err' : ''); t.style.display = 'block'; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', e ? 6000 : 3500); }
+async function api(ep, body) {
+  const opt = { headers: { 'Authorization': 'Bearer ' + TOKEN } };
+  if (body !== undefined) { opt.method = 'POST'; opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body); }
+  const r = await fetch(ep, opt);
+  if (r.status === 401) throw new Error('Sesión del panel expirada — vuelve a entrar.');
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) { const err = new Error(d.error || 'Error'); err.status = r.status; err.data = d; throw err; }
+  return d;
+}
+const N = n => Number(n || 0).toLocaleString('es-PE');
+const fecha = f => f ? new Date(f).toLocaleDateString('es-PE', { timeZone: 'America/Lima', day: 'numeric', month: 'short', year: '2-digit' }) : '—';
+const dias = f => f ? Math.floor((Date.now() - new Date(f).getTime()) / 864e5) : null;
+const hace = f => { const d = dias(f); if (d == null) return '—'; if (d <= 0) return 'hoy'; if (d === 1) return 'ayer'; if (d < 60) return `hace ${d} d`; if (d < 730) return `hace ${Math.round(d / 30)} m`; return `hace ${Math.round(d / 365)} a`; };
+const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+let V = null;              // última respuesta de /api/clientes-gestion
+let EMPRESAS = null;       // empresas del ERP (carga perezosa)
+let vista = 'accesos';
+let filtroKpi = '';
+let ordenA = { k: 'nombre', dir: 'asc' };
+
+// ══════════════════ Carga ══════════════════
+async function cargar() {
+  const b = $('btn-act'); b.disabled = true; b.textContent = 'Cargando…';
+  $('conteo-accesos').textContent = 'Revisando accesos, consignaciones y ventas…';
+  try {
+    V = await api('/api/clientes-gestion');
+    $('hora').textContent = 'Actualizado ' + new Date(V.generado).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
+    pintarKpis(); pintarAccesos(); pintarPuntos();
+    if ($('m-det').classList.contains('show') && DET_ID) abrirDetalle(DET_ID);
+  } catch (e) {
+    $('conteo-accesos').textContent = e.message; showToast(e.message, true);
+  } finally { b.disabled = false; b.textContent = 'Actualizar'; }
+}
+function usuario(id) { return V && V.usuarios.find(u => u.id === id); }
+function locNombre(id) { const c = V && V.consignaciones.find(x => x.id == id); return c ? c.nombre : ''; }
+
+// ══════════════════ KPIs ══════════════════
+function pintarKpis() {
+  const r = V.resumen;
+  const k = (id, l, v, s, cls) => `<button class="kpi ${cls || ''} ${filtroKpi === id ? 'on' : ''}" onclick="clicKpi('${id}')"><div class="l">${l}</div><div class="v">${N(v)}</div><div class="s">${s}</div></button>`;
+  $('kpis').innerHTML =
+    k('activos', 'Accesos activos', r.activos, `de ${N(r.accesos)} creados`) +
+    k('*', 'Por corregir', r.con_alertas, 'accesos activos con alertas', r.con_alertas ? 'w' : '') +
+    k('puntos', 'Puntos sin empresa', r.consig_sin_empresa, `${N(r.consig_sin_empresa_con_stock)} con stock · ${N(r.consig_compartidas)} compartidos`, r.consig_sin_empresa_con_stock ? 'r' : (r.consig_sin_empresa ? 'w' : '')) +
+    k('otro_ruc', 'Posible otro RUC', r.otro_ruc, 'revisar si es la misma empresa', r.otro_ruc ? 'w' : '') +
+    k('factura', 'RUC de facturación', r.consig_sin_ruc_factura + r.factura_ajena, `${N(r.consig_sin_ruc_factura)} consig. sin RUC claro en notas · ${N(r.factura_ajena)} con RUC ajeno`, r.factura_ajena ? 'r' : (r.consig_sin_ruc_factura ? 'w' : '')) +
+    k('varios_ruc', 'Con varios RUC', r.varios_ruc, 'empresas agrupadas') +
+    k('sin_correo', 'Sin correo', r.sin_correo, 'el reporte no les llega', r.sin_correo ? 'w' : '') +
+    k('clave_inicial', 'Clave = RUC', r.clave_inicial, 'nunca cambiaron la clave');
+  $('cnt-accesos').textContent = r.activos;
+  $('cnt-puntos').textContent = r.consig_sin_empresa ? `· ${r.consig_sin_empresa} sin empresa` : '';
+  $('aviso-global').innerHTML = (r.campo_notas ? '' : '<div class="aviso r">La tabla de consignaciones del ERP no tiene un campo de notas reconocible: no se puede leer el RUC de facturación. Define la variable LOCATION_NOTAS_COL en Railway con el nombre de la columna.</div>') + (r.ventas_consig_disponible ? '' :
+    '<div class="aviso i">No se pudo leer qué clientes compran en cada consignación (el ERP no enlaza el movimiento con la venta). Las pistas de "otro RUC" se basan solo en correo y teléfono.</div>');
+}
+function clicKpi(id) {
+  filtroKpi = filtroKpi === id ? '' : id;
+  if (id === 'puntos') { setVista('puntos'); $('p-estado').value = 'sin_empresa'; pintarPuntos(); filtroKpi = ''; pintarKpis(); return; }
+  if (id === 'factura' && !V.resumen.factura_ajena) { setVista('puntos'); $('p-estado').value = 'factura'; pintarPuntos(); filtroKpi = ''; pintarKpis(); return; }
+  setVista('accesos');
+  $('f-estado').value = 'activos'; $('f-consig').value = '';
+  $('f-alerta').value = filtroKpi && filtroKpi !== 'activos' ? filtroKpi : '';
+  pintarKpis(); pintarAccesos();
+}
+function setVista(v) {
+  vista = v;
+  document.querySelectorAll('#vistas button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
+  $('v-accesos').style.display = v === 'accesos' ? '' : 'none';
+  $('v-puntos').style.display = v === 'puntos' ? '' : 'none';
+}
+
+// ══════════════════ Accesos ══════════════════
+const NIVEL_CHIP = { r: 'c-r', w: 'c-w', i: 'c-g' };
+const ETIQUETA = { empresa_no_existe: 'Empresa no existe', consig_no_existe: 'Consig. no existe', consig_inactiva: 'Consig. inactiva',
+  consig_compartida: 'Consig. compartida', ruc_distinto: 'RUC distinto', nombre_distinto: 'Nombre distinto', sin_correo: 'Sin correo',
+  clave_inicial: 'Clave = RUC', sin_ventas: 'Sin ventas', otro_ruc: '¿Otro RUC?',
+  factura_ajena: 'RUC en notas ajeno', factura_mixta: 'Varios RUC en notas', factura_sin_ruc: 'Sin RUC en notas' };
+function pasaAlerta(u, f) {
+  if (!f) return true;
+  const c = new Set(u.alertas.map(a => a.cod));
+  if (f === '*') return u.alertas.some(a => a.nivel !== 'i');
+  if (f === 'varios_ruc') return u.extras.length > 0;
+  if (f === 'consig') return c.has('consig_inactiva') || c.has('consig_compartida') || c.has('consig_no_existe');
+  if (f === 'desfase') return c.has('nombre_distinto') || c.has('ruc_distinto') || c.has('empresa_no_existe');
+  if (f === 'nunca_entro') return !u.ultimo_login;
+  if (f === 'factura') return c.has('factura_ajena') || c.has('factura_mixta') || c.has('factura_sin_ruc');
+  return c.has(f);
+}
+function filtrarAccesos() {
+  const q = norm($('f-q').value.trim());
+  const est = $('f-estado').value, con = $('f-consig').value, al = $('f-alerta').value;
+  let l = V.usuarios.filter(u => {
+    if (est === 'activos' && !u.activo) return false;
+    if (est === 'inactivos' && u.activo) return false;
+    if (con === 'con' && !u.consignaciones.length) return false;
+    if (con === 'sin' && u.consignaciones.length) return false;
+    if (!pasaAlerta(u, al)) return false;
+    if (q) {
+      const txt = norm([u.nombre_cliente, u.username, ...u.consignaciones.map(c => c.nombre + ' ' + (c.factura.ruc || '')), u.principal && u.principal.nombre,
+        u.principal && u.principal.ruc, ...u.extras.map(e => e.nombre + ' ' + e.ruc), u.email].join(' '));
+      if (!q.split(/\s+/).every(p => txt.includes(p))) return false;
+    }
+    return true;
+  });
+  const val = {
+    nombre: u => norm(u.nombre_cliente), consig: u => norm(u.consignacion ? u.consignacion.nombre : '~'),
+    venta: u => u.ultima_venta || '', login: u => u.ultimo_login || '', alertas: u => u.alertas.filter(a => a.nivel !== 'i').length
+  }[ordenA.k];
+  l.sort((a, b) => { const x = val(a), y = val(b); return (x < y ? -1 : x > y ? 1 : 0) * (ordenA.dir === 'asc' ? 1 : -1); });
+  return l;
+}
+function ordenarA(k) {
+  if (ordenA.k === k) ordenA.dir = ordenA.dir === 'asc' ? 'desc' : 'asc';
+  else ordenA = { k, dir: ['venta', 'login', 'alertas'].includes(k) ? 'desc' : 'asc' };
+  pintarAccesos();
+}
+// RUC de facturación de una consignación (leído de sus notas en el ERP)
+function chipFactura(f, corto) {
+  if (!f) return '';
+  if (f.estado === 'ok') return `<span class="chip c-v" title="${esc(f.nombre || '')}">Factura a ${esc(f.ruc)}</span>${!corto && f.nombre ? ' ' + esc(f.nombre) : ''}${f.existe === false ? ' <span class="chip c-r">RUC no existe en ERP</span>' : ''}`;
+  if (f.estado === 'mixto') return `<span class="chip c-w" title="${esc(f.rucs.join(', '))}">Varios RUC en notas</span>${corto ? '' : ' ' + esc(f.rucs.join(', ')) + ' — el vendedor verifica con la guía'}`;
+  if (f.estado === 'sin_ruc') return `<span class="chip c-w">Sin RUC en notas</span>${corto ? '' : ' — el vendedor verifica con la guía'}`;
+  return '';
+}
+function pintarAccesos() {
+  if (!V) return;
+  const l = filtrarAccesos();
+  $('conteo-accesos').textContent = `${l.length} de ${V.usuarios.length} accesos`;
+  const th = (k, t) => `<th class="ord ${ordenA.k === k ? ordenA.dir : ''}" onclick="ordenarA('${k}')">${t}</th>`;
+  if (!l.length) { $('tbl-accesos').innerHTML = '<tr><td class="vacio">Ningún acceso con esos filtros.</td></tr>'; return; }
+  $('tbl-accesos').innerHTML = `<thead><tr>${th('nombre', 'Cliente')}${th('consig', 'Consignación')}${th('venta', 'Última venta')}${th('login', 'Último ingreso')}${th('alertas', 'Alertas')}<th></th></tr></thead><tbody>` +
+    l.map(u => {
+      const rucs = [`<span class="mono">${esc(u.username)}</span>`].concat(u.extras.map(e => `<span class="chip c-v" title="${esc(e.nombre)}">+ ${esc(e.ruc || 's/RUC')}</span>`)).join(' ');
+      const consig = u.consignaciones.length
+        ? u.consignaciones.map(c => `<div>${esc(c.nombre)}${c.existe ? (c.activa ? '' : ' <span class="chip c-r">inactiva</span>') : ' <span class="chip c-r">no existe</span>'}<div class="sub">${chipFactura(c.factura, true)}</div></div>`).join('')
+        : '<span class="sub">—</span>';
+      const al = u.alertas.map(a => `<span class="chip ${NIVEL_CHIP[a.nivel]}" title="${esc(a.txt)}">${ETIQUETA[a.cod] || a.cod}</span>`).join('');
+      return `<tr class="clic ${u.activo ? '' : 'inact'}" onclick="abrirDetalle(${u.id})">
+        <td><div class="nom">${esc(u.nombre_cliente)}${u.activo ? '' : ' <span class="chip c-g">inactivo</span>'}</div><div class="sub">${rucs}</div></td>
+        <td>${consig}</td>
+        <td>${u.ultima_venta ? hace(u.ultima_venta) : '—'}<div class="sub">${u.ventas_12m ? N(u.ventas_12m) + ' ventas 12 m' : ''}</div></td>
+        <td>${u.ultimo_login ? hace(u.ultimo_login) : '<span class="sub">nunca</span>'}</td>
+        <td>${al || '<span class="chip c-ok">OK</span>'}</td>
+        <td><button class="btn btn-sm btn-sec" onclick="event.stopPropagation();abrirDetalle(${u.id})">Ver</button></td></tr>`;
+    }).join('') + '</tbody>';
+}
+
+// ══════════════════ Puntos de venta ══════════════════
+const ESTADO_P = { sin_empresa: ['Sin empresa', 'c-r'], solo_inactivos: ['Solo accesos inactivos', 'c-w'], compartida: ['Compartido', 'c-w'], ok: ['Con empresa', 'c-ok'] };
+function pintarPuntos() {
+  if (!V) return;
+  const q = norm($('p-q').value.trim()), est = $('p-estado').value, st = $('p-stock').checked;
+  const l = V.consignaciones.filter(c => {
+    if (!c.activa && c.estado === 'ok') return false;           // inactiva asignada → se avisa en el acceso
+    if (est === 'problema' && c.estado === 'ok') return false;
+    if (est === 'sin_empresa' && !['sin_empresa', 'solo_inactivos'].includes(c.estado)) return false;
+    if (est === 'factura' && (!c.activa || !['sin_ruc', 'mixto'].includes(c.factura.estado))) return false;
+    if (est && !['problema', 'sin_empresa', 'factura'].includes(est) && c.estado !== est) return false;
+    if (st && !c.unidades) return false;
+    if (q && !norm(c.nombre + ' ' + c.compradores.map(x => x.nombre + ' ' + x.ruc).join(' ') + ' ' + c.accesos.map(a => a.nombre).join(' ')).includes(q)) return false;
+    return true;
+  }).sort((a, b) => (b.unidades - a.unidades) || a.nombre.localeCompare(b.nombre));
+  $('conteo-puntos').textContent = `${l.length} puntos de venta`;
+  if (!l.length) { $('tbl-puntos').innerHTML = '<tr><td class="vacio">Ninguno con esos filtros. 👌</td></tr>'; return; }
+  $('tbl-puntos').innerHTML = `<thead><tr><th>Punto de venta</th><th>Estado</th><th>Acceso(s)</th><th>Factura a (notas)</th><th style="text-align:right">Stock</th><th>Quién compró ahí (180 d)</th><th></th></tr></thead><tbody>` +
+    l.map(c => {
+      const [et, cl] = ESTADO_P[c.estado] || [c.estado, 'c-g'];
+      const acc = c.accesos.length ? c.accesos.map(a => `<a href="#" onclick="abrirDetalle(${a.id});return false" style="color:inherit">${esc(a.nombre)}</a>${a.activo ? '' : ' <span class="chip c-g">inactivo</span>'}`).join('<br>') : '<span class="sub">—</span>';
+      const comp = c.compradores.slice(0, 3).map(x => {
+        const tiene = x.acceso.length ? usuario(x.acceso[0]) : null;
+        const accion = tiene
+          ? (c.estado !== 'ok' && tiene.activo ? ` <button class="btn btn-sm btn-ok" onclick="asignarPunto(${c.id},${tiene.id})">Asignar a este acceso</button>` : '')
+          : ` <button class="btn btn-sm btn-sec" onclick="crearDesdePunto(${x.customer_id},${c.id})">Crear acceso</button>`;
+        return `<div style="margin-bottom:4px"><b>${esc(x.nombre)}</b> <span class="mono">${esc(x.ruc)}</span> <span class="sub" style="display:inline">· ${x.n} venta(s)${tiene ? ' · tiene acceso' : ''}</span>${accion}</div>`;
+      }).join('') + (c.compradores.length > 3 ? `<div class="sub">+${c.compradores.length - 3} más</div>` : '');
+      return `<tr><td><div class="nom">${esc(c.nombre)}</div>${c.activa ? '' : '<span class="chip c-r">inactivo en ERP</span>'}</td>
+        <td><span class="chip ${cl}">${et}</span></td><td>${acc}</td>
+        <td>${chipFactura(c.factura, true)}${c.factura.estado === 'ok' && c.factura.nombre ? '<div class="sub">' + esc(c.factura.nombre) + '</div>' : ''}${c.factura.estado === 'mixto' ? '<div class="sub">' + esc(c.factura.rucs.join(', ')) + '</div>' : ''}</td>
+        <td style="text-align:right;white-space:nowrap">${c.unidades ? N(c.unidades) + ' u.' : '<span class="sub">0</span>'}<div class="sub">${c.skus ? c.skus + ' SKU' : ''}</div></td>
+        <td>${comp || '<span class="sub">sin ventas registradas</span>'}</td>
+        <td><button class="btn btn-sm btn-sec" onclick="asignarPuntoElegir(${c.id})">Asignar…</button></td></tr>`;
+    }).join('') + '</tbody>';
+}
+async function asignarPunto(locId, userId) {
+  const u = usuario(userId);
+  let msg = `¿Agregar "${locNombre(locId)}" a las consignaciones de ${u.nombre_cliente}?`;
+  if (u.consignaciones.length) msg += `\n\nYa ve: ${u.consignaciones.map(c => c.nombre).join(', ')}. Las seguirá viendo.`;
+  if (!confirm(msg)) return;
+  try {
+    await api('/api/clientes-gestion/consignaciones/agregar', { portal_user_id: userId, location_id: locId });
+    showToast('Consignación agregada ✓');
+    cargar();
+  } catch (e) { showToast(e.message, true); }
+}
+function asignarPuntoElegir(locId) {
+  abrirMini(`Asignar "${esc(locNombre(locId))}" a un acceso`, 'Elige el cliente que verá el stock de este punto de venta.',
+    () => V.usuarios.filter(u => u.activo).map(u => ({ id: u.id, label: u.nombre_cliente, sub: u.username + (u.consignaciones.length ? ' · ve: ' + u.consignaciones.map(c => c.nombre).join(', ') : ' · sin consignación') })),
+    it => { cerrar('m-det'); asignarPunto(locId, it.id); });
+}
+async function crearDesdePunto(customerId, locId) {
+  await abrirCrear();
+  const e = EMPRESAS.find(x => x.customer_id === customerId);
+  if (e) CB['cb-crear-emp'].set(itemEmpresa(e));
+  CB['cb-crear-loc'].set({ id: locId, label: locNombre(locId) });
+  avisoCrear();
+}
+
+// ══════════════════ Combo con búsqueda (genérico) ══════════════════
+const CB = {};
+function combo(contId, placeholder, fuente, onPick) {
+  const cont = $(contId);
+  cont.innerHTML = `<input class="inp" placeholder="${esc(placeholder)}" autocomplete="off"><div class="combo-list"></div>`;
+  const inp = cont.querySelector('input'), list = cont.querySelector('.combo-list');
+  const st = { valor: null, items: [] };
+  const pintar = () => {
+    const q = norm(inp.value).split(/\s+/).filter(Boolean);
+    st.items = fuente().filter(x => { const t = norm(x.label + ' ' + (x.sub || '')); return q.every(p => t.includes(p)); }).slice(0, 60);
+    list.innerHTML = st.items.map((x, i) => `<div class="combo-item" data-i="${i}">${esc(x.label)}${x.sub ? ' <span class="s">' + esc(x.sub) + '</span>' : ''}</div>`).join('') || '<div class="combo-item s">Sin resultados</div>';
+    list.classList.add('show');
+  };
+  inp.addEventListener('input', () => { st.valor = null; pintar(); });
+  inp.addEventListener('focus', pintar);
+  list.addEventListener('mousedown', ev => {
+    const el = ev.target.closest('.combo-item'); if (!el || el.dataset.i == null) return;
+    ev.preventDefault();
+    const it = st.items[+el.dataset.i]; st.valor = it; inp.value = it.label; list.classList.remove('show');
+    if (onPick) onPick(it);
+  });
+  inp.addEventListener('blur', () => setTimeout(() => list.classList.remove('show'), 120));
+  CB[contId] = { get: () => st.valor, set: it => { st.valor = it; inp.value = it ? it.label : ''; }, focus: () => inp.focus() };
+  return CB[contId];
+}
+async function cargarEmpresas() {
+  if (EMPRESAS) return EMPRESAS;
+  EMPRESAS = await api('/api/clientes-gestion/empresas');
+  return EMPRESAS;
+}
+// customer_id → acceso que lo tiene (principal o adicional)
+function accesoDeCliente(cid) {
+  for (const u of V.usuarios) {
+    if (Number(u.customer_id) === Number(cid)) return { u, tipo: 'principal' };
+    if (u.extras.some(e => Number(e.customer_id) === Number(cid))) return { u, tipo: 'adicional' };
+  }
+  return null;
+}
+function itemEmpresa(e) {
+  const a = V ? accesoDeCliente(e.customer_id) : null;
+  const sub = [e.ruc || 'sin RUC', e.tipo === 'persona' ? 'persona' : '', e.ultima_venta ? 'últ. venta ' + fecha(e.ultima_venta) : 'sin ventas',
+    a ? (a.tipo === 'principal' ? 'YA TIENE ACCESO' : 'RUC adicional de ' + a.u.nombre_cliente) : ''].filter(Boolean).join(' · ');
+  return { id: e.customer_id, label: e.nombre, sub, emp: e, acceso: a };
+}
+function itemsLocs(soloLibres) {
+  return [{ id: '', label: '— Sin consignación —', sub: '' }].concat(V.consignaciones.filter(c => c.activa).map(c => ({
+    id: c.id, label: c.nombre,
+    sub: (c.estado === 'ok' || c.estado === 'compartida' ? 'asignada a ' + c.accesos.filter(a => a.activo).map(a => a.nombre).join(', ') : 'libre') + (c.unidades ? ' · ' + N(c.unidades) + ' u.' : '') +
+      (c.factura.estado === 'ok' ? ' · factura a ' + c.factura.ruc : c.factura.estado === 'mixto' ? ' · varios RUC en notas' : c.factura.estado === 'sin_ruc' ? ' · sin RUC en notas' : '')
+  }))).sort((a, b) => (a.id === '' ? -1 : b.id === '' ? 1 : (a.sub.startsWith('libre') ? 0 : 1) - (b.sub.startsWith('libre') ? 0 : 1)));
+}
+
+// ══════════════════ Nuevo acceso ══════════════════
+async function abrirCrear() {
+  $('m-crear').classList.add('show'); $('crear-aviso').innerHTML = '';
+  combo('cb-crear-emp', 'Cargando empresas…', () => (EMPRESAS || []).map(itemEmpresa), avisoCrear);
+  combo('cb-crear-loc', 'Buscar consignación…', () => itemsLocs());
+  try { await cargarEmpresas(); $('cb-crear-emp').querySelector('input').placeholder = 'Buscar por nombre o RUC…'; CB['cb-crear-emp'].focus(); }
+  catch (e) { showToast(e.message, true); }
+}
+function avisoCrear() {
+  const it = CB['cb-crear-emp'].get(); const av = $('crear-aviso');
+  if (!it) { av.innerHTML = ''; return; }
+  const m = [];
+  if (it.acceso) m.push(`<div class="aviso r">Esta empresa ya está en el acceso de <b>${esc(it.acceso.u.nombre_cliente)}</b> (${it.acceso.tipo}).</div>`);
+  if (!it.emp.ruc) m.push('<div class="aviso r">No tiene RUC en el ERP: regístralo allí primero.</div>');
+  if (!it.emp.tiene_correo) m.push('<div class="aviso">No tiene correo en el ERP: el reporte de venta no le llegará.</div>');
+  av.innerHTML = m.join('');
+}
+async function crearAcceso() {
+  const it = CB['cb-crear-emp'].get(); const loc = CB['cb-crear-loc'].get();
+  if (!it) return showToast('Elige una empresa de la lista', true);
+  const b = $('btn-crear'); b.disabled = true;
+  try {
+    const r = await api('/api/clientes-gestion/crear', { customer_id: it.id, location_id: loc && loc.id ? loc.id : null });
+    cerrar('m-crear');
+    showToast(`Acceso creado ✓ Usuario y clave: ${r.usuario}` + (r.sin_correo ? ' · sin correo en el ERP' : ''));
+    await cargar();
+  } catch (e) { showToast(e.message, true); }
+  finally { b.disabled = false; }
+}
+
+// ══════════════════ Crear varios ══════════════════
+let SIM = null;
+function abrirCrearTodos() { $('m-todos').classList.add('show'); $('t-res').innerHTML = ''; $('btn-todos').disabled = true; SIM = null; }
+async function simularTodos() {
+  const b = $('btn-sim'); b.disabled = true;
+  try {
+    SIM = await api('/api/clientes-gestion/crear-todos', { meses: $('t-meses').value, simular: true });
+    $('t-res').innerHTML = `<div class="desc" style="margin-top:10px">${SIM.a_crear.length} por crear · ${SIM.saltados} ya tienen acceso${SIM.repetidos.length ? ' · ' + SIM.repetidos.length + ' con RUC repetido (no se crean)' : ''}</div>` +
+      (SIM.a_crear.length ? `<div class="lst">${SIM.a_crear.map(c => `<div>${esc(c.nombre)} <span class="mono">${esc(c.ruc)}</span></div>`).join('')}</div>` : '') +
+      (SIM.repetidos.length ? `<div class="aviso">RUC repetido en otra ficha del ERP (revisar duplicados): ${SIM.repetidos.map(r => esc(r.nombre) + ' ' + esc(r.ruc)).join(', ')}</div>` : '');
+    $('btn-todos').disabled = !SIM.a_crear.length;
+    $('btn-todos').textContent = `Crear ${SIM.a_crear.length} accesos`;
+  } catch (e) { showToast(e.message, true); }
+  finally { b.disabled = false; }
+}
+async function crearTodos() {
+  if (!SIM || !confirm(`¿Crear ${SIM.a_crear.length} accesos? Usuario y clave inicial = RUC.`)) return;
+  const b = $('btn-todos'); b.disabled = true;
+  try {
+    const r = await api('/api/clientes-gestion/crear-todos', { meses: SIM.meses });
+    showToast(`✓ ${r.creados} creados` + (r.errores.length ? ` · ${r.errores.length} con error` : ''));
+    cerrar('m-todos'); cargar();
+  } catch (e) { showToast(e.message, true); b.disabled = false; }
+}
+
+// ══════════════════ Ficha del acceso ══════════════════
+let DET_ID = null;
+function cerrar(id) { $(id).classList.remove('show'); if (id === 'm-det') DET_ID = null; }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') document.querySelectorAll('.modal-bg.show').forEach(m => cerrar(m.id)); });
+
+function abrirDetalle(id) {
+  const u = usuario(id); if (!u) return;
+  DET_ID = id;
+  const p = u.principal || {};
+  const lineaRuc = (x, extra) => `<div class="ruc-row"><div><div class="nom" style="color:var(--white)">${esc(x.nombre)} ${extra || ''}</div>
+      <div class="sub"><span class="mono">${esc(x.ruc || 'sin RUC')}</span> · ${x.email ? esc(x.email) : '<span style="color:var(--fg-warn)">sin correo</span>'} · ${x.ultima_venta ? 'últ. venta ' + fecha(x.ultima_venta) : 'sin ventas'}${x.ventas_12m ? ' · ' + x.ventas_12m + ' en 12 m' : ''}${x.nota ? ' · ' + esc(x.nota) : ''}</div></div>`;
+  const alertas = u.alertas.map(a => {
+    let fix = '';
+    if (a.cod === 'nombre_distinto' || a.cod === 'empresa_no_existe') fix = a.cod === 'nombre_distinto' ? ` <button class="btn btn-sm btn-sec" onclick="sincNombre(${u.id})">Usar nombre del ERP</button>` : '';
+    if (a.cod === 'clave_inicial') fix = '';
+    return `<div class="aviso ${a.nivel === 'r' ? 'r' : a.nivel === 'i' ? 'i' : ''}">${esc(a.txt)}${fix}</div>`;
+  }).join('');
+  const sug = u.sugeridos.map(s => `<div class="ruc-row"><div><div class="nom" style="color:var(--white)">${esc(s.nombre)} <span class="mono">${esc(s.ruc)}</span></div>
+      <div class="sub">${s.origen === 'consignacion' ? `${s.n} venta(s) de su consignación en 180 días` : s.origen === 'correo' ? 'mismo correo' : 'mismo teléfono'}${s.ultima ? ' · últ. venta ' + fecha(s.ultima) : ''}${s.acceso_propio.length ? ' · <b>tiene su propio acceso</b>' : ''}</div></div>
+      <div class="acc"><button class="btn btn-sm btn-ok" onclick="agregarRuc(${u.id},${s.customer_id})">Es la misma empresa</button></div></div>`).join('');
+
+  $('det').innerHTML = `<button class="x" onclick="cerrar('m-det')">×</button>
+    <h3>${esc(u.nombre_cliente)} ${u.activo ? '<span class="chip c-ok">activo</span>' : '<span class="chip c-g">inactivo</span>'}</h3>
+    <div class="grid2" style="margin-top:10px">
+      <div>Usuario: <b class="mono" style="color:var(--white)">${esc(u.username)}</b>${u.extras.length ? ' <span class="sub" style="display:inline">(o cualquiera de sus RUC)</span>' : ''}</div>
+      <div>Último ingreso: <b>${u.ultimo_login ? fecha(u.ultimo_login) + ' (' + hace(u.ultimo_login) + ')' : 'nunca'}</b></div>
+      <div>Clave: <b>${u.clave_inicial === 1 ? 'la inicial (su RUC)' : u.clave_inicial === 0 ? 'cambiada por el cliente' : 'sin dato'}</b></div>
+      <div>Creado: <b>${fecha(u.creado)}</b></div>
+    </div>
+    ${alertas ? `<div class="bloque"><h4>Por revisar</h4>${alertas}</div>` : ''}
+    <div class="bloque"><h4>RUC de esta empresa</h4>
+      ${u.principal ? lineaRuc(p, '<span class="chip c-v">principal</span>') + '</div>' : '<div class="aviso r">Sin empresa vinculada.</div>'}
+      ${u.extras.map(e => lineaRuc(e, '<span class="chip c-g">adicional</span>') + `<div class="acc">
+          <button class="btn btn-sm btn-sec" onclick="hacerPrincipal(${u.id},${e.rel_id})">Hacer principal</button>
+          <button class="btn btn-sm btn-r" onclick="quitarRuc(${e.rel_id})">Quitar</button></div></div>`).join('')}
+      <div class="desc" style="margin:8px 0 6px">¿La empresa también factura con otro RUC, o cambió de RUC? Agrégalo: verá ventas y pagos de todos sus RUC.</div>
+      <div class="fila" style="margin-top:0"><div class="combo" id="cb-ruc"></div><input class="inp" id="ruc-nota" placeholder="Nota (ej. RUC nuevo desde 2026)" style="flex:1;min-width:160px"><button class="btn btn-sm" onclick="agregarRucCombo(${u.id})">Agregar RUC</button></div>
+    </div>
+    ${sug ? `<div class="bloque"><h4>¿Es la misma empresa?</h4>${sug}</div>` : ''}
+    <div class="bloque"><h4>Consignaciones (lo que ve en "Mi consignación")</h4>
+      ${u.consignaciones.map(c => `<div class="ruc-row"><div><div class="nom" style="color:var(--white)">${esc(c.nombre)} ${c.existe ? (c.activa ? '' : '<span class="chip c-r">inactiva</span>') : '<span class="chip c-r">no existe</span>'}</div>
+          <div class="sub">${chipFactura(c.factura)}</div></div>
+          <div class="acc"><button class="btn btn-sm btn-r" onclick="quitarLoc(${u.id},${c.id})">Quitar</button></div></div>`).join('') || '<div class="desc">Sin consignación.</div>'}
+      <div class="desc" style="margin:8px 0 6px">El RUC al que se factura lo vendido sale de las <b>notas de cada consignación</b> en el ERP (escribe ahí el RUC de 11 dígitos). Si la tienda recibe mercadería a dos RUC, lo ideal es una consignación por RUC y agregar las dos aquí.</div>
+      <div class="fila" style="margin-top:0"><div class="combo" id="cb-loc"></div><button class="btn btn-sm" onclick="agregarLoc(${u.id})">Agregar consignación</button></div>
+    </div>
+    <div class="bloque"><h4>Acceso</h4><div class="fila" style="margin-top:0">
+      ${u.activo ? `<button class="btn btn-sm btn-ok" onclick="verComo(${u.id})">Ver como cliente</button>` : ''}
+      <button class="btn btn-sm btn-sec" onclick="resetClave(${u.id})">Resetear clave al RUC</button>
+      <button class="btn btn-sm ${u.activo ? 'btn-r' : 'btn-ok'}" onclick="activar(${u.id},${u.activo ? 0 : 1})">${u.activo ? 'Desactivar' : 'Activar'}</button>
+    </div></div>`;
+  combo('cb-ruc', 'Buscar empresa del ERP por nombre o RUC…', () => (EMPRESAS || []).filter(e => Number(e.customer_id) !== Number(u.customer_id)).map(itemEmpresa));
+  combo('cb-loc', 'Buscar consignación para agregar…', () => itemsLocs().filter(x => x.id !== '' && !u.consignaciones.some(c => c.id == x.id)));
+  $('m-det').classList.add('show');
+  cargarEmpresas().catch(() => {});
+}
+// mini-modal reutilizando el contenedor de la ficha (elegir de una lista)
+function abrirMini(titulo, desc, fuente, onPick) {
+  DET_ID = null;
+  $('det').innerHTML = `<button class="x" onclick="cerrar('m-det')">×</button><h3>${titulo}</h3><div class="desc" style="margin-top:4px">${esc(desc)}</div><div class="bloque"><div class="combo" id="cb-mini"></div></div>`;
+  $('m-det').classList.add('show');
+  combo('cb-mini', 'Buscar…', fuente, onPick).focus();
+}
+
+async function agregarLoc(id) {
+  const it = CB['cb-loc'].get();
+  if (!it || !it.id) return showToast('Elige una consignación de la lista', true);
+  try {
+    const r = await api('/api/clientes-gestion/consignaciones/agregar', { portal_user_id: id, location_id: it.id });
+    const f = r.factura || {};
+    showToast('Consignación agregada ✓' + (f.estado === 'ok' ? ' · factura a ' + f.ruc : ' · ojo: sin RUC claro en notas'), f.estado !== 'ok');
+    cargar();
+  } catch (e) { showToast(e.message, true); }
+}
+async function quitarLoc(id, locId) {
+  if (!confirm(`¿Quitar "${locNombre(locId) || 'esta consignación'}" de este acceso? El cliente deja de ver su stock.`)) return;
+  try { await api('/api/clientes-gestion/consignaciones/quitar', { portal_user_id: id, location_id: locId }); showToast('Consignación quitada ✓'); cargar(); }
+  catch (e) { showToast(e.message, true); }
+}
+function agregarRucCombo(id) {
+  const it = CB['cb-ruc'].get();
+  if (!it) return showToast('Elige una empresa de la lista', true);
+  agregarRuc(id, it.id, $('ruc-nota').value);
+}
+async function agregarRuc(id, customerId, nota, unir) {
+  const u = usuario(id);
+  try {
+    const r = await api('/api/clientes-gestion/rucs/agregar', { portal_user_id: id, customer_id: customerId, nota: nota || '', unir: !!unir });
+    let m = `RUC ${r.ruc} agregado a ${u.nombre_cliente} ✓`;
+    if (r.desactivados.length) m += ` · Se desactivó el acceso de ${r.desactivados.join(', ')}`;
+    if (r.heredo_consignacion) m += ' · heredó su consignación';
+    showToast(m);
+    if (confirm(`¿${r.nombre} es ahora su RUC principal?\n\nElige "Aceptar" si la empresa dejó de usar el RUC anterior (ej. lo dieron de baja). Así su nombre y su correo salen del RUC nuevo.`)) {
+      await cargar();
+      const nu = usuario(id); const rel = nu && nu.extras.find(e => Number(e.customer_id) === Number(customerId));
+      if (rel) return hacerPrincipal(id, rel.rel_id, true);
+    }
+    cargar();
+  } catch (e) {
+    if (e.status === 409 && e.data && e.data.conflicto) {
+      const c = e.data.conflicto.map(x => `${x.nombre_cliente} (usuario ${x.username}${x.activo ? '' : ', inactivo'})`).join(', ');
+      if (confirm(`Ese RUC tiene su propio acceso: ${c}.\n\n¿Unirlo a ${u.nombre_cliente}? El otro acceso se desactiva y, si este no tiene consignación, hereda la suya.`))
+        return agregarRuc(id, customerId, nota, true);
+      return;
+    }
+    showToast(e.message, true);
+  }
+}
+async function hacerPrincipal(id, relId, sinConfirmar) {
+  const u = usuario(id); const e = u.extras.find(x => x.rel_id === relId);
+  if (!sinConfirmar && !confirm(`¿Hacer principal a ${e.nombre} (${e.ruc})?\n\n${u.principal ? u.principal.nombre : 'El RUC actual'} queda como adicional (su historial se sigue viendo).`)) return;
+  const cambiar = e.ruc && e.ruc !== u.username && confirm(`¿Cambiar también su usuario de entrada a ${e.ruc}?\n\nLa clave no cambia. Igual podrá entrar con cualquiera de sus RUC.`);
+  try {
+    const r = await api('/api/clientes-gestion/rucs/hacer-principal', { id: relId, cambiar_usuario: !!cambiar });
+    showToast(`Ahora es ${r.nombre} · usuario ${r.usuario} ✓`);
+    cargar();
+  } catch (err) { showToast(err.message, true); }
+}
+async function quitarRuc(relId) {
+  if (!confirm('¿Quitar este RUC del acceso? El cliente dejará de ver sus ventas y pagos.')) return;
+  try { await api('/api/clientes-gestion/rucs/quitar', { id: relId }); showToast('RUC quitado ✓'); cargar(); }
+  catch (e) { showToast(e.message, true); }
+}
+async function sincNombre(id) {
+  try { const r = await api('/api/clientes-gestion/sincronizar-nombre', { portal_user_id: id }); showToast('Nombre actualizado: ' + r.nombre); cargar(); }
+  catch (e) { showToast(e.message, true); }
+}
+async function resetClave(id) {
+  if (!confirm('¿Resetear la contraseña de este cliente a su RUC?')) return;
+  try { const r = await api('/api/clientes-gestion/reset-password', { portal_user_id: id }); showToast('Clave reiniciada a: ' + r.password); cargar(); }
+  catch (e) { showToast(e.message, true); }
+}
+async function activar(id, activo) {
+  const u = usuario(id);
+  if (!activo && !confirm(`¿Desactivar el acceso de ${u.nombre_cliente}? Se le cierra la sesión en menos de un minuto.`)) return;
+  try { await api('/api/clientes-gestion/activar', { portal_user_id: id, activo }); showToast(activo ? 'Activado ✓' : 'Desactivado ✓'); cargar(); }
+  catch (e) { showToast(e.message, true); }
+}
+async function verComo(id) {
+  const u = usuario(id);
+  if (!confirm(`¿Abrir el portal como "${u.nombre_cliente}"?\n\nSe abre en una pestaña nueva y tu sesión de administrador no se cierra.`)) return;
+  try {
+    const r = await api('/api/clientes-gestion/ver-como-cliente', { portal_user_id: id });
+    const win = window.open('/index.html#vercomo=' + encodeURIComponent(r.token), '_blank');
+    if (!win) return showToast('Permite las ventanas emergentes para este sitio', true);
+    showToast('Abriendo portal como ' + u.nombre_cliente + ' ✓');
+  } catch (e) { showToast(e.message, true); }
+}
+
+// ══════════════════ Arranque ══════════════════
+if (!TOKEN) $('conteo-accesos').textContent = 'Entra al panel de administración para usar Gestión de clientes.';
+else cargar();
+</script>
+</body>
+</html>

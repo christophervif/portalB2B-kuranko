@@ -798,18 +798,18 @@ async function borrarCarga(periodo, tipo) {
   try { const r = await apiPost('/admin/cpe-sunat/borrar', { periodo, tipo }); showToast(`Se borraron ${r.borrados} comprobantes`); await cargarCPE(); }
   catch (e) { showToast(e.message, true); }
 }
-// Excel armado en el navegador (CSV que abre Excel) con lo que se ve en la tabla
-function excelCPE() {
+// Excel real (.xlsx) generado en el servidor: columnas separadas, filtros y colores.
+// Usa los mismos filtros que se ven en pantalla.
+async function excelCPE() {
   if (!CPE) return;
-  const lista = filtrarCPE();
-  const c = v => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
-  const filas = [['Tipo', 'Serie', 'Número', 'Emisión', 'RUC/DNI', 'Cliente', 'Moneda', 'Importe SUNAT', 'Estado', 'Venta en sistema', 'Importe sistema', 'Anotado por', 'Anotado el', 'Nota']]
-    .concat(lista.map(x => [TIPO_CPE[x.tipo] || x.tipo, x.serie, x.numero, fTxt(x.emision), x.receptor_doc, x.receptor_nombre, x.moneda, x.importe,
-      (EST_CPE[x.estado] || [x.estado])[0], x.erp_venta || '', x.erp_importe == null ? '' : x.erp_importe, x.marcado_por || '', x.marcado_en ? fTxt(x.marcado_en, true) : '', x.nota || '']));
-  const csv = '﻿' + filas.map(f => f.map(c).join(';')).join('\r\n');
-  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-  a.download = `comprobantes-sunat-${CPE.periodo || 'todos'}-${stamp()}.csv`; a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  const p = new URLSearchParams();
+  p.set('periodo', $('cpe-periodo').value || 'todos');
+  if ($('cpe-tipo').value) p.set('tipo', $('cpe-tipo').value);
+  if ($('cpe-estado').value) p.set('estado', $('cpe-estado').value);
+  if ($('cpe-q').value.trim()) p.set('q', $('cpe-q').value.trim());
+  showToast('Generando Excel…');
+  try { await descargar('/admin/cpe-sunat-excel?' + p.toString(), 'comprobantes-sunat.xlsx'); showToast('✓ Excel descargado'); }
+  catch (e) { showToast(e.message, true); }
 }
 // Arrastrar y soltar
 (() => {

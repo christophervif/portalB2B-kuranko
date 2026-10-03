@@ -1070,8 +1070,7 @@ module.exports = function registrarContabilidad({ app, authAdmin, requiereModulo
   });
 
   // Lista cruzada con el ERP (se recalcula en cada consulta: lo que ya se registró se actualiza solo)
-  app.get('/admin/cpe-sunat', authAdmin, mRep, async (req, res) => {
-    try {
+  async function obtenerCPE(req) {
       await tablaListaCPE();
       const [cargasRows] = await portalPool.query(`SELECT periodo, tipo, n, archivo, subido_por, subido_en FROM cont_cpe_cargas`);
       const [rows] = await portalPool.query(`
@@ -1138,7 +1137,7 @@ module.exports = function registrarContabilidad({ app, authAdmin, requiereModulo
       }
       const suma = arr => r2(arr.reduce((s, x) => s + (x.moneda === 'PEN' ? x.importe : 0), 0));
       const de = e => cruzadas.filter(x => x.estado === e);
-      res.json({
+      return {
         periodo, periodos, meses,
         resumen: {
           total: cruzadas.length, monto: suma(cruzadas.filter(x => !x.anulado)),
@@ -1147,8 +1146,91 @@ module.exports = function registrarContabilidad({ app, authAdmin, requiereModulo
           dif_importe: cruzadas.filter(x => x.dif_importe).length, solo_sistema: soloSistema.length
         },
         filas: cruzadas, solo_sistema: soloSistema
+      };
+  }
+
+  app.get('/admin/cpe-sunat', authAdmin, mRep, async (req, res) => {
+    try { res.json(await obtenerCPE(req)); }
+    catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Excel real (.xlsx) con columnas separadas, filtros y colores por estado.
+  // Respeta los filtros de la pantalla: periodo, tipo, estado y búsqueda.
+  app.get('/admin/cpe-sunat-excel', authAdmin, mRep, async (req, res) => {
+    try {
+      const d = await obtenerCPE(req);
+      const { tipo, estado } = req.query;
+      const q = String(req.query.q || '').trim().toLowerCase();
+      const lista = d.filas.filter(x => {
+        if (tipo && x.tipo !== tipo) return false;
+        if (estado === 'dif') { if (!x.dif_importe) return false; } else if (estado && x.estado !== estado) return false;
+        if (q && !`${x.serie}-${x.numero} ${x.receptor_doc} ${x.receptor_nombre} ${x.nota || ''} ${x.erp_venta || ''}`.toLowerCase().includes(q)) return false;
+        return true;
       });
-    } catch (e) { res.status(500).json({ error: e.message }); }
+      const EST = { pendiente: 'Falta en el sistema', anotado: 'Anotado a mano', en_sistema: 'En el sistema', anulado: 'Anulado en SUNAT' };
+      const COLOR = { pendiente: 'FFFDE2E2', anotado: 'FFEDEBFC', en_sistema: 'FFE6F6EC', anulado: 'FFEFEFEF' };
+      const TIPO = { factura: 'Factura', boleta: 'Boleta' };
+      const ExcelJS = require('exceljs');
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('Comprobantes');
+      const mesTxt = p => { if (!p) return 'Todos los meses'; const [a, m] = p.split('-').map(Number);
+        return ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'][m - 1] + ' ' + a; };
+      const mes = d.periodo ? d.meses.find(m => m.periodo === d.periodo) : null;
+      const nCab = cabeceraExcel(ws, 'Comprobantes SUNAT vs sistema', [
+        ['Periodo', mesTxt(d.periodo)], ['Tipo', TIPO[tipo] ? TIPO[tipo] + 's' : ''],
+        ['Estado', estado === 'dif' ? 'Con diferencia de importe' : (EST[estado] || '')], ['Búsqueda', q],
+        ['Mes', mes ? (mes.completo ? 'COMPLETO' : mes.falta_subir.length ? 'falta subir ' + mes.falta_subir.join(' y ') : `faltan ${mes.pendientes}`) : ''],
+        ['Comprobantes', lista.length]
+      ], 15);
+      const cols = [['Tipo', 9], ['Serie', 8], ['Número', 10], ['Comprobante', 14], ['Emisión', 12], ['RUC/DNI', 14], ['Cliente', 42],
+        ['Moneda', 8], ['Importe SUNAT', 14], ['Estado', 20], ['Venta en el sistema', 18], ['Importe en el sistema', 18],
+        ['Anotado por', 14], ['Anotado el', 17], ['Nota', 40]];
+      cols.forEach((c, i) => ws.getColumn(i + 1).width = c[1]);
+      const hr = ws.addRow(cols.map(c => c[0]));
+      hr.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      hr.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000726' } };
+      hr.alignment = { vertical: 'middle', wrapText: true };
+      const fecha = lit => { const m = String(lit || '').match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/);
+        return m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0))) : null; };
+      lista.forEach(x => {
+        const row = ws.addRow([TIPO[x.tipo] || x.tipo, x.serie, x.numero, `${x.serie}-${x.numero}`, fecha(x.emision), x.receptor_doc,
+          x.receptor_nombre, x.moneda, x.importe, EST[x.estado] || x.estado, x.erp_venta || '', x.erp_importe == null ? null : x.erp_importe,
+          x.marcado_por || '', x.marcado_en ? fecha(x.marcado_en) : null, x.nota || '']);
+        row.getCell(10).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: COLOR[x.estado] || 'FFFFFFFF' } };
+        if (x.dif_importe) row.getCell(12).font = { color: { argb: 'FFB45309' }, bold: true };
+      });
+      ws.getColumn(5).numFmt = 'dd/mm/yyyy';
+      ws.getColumn(14).numFmt = 'dd/mm/yyyy hh:mm';
+      [9, 12].forEach(c => ws.getColumn(c).numFmt = '#,##0.00');
+      ws.getColumn(6).numFmt = '@';
+      ws.views = [{ state: 'frozen', ySplit: nCab + 1 }];
+      ws.autoFilter = { from: { row: nCab + 1, column: 1 }, to: { row: nCab + 1 + lista.length, column: cols.length } };
+
+      // Hoja 2: estado de los meses
+      const ws2 = wb.addWorksheet('Meses');
+      const c2 = [['Mes', 18], ['Facturas', 10], ['Boletas', 10], ['En el sistema', 14], ['Anotados a mano', 16], ['Anulados', 10],
+        ['Faltan', 9], ['Monto que falta (S/)', 18], ['Estado', 26], ['Completo desde', 18]];
+      c2.forEach((c, i) => ws2.getColumn(i + 1).width = c[1]);
+      const h2 = ws2.addRow(c2.map(c => c[0]));
+      h2.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      h2.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000726' } };
+      d.meses.forEach(m => {
+        const est = m.completo ? '✓ Completo' : m.falta_subir.length ? 'Falta subir ' + m.falta_subir.map(t => t + 's').join(' y ') : `Faltan ${m.pendientes} por anotar`;
+        const r = ws2.addRow([mesTxt(m.periodo), m.factura ? m.factura.n : '—', m.boleta ? m.boleta.n : '—', m.en_sistema, m.anotados, m.anulados,
+          m.pendientes, m.monto_pendiente, est, m.completado_en ? fecha(m.completado_en) : null]);
+        r.getCell(9).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: m.completo ? 'FFE6F6EC' : m.falta_subir.length ? 'FFFDF5DB' : 'FFFDE2E2' } };
+      });
+      ws2.getColumn(8).numFmt = '#,##0.00';
+      ws2.getColumn(10).numFmt = 'dd/mm/yyyy hh:mm';
+      ws2.views = [{ state: 'frozen', ySplit: 1 }];
+      ws2.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1 + d.meses.length, column: c2.length } };
+
+      const nombre = nombreTrazable('comprobantes-sunat' + (d.periodo ? '-' + d.periodo : ''));
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="${nombre}.xlsx"`);
+      await wb.xlsx.write(res);
+      res.end();
+    } catch (e) { res.status(500).json({ error: 'Error al generar el Excel: ' + e.message }); }
   });
 
   // Marcar / desmarcar como anotado (uno o varios)

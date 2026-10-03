@@ -160,7 +160,7 @@ details.ayuda ul{margin:6px 0 0 18px;line-height:1.6}
     <!-- ══════════ PUNTOS DE VENTA ══════════ -->
     <div id="v-puntos" style="display:none">
       <div class="fila">
-        <input id="p-q" type="search" placeholder="Buscar punto de venta o comprador…" oninput="pintarPuntos()" style="flex:1;min-width:220px">
+        <input id="p-q" type="search" placeholder="Buscar punto de venta, comprador o acceso…" oninput="pintarPuntos()" style="flex:1;min-width:220px">
         <select id="p-estado" onchange="pintarPuntos()">
           <option value="problema">Sin empresa o compartidos</option>
           <option value="sin_empresa">Sin empresa asignada</option>
@@ -406,7 +406,8 @@ function pintarPuntos() {
     if (est === 'factura' && (!c.activa || !['sin_ruc', 'mixto'].includes(c.factura.estado))) return false;
     if (est && !['problema', 'sin_empresa', 'factura'].includes(est) && c.estado !== est) return false;
     if (st && !c.unidades) return false;
-    if (q && !norm(c.nombre + ' ' + c.compradores.map(x => x.nombre + ' ' + x.ruc).join(' ') + ' ' + c.accesos.map(a => a.nombre).join(' ')).includes(q)) return false;
+    if (q && !norm([c.nombre, ...c.compradores.map(x => x.nombre + ' ' + x.ruc), ...c.factura.rucs,
+        ...c.accesos.map(a => { const u = usuario(a.id); return a.nombre + ' ' + (u ? u.username + ' ' + u.extras.map(e => e.ruc).join(' ') : ''); })].join(' ')).includes(q)) return false;
     return true;
   }).sort((a, b) => (b.unidades - a.unidades) || a.nombre.localeCompare(b.nombre));
   $('conteo-puntos').textContent = `${l.length} puntos de venta`;
@@ -442,13 +443,41 @@ async function asignarPunto(locId, userId) {
   } catch (e) { showToast(e.message, true); }
 }
 function asignarPuntoElegir(locId) {
-  abrirMini(`Asignar "${esc(locNombre(locId))}" a un acceso`, 'Elige el cliente que verá el stock de este punto de venta.',
-    () => V.usuarios.filter(u => u.activo).map(u => ({ id: u.id, label: u.nombre_cliente, sub: u.username + (u.consignaciones.length ? ' · ve: ' + u.consignaciones.map(c => c.nombre).join(', ') : ' · sin consignación') })),
-    it => { cerrar('m-det'); asignarPunto(locId, it.id); });
+  // Lista: accesos activos + cualquier empresa/persona del ERP (RUC o DNI).
+  // Si la elegida ya tiene acceso (principal o RUC adicional), se agrega a ese acceso;
+  // si no, se ofrece crearle el acceso con esta consignación.
+  const itemsAccesos = () => V.usuarios.filter(u => u.activo).map(u => ({ key: 'a' + u.id, tipo: 'acceso', id: u.id, label: u.nombre_cliente,
+    sub: 'tiene acceso · ' + u.username + (u.extras.length ? ' +' + u.extras.map(e => e.ruc).join(' +') : '') + (u.consignaciones.length ? ' · ve: ' + u.consignaciones.map(c => c.nombre).join(', ') : ' · sin consignación') }));
+  const comoEmpresa = it => {
+    const a = it.acceso;
+    if (!a) return { ...it, key: 'e' + it.id, tipo: 'empresa', sub: it.sub + ' · sin acceso' };
+    const acc = itemsAccesos().find(x => x.id === a.u.id);
+    return acc || { ...it, key: 'i' + a.u.id, tipo: 'inactivo', sub: it.sub + ' · su acceso está inactivo' };
+  };
+  abrirMini(`Asignar "${esc(locNombre(locId))}"`, 'Busca el cliente por nombre, RUC o DNI. Si no tiene acceso al portal, se lo creas aquí mismo.',
+    () => itemsAccesos().concat((EMPRESAS || []).map(itemEmpresa).filter(x => !x.acceso).map(comoEmpresa)),
+    it => {
+      if (it.tipo === 'acceso') { cerrar('m-det'); return asignarPunto(locId, it.id); }
+      if (it.tipo === 'inactivo') return showToast(`El acceso de ${it.acceso.u.nombre_cliente} está inactivo: actívalo primero desde su ficha.`, true);
+      crearConPunto(it, locId);
+    },
+    async q => (await buscarEmpresasERP(q)).map(comoEmpresa));
+  cargarEmpresas().catch(() => {});
+}
+async function crearConPunto(it, locId) {
+  const e = it.emp || {};
+  if (!e.ruc) return showToast('Esa ficha no tiene RUC/DNI en el ERP: regístralo primero.', true);
+  if (!confirm(`${it.label} (${e.ruc}) no tiene acceso al portal.\n\n¿Crearle el acceso con la consignación "${locNombre(locId)}"? Usuario y clave inicial: ${e.ruc}.`)) return;
+  try {
+    const r = await api('/api/clientes-gestion/crear', { customer_id: it.id, location_id: locId });
+    cerrar('m-det');
+    showToast(`Acceso creado ✓ Usuario y clave: ${r.usuario}` + (r.sin_correo ? ' · sin correo en el ERP' : ''));
+    cargar();
+  } catch (err) { showToast(err.message, true); }
 }
 async function crearDesdePunto(customerId, locId) {
   await abrirCrear();
-  const e = EMPRESAS.find(x => x.customer_id === customerId);
+  const e = (EMPRESAS || []).find(x => x.customer_id === customerId);
   if (e) CB['cb-crear-emp'].set(itemEmpresa(e));
   CB['cb-crear-loc'].set({ id: locId, label: locNombre(locId) });
   avisoCrear();
@@ -456,16 +485,34 @@ async function crearDesdePunto(customerId, locId) {
 
 // ══════════════════ Combo con búsqueda (genérico) ══════════════════
 const CB = {};
-function combo(contId, placeholder, fuente, onPick) {
+// remoto (opcional): async texto → items extra buscados en el servidor (se unen a los locales)
+function combo(contId, placeholder, fuente, onPick, remoto) {
   const cont = $(contId);
   cont.innerHTML = `<input class="inp" placeholder="${esc(placeholder)}" autocomplete="off"><div class="combo-list"></div>`;
   const inp = cont.querySelector('input'), list = cont.querySelector('.combo-list');
-  const st = { valor: null, items: [] };
+  const st = { valor: null, items: [], extra: [], extraQ: '', timer: null, pidiendo: false };
+  const clave = x => (x.key || x.id) + '';
   const pintar = () => {
-    const q = norm(inp.value).split(/\s+/).filter(Boolean);
-    st.items = fuente().filter(x => { const t = norm(x.label + ' ' + (x.sub || '')); return q.every(p => t.includes(p)); }).slice(0, 60);
-    list.innerHTML = st.items.map((x, i) => `<div class="combo-item" data-i="${i}">${esc(x.label)}${x.sub ? ' <span class="s">' + esc(x.sub) + '</span>' : ''}</div>`).join('') || '<div class="combo-item s">Sin resultados</div>';
+    const txt = inp.value.trim();
+    const q = norm(txt).split(/\s+/).filter(Boolean);
+    const pasa = x => { const t = norm(x.label + ' ' + (x.sub || '')); return q.every(p => t.includes(p)); };
+    const locales = fuente().filter(pasa);
+    const vistos = new Set(locales.map(clave));
+    const extra = st.extraQ === txt ? st.extra.filter(x => !vistos.has(clave(x))) : [];
+    st.items = locales.concat(extra).slice(0, 80);
+    const buscando = remoto && txt.length >= 3 && st.extraQ !== txt;
+    list.innerHTML = st.items.map((x, i) => `<div class="combo-item" data-i="${i}">${esc(x.label)}${x.sub ? ' <span class="s">' + esc(x.sub) + '</span>' : ''}</div>`).join('') +
+      (buscando ? '<div class="combo-item s">Buscando en todo el ERP (también DNI)…</div>' : (!st.items.length ? '<div class="combo-item s">Sin resultados' + (remoto && txt.length < 3 ? ' — escribe 3 letras o números para buscar en todo el ERP' : '') + '</div>' : ''));
     list.classList.add('show');
+    if (buscando) {
+      clearTimeout(st.timer);
+      st.timer = setTimeout(async () => {
+        const pedido = inp.value.trim(); if (pedido !== txt) return;
+        try { st.extra = await remoto(pedido); } catch (e) { st.extra = []; }
+        st.extraQ = pedido;
+        if (inp.value.trim() === pedido && document.activeElement === inp) pintar();
+      }, 300);
+    }
   };
   inp.addEventListener('input', () => { st.valor = null; pintar(); });
   inp.addEventListener('focus', pintar);
@@ -483,6 +530,12 @@ async function cargarEmpresas() {
   if (EMPRESAS) return EMPRESAS;
   EMPRESAS = await api('/api/clientes-gestion/empresas');
   return EMPRESAS;
+}
+// Búsqueda en todo el ERP (incluye personas con DNI, que no vienen en la lista base)
+async function buscarEmpresasERP(q) {
+  const r = await api('/api/clientes-gestion/empresas?q=' + encodeURIComponent(q));
+  r.forEach(e => { if (EMPRESAS && !EMPRESAS.some(x => x.customer_id === e.customer_id)) EMPRESAS.push(e); });
+  return r.map(itemEmpresa);
 }
 // customer_id → acceso que lo tiene (principal o adicional)
 function accesoDeCliente(cid) {
@@ -509,7 +562,7 @@ function itemsLocs(soloLibres) {
 // ══════════════════ Nuevo acceso ══════════════════
 async function abrirCrear() {
   $('m-crear').classList.add('show'); $('crear-aviso').innerHTML = '';
-  combo('cb-crear-emp', 'Cargando empresas…', () => (EMPRESAS || []).map(itemEmpresa), avisoCrear);
+  combo('cb-crear-emp', 'Cargando empresas…', () => (EMPRESAS || []).map(itemEmpresa), avisoCrear, buscarEmpresasERP);
   combo('cb-crear-loc', 'Buscar consignación…', () => itemsLocs());
   try { await cargarEmpresas(); $('cb-crear-emp').querySelector('input').placeholder = 'Buscar por nombre o RUC…'; CB['cb-crear-emp'].focus(); }
   catch (e) { showToast(e.message, true); }
@@ -612,17 +665,18 @@ function abrirDetalle(id) {
       <button class="btn btn-sm btn-sec" onclick="resetClave(${u.id})">Resetear clave al RUC</button>
       <button class="btn btn-sm ${u.activo ? 'btn-r' : 'btn-ok'}" onclick="activar(${u.id},${u.activo ? 0 : 1})">${u.activo ? 'Desactivar' : 'Activar'}</button>
     </div></div>`;
-  combo('cb-ruc', 'Buscar empresa del ERP por nombre o RUC…', () => (EMPRESAS || []).filter(e => Number(e.customer_id) !== Number(u.customer_id)).map(itemEmpresa));
+  combo('cb-ruc', 'Buscar en el ERP por nombre, RUC o DNI…', () => (EMPRESAS || []).filter(e => Number(e.customer_id) !== Number(u.customer_id)).map(itemEmpresa), null,
+    async q => (await buscarEmpresasERP(q)).filter(x => Number(x.id) !== Number(u.customer_id)));
   combo('cb-loc', 'Buscar consignación para agregar…', () => itemsLocs().filter(x => x.id !== '' && !u.consignaciones.some(c => c.id == x.id)));
   $('m-det').classList.add('show');
   cargarEmpresas().catch(() => {});
 }
 // mini-modal reutilizando el contenedor de la ficha (elegir de una lista)
-function abrirMini(titulo, desc, fuente, onPick) {
+function abrirMini(titulo, desc, fuente, onPick, remoto) {
   DET_ID = null;
   $('det').innerHTML = `<button class="x" onclick="cerrar('m-det')">×</button><h3>${titulo}</h3><div class="desc" style="margin-top:4px">${esc(desc)}</div><div class="bloque"><div class="combo" id="cb-mini"></div></div>`;
   $('m-det').classList.add('show');
-  combo('cb-mini', 'Buscar…', fuente, onPick).focus();
+  combo('cb-mini', 'Buscar por nombre, RUC o DNI…', fuente, onPick, remoto).focus();
 }
 
 async function agregarLoc(id) {

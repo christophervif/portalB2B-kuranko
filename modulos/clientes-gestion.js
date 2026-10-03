@@ -535,8 +535,32 @@ module.exports = function registrarClientesGestion({ app, authAdmin, requiereMod
     }
   });
 
-  // Empresas del ERP para elegir (empresas + personas con RUC 10/15/17/20)
+  // Empresas del ERP para elegir.
+  //  · Sin q: lista completa de empresas + personas con RUC 10/15/17/20 (se filtra en pantalla).
+  //  · Con q (≥3 letras): busca en TODAS las fichas con documento (también DNI), máx. 40.
   app.get('/api/clientes-gestion/empresas', authAdmin, mGest, async (req, res) => {
+    const q = String(req.query.q || '').trim();
+    if (q.length >= 3) {
+      try {
+        const doc = limpiarDoc(q);
+        const palabras = q.split(/\s+/).filter(Boolean).slice(0, 4);
+        const conds = palabras.map(() => `CONCAT_WS(' ', p.business_name, p.first_name, p.last_name) LIKE ?`);
+        const params = palabras.map(w => '%' + w + '%');
+        const [rows] = await prodPool.query(`
+          SELECT p.id AS customer_id, p.is_company, p.business_name, p.first_name, p.last_name, p.document_number,
+            (p.email IS NOT NULL AND TRIM(p.email) <> '') AS tiene_correo,
+            (SELECT MAX(s.created_at) FROM sales s WHERE s.customer_id=p.id AND s.deleted_at IS NULL) AS ultima_venta
+          FROM parties p
+          WHERE CHAR_LENGTH(TRIM(p.document_number)) >= 8
+            AND ((${conds.join(' AND ')})${doc.length >= 3 && /^\d+$/.test(doc) ? ' OR TRIM(p.document_number) LIKE ?' : ''})
+          ORDER BY ultima_venta IS NULL, ultima_venta DESC LIMIT 40`,
+          doc.length >= 3 && /^\d+$/.test(doc) ? [...params, doc + '%'] : params);
+        return res.json(rows.map(r => ({
+          customer_id: r.customer_id, nombre: nombreParte(r), ruc: (r.document_number || '').trim(),
+          tipo: r.is_company ? 'empresa' : 'persona', tiene_correo: !!Number(r.tiene_correo), ultima_venta: r.ultima_venta
+        })).filter(r => r.nombre || r.ruc));
+      } catch (e) { return res.status(500).json({ error: 'Error al buscar en el ERP: ' + e.message }); }
+    }
     try {
       const [rows] = await prodPool.query(`
         SELECT p.id AS customer_id, p.is_company, p.business_name, p.first_name, p.last_name, p.document_number,

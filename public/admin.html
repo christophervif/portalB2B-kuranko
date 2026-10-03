@@ -237,6 +237,10 @@ tr:hover td{background:var(--hover)}
 .app-card .ico{font-size:34px;line-height:1;margin-bottom:10px;display:block}
 .app-card .nom{font-size:13px;font-weight:600;color:var(--text)}
 .btn-inicio{background:var(--surface3);color:var(--text);border:1px solid var(--border)}
+/* Puntitos de acceso por usuario (solo visibles para el maestro) */
+.app-card{position:relative}
+.acc-dots{position:absolute;top:9px;right:10px;display:flex;gap:4px}
+.acc-dot{width:7px;height:7px;border-radius:50%;display:inline-block;opacity:.75;cursor:default}
 </style>
 </head>
 <body>
@@ -835,9 +839,33 @@ function construirLauncher(){
     card.onclick=()=>abrirApp(id);
     const badgeLauncher = id==='recepciones' ? '<span class="rec-badge" id="launch-rec-badge" style="display:none">0</span>' : '';
     card.innerHTML='<span class="ico">'+ico+'</span><span class="nom">'+nombre+' '+badgeLauncher+'</span>';
+    card.dataset.app=id;
+    card.dataset.modulos=(b.getAttribute('data-modulos')||id).split(',').filter(x=>x!=='accesos').join(',');
     grid.appendChild(card);
   });
+  if(ES_MAESTRO) pintarPuntosAcceso();
   if(typeof actualizarBadgeRecepciones==='function' && (ES_MAESTRO||MIS_MODULOS.includes('recepciones'))) actualizarBadgeRecepciones();
+}
+
+// Puntitos de color en el launcher: cada color = un usuario adicional (no el maestro).
+// El puntito aparece en las apps a las que ese usuario tiene acceso. Solo lo ve el maestro.
+const COLORES_USUARIO=['#8fa3bf','#b5a48a','#8fb3a0','#b39aa8','#a39bbf','#9fb0b8','#b8a99a','#a8b39a'];
+function escHtml(t){return String(t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+async function pintarPuntosAcceso(){
+  let usuarios=[];
+  try{ usuarios=(await apiCall('/admin/accesos','GET')).usuarios||[]; }catch(e){ return; }
+  document.querySelectorAll('#launcher-grid .acc-dots').forEach(d=>d.remove());
+  if(!usuarios.length)return;
+  const col=i=>COLORES_USUARIO[i%COLORES_USUARIO.length];
+  document.querySelectorAll('#launcher-grid .app-card').forEach(card=>{
+    const mods=(card.dataset.modulos||'').split(',').filter(Boolean);
+    const conAcceso=usuarios.map((u,i)=>({u,i})).filter(x=>(x.u.modulos||[]).some(m=>mods.includes(m)));
+    if(!conAcceso.length)return;
+    const box=document.createElement('span');
+    box.className='acc-dots';
+    box.innerHTML=conAcceso.map(x=>'<span class="acc-dot" title="'+escHtml(x.u.username)+'" style="background:'+col(x.i)+'"></span>').join('');
+    card.appendChild(box);
+  });
 }
 
 // Abre una app desde el launcher (muestra las pestañas y activa la elegida)

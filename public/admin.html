@@ -276,6 +276,7 @@ tr:hover td{background:var(--hover)}
       <button class="tab" data-modulos="resumen,caja_bi,rentabilidad" onclick="tab('ventas_ingresos',this)">Ventas e ingresos</button>
       <button class="tab" onclick="tab('cotizador',this)">Cotizador</button>
       <button class="tab" onclick="tab('precio_importado',this)">Precio importado</button>
+      <button class="tab" onclick="tab('asistencia',this)">Asistencia</button>
       <button class="tab" data-modulos="conciliacion" onclick="tab('conciliacion',this)">Conciliación</button>
       <button class="tab" onclick="tab('clientes_bi',this)">Clientes BI</button>
       <button class="tab" data-modulos="cuentas_cobrar" onclick="tab('cuentas_cobrar',this)">Cuentas por cobrar</button>
@@ -638,6 +639,13 @@ tr:hover td{background:var(--hover)}
       </div>
     </div>
 
+    <div id="tab-asistencia" class="panel">
+      <div class="card" style="padding:0;overflow:hidden">
+        <iframe id="asis-frame" title="Asistencia" allow="geolocation"
+          style="width:100%;height:calc(100vh - 150px);min-height:560px;border:0;display:block"></iframe>
+      </div>
+    </div>
+
     <div id="tab-saldo_favor" class="panel">
       <div class="card" style="padding:0;overflow:hidden">
         <iframe id="saldo-frame" title="Créditos"
@@ -781,6 +789,7 @@ function aplicarPermisos(){
       visible=ES_MAESTRO||mods.some(x=>MIS_MODULOS.includes(x));
     }
     else if(modulo==='accesos') visible=ES_MAESTRO;             // solo el maestro
+    else if(modulo==='asistencia') visible=true;                // todos marcan su jornada
     else if(ES_MAESTRO) visible=true;                           // maestro ve todo
     else visible=MIS_MODULOS.includes(modulo);                 // secundario: según permisos
     b.style.display=visible?'':'none';
@@ -817,7 +826,7 @@ const APP_ICONOS={
   clientes_gestion:'👤', ventas_ingresos:'📊', clientes_bi:'👥',
   inventario:'📦', restock:'🔁', reportes:'💰', auditoria:'🔍',
   crm:'📣', sistemas:'⚙️', promociones:'🏷️', importaciones:'🚢', recepciones:'📥', seguimiento:'🚚',
-  conciliacion:'🧾', cuentas_cobrar:'💸', saldo_favor:'💵', cotizador:'🧮', precio_importado:'🌍'
+  conciliacion:'🧾', cuentas_cobrar:'💸', saldo_favor:'💵', cotizador:'🧮', precio_importado:'🌍', asistencia:'⏱️'
 };
 
 // Genera las tarjetas del launcher a partir de las pestañas visibles (respeta permisos)
@@ -894,7 +903,18 @@ async function mostrarApp(){
   document.getElementById('app-screen').style.display='block';
   aplicarTema(document.documentElement.getAttribute('data-theme')||'dark');
   aplicarPermisos();
+  revisarJornada();
   // No cargamos todo de golpe: cada pestaña carga sus datos al abrirse (ver cargarDatosTab).
+}
+// Si al entrar aún no marcó su entrada de hoy, abre Asistencia directamente
+async function revisarJornada(){
+  if(ES_MAESTRO)return;
+  try{
+    const r=await fetch(API+'/api/asistencia/mi-estado',{headers:{'Authorization':'Bearer '+TOKEN}});
+    if(!r.ok)return;
+    const e=await r.json();
+    if(e.controlar&&e.siguiente==='entrada')abrirApp('asistencia');
+  }catch(err){}
 }
 // Carga los datos que necesita cada pestaña, solo cuando se abre
 const tabsCargadas={};
@@ -967,6 +987,11 @@ function cargarDatosTab(id){
     // Cotizador rápido en iframe; comparte token/origen. Carga perezosa.
     const fr=document.getElementById('cot-frame');
     if(fr&&!fr.src){fr.src='/cotizador.html?v='+Date.now();}
+  }
+  else if(id==='asistencia'){
+    // Asistencia (marcar jornada + control) en iframe (public/asistencia.html); comparte token/origen.
+    const fr=document.getElementById('asis-frame');
+    if(fr&&!fr.src){fr.src='/asistencia.html?v='+Date.now();}
   }
   else if(id==='precio_importado'){
     // Calculadora de precio para pedidos especiales importados (public/precio-importado.html)

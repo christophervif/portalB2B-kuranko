@@ -76,6 +76,15 @@ tr:hover td{background:var(--hover)}
 .rev{border:1px solid var(--border);border-radius:14px;padding:12px;margin-bottom:10px;background:var(--surface2)}
 .rev .cab{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .rev .nom{font-weight:700;color:var(--white)}
+.hgrid{display:grid;grid-template-columns:auto auto auto;gap:6px 10px;align-items:center;margin-top:8px;width:max-content;max-width:100%}
+.hgrid label{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text2);min-width:62px}
+.hgrid input[type=time]{padding:5px 8px}
+.hgrid.off{opacity:.55;pointer-events:none}
+.saldos{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px;margin-top:8px}
+.saldo-card{border:1px solid var(--border);border-radius:14px;padding:12px;background:var(--surface2)}
+.saldo-card .nom{font-weight:700;color:var(--white);margin-bottom:6px}
+.saldo-card .lin{display:flex;justify-content:space-between;font-size:12.5px;padding:2px 0}
+.pos{color:var(--fg-ok);font-weight:700}.neg{color:var(--fg-r);font-weight:700}
 .dias label{display:inline-flex;align-items:center;gap:3px;font-size:12px;margin-right:6px;color:var(--text2)}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:flex-start;justify-content:center;z-index:150;padding:40px 16px;overflow:auto}
 .modal .caja{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:16px;width:100%;max-width:480px;box-shadow:0 10px 40px rgba(0,0,0,.35)}
@@ -116,7 +125,7 @@ tr:hover td{background:var(--hover)}
         <input type="month" id="mi-mes">
       </div>
       <div class="desc" id="mi-tot" style="margin-bottom:8px"></div>
-      <div class="tabla-wrap"><table><thead><tr><th>Fecha</th><th>Entrada</th><th>Salida</th><th class="num">Horas</th><th>Estado</th></tr></thead><tbody id="mi-hist"></tbody></table></div>
+      <div class="tabla-wrap"><table><thead><tr><th>Fecha</th><th>Entrada</th><th>Salida</th><th class="num">Horas</th><th class="num">Saldo</th><th>Estado</th></tr></thead><tbody id="mi-hist"></tbody></table></div>
     </div>
   </div>
 
@@ -133,14 +142,19 @@ tr:hover td{background:var(--hover)}
         <button class="btn btn-sec" onclick="abrirManual()">+ Marca manual</button>
       </div>
     </div>
+    <div class="card" id="rep-saldos-card">
+      <h3>Saldo de horas</h3>
+      <div class="desc">Trabajado menos lo esperado según su horario. <span class="neg">−</span> = debe horas · <span class="pos">+</span> = tiene horas a favor. Las faltas no se descuentan aquí (se ven aparte).</div>
+      <div class="saldos" id="rep-saldos"></div>
+    </div>
     <div class="card">
       <h3>Resumen por trabajador</h3>
-      <div class="tabla-wrap"><table><thead><tr><th>Trabajador</th><th class="num">Asistió</th><th class="num">Faltas</th><th class="num">Tardanzas</th><th class="num">Min. tarde</th><th class="num">Sin salida</th><th class="num">Horas</th><th class="num">Observadas</th><th class="num">Fuera del local</th></tr></thead><tbody id="rep-tot"></tbody></table></div>
+      <div class="tabla-wrap"><table><thead><tr><th>Trabajador</th><th class="num">Asistió</th><th class="num">Faltas</th><th class="num">Tardanzas</th><th class="num">Min. tarde</th><th class="num">Sin salida</th><th class="num">Horas</th><th class="num">Observadas</th><th class="num">Fuera del local</th><th class="num">Saldo</th></tr></thead><tbody id="rep-tot"></tbody></table></div>
     </div>
     <div class="card">
       <h3>Detalle por día</h3>
       <div class="desc" style="margin-bottom:8px">"Sistema" = primera y última acción del trabajador en el sistema principal (ventas, movimientos de stock…). <b>+min</b> = cuánto tardó en empezar a trabajar después de marcar. "Fuera del local" = salidas detectadas por el celular de empresa durante la jornada.</div>
-      <div class="tabla-wrap"><table><thead><tr><th>Fecha</th><th>Trabajador</th><th>Entrada</th><th>Salida</th><th class="num">Horas</th><th>Estado</th><th>Sistema</th><th>Fuera del local</th><th>Observaciones</th><th></th></tr></thead><tbody id="rep-det"></tbody></table></div>
+      <div class="tabla-wrap"><table><thead><tr><th>Fecha</th><th>Trabajador</th><th>Entrada</th><th>Salida</th><th class="num">Horas</th><th class="num">Saldo</th><th>Estado</th><th>Sistema</th><th>Fuera del local</th><th>Observaciones</th><th></th></tr></thead><tbody id="rep-det"></tbody></table></div>
     </div>
   </div>
 
@@ -197,13 +211,12 @@ tr:hover td{background:var(--hover)}
   <div class="vista" id="v-ajustes">
     <div class="card">
       <h3>Horario general</h3>
-      <div class="desc">Se aplica a quien no tenga horario propio en Personal.</div>
-      <div class="fila" style="margin-top:10px">
-        <label class="f">Entrada<input type="time" id="cfg-ent"></label>
-        <label class="f">Salida<input type="time" id="cfg-sal"></label>
-        <label class="f">Tolerancia (min)<input type="number" id="cfg-tol" style="width:100px"></label>
+      <div class="desc">Se aplica a quien no tenga horario propio en Personal. Marca los días laborables y su horario (el sábado puede ser distinto).</div>
+      <div id="cfg-horario"></div>
+      <div class="fila" style="margin-top:12px">
+        <label class="f">Tolerancia de llegada (min)<input type="number" id="cfg-tol" style="width:120px"></label>
       </div>
-      <div class="dias" id="cfg-dias" style="margin-top:10px"></div>
+      <div class="desc" style="margin-top:6px">Si llega tarde pero ese día completa sus horas (se queda más), la tardanza figura como <b>compensada</b>. Lo que falte o sobre se acumula en el <b>saldo de horas</b> del mes.</div>
     </div>
     <div class="card">
       <h3>Validación</h3>
@@ -254,6 +267,20 @@ async function api(ep,body){
 }
 function toast(m,err){const t=$('toast');t.textContent=m;t.className='toast'+(err?' err':'');t.style.display='block';clearTimeout(t._t);t._t=setTimeout(()=>t.style.display='none',3800);}
 const hhmm=m=>m==null?'—':Math.floor(m/60)+':'+String(m%60).padStart(2,'0');
+const sgn=m=>m==null?'<span class="sub">—</span>':m===0?'<span class="sub">0:00</span>':'<span class="'+(m<0?'neg':'pos')+'">'+(m<0?'−':'+')+hhmm(Math.abs(m))+'</span>';
+// Cuadrícula de horario por día: h = {1:{entrada,salida},…}
+function gridHorario(id,h,deshab){
+  h=h||{};
+  return '<div class="hgrid'+(deshab?' off':'')+'" id="'+id+'">'+[1,2,3,4,5,6,7].map(d=>{const v=h[d];return '<label><input type="checkbox" data-d="'+d+'"'+(v?' checked':'')+'>'+DIAS[d]+'</label>'+
+    '<input type="time" data-e="'+d+'" value="'+(v?v.entrada:'')+'"><input type="time" data-s="'+d+'" value="'+(v?v.salida:'')+'">';}).join('')+'</div>';
+}
+function leerHorario(id){
+  const g=$(id),o={};
+  g.querySelectorAll('input[data-d]').forEach(c=>{if(!c.checked)return;const d=c.dataset.d;
+    const e=g.querySelector('[data-e="'+d+'"]').value,s=g.querySelector('[data-s="'+d+'"]').value;
+    if(!e||!s)throw new Error('Completa entrada y salida del '+DIAS[d]);o[d]=[e,s];});
+  return o;
+}
 const hoyLima=()=>new Date(Date.now()+OFFSET-5*3600e3).toISOString().slice(0,10);
 const sumarDias=(f,n)=>{const d=new Date(f+'T00:00:00Z');d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10);};
 const DIAS=['','Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
@@ -315,7 +342,10 @@ function pintarMiEstado(){
   const e=ESTADO;
   $('mi-saludo').textContent='Hola, '+(e.nombre||e.usuario);
   $('mi-fecha').textContent=new Date(e.hoy+'T12:00:00Z').toLocaleDateString('es-PE',{weekday:'long',day:'numeric',month:'long',timeZone:'UTC'});
-  $('mi-horario').textContent=e.controlar?('Tu horario: '+e.horario.entrada+' – '+e.horario.salida+(e.laborable?'':' · hoy no es día laborable')):'Tu usuario no tiene control de asistencia.';
+  let txtH=!e.controlar?'Tu usuario no tiene control de asistencia.':(e.horario?'Tu horario de hoy: '+e.horario.entrada+' – '+e.horario.salida:'Hoy no es día laborable');
+  const sd=e.saldo;
+  $('mi-horario').innerHTML=esc(txtH)+(sd?'<div style="margin-top:4px">Saldo · semana '+sgn(sd.semana)+' · mes '+sgn(sd.mes)+'</div>'+
+    (sd.sabado&&sd.sabado.salida_sugerida!==sd.sabado.salida_base?'<div>Sábado: '+(sd.semana_lv<0?'quedarte':'puedes salir')+' hasta las <b>'+sd.sabado.salida_sugerida+'</b></div>':''):'');
   $('mi-ent').textContent=e.entrada?e.entrada.hora:'—';$('mi-ent-e').innerHTML=e.entrada?chipMarca(e.entrada.estado):'';
   $('mi-sal').textContent=e.salida?e.salida.hora:'—';$('mi-sal-e').innerHTML=e.salida?chipMarca(e.salida.estado):'';
   const b=$('btn-marcar');
@@ -380,9 +410,9 @@ async function cargarMisMarcas(){
   try{
     const d=await api('/api/asistencia/mis-marcas?mes='+encodeURIComponent(mes));
     const t=d.totales||{};
-    $('mi-tot').textContent=d.filas.length?('Asistió '+(t.asistidos||0)+' de '+(t.dias_lab||0)+' días · '+(t.tardanzas||0)+' tardanzas · '+hhmm(t.min_trabajados||0)+' h trabajadas'):'';
-    $('mi-hist').innerHTML=d.filas.map(f=>'<tr><td>'+DIAS[f.dia]+' '+f.fecha.slice(8)+'/'+f.fecha.slice(5,7)+'</td><td>'+(f.entrada||'—')+(f.min_tardanza?' <span class="chip warn">+'+f.min_tardanza+'</span>':'')+' '+chipMarca(f.entrada_estado)+'</td><td>'+(f.salida||'—')+' '+chipMarca(f.salida_estado)+'</td><td class="num">'+hhmm(f.min_trabajados)+'</td><td>'+chipEstado(f.estado)+'</td></tr>').join('')||'<tr><td colspan="5" class="vacio">Sin marcas este mes</td></tr>';
-  }catch(e){$('mi-hist').innerHTML='<tr><td colspan="5" class="vacio">'+esc(e.message)+'</td></tr>';}
+    $('mi-tot').textContent=d.filas.length?('Asistió '+(t.asistidos||0)+' de '+(t.dias_lab||0)+' días · '+(t.tardanzas||0)+' tardanzas · '+hhmm(t.min_trabajados||0)+' h trabajadas · saldo '+(t.saldo<0?'−':'+')+hhmm(Math.abs(t.saldo||0))):'';
+    $('mi-hist').innerHTML=d.filas.map(f=>'<tr><td>'+DIAS[f.dia]+' '+f.fecha.slice(8)+'/'+f.fecha.slice(5,7)+'</td><td>'+(f.entrada||'—')+(f.min_tardanza?' <span class="chip warn">+'+f.min_tardanza+'</span>':'')+' '+chipMarca(f.entrada_estado)+'</td><td>'+(f.salida||'—')+' '+chipMarca(f.salida_estado)+'</td><td class="num">'+hhmm(f.min_trabajados)+'</td><td class="num">'+sgn(f.saldo)+'</td><td>'+chipEstado(f.estado)+'</td></tr>').join('')||'<tr><td colspan="6" class="vacio">Sin marcas este mes</td></tr>';
+  }catch(e){$('mi-hist').innerHTML='<tr><td colspan="6" class="vacio">'+esc(e.message)+'</td></tr>';}
 }
 $('mi-mes').onchange=cargarMisMarcas;
 
@@ -400,12 +430,16 @@ async function asegurarPersonal(forzar){
 }
 function qsRango(){return 'desde='+$('rep-desde').value+'&hasta='+$('rep-hasta').value;}
 async function cargarReporte(){
-  $('rep-det').innerHTML='<tr><td colspan="10" class="vacio">Cargando…</td></tr>';
+  $('rep-det').innerHTML='<tr><td colspan="11" class="vacio">Cargando…</td></tr>';
   try{
     const d=await api('/api/asistencia/admin/reporte?'+qsRango()+'&usuario='+encodeURIComponent($('rep-usuario').value));
     $('rep-aviso').innerHTML=d.hay_sedes?'':'<div class="aviso warn">⚠ Aún no hay sedes configuradas: las marcas no se validan por ubicación. Ve a <b>Sedes</b> para registrar el local.</div>';
     pintarNumObs(d.observadas_pendientes);
-    $('rep-tot').innerHTML=d.totales.map(t=>'<tr><td><b>'+esc(t.nombre)+'</b></td><td class="num">'+t.asistidos+' / '+t.dias_lab+'</td><td class="num">'+(t.faltas?'<span class="chip bad">'+t.faltas+'</span>':'0')+'</td><td class="num">'+(t.tardanzas?'<span class="chip warn">'+t.tardanzas+'</span>':'0')+'</td><td class="num">'+t.min_tardanza+'</td><td class="num">'+t.sin_salida+'</td><td class="num">'+hhmm(t.min_trabajados)+'</td><td class="num">'+t.observadas+'</td><td class="num">'+(t.salidas?'<span class="chip warn">'+t.salidas+' · '+hhmm(t.min_fuera)+'</span>':'<span class="sub">—</span>')+'</td></tr>').join('')||'<tr><td colspan="9" class="vacio">No hay personal controlado</td></tr>';
+    $('rep-saldos').innerHTML=(d.saldos||[]).map(x=>'<div class="saldo-card"><div class="nom">'+esc(x.nombre)+'</div>'+
+      '<div class="lin"><span>Esta semana</span>'+sgn(x.semana)+'</div><div class="lin"><span>Este mes</span>'+sgn(x.mes)+'</div>'+
+      (x.sabado?'<div class="lin"><span>Sábado '+x.sabado.fecha.slice(8)+'/'+x.sabado.fecha.slice(5,7)+'</span><span>sale <b>'+x.sabado.salida_sugerida+'</b>'+(x.sabado.salida_sugerida!==x.sabado.salida_base?' <span class="sub">(normal '+x.sabado.salida_base+')</span>':'')+'</span></div>':'')+
+      '</div>').join('')||'<div class="vacio">Sin datos</div>';
+    $('rep-tot').innerHTML=d.totales.map(t=>'<tr><td><b>'+esc(t.nombre)+'</b></td><td class="num">'+t.asistidos+' / '+t.dias_lab+'</td><td class="num">'+(t.faltas?'<span class="chip bad">'+t.faltas+'</span>':'0')+'</td><td class="num">'+(t.tardanzas?'<span class="chip warn">'+t.tardanzas+'</span>':'0')+(t.compensadas?'<div class="sub">'+t.compensadas+' compensada'+(t.compensadas>1?'s':'')+'</div>':'')+'</td><td class="num">'+t.min_tardanza+'</td><td class="num">'+t.sin_salida+'</td><td class="num">'+hhmm(t.min_trabajados)+'</td><td class="num">'+t.observadas+'</td><td class="num">'+(t.salidas?'<span class="chip warn">'+t.salidas+' · '+hhmm(t.min_fuera)+'</span>':'<span class="sub">—</span>')+'</td><td class="num">'+sgn(t.saldo)+'</td></tr>').join('')||'<tr><td colspan="10" class="vacio">No hay personal controlado</td></tr>';
     $('rep-det').innerHTML=d.filas.map(f=>{
       let sis='<span class="sub">—</span>';
       if(f.act_primera){
@@ -417,13 +451,13 @@ async function cargarReporte(){
         ?'<button class="btn btn-sec btn-sm" onclick="abrirManual(\''+esc(f.usuario)+'\',\''+f.fecha+'\',\''+(f.estado==='sin_salida'?'salida':'entrada')+'\')">Corregir</button>':'';
       return '<tr><td>'+DIAS[f.dia]+' '+f.fecha.slice(8)+'/'+f.fecha.slice(5,7)+(f.laborable?'':'<div class="sub">no laborable</div>')+'</td>'+
         '<td>'+esc(f.nombre)+'<div class="sub">'+f.horario+'</div></td>'+
-        '<td>'+(f.entrada||'—')+(f.min_tardanza?' <span class="chip warn">+'+f.min_tardanza+'</span>':'')+'<div>'+chipMarca(f.entrada_estado)+'</div></td>'+
+        '<td>'+(f.entrada||'—')+(f.min_tardanza?(f.tardanza_compensada?' <span class="chip neu" title="Llegó tarde pero completó sus horas">+'+f.min_tardanza+' compensada</span>':' <span class="chip warn">+'+f.min_tardanza+'</span>'):'')+'<div>'+chipMarca(f.entrada_estado)+'</div></td>'+
         '<td>'+(f.salida||'—')+(f.min_salida_antes?' <span class="chip warn">-'+f.min_salida_antes+'</span>':'')+'<div>'+chipMarca(f.salida_estado)+'</div></td>'+
-        '<td class="num">'+hhmm(f.min_trabajados)+'</td><td>'+chipEstado(f.estado)+'</td><td>'+sis+'</td>'+
+        '<td class="num">'+hhmm(f.min_trabajados)+'</td><td class="num">'+sgn(f.saldo)+'</td><td>'+chipEstado(f.estado)+'</td><td>'+sis+'</td>'+
         '<td>'+(f.fuera?f.fuera.map(x=>'<div><span class="chip '+(x.min>=30?'bad':'warn')+'">'+x.desde+'–'+(x.hasta||'sigue fuera')+'</span> <span class="sub">'+x.min+' min</span></div>').join(''):'<span class="sub">—</span>')+'</td>'+
         '<td class="sub" style="max-width:260px">'+esc(f.motivos)+(f.notas?'<div>💬 '+esc(f.notas)+'</div>':'')+'</td><td>'+accion+'</td></tr>';
-    }).join('')||'<tr><td colspan="10" class="vacio">Sin datos en el rango</td></tr>';
-  }catch(e){$('rep-det').innerHTML='<tr><td colspan="10" class="vacio">'+esc(e.message)+'</td></tr>';}
+    }).join('')||'<tr><td colspan="11" class="vacio">Sin datos en el rango</td></tr>';
+  }catch(e){$('rep-det').innerHTML='<tr><td colspan="11" class="vacio">'+esc(e.message)+'</td></tr>';}
 }
 async function descargarExcel(){
   try{
@@ -443,7 +477,8 @@ async function abrirManual(usuario,fecha,tipo){
   if(usuario)$('man-usuario').value=usuario;
   $('man-fecha').value=fecha||hoyLima();$('man-tipo').value=tipo||'entrada';
   const p=PERSONAL.find(x=>x.usuario===$('man-usuario').value)||{};
-  $('man-hora').value=(tipo==='salida'?p.hora_salida:p.hora_entrada)||'';
+  const hd=(p.horario||{})[(new Date($('man-fecha').value+'T12:00:00Z').getUTCDay()||7)];
+  $('man-hora').value=hd?(tipo==='salida'?hd.salida:hd.entrada):'';
   $('man-nota').value='';
   $('modal-manual').style.display='flex';
 }
@@ -498,11 +533,10 @@ async function cargarPersonal(){
     '<label style="display:flex;gap:6px;align-items:center;font-size:12.5px"><input type="checkbox" id="pc-'+i+'"'+(p.controlar?' checked':'')+'> Controlar asistencia</label></div>'+
     '<div class="fila" style="margin-top:10px">'+
       '<label class="f" style="flex:1;min-width:150px">Nombre<input id="pn-'+i+'" value="'+esc(p.nombre||'')+'"></label>'+
-      '<label class="f">Entrada<input type="time" id="pe-'+i+'" value="'+esc(p.hora_entrada||'')+'"></label>'+
-      '<label class="f">Salida<input type="time" id="ps-'+i+'" value="'+esc(p.hora_salida||'')+'"></label>'+
+
       '<label class="f" style="min-width:180px">Usuario en el sistema<select id="pu-'+i+'">'+opcSis(p.prod_user_id)+'</select></label>'+
     '</div>'+
-    '<div class="dias" style="margin-top:8px"><span class="sub">Días propios (vacío = general): </span>'+checkDias('pd-'+i,p.dias)+'</div>'+
+    '<div style="margin-top:10px"><label style="display:inline-flex;gap:6px;align-items:center;font-size:12.5px"><input type="checkbox" id="ph-'+i+'"'+(p.horario_propio?' checked':'')+' onchange="document.getElementById(\'pg-'+i+'\').classList.toggle(\'off\',!this.checked)"> Horario propio <span class="sub">(si no, usa el general de Ajustes)</span></label>'+gridHorario('pg-'+i,p.horario,!p.horario_propio)+'</div>'+
     '<div class="sub" style="margin-top:8px">Equipos registrados: '+(p.equipos.length?p.equipos.map(e=>esc(e.etiqueta)+' <span class="sub">(desde '+esc(e.desde||'')+')</span> <a href="#" onclick="quitarEquipo('+i+',\''+esc(e.id)+'\');return false">quitar</a>').join(' · '):'ninguno (se registra al marcar)')+'</div>'+
     '<div class="sub" style="margin-top:8px">📱 Celular de empresa: '+(p.tiene_geo
       ?'<span class="chip ok">detección de salidas activa</span>'+(p.ult_geo?' · última señal '+esc(p.ult_geo)+(p.ult_evento?' ('+(p.ult_evento==='salida'?'fuera':'en el local')+')':''):' · aún sin señal')+' · <a href="#" onclick="geoToken('+i+');return false">ver nueva clave</a> · <a href="#" onclick="geoToken('+i+',true);return false">desactivar</a>'
@@ -513,8 +547,9 @@ async function cargarPersonal(){
 async function guardarPersona(i){
   const p=PERSONAL[i];
   try{
-    await api('/api/asistencia/admin/personal',{usuario:p.usuario,nombre:$('pn-'+i).value,controlar:$('pc-'+i).checked,hora_entrada:$('pe-'+i).value,hora_salida:$('ps-'+i).value,dias:diasMarcados('.pd-'+i),prod_user_id:$('pu-'+i).value});
-    toast('Guardado');cargadas.reporte=0;
+    const horario=$('ph-'+i).checked?leerHorario('pg-'+i):null;
+    await api('/api/asistencia/admin/personal',{usuario:p.usuario,nombre:$('pn-'+i).value,controlar:$('pc-'+i).checked,horario,prod_user_id:$('pu-'+i).value});
+    toast('Guardado');cargadas.reporte=0;await asegurarPersonal(true);
   }catch(e){toast(e.message,true);}
 }
 async function geoToken(i,quitar){
@@ -574,14 +609,13 @@ async function eliminarSede(id){
 async function cargarConfig(){
   try{
     const c=await api('/api/asistencia/admin/config');
-    $('cfg-ent').value=c.hora_entrada;$('cfg-sal').value=c.hora_salida;$('cfg-tol').value=c.tolerancia_min;
+    $('cfg-horario').innerHTML=gridHorario('cfg-grid',c.horario);$('cfg-tol').value=c.tolerancia_min;
     $('cfg-prec').value=c.precision_max_m;$('cfg-min').value=c.min_jornada_min;$('cfg-tz').value=c.prod_tz;
-    $('cfg-dias').innerHTML='<span class="sub">Días laborables: </span>'+checkDias('cd',c.dias);
   }catch(e){toast(e.message,true);}
 }
 async function guardarConfig(){
   try{
-    await api('/api/asistencia/admin/config',{hora_entrada:$('cfg-ent').value,hora_salida:$('cfg-sal').value,tolerancia_min:$('cfg-tol').value,precision_max_m:$('cfg-prec').value,min_jornada_min:$('cfg-min').value,prod_tz:$('cfg-tz').value,dias:diasMarcados('.cd')});
+    await api('/api/asistencia/admin/config',{horario:leerHorario('cfg-grid'),tolerancia_min:$('cfg-tol').value,precision_max_m:$('cfg-prec').value,min_jornada_min:$('cfg-min').value,prod_tz:$('cfg-tz').value});
     toast('Ajustes guardados');cargadas.reporte=0;
   }catch(e){toast(e.message,true);}
 }

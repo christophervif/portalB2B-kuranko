@@ -110,7 +110,7 @@ function soloMaestro(req, res, next) {
 // LOGIN ADMIN
 // ════════════════════════════════════════════════════════════════════════════
 // Lista de módulos (pestañas) del admin. Debe coincidir con las pestañas del HTML.
-const MODULOS_ADMIN = ['clientes_gestion', 'sync', 'auditoria', 'resumen', 'rentabilidad', 'inventario', 'restock', 'clientes_bi', 'caja_bi', 'crm', 'reportes', 'pagos', 'importaciones', 'recepciones', 'seguimiento', 'conciliacion', 'cuentas_cobrar', 'saldo_favor', 'cotizador', 'precio_importado'];
+const MODULOS_ADMIN = ['clientes_gestion', 'sync', 'auditoria', 'resumen', 'rentabilidad', 'inventario', 'restock', 'clientes_bi', 'caja_bi', 'crm', 'reportes', 'pagos', 'importaciones', 'recepciones', 'seguimiento', 'conciliacion', 'cuentas_cobrar', 'saldo_favor', 'cotizador', 'precio_importado', 'asistencia'];
 
 // Usuarios admin secundarios definidos en variables de entorno (Railway).
 // Formato por usuario (numeradas del 2 en adelante):
@@ -188,6 +188,7 @@ let modPortal = null;
 let modImportacion = null;
 let modRecepciones = null;
 let modSeguimiento = null;
+let modAsistencia = null;
 
 // Registro de endpoints del dashboard (inyectado directamente)
 (function(){
@@ -284,6 +285,10 @@ let modSeguimiento = null;
   require('./modulos/precio-importado')({ app, authAdmin, requiereModulo, prodPool, VV, catalogo: modCotizador.catalogo,
     buscarInternet: modCotizador._test && modCotizador._test.buscarInternet });
 
+  // ── Módulo Asistencia (entrada/salida del personal) — public/asistencia.html ──
+  //    Todos los usuarios marcan su jornada; el módulo 'asistencia' da acceso al control.
+  modAsistencia = require('./modulos/asistencia')({ app, authAdmin, requiereModulo, prodPool, portalPool, leerAdminsSecundarios });
+
   // ── Módulo Sincronización web ──
   modSync = require('./modulos/sincronizacion')({ app, authAdmin, requiereModulo, prodPool, portalPool });
 
@@ -347,6 +352,7 @@ app.listen(PORT, async () => {
     if (modImportacion && modImportacion.prepararTablas) await modImportacion.prepararTablas();
     if (modRecepciones && modRecepciones.prepararTablas) await modRecepciones.prepararTablas();
     if (modSeguimiento && modSeguimiento.prepararTablas) await modSeguimiento.prepararTablas();
+    if (modAsistencia && modAsistencia.prepararTablas) await modAsistencia.prepararTablas();
     console.log('Tablas del portal listas.');
   } catch (e) { console.error('No se pudieron preparar las tablas al arrancar:', e.message); }
 });

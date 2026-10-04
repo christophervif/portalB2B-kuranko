@@ -110,7 +110,7 @@ function soloMaestro(req, res, next) {
 // LOGIN ADMIN
 // ════════════════════════════════════════════════════════════════════════════
 // Lista de módulos (pestañas) del admin. Debe coincidir con las pestañas del HTML.
-const MODULOS_ADMIN = ['clientes_gestion', 'sync', 'auditoria', 'resumen', 'rentabilidad', 'inventario', 'restock', 'clientes_bi', 'caja_bi', 'crm', 'reportes', 'pagos', 'importaciones', 'recepciones', 'seguimiento', 'conciliacion', 'cuentas_cobrar', 'saldo_favor', 'cotizador', 'precio_importado', 'asistencia', 'gastos', 'rendimiento'];
+const MODULOS_ADMIN = ['clientes_gestion', 'sync', 'auditoria', 'resumen', 'rentabilidad', 'inventario', 'restock', 'clientes_bi', 'caja_bi', 'crm', 'reportes', 'pagos', 'importaciones', 'recepciones', 'seguimiento', 'conciliacion', 'cuentas_cobrar', 'saldo_favor', 'cotizador', 'precio_importado', 'asistencia', 'facturacion'];
 
 // Usuarios admin secundarios definidos en variables de entorno (Railway).
 // Formato por usuario (numeradas del 2 en adelante):
@@ -233,7 +233,7 @@ let modGestion = null;
   modPortal = require('./modulos/portal-cliente')({ app, authAdmin, requiereModulo, prodPool, portalPool, JWT_SECRET, grupos: modGestion });
 
   // ── Módulo Ventas-BI (KPIs, rentabilidad, top productos) ──
-  const modVentasBI = require('./modulos/ventas-bi')({ app, authAdmin, mResumen, mRent, mCaja, prodPool, portalPool, VV });
+  require('./modulos/ventas-bi')({ app, authAdmin, mResumen, mRent, mCaja, prodPool, portalPool, VV });
 
   // ── Módulo Inventario (foto del stock: salud, antigüedad, ubicaciones, capital parado) ──
   //    Frontend propio en public/inventario.html (iframe dentro del panel).
@@ -271,6 +271,11 @@ let modGestion = null;
   //    (portalPool: guarda los listados de SUNAT y sus marcas de "anotado")
   require('./modulos/contabilidad')({ app, authAdmin, requiereModulo, prodPool, portalPool, VV });
 
+  // ── Módulo Facturación electrónica (emitir facturas/boletas/NC vía NubeFacT) ──
+  //    Frontend en public/facturacion.html. El vendedor elige qué ventas facturar.
+  //    Variables: NUBEFACT_RUTA_<empresa>, NUBEFACT_TOKEN_<empresa>, ERP_FACTURACION_URL (opcional).
+  require('./modulos/facturacion')({ app, authAdmin, requiereModulo, prodPool, portalPool });
+
   // ── Módulo Importaciones (costeo / landed cost) ──
   // Catálogo desde producción (Renzo, solo lectura); tasas/importaciones/memoria
   // en la base del portal; IA (Gemini) con la clave protegida en el servidor.
@@ -293,16 +298,6 @@ let modGestion = null;
 
   // ── Módulo Asistencia (entrada/salida del personal) — public/asistencia.html ──
   //    Todos los usuarios marcan su jornada; el módulo 'asistencia' da acceso al control.
-  // ── Módulo Compras y gastos (egresos que no son mercadería) — public/gastos.html ──
-  //    Dentro de la pestaña "Ventas y compras". Permiso propio: 'gastos'.
-  const modGastos = require('./modulos/gastos')({ app, authAdmin, requiereModulo, prodPool, portalPool });
-
-  // ── Módulo Rendimiento (cruce de ventas y gastos) — public/rendimiento.html ──
-  //    Tercera sub-pestaña de "Ventas y compras". No guarda datos: usa los dos
-  //    módulos anteriores. Permiso propio: 'rendimiento'.
-  require('./modulos/rendimiento')({ app, authAdmin, requiereModulo,
-    serieAgrupada: modVentasBI.serieAgrupada, gastosMensuales: modGastos.gastosMensuales });
-
   modAsistencia = require('./modulos/asistencia')({ app, authAdmin, requiereModulo, prodPool, portalPool, leerAdminsSecundarios });
 
   // ── Módulo Sincronización web ──

@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<script src="/tema.js"></script>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Facturación — Kuranko</title>
+<style>
+:root{
+  --bg:#0a1030;--surface:#111a44;--surface2:#0e1640;--surface3:#18224e;
+  --border:#212b54;--text:#eef1f8;--text2:#c6cee2;--muted:#8a93b4;--muted2:#a2abca;
+  --accent:#FFB30D;--accent-text:#000726;--accent-h:#e6a00c;--hover:#1a2450;--white:#ffffff;
+  --bg-ok:#163a29;--fg-ok:#6ee59a;--bg-warn:#3d3315;--fg-warn:#ffcb52;--bg-r:#3f1c20;--fg-r:#f79a9a;
+  --bg-v:#2a2766;--fg-v:#cecbf6;
+  --radius:18px;--radius-sm:12px;--shadow-sm:0 2px 8px rgba(0,0,0,.10);
+}
+[data-theme="light"]{
+  --bg:#f6f8fd;--surface:#ffffff;--surface2:#fbfcff;--surface3:#f2f5fb;
+  --border:#e3e9f5;--text:#1a2140;--text2:#4a5680;--muted:#9aa3c0;--muted2:#727e9f;
+  --hover:#f2f5fb;--white:#1a2140;
+  --bg-ok:#e8f8ef;--fg-ok:#1f9c56;--bg-warn:#fdf5db;--fg-warn:#9a6b00;--bg-r:#fdeded;--fg-r:#dc4b4b;
+  --bg-v:#eeedfc;--fg-v:#4b43b8;--shadow-sm:0 2px 10px rgba(30,45,90,.04);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{overflow-x:hidden}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px}
+.wrap{max-width:1240px;margin:0 auto;padding:1.25rem}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.1rem;box-shadow:var(--shadow-sm);margin-bottom:16px}
+.card h3{font-size:15px;font-weight:600;color:var(--white);margin-bottom:4px}
+.desc{font-size:12px;color:var(--muted);line-height:1.55}
+.fila{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px}
+.campo{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--muted2)}
+input,select,textarea{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:8px 10px;font-size:13px;font-family:inherit}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
+.chk{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);cursor:pointer;white-space:nowrap;padding-bottom:8px}
+.btn{background:var(--accent);border:none;color:var(--accent-text);border-radius:var(--radius-sm);padding:9px 16px;font-size:13px;cursor:pointer;font-weight:600;white-space:nowrap}
+.btn:hover{background:var(--accent-h)}
+.btn:disabled{opacity:.55;cursor:not-allowed}
+.btn-sec{background:var(--surface3);border:1px solid var(--border);color:var(--text2)}
+.btn-sec:hover{background:var(--hover)}
+.btn-sm{padding:5px 10px;font-size:12px;border-radius:9px}
+.subtabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+.subtab{background:var(--surface);border:1px solid var(--border);color:var(--text2);border-radius:20px;padding:7px 14px;font-size:13px;cursor:pointer}
+.subtab.on{background:var(--accent);color:var(--accent-text);border-color:var(--accent);font-weight:600}
+.vista{display:none}.vista.on{display:block}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:12px}
+.kpi{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:12px}
+.kpi.clic{cursor:pointer}.kpi.clic:hover{border-color:var(--accent)}
+.kpi .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.kpi .v{font-size:1.35rem;font-weight:700;color:var(--white);margin-top:4px}
+.kpi .s{font-size:11px;color:var(--muted2);margin-top:2px}
+.kpi.w .v{color:var(--fg-warn)}.kpi.r .v{color:var(--fg-r)}
+.aviso{font-size:12px;border-radius:10px;padding:8px 10px;margin-top:10px;background:var(--bg-warn);color:var(--fg-warn);line-height:1.5}
+.aviso.r{background:var(--bg-r);color:var(--fg-r)}.aviso.ok{background:var(--bg-ok);color:var(--fg-ok)}
+.tabla-wrap{overflow:auto;max-height:64vh;margin-top:10px;border:1px solid var(--border);border-radius:12px}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{position:sticky;top:0;background:var(--surface3);text-align:left;padding:8px;color:var(--muted2);font-weight:600;font-size:11px;border-bottom:1px solid var(--border);white-space:nowrap;z-index:1}
+th.n,td.n{text-align:right}
+td{padding:8px;border-bottom:1px solid var(--border);color:var(--text2);vertical-align:top}
+td.n{white-space:nowrap}
+tr:hover td{background:var(--hover)}
+td .nom{color:var(--white);font-weight:500;line-height:1.35}
+.sub{font-size:10.5px;color:var(--muted);margin-top:2px}
+.mono{font-family:ui-monospace,Menlo,monospace}
+.chip{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:20px;white-space:nowrap}
+.c-r{background:var(--bg-r);color:var(--fg-r)}.c-w{background:var(--bg-warn);color:var(--fg-warn)}.c-ok{background:var(--bg-ok);color:var(--fg-ok)}
+.c-v{background:var(--bg-v);color:var(--fg-v)}.c-g{background:var(--surface3);color:var(--text2);border:1px solid var(--border)}
+.vacio{color:var(--muted);text-align:center;padding:1.5rem;font-size:13px}
+.barra-sel{position:sticky;bottom:0;display:none;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:var(--surface3);border:1px solid var(--accent);border-radius:12px;padding:10px 12px;margin-top:10px}
+.acciones{display:flex;gap:4px;flex-wrap:wrap}
+a.lnk{color:var(--accent);text-decoration:none;font-size:12px;font-weight:600}
+a.lnk:hover{text-decoration:underline}
+/* modal */
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:flex-start;justify-content:center;z-index:50;overflow:auto;padding:24px 12px}
+.modal.on{display:flex}
+.modal-box{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);width:100%;max-width:880px;padding:1.2rem;box-shadow:0 10px 40px rgba(0,0,0,.35)}
+.modal-box h3{font-size:16px;color:var(--white)}
+.modal-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;margin-bottom:8px}
+.cerrar{background:none;border:none;color:var(--muted2);font-size:20px;cursor:pointer}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;margin-top:10px}
+.grid2 .campo input,.grid2 .campo select{width:100%}
+.tipo-sel{display:flex;gap:6px}
+.tipo-sel button{flex:1}
+.it-tabla input{padding:5px 7px;font-size:12.5px;width:100%}
+.it-tabla input.q{width:70px;text-align:right}.it-tabla input.p{width:96px;text-align:right}
+.totales{display:flex;justify-content:flex-end;gap:18px;margin-top:10px;font-size:13px;color:var(--text2);flex-wrap:wrap}
+.totales b{color:var(--white);font-size:16px}
+.pie-modal{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-top:14px;flex-wrap:wrap}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--bg-ok);color:var(--fg-ok);padding:12px 18px;border-radius:12px;font-size:13px;display:none;z-index:100;border:1px solid var(--border);max-width:360px}
+.toast.err{background:var(--bg-r);color:var(--fg-r)}
+@media(max-width:640px){.wrap{padding:.75rem}.card{padding:.9rem}.modal-box{padding:.9rem}}
+</style>
+</head>
+<body>
+<div class="toast" id="toast"></div>
+<div class="wrap">
+  <div class="subtabs">
+    <button class="subtab on" data-v="pf" onclick="verVista('pf')">Por facturar</button>
+    <button class="subtab" data-v="em" onclick="verVista('em')">Emitidos <span id="badge-em"></span></button>
+    <button class="subtab" data-v="cf" id="st-cf" onclick="verVista('cf')" style="display:none">Configuración</button>
+  </div>
+  <div id="aviso-global"></div>
+
+  <!-- ══════════ POR FACTURAR ══════════ -->
+  <div class="vista on" id="v-pf">
+    <div class="card">
+      <h3>Ventas por facturar</h3>
+      <div class="desc">Ventas del sistema con saldo sin comprobante. Elige cuáles facturar: <b>Revisar</b> abre el comprobante para ajustarlo antes de emitir; o marca varias y usa <b>Emitir seleccionadas</b> con los datos por defecto.</div>
+      <div class="fila">
+        <label class="campo">Empresa<select id="f-emp" onchange="cargarPF()"><option value="">Todas</option></select></label>
+        <label class="campo">Desde<input type="date" id="f-desde"></label>
+        <label class="campo">Hasta<input type="date" id="f-hasta"></label>
+        <label class="campo" style="flex:1;min-width:180px">Buscar<input type="search" id="f-q" placeholder="Código, cliente, RUC/DNI…" onkeydown="if(event.key==='Enter')cargarPF()"></label>
+        <label class="chk"><input type="checkbox" id="f-pagadas" onchange="cargarPF()"> Solo pagadas</label>
+        <button class="btn" onclick="cargarPF()">Buscar</button>
+      </div>
+      <div class="kpis" id="pf-kpis"></div>
+      <div class="tabla-wrap">
+        <table>
+          <thead><tr>
+            <th style="width:28px"><input type="checkbox" id="sel-todas" onchange="selTodas(this.checked)"></th>
+            <th>Venta</th><th>Cliente</th><th>Empresa</th><th class="n">Total</th><th class="n">Pendiente</th><th>Pago</th><th>Comprobante</th><th></th>
+          </tr></thead>
+          <tbody id="pf-body"><tr><td colspan="9" class="vacio">Cargando…</td></tr></tbody>
+        </table>
+      </div>
+      <div class="barra-sel" id="barra-sel">
+        <span id="sel-txt"></span>
+        <div class="acciones">
+          <button class="btn btn-sec" onclick="limpiarSel()">Quitar selección</button>
+          <button class="btn" onclick="abrirLote()">Emitir seleccionadas…</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ EMITIDOS ══════════ -->
+  <div class="vista" id="v-em">
+    <div class="card">
+      <h3>Comprobantes emitidos desde el portal</h3>
+      <div class="desc">Estado en SUNAT, PDF y registro en el sistema. Desde aquí se reenvía al cliente o se hace una nota de crédito.</div>
+      <div class="fila">
+        <label class="campo">Empresa<select id="e-emp" onchange="cargarEM()"><option value="">Todas</option></select></label>
+        <label class="campo">Tipo<select id="e-tipo" onchange="cargarEM()"><option value="">Todos</option><option value="factura">Facturas</option><option value="boleta">Boletas</option><option value="nc">Notas de crédito</option></select></label>
+        <label class="campo">Estado<select id="e-estado" onchange="cargarEM()">
+          <option value="">Todos</option><option value="revisar">Por revisar (SUNAT)</option><option value="erp">Falta en el sistema</option>
+          <option value="aceptado">Aceptados</option><option value="rechazado">Rechazados</option></select></label>
+        <label class="campo">Desde<input type="date" id="e-desde"></label>
+        <label class="campo">Hasta<input type="date" id="e-hasta"></label>
+        <label class="campo" style="flex:1;min-width:180px">Buscar<input type="search" id="e-q" placeholder="Serie-número, cliente, venta…" onkeydown="if(event.key==='Enter')cargarEM()"></label>
+        <button class="btn" onclick="cargarEM()">Buscar</button>
+      </div>
+      <div class="tabla-wrap">
+        <table>
+          <thead><tr><th>Comprobante</th><th>Fecha</th><th>Cliente</th><th>Venta</th><th class="n">Total</th><th>SUNAT</th><th>Sistema</th><th>Acciones</th></tr></thead>
+          <tbody id="em-body"><tr><td colspan="8" class="vacio">—</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ CONFIGURACIÓN ══════════ -->
+  <div class="vista" id="v-cf">
+    <div class="card">
+      <h3>Configuración por empresa</h3>
+      <div class="desc" id="cf-desc"></div>
+      <div id="cf-lista"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ MODAL: REVISAR Y EMITIR ══════════ -->
+<div class="modal" id="m-emitir"><div class="modal-box">
+  <div class="modal-top">
+    <div><h3 id="me-titulo">Emitir comprobante</h3><div class="desc" id="me-sub"></div></div>
+    <button class="cerrar" onclick="cerrarModal('m-emitir')">×</button>
+  </div>
+  <div id="me-previos"></div>
+  <div class="grid2">
+    <div class="campo">Tipo<div class="tipo-sel">
+      <button class="btn btn-sec" id="me-t-factura" onclick="setTipo('factura')">Factura</button>
+      <button class="btn btn-sec" id="me-t-boleta" onclick="setTipo('boleta')">Boleta</button></div></div>
+    <label class="campo">Fecha de emisión<input type="date" id="me-fecha" onchange="previa()"></label>
+  </div>
+  <div class="grid2">
+    <label class="campo">Documento<select id="me-tdoc" onchange="previa()">
+      <option value="6">RUC</option><option value="1">DNI</option><option value="4">Carné de extranjería</option><option value="7">Pasaporte</option><option value="-">Sin documento (varios)</option></select></label>
+    <label class="campo">Número<input id="me-doc" oninput="autoTipoDoc();previaLenta()"></label>
+    <label class="campo" style="grid-column:span 2">Nombre o razón social<input id="me-nombre" oninput="previaLenta()"></label>
+    <label class="campo" style="grid-column:span 2">Dirección<input id="me-dir" oninput="previaLenta()"></label>
+    <label class="campo">Correo<input id="me-email" type="email" oninput="previaLenta()"></label>
+    <label class="campo">Celular (WhatsApp)<input id="me-tel"></label>
+  </div>
+  <div class="tabla-wrap it-tabla" style="max-height:38vh">
+    <table><thead><tr><th style="width:28px"></th><th>Descripción</th><th class="n">Cant.</th><th class="n">Precio unit.</th><th class="n">Total</th></tr></thead>
+    <tbody id="me-items"></tbody></table>
+  </div>
+  <div class="fila"><button class="btn btn-sec btn-sm" onclick="agregarLinea()">+ Agregar línea (servicio, flete…)</button></div>
+  <div id="me-credito-box" class="fila" style="display:none">
+    <label class="chk"><input type="checkbox" id="me-credito" onchange="pintarCredito();previa()"> Al crédito</label>
+    <label class="campo" id="me-cr-f">Fecha de pago<input type="date" id="me-cr-fecha" onchange="previa()"></label>
+    <label class="campo" id="me-cr-i">Importe pendiente<input type="number" step="0.01" id="me-cr-imp" style="width:120px" oninput="previaLenta()"></label>
+  </div>
+  <div class="fila">
+    <label class="campo" style="flex:1">Observaciones<input id="me-obs" maxlength="250"></label>
+    <label class="chk"><input type="checkbox" id="me-mail"> Enviar PDF al correo del cliente</label>
+  </div>
+  <div class="totales" id="me-totales"></div>
+  <div id="me-msgs"></div>
+  <div class="pie-modal">
+    <span class="desc" id="me-serie"></span>
+    <div class="acciones">
+      <button class="btn btn-sec" onclick="cerrarModal('m-emitir')">Cancelar</button>
+      <button class="btn" id="me-btn" onclick="emitir()">Emitir</button>
+    </div>
+  </div>
+</div></div>
+
+<!-- ══════════ MODAL: LOTE ══════════ -->
+<div class="modal" id="m-lote"><div class="modal-box">
+  <div class="modal-top">
+    <div><h3>Emitir en lote</h3><div class="desc">Se emite un comprobante por venta con lo pendiente, el cliente del sistema y la fecha de hoy. Puedes cambiar el tipo de cada uno.</div></div>
+    <button class="cerrar" onclick="cerrarModal('m-lote')">×</button>
+  </div>
+  <div class="tabla-wrap" style="max-height:50vh"><table>
+    <thead><tr><th>Venta</th><th>Cliente</th><th class="n">Importe</th><th>Tipo</th><th>Resultado</th></tr></thead>
+    <tbody id="ml-body"></tbody></table></div>
+  <div class="fila"><label class="chk"><input type="checkbox" id="ml-mail" checked> Enviar PDF al correo de cada cliente</label></div>
+  <div id="ml-msg"></div>
+  <div class="pie-modal"><span class="desc" id="ml-resumen"></span>
+    <div class="acciones"><button class="btn btn-sec" onclick="cerrarModal('m-lote')">Cerrar</button>
+    <button class="btn" id="ml-btn" onclick="emitirLote()">Emitir</button></div></div>
+</div></div>
+
+<!-- ══════════ MODAL: NOTA DE CRÉDITO ══════════ -->
+<div class="modal" id="m-nc"><div class="modal-box">
+  <div class="modal-top">
+    <div><h3 id="nc-titulo">Nota de crédito</h3><div class="desc" id="nc-sub"></div></div>
+    <button class="cerrar" onclick="cerrarModal('m-nc')">×</button>
+  </div>
+  <div class="grid2"><label class="campo" style="grid-column:span 2">Motivo<select id="nc-motivo" onchange="pintarNC()"></select></label></div>
+  <div id="nc-cuerpo"></div>
+  <div class="totales" id="nc-total"></div>
+  <div class="aviso" id="nc-aviso">La nota de crédito se registra en SUNAT. En el sistema (ERP) la venta no cambia: anula o ajusta la venta allí si corresponde.</div>
+  <div class="pie-modal"><span></span><div class="acciones">
+    <button class="btn btn-sec" onclick="cerrarModal('m-nc')">Cancelar</button>
+    <button class="btn" id="nc-btn" onclick="emitirNC()">Emitir nota de crédito</button></div></div>
+</div></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+//  Facturación electrónica — frontend (mini-app en iframe dentro de admin.html)
+//  Backend: modulos/facturacion.js (/api/fe/...)
+// ═══════════════════════════════════════════════════════════════════════════
+let TOKEN = ''; try { TOKEN = localStorage.getItem('admtoken') || ''; } catch (e) {}
+const $ = id => document.getElementById(id);
+const esc = t => String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const N = (n, d = 2) => Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: d, maximumFractionDigits: d });
+const S = n => 'S/ ' + N(n);
+const fechaTxt = f => { if (!f) return '—'; const s = String(f).slice(0, 10).split('-'); return s.length === 3 ? `${s[2]}/${s[1]}/${s[0]}` : f; };
+const fechaHoraTxt = f => f ? new Date(f).toLocaleDateString('es-PE', { timeZone: 'America/Lima' }) : '—';
+function showToast(m, e) { const t = $('toast'); t.textContent = m; t.className = 'toast' + (e ? ' err' : ''); t.style.display = 'block'; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', 4500); }
+async function api(ep, method = 'GET', body) {
+  const opt = { method, headers: { 'Authorization': 'Bearer ' + TOKEN } };
+  if (body) { opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body); }
+  const r = await fetch(ep, opt);
+  if (r.status === 401) throw new Error('Sesión del portal expirada — vuelve a entrar al panel.');
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || 'Error');
+  return d;
+}
+function cerrarModal(id) { $(id).classList.remove('on'); }
+const NOMBRE_TIPO = { factura: 'Factura', boleta: 'Boleta', nc: 'Nota de crédito' };
+const ESTADO_SUNAT = {
+  aceptado: ['c-ok', 'Aceptado'], pendiente_sunat: ['c-w', 'Pendiente SUNAT'], rechazado: ['c-r', 'Rechazado'],
+  incierto: ['c-r', 'Sin respuesta'], error: ['c-r', 'Error']
+};
+
+let ESTADO = null;
+async function iniciar() {
+  const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Lima' });
+  const d = new Date(hoy + 'T12:00:00'); d.setDate(d.getDate() - 60);
+  $('f-desde').value = d.toISOString().slice(0, 10); $('f-hasta').value = hoy;
+  const d2 = new Date(hoy + 'T12:00:00'); d2.setDate(1); $('e-desde').value = d2.toISOString().slice(0, 10); $('e-hasta').value = hoy;
+  try { ESTADO = await api('/api/fe/estado'); } catch (e) { $('aviso-global').innerHTML = `<div class="aviso r">${esc(e.message)}</div>`; return; }
+  const opts = ESTADO.empresas.map(e => `<option value="${e.id}">${esc(e.nombre)}</option>`).join('');
+  $('f-emp').insertAdjacentHTML('beforeend', opts); $('e-emp').insertAdjacentHTML('beforeend', opts);
+  if (ESTADO.maestro) $('st-cf').style.display = '';
+  pintarAvisoGlobal();
+  cargarPF();
+}
+function pintarAvisoGlobal() {
+  const av = [];
+  const sinConf = ESTADO.empresas.filter(e => !e.activo || !e.conectado);
+  if (ESTADO.en_pruebas) av.push(`<b>Modo PRUEBAS de ${esc(ESTADO.proveedor)}</b>: los comprobantes no son válidos ante SUNAT.`);
+  sinConf.forEach(e => av.push(`<b>${esc(e.nombre)}</b>: ${!e.conectado ? `falta conectar ${esc(ESTADO.proveedor)} (variable ${esc(e.variables)})` : 'facturación desactivada'}${ESTADO.maestro ? ' — ver Configuración' : ''}.`));
+  if (!ESTADO.correo.lo_envia_proveedor && !ESTADO.correo.resend) av.push('Falta <span class="mono">RESEND_API_KEY</span>: el PDF no se enviará por correo (usa WhatsApp).');
+  if (!ESTADO.erp_automatico) av.push('El sistema (ERP) no se actualiza solo: después de emitir, anota la serie-número en la venta y márcalo en <b>Emitidos</b> (o configura <span class="mono">ERP_FACTURACION_URL</span>).');
+  $('aviso-global').innerHTML = av.length ? `<div class="aviso">${av.join('<br>')}</div>` : '';
+  const pend = ESTADO.por_anotar_erp + ESTADO.por_verificar;
+  $('badge-em').innerHTML = pend ? `<span class="chip c-w">${pend}</span>` : '';
+}
+function verVista(v) {
+  document.querySelectorAll('.subtab').forEach(b => b.classList.toggle('on', b.dataset.v === v));
+  document.querySelectorAll('.vista').forEach(x => x.classList.toggle('on', x.id === 'v-' + v));
+  if (v === 'em') cargarEM(); if (v === 'cf') cargarCF();
+}
+
+// ══════════════ POR FACTURAR ══════════════
+let PF = [], SEL = new Set();
+async function cargarPF() {
+  $('pf-body').innerHTML = '<tr><td colspan="9" class="vacio">Cargando…</td></tr>';
+  const p = new URLSearchParams({ desde: $('f-desde').value, hasta: $('f-hasta').value });
+  if ($('f-emp').value) p.set('empresa', $('f-emp').value);
+  if ($('f-q').value.trim()) p.set('q', $('f-q').value.trim());
+  if ($('f-pagadas').checked) p.set('solo_pagadas', '1');
+  try { PF = (await api('/api/fe/por-facturar?' + p)).ventas; }
+  catch (e) { $('pf-body').innerHTML = `<tr><td colspan="9" class="vacio">${esc(e.message)}</td></tr>`; return; }
+  SEL = new Set([...SEL].filter(id => PF.some(v => v.id === id)));
+  pintarPF();
+}
+function pintarPF() {
+  const tot = PF.reduce((s, v) => s + v.pendiente, 0);
+  const f = PF.filter(v => v.tipo_sugerido === 'factura'), b = PF.filter(v => v.tipo_sugerido === 'boleta');
+  $('pf-kpis').innerHTML = `
+    <div class="kpi"><div class="l">Ventas por facturar</div><div class="v">${PF.length}</div><div class="s">${S(tot)} pendiente</div></div>
+    <div class="kpi"><div class="l">Con RUC (factura)</div><div class="v">${f.length}</div><div class="s">${S(f.reduce((s, v) => s + v.pendiente, 0))}</div></div>
+    <div class="kpi"><div class="l">Sin RUC (boleta)</div><div class="v">${b.length}</div><div class="s">${S(b.reduce((s, v) => s + v.pendiente, 0))}</div></div>
+    <div class="kpi w"><div class="l">Con comprobante parcial</div><div class="v">${PF.filter(v => v.parcial).length}</div><div class="s">revisar a mano</div></div>`;
+  if (!PF.length) { $('pf-body').innerHTML = '<tr><td colspan="9" class="vacio">No hay ventas pendientes de comprobante en este periodo 🎉</td></tr>'; pintarSel(); return; }
+  $('pf-body').innerHTML = PF.map(v => {
+    const pagada = v.pagado + 0.009 >= v.total;
+    const pago = pagada ? '<span class="chip c-ok">Pagada</span>' : v.pagado > 0 ? `<span class="chip c-w">Debe ${S(v.total - v.pagado)}</span>` : '<span class="chip c-r">Sin pago</span>';
+    const comp = v.parcial ? `<span class="chip c-v" title="${esc(v.comprobantes.map(c => c.serie + '-' + c.numero).join(', '))}">Parcial ${S(v.facturado)}</span>` :
+      `<span class="chip c-g">${v.tipo_sugerido === 'factura' ? 'Factura' : 'Boleta'}</span>`;
+    const lote = !(v.externo > 0.009);
+    return `<tr>
+      <td><input type="checkbox" ${SEL.has(v.id) ? 'checked' : ''} ${lote ? '' : 'disabled title="Tiene comprobantes hechos fuera del portal: usa Revisar"'} onchange="marcar(${v.id},this.checked)"></td>
+      <td><div class="nom mono">${esc(v.code)}</div><div class="sub">${fechaHoraTxt(v.fecha)} · ${v.n_items} ítem(s)</div></td>
+      <td><div class="nom">${esc(v.cliente.nombre || '—')}</div><div class="sub mono">${esc(v.cliente.doc || 'sin documento')}</div></td>
+      <td><span class="sub">${esc(v.empresa)}</span></td>
+      <td class="n">${S(v.total)}</td><td class="n"><b>${S(v.pendiente)}</b></td>
+      <td>${pago}</td><td>${comp}</td>
+      <td><button class="btn btn-sm" onclick="abrirEmitir(${v.id})">Revisar</button></td></tr>`;
+  }).join('');
+  pintarSel();
+}
+function marcar(id, on) { on ? SEL.add(id) : SEL.delete(id); pintarSel(); }
+function selTodas(on) { PF.forEach(v => { if (!(v.externo > 0.009)) on ? SEL.add(v.id) : SEL.delete(v.id); }); pintarPF(); }
+function limpiarSel() { SEL.clear(); $('sel-todas').checked = false; pintarPF(); }
+function pintarSel() {
+  const s = PF.filter(v => SEL.has(v.id));
+  $('barra-sel').style.display = s.length ? 'flex' : 'none';
+  $('sel-txt').textContent = `${s.length} venta(s) seleccionada(s) · ${S(s.reduce((a, v) => a + v.pendiente, 0))}`;
+}
+
+// ── Modal revisar y emitir ──
+let ME = null, ME_TIPO = 'boleta', ME_LINEAS = [], tPrev = null;
+async function abrirEmitir(id) {
+  try { ME = await api('/api/fe/venta/' + id); } catch (e) { return showToast(e.message, true); }
+  $('me-titulo').textContent = 'Venta ' + ME.code;
+  $('me-sub').textContent = `${ME.empresa} · Total ${S(ME.total)} · Pendiente de comprobante ${S(ME.pendiente)}`;
+  $('me-previos').innerHTML = ME.comprobantes.length ? `<div class="aviso">Ya tiene comprobante(s): ${ME.comprobantes.map(c => `${esc(c.serie)}-${esc(c.numero)} (${S(c.total)}${c.origen === 'erp' ? ', hecho fuera del portal' : ''})`).join(', ')}.${ME.externo > 0 ? ' Marca solo los ítems que faltan.' : ''}</div>` : '';
+  const c = ME.cliente;
+  $('me-doc').value = c.doc || ''; $('me-tdoc').value = c.tipo_doc || (c.doc ? '1' : '-');
+  $('me-nombre').value = c.nombre || ''; $('me-dir').value = c.direccion || ''; $('me-email').value = c.email || ''; $('me-tel').value = c.telefono || '';
+  $('me-fecha').value = ME.hoy; $('me-fecha').min = ME.fecha_min; $('me-fecha').max = ME.hoy;
+  $('me-obs').value = 'Venta ' + ME.code;
+  $('me-mail').checked = !!(ME.cfg && ME.cfg.enviar_email);
+  ME_LINEAS = ME.items.map(i => ({ ...i, sel: i.seleccionado }));
+  $('me-credito').checked = !!ME.credito_sugerido;
+  $('me-cr-fecha').value = ME.credito_sugerido ? ME.credito_sugerido.fecha_pago : '';
+  $('me-cr-imp').value = ME.credito_sugerido ? ME.credito_sugerido.importe.toFixed(2) : '';
+  $('me-t-factura').disabled = !!(ME.cfg && ME.cfg.solo_boletas);
+  setTipo(ME.tipo_sugerido, true);
+  pintarLineas(); pintarCredito();
+  $('m-emitir').classList.add('on');
+  previa();
+}
+function setTipo(t, sinPrevia) {
+  ME_TIPO = t;
+  ['factura', 'boleta'].forEach(x => { $('me-t-' + x).className = 'btn ' + (x === t ? '' : 'btn-sec'); });
+  $('me-credito-box').style.display = t === 'factura' ? 'flex' : 'none';
+  if (t === 'factura' && $('me-tdoc').value !== '6') $('me-tdoc').value = '6';
+  $('me-btn').textContent = 'Emitir ' + NOMBRE_TIPO[t].toLowerCase();
+  const serie = ME.cfg ? (t === 'factura' ? ME.cfg.serie_factura : ME.cfg.serie_boleta) : '';
+  $('me-serie').textContent = serie ? 'Serie ' + serie + ' · el número lo asigna el portal al emitir' : '';
+  if (!sinPrevia) previa();
+}
+function autoTipoDoc() {
+  const d = $('me-doc').value.replace(/\D/g, '');
+  if (d.length === 11) $('me-tdoc').value = '6'; else if (d.length === 8 && $('me-tdoc').value === '6') $('me-tdoc').value = '1';
+}
+function pintarCredito() { const on = $('me-credito').checked; $('me-cr-f').style.display = $('me-cr-i').style.display = on ? '' : 'none'; }
+function pintarLineas() {
+  $('me-items').innerHTML = ME_LINEAS.map((l, i) => {
+    const tope = l.sale_item_id ? ` max="${l.cantidad_max != null ? l.cantidad_max : l.cantidad}"` : '';
+    if (l.cantidad_max == null) l.cantidad_max = l.sale_item_id ? l.cantidad : null;
+    return `<tr>
+      <td><input type="checkbox" ${l.sel ? 'checked' : ''} ${l.sale_item_id && l.cantidad_max <= 0 ? 'disabled title="Ya facturado"' : ''} onchange="ME_LINEAS[${i}].sel=this.checked;totalesME();previaLenta()"></td>
+      <td><input value="${esc(l.descripcion)}" oninput="ME_LINEAS[${i}].descripcion=this.value;previaLenta()">
+        <div class="sub">${l.codigo ? esc(l.codigo) + ' · ' : ''}${l.sale_item_id ? `vendido ${N(l.cantidad_venta, 0)}${l.ya_facturado ? `, ya facturado ${N(l.ya_facturado, 0)}` : ''}` : 'línea agregada'}</div></td>
+      <td class="n"><input class="q" type="number" min="0" step="any"${tope} value="${l.cantidad}" oninput="ME_LINEAS[${i}].cantidad=Number(this.value);totalesME();previaLenta()"></td>
+      <td class="n"><input class="p" type="number" min="0" step="0.01" value="${Number(l.precio).toFixed(2)}" oninput="ME_LINEAS[${i}].precio=Number(this.value);totalesME();previaLenta()"></td>
+      <td class="n" id="me-lt-${i}">${S(l.cantidad * l.precio)}</td></tr>`;
+  }).join('') || '<tr><td colspan="5" class="vacio">Sin ítems</td></tr>';
+  totalesME();
+}
+function agregarLinea() { ME_LINEAS.push({ sale_item_id: null, codigo: '', descripcion: '', cantidad: 1, precio: 0, sel: true }); pintarLineas(); }
+function lineasSel() { return ME_LINEAS.filter(l => l.sel && Number(l.cantidad) > 0); }
+function totalesME() {
+  ME_LINEAS.forEach((l, i) => { const c = $('me-lt-' + i); if (c) c.textContent = S(Math.round(l.cantidad * l.precio * 100) / 100); });
+  const t = lineasSel().reduce((s, l) => s + Math.round(l.cantidad * l.precio * 100) / 100, 0);
+  const af = ME.cfg ? ME.cfg.afectacion : 'gravado';
+  if (af === 'nrus') { $('me-totales').innerHTML = `<span>Nuevo RUS (sin IGV)</span><span>Total <b>${S(t)}</b></span>`; return; }
+  const base = af === 'gravado' ? Math.round(t / 1.18 * 100) / 100 : t;
+  $('me-totales').innerHTML = `<span>${af === 'gravado' ? 'Op. gravada' : af === 'exonerado' ? 'Op. exonerada' : 'Op. inafecta'} ${S(base)}</span><span>IGV ${S(t - base)}</span><span>Total <b>${S(t)}</b></span>`;
+}
+function cuerpoEmitir() {
+  const b = {
+    sale_id: ME.id, tipo: ME_TIPO, fecha: $('me-fecha').value,
+    cliente: { tipo_doc: $('me-tdoc').value, doc: $('me-doc').value.trim(), nombre: $('me-nombre').value.trim(), direccion: $('me-dir').value.trim(), email: $('me-email').value.trim(), telefono: $('me-tel').value.trim() },
+    items: lineasSel().map(l => ({ sale_item_id: l.sale_item_id, codigo: l.codigo, descripcion: l.descripcion, cantidad: Number(l.cantidad), precio: Number(l.precio) })),
+    observaciones: $('me-obs').value.trim(), enviar_email: $('me-mail').checked
+  };
+  if (ME_TIPO === 'factura') b.credito = $('me-credito').checked ? { fecha_pago: $('me-cr-fecha').value, importe: Number($('me-cr-imp').value) } : false;
+  return b;
+}
+function previaLenta() { clearTimeout(tPrev); tPrev = setTimeout(previa, 450); }
+async function previa() {
+  if (!ME) return;
+  try {
+    const r = await api('/api/fe/previsualizar', 'POST', cuerpoEmitir());
+    $('me-msgs').innerHTML = (r.errores.length ? `<div class="aviso r">${r.errores.map(esc).join('<br>')}</div>` : '') +
+      (r.avisos.length ? `<div class="aviso">${r.avisos.map(esc).join('<br>')}</div>` : '');
+    $('me-btn').disabled = r.errores.length > 0;
+  } catch (e) { $('me-msgs').innerHTML = `<div class="aviso r">${esc(e.message)}</div>`; $('me-btn').disabled = true; }
+}
+async function emitir() {
+  const b = cuerpoEmitir();
+  const t = b.items.reduce((s, l) => s + l.cantidad * l.precio, 0);
+  if (!confirm(`¿Emitir ${NOMBRE_TIPO[ME_TIPO].toLowerCase()} por ${S(t)} a ${b.cliente.nombre || 'CLIENTES VARIOS'}?\nSe envía a SUNAT y no se puede deshacer (solo con nota de crédito).`)) return;
+  $('me-btn').disabled = true; $('me-btn').textContent = 'Emitiendo…';
+  try {
+    const r = await api('/api/fe/emitir', 'POST', b);
+    cerrarModal('m-emitir');
+    mostrarResultado(r.comprobante, b.cliente);
+    cargarPF(); refrescarEstado();
+  } catch (e) { $('me-msgs').innerHTML = `<div class="aviso r">${esc(e.message)}</div>`; }
+  finally { $('me-btn').disabled = false; $('me-btn').textContent = 'Emitir ' + NOMBRE_TIPO[ME_TIPO].toLowerCase(); }
+}
+function linkWhatsApp(c, tel) {
+  const num = String(tel || '').replace(/\D/g, ''); if (!c.enlace_pdf) return '';
+  const n = num.length === 9 ? '51' + num : num;
+  const txt = `Hola, te enviamos tu ${NOMBRE_TIPO[c.tipo].toLowerCase()} electrónica ${c.serie}-${c.numero} por ${S(c.total)}: ${c.enlace_pdf}`;
+  return `https://wa.me/${n}?text=${encodeURIComponent(txt)}`;
+}
+function mostrarResultado(c, cli) {
+  const [cl, tx] = ESTADO_SUNAT[c.estado] || ['c-g', c.estado];
+  const wa = linkWhatsApp(c, cli && cli.telefono);
+  const box = document.createElement('div');
+  box.className = 'aviso ' + (c.estado === 'aceptado' ? 'ok' : c.estado === 'pendiente_sunat' ? '' : 'r');
+  box.innerHTML = `<b>${NOMBRE_TIPO[c.tipo]} ${esc(c.serie)}-${c.numero}</b> · ${S(c.total)} · <span class="chip ${cl}">${tx}</span>
+    ${c.enlace_pdf ? ` · <a class="lnk" href="${esc(c.enlace_pdf)}" target="_blank">PDF</a>` : ''}
+    ${wa ? ` · <a class="lnk" href="${wa}" target="_blank">Enviar por WhatsApp</a>` : ''}
+    ${c.erp_estado === 'registrado' ? ' · registrado en el sistema' : c.erp_estado === 'error' ? ` · <b>no se pudo registrar en el sistema:</b> ${esc(c.erp_error)}` : c.erp_estado === 'pendiente' ? ' · <b>anótalo en el sistema</b>' : ''}
+    ${(c.avisos || []).length ? '<br>' + c.avisos.map(esc).join('<br>') : ''}${c.sunat_desc && c.estado !== 'aceptado' ? '<br>' + esc(c.sunat_desc) : ''}`;
+  $('aviso-global').prepend(box);
+  showToast(`${c.serie}-${c.numero} emitido`);
+}
+async function refrescarEstado() { try { ESTADO = await api('/api/fe/estado'); const keep = [...$('aviso-global').querySelectorAll('.aviso.ok,.aviso.r')]; pintarAvisoGlobal(); keep.forEach(k => $('aviso-global').prepend(k)); } catch (e) {} }
+
+// ── Lote ──
+let LOTE = [];
+function abrirLote() {
+  LOTE = PF.filter(v => SEL.has(v.id)).map(v => ({ v, tipo: v.tipo_sugerido, res: null }));
+  $('ml-msg').innerHTML = ''; $('ml-btn').disabled = false; $('ml-btn').style.display = '';
+  pintarLote(); $('m-lote').classList.add('on');
+}
+function pintarLote() {
+  $('ml-body').innerHTML = LOTE.map((x, i) => {
+    const sinRuc = x.v.cliente.tipo_doc !== '6';
+    const res = !x.res ? '' : x.res.ok ? `<span class="chip c-ok">${esc(x.res.comprobante.serie)}-${x.res.comprobante.numero}</span>${x.res.comprobante.enlace_pdf ? ` <a class="lnk" target="_blank" href="${esc(x.res.comprobante.enlace_pdf)}">PDF</a>` : ''}` : `<span class="chip c-r">Error</span><div class="sub">${esc(x.res.error)}</div>`;
+    return `<tr><td class="mono">${esc(x.v.code)}</td><td>${esc(x.v.cliente.nombre || 'CLIENTES VARIOS')}<div class="sub mono">${esc(x.v.cliente.doc || '—')}</div></td>
+      <td class="n">${S(x.v.pendiente)}</td>
+      <td><select ${x.res ? 'disabled' : ''} onchange="LOTE[${i}].tipo=this.value"><option value="boleta" ${x.tipo === 'boleta' ? 'selected' : ''}>Boleta</option><option value="factura" ${x.tipo === 'factura' ? 'selected' : ''} ${sinRuc ? 'disabled' : ''}>Factura</option></select></td>
+      <td>${res}</td></tr>`;
+  }).join('');
+  const t = LOTE.reduce((s, x) => s + x.v.pendiente, 0);
+  $('ml-resumen').textContent = `${LOTE.length} comprobante(s) · ${S(t)}`;
+}
+async function emitirLote() {
+  const pend = LOTE.filter(x => !x.res || !x.res.ok);
+  if (!pend.length) return;
+  if (!confirm(`¿Emitir ${pend.length} comprobante(s)? Se envían a SUNAT y no se pueden deshacer.`)) return;
+  $('ml-btn').disabled = true; $('ml-btn').textContent = 'Emitiendo…';
+  try {
+    const r = await api('/api/fe/emitir-lote', 'POST', { ventas: pend.map(x => ({ sale_id: x.v.id, tipo: x.tipo })), enviar_email: $('ml-mail').checked });
+    r.resultados.forEach(res => { const x = LOTE.find(l => l.v.id === res.sale_id); if (x) x.res = res; });
+    pintarLote();
+    $('ml-msg').innerHTML = `<div class="aviso ${r.fallidos ? '' : 'ok'}">${r.ok} emitido(s)${r.fallidos ? `, ${r.fallidos} con error (revísalos con “Revisar”)` : ''}.</div>`;
+    SEL.clear(); cargarPF(); refrescarEstado();
+    if (!r.fallidos) $('ml-btn').style.display = 'none';
+  } catch (e) { $('ml-msg').innerHTML = `<div class="aviso r">${esc(e.message)}</div>`; }
+  finally { $('ml-btn').disabled = false; $('ml-btn').textContent = 'Emitir'; }
+}
+
+// ══════════════ EMITIDOS ══════════════
+let EM = [];
+async function cargarEM() {
+  $('em-body').innerHTML = '<tr><td colspan="8" class="vacio">Cargando…</td></tr>';
+  const p = new URLSearchParams();
+  ['emp', 'tipo', 'estado', 'desde', 'hasta', 'q'].forEach(k => { const v = $('e-' + k).value.trim(); if (v) p.set(k === 'emp' ? 'empresa' : k, v); });
+  if (['revisar', 'erp'].includes($('e-estado').value)) { p.delete('desde'); p.delete('hasta'); }
+  try { EM = (await api('/api/fe/emitidos?' + p)).comprobantes; }
+  catch (e) { $('em-body').innerHTML = `<tr><td colspan="8" class="vacio">${esc(e.message)}</td></tr>`; return; }
+  pintarEM();
+}
+function pintarEM() {
+  if (!EM.length) { $('em-body').innerHTML = '<tr><td colspan="8" class="vacio">Sin comprobantes con estos filtros</td></tr>'; return; }
+  $('em-body').innerHTML = EM.map(c => {
+    const [cl, tx] = ESTADO_SUNAT[c.estado] || ['c-g', c.estado];
+    const erp = c.tipo === 'nc' ? '<span class="sub">—</span>' :
+      c.erp_estado === 'registrado' ? '<span class="chip c-ok">Registrado</span>' :
+      c.erp_estado === 'error' ? `<span class="chip c-r" title="${esc(c.erp_error)}">Error</span>` :
+      ['aceptado', 'pendiente_sunat'].includes(c.estado) ? '<span class="chip c-w">Por anotar</span>' : '<span class="sub">—</span>';
+    const acc = [];
+    if (c.enlace_pdf) acc.push(`<a class="lnk" target="_blank" href="${esc(c.enlace_pdf)}">PDF</a>`);
+    if (c.enlace_xml) acc.push(`<a class="lnk" target="_blank" href="${esc(c.enlace_xml)}">XML</a>`);
+    const wa = linkWhatsApp(c, c.cliente_telefono);
+    if (c.enlace_pdf) acc.push(`<a class="lnk" href="#" onclick="enviarWA(${c.id});return false">WhatsApp</a>`);
+    if (c.enlace_pdf && c.estado !== 'rechazado') acc.push(`<a class="lnk" href="#" onclick="reenviarCorreo(${c.id});return false">${c.email_enviado ? 'Reenviar correo' : 'Enviar correo'}</a>`);
+    if (['pendiente_sunat', 'incierto'].includes(c.estado)) acc.push(`<button class="btn btn-sec btn-sm" onclick="consultar(${c.id})">Consultar</button>`);
+    if (c.estado === 'incierto') acc.push(`<button class="btn btn-sec btn-sm" onclick="reintentar(${c.id})">Reintentar</button>`);
+    if (c.tipo !== 'nc' && ['aceptado', 'pendiente_sunat'].includes(c.estado) && ['pendiente', 'error'].includes(c.erp_estado)) {
+      if (ESTADO && ESTADO.erp_automatico) acc.push(`<button class="btn btn-sec btn-sm" onclick="registrarERP(${c.id})">Registrar en sistema</button>`);
+      acc.push(`<button class="btn btn-sec btn-sm" onclick="registrarERP(${c.id},true)">Ya lo anoté</button>`);
+    }
+    if (c.tipo !== 'nc' && ['aceptado', 'pendiente_sunat'].includes(c.estado) && !c.anulado_por_nc) acc.push(`<button class="btn btn-sec btn-sm" onclick="abrirNC(${c.id})">Nota de crédito</button>`);
+    const ref = c.tipo === 'nc' ? `<div class="sub">Modifica ${esc(c.ref_serie)}-${c.ref_numero}</div>` : c.anulado_por_nc ? '<div class="sub" style="color:var(--fg-r)">Anulado con nota de crédito</div>' : '';
+    return `<tr>
+      <td><div class="nom mono">${esc(c.serie)}-${c.numero}</div><div class="sub">${NOMBRE_TIPO[c.tipo]} · ${esc(c.empresa)}</div>${ref}</td>
+      <td>${fechaTxt(c.fecha_emision)}<div class="sub">${esc(c.emitido_por || '')}</div></td>
+      <td><div class="nom">${esc(c.cliente_nombre)}</div><div class="sub mono">${esc(c.cliente_doc)}</div>${c.email_enviado ? '<div class="sub">✉ enviado al correo</div>' : ''}</td>
+      <td class="mono">${esc(c.sale_code || '—')}</td>
+      <td class="n">${c.tipo === 'nc' ? '−' : ''}${S(c.total)}${c.credito ? '<div class="sub">al crédito</div>' : ''}</td>
+      <td><span class="chip ${cl}">${tx}</span>${c.sunat_desc && c.estado !== 'aceptado' ? `<div class="sub">${esc(c.sunat_desc)}</div>` : ''}</td>
+      <td>${erp}</td>
+      <td><div class="acciones">${acc.join(' ')}</div></td></tr>`;
+  }).join('');
+}
+function enviarWA(id) {
+  const c = EM.find(x => x.id === id); if (!c) return;
+  let tel = c.cliente_telefono;
+  if (!tel) { tel = prompt('Celular del cliente (9 dígitos):', ''); if (!tel) return; }
+  window.open(linkWhatsApp(c, tel), '_blank');
+}
+async function reenviarCorreo(id) {
+  const c = EM.find(x => x.id === id); if (!c) return;
+  const email = prompt('Correo del cliente:', c.cliente_email || ''); if (!email) return;
+  try { await api(`/api/fe/${id}/email`, 'POST', { email: email.trim() }); showToast('Correo enviado a ' + email); cargarEM(); }
+  catch (e) { showToast(e.message, true); }
+}
+async function consultar(id) {
+  try { const r = await api(`/api/fe/${id}/consultar`, 'POST'); showToast(r.mensaje || ('Estado: ' + ((ESTADO_SUNAT[r.estado] || [])[1] || r.estado))); cargarEM(); refrescarEstado(); }
+  catch (e) { showToast(e.message, true); }
+}
+async function reintentar(id) {
+  if (!confirm('Se vuelve a enviar el comprobante con el mismo número. ¿Continuar?')) return;
+  try { const r = await api(`/api/fe/${id}/reintentar`, 'POST'); showToast('Estado: ' + ((ESTADO_SUNAT[r.estado] || [])[1] || r.estado)); cargarEM(); refrescarEstado(); }
+  catch (e) { showToast(e.message, true); }
+}
+async function registrarERP(id, manual) {
+  if (manual && !confirm('¿Confirmas que ya anotaste este comprobante en la venta del sistema?')) return;
+  try { const r = await api(`/api/fe/${id}/erp`, 'POST', { manual: !!manual }); showToast(r.erp_estado === 'registrado' ? 'Registrado en el sistema' : (r.erp_error || 'No se pudo registrar'), r.erp_estado !== 'registrado'); cargarEM(); refrescarEstado(); }
+  catch (e) { showToast(e.message, true); }
+}
+
+// ── Nota de crédito ──
+let NC = null;
+async function abrirNC(id) {
+  try { NC = await api(`/api/fe/${id}/detalle`); } catch (e) { return showToast(e.message, true); }
+  $('nc-titulo').textContent = `Nota de crédito sobre ${NC.serie}-${NC.numero}`;
+  $('nc-sub').textContent = `${NC.cliente_nombre} · ${S(NC.total)}${NC.notas_credito.length ? ` · ya tiene NC por ${S(NC.total - NC.disponible)}` : ''}`;
+  const motivos = ESTADO.motivos_nc, parciales = NC.notas_credito.length > 0;
+  $('nc-motivo').innerHTML = Object.entries(motivos).map(([k, v]) => `<option value="${k}" ${parciales && ['1', '2', '3', '6'].includes(k) ? 'disabled' : ''}>${k} · ${esc(v)}</option>`).join('');
+  $('nc-motivo').value = parciales ? '7' : '1';
+  NC.items.forEach(i => i.devolver = 0);
+  pintarNC();
+  $('m-nc').classList.add('on');
+}
+function pintarNC() {
+  const m = Number($('nc-motivo').value);
+  if ([1, 2, 3, 6].includes(m)) {
+    $('nc-cuerpo').innerHTML = `<div class="desc" style="margin-top:10px">Se anula el comprobante completo (${NC.items.length} ítem(s)).${m === 2 || m === 3 ? ' Después emite el comprobante correcto desde “Por facturar”: la venta vuelve a quedar pendiente.' : ''}</div>`;
+  } else if (m === 7) {
+    $('nc-cuerpo').innerHTML = `<div class="tabla-wrap it-tabla" style="max-height:40vh"><table><thead><tr><th>Ítem</th><th class="n">Facturado</th><th class="n">Devolver</th><th class="n">Importe</th></tr></thead><tbody>${
+      NC.items.map((it, i) => `<tr><td>${esc(it.descripcion)}</td><td class="n">${N(it.cantidad, 0)} × ${S(it.precio)}</td>
+        <td class="n"><input class="q" type="number" min="0" max="${it.cantidad}" step="any" value="${it.devolver}" oninput="NC.items[${i}].devolver=Number(this.value);totalNC()"></td><td class="n" id="nc-it-${i}"></td></tr>`).join('')}</tbody></table></div>`;
+  } else {
+    $('nc-cuerpo').innerHTML = `<div class="grid2"><label class="campo" style="grid-column:span 2">Descripción<input id="nc-desc" value="Descuento posterior a la venta"></label>
+      <label class="campo">Monto (con IGV)<input id="nc-monto" type="number" step="0.01" min="0" max="${NC.disponible}" oninput="totalNC()"></label></div>`;
+  }
+  totalNC();
+}
+function totalNC() {
+  const m = Number($('nc-motivo').value);
+  let t = 0;
+  if ([1, 2, 3, 6].includes(m)) t = NC.total;
+  else if (m === 7) NC.items.forEach((it, i) => { const v = Math.round(it.devolver * it.precio * 100) / 100; t += v; const c = $('nc-it-' + i); if (c) c.textContent = S(v); });
+  else t = Number(($('nc-monto') || {}).value || 0);
+  $('nc-total').innerHTML = `<span>Total nota de crédito <b>${S(t)}</b></span>`;
+  $('nc-btn').disabled = !(t > 0) || t > NC.disponible + 0.001;
+}
+async function emitirNC() {
+  const m = Number($('nc-motivo').value);
+  const b = { motivo: m };
+  if (m === 7) b.items = NC.items.map((it, i) => ({ indice: i, cantidad: it.devolver })).filter(x => x.cantidad > 0);
+  if (m === 9) { b.monto = Number($('nc-monto').value); b.descripcion = $('nc-desc').value; }
+  if (!confirm('¿Emitir la nota de crédito? Se envía a SUNAT y no se puede deshacer.')) return;
+  $('nc-btn').disabled = true;
+  try { const r = await api(`/api/fe/${NC.id}/nota-credito`, 'POST', b); cerrarModal('m-nc'); mostrarResultado(r.comprobante); cargarEM(); }
+  catch (e) { showToast(e.message, true); }
+  finally { $('nc-btn').disabled = false; }
+}
+
+// ══════════════ CONFIGURACIÓN ══════════════
+async function cargarCF() {
+  let corr = [];
+  try { ESTADO = await api('/api/fe/estado'); corr = (await api('/api/fe/correlativos')).correlativos; } catch (e) { return showToast(e.message, true); }
+  $('cf-desc').innerHTML = `Proveedor: <b>${esc(ESTADO.proveedor)}</b>${ESTADO.en_pruebas ? ' (modo pruebas)' : ''}. El token no se guarda aquí: va en las variables de Railway (${ESTADO.empresas.map(e => '<span class="mono">' + esc(e.variables) + '</span>').join(', ')}). Para salir a producción autoriza a ${esc(ESTADO.proveedor)} como tu PSE en SUNAT (Clave SOL).`;
+  const ult = (id, s) => { const c = corr.find(x => x.company_id === id && x.serie === s); return c ? c.ultimo : 0; };
+  $('cf-lista').innerHTML = ESTADO.empresas.map(e => `
+    <div class="card" style="margin-top:12px;background:var(--surface2)" id="cf-${e.id}">
+      <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+        <h3>${esc(e.nombre)} <span class="sub">(empresa ${e.id})</span></h3>
+        <span class="chip ${e.conectado ? 'c-ok' : 'c-r'}">${e.conectado ? esc(ESTADO.proveedor) + ' conectado' + (ESTADO.en_pruebas ? ' (pruebas)' : '') : 'Falta ' + esc(e.variables)}</span>
+      </div>
+      <div class="fila">
+        <label class="chk"><input type="checkbox" data-k="activo" ${e.activo ? 'checked' : ''}> Facturación activada</label>
+        <label class="chk"><input type="checkbox" data-k="solo_boletas" ${e.solo_boletas ? 'checked' : ''}> Solo boletas (Nuevo RUS)</label>
+        <label class="chk"><input type="checkbox" data-k="enviar_email" ${e.enviar_email ? 'checked' : ''}> Enviar PDF al correo por defecto</label>
+      </div>
+      <div class="grid2">
+        ${[['serie_factura', 'Serie facturas'], ['serie_boleta', 'Serie boletas'], ['serie_nc_factura', 'Serie NC de facturas'], ['serie_nc_boleta', 'Serie NC de boletas']].map(([k, l]) =>
+          `<label class="campo">${l}<input data-k="${k}" maxlength="4" value="${esc(e[k])}" style="text-transform:uppercase"></label>
+           <label class="campo">Último número usado<input type="number" min="0" data-corr="${k}" value="${ult(e.id, e[k])}"></label>`).join('')}
+        <label class="campo">IGV de las ventas<select data-k="afectacion">
+          <option value="gravado" ${e.afectacion === 'gravado' ? 'selected' : ''}>Gravado 18% (precio incluye IGV)</option>
+          <option value="exonerado" ${e.afectacion === 'exonerado' ? 'selected' : ''}>Exonerado</option>
+          <option value="inafecto" ${e.afectacion === 'inafecto' ? 'selected' : ''}>Inafecto</option>
+          <option value="nrus" ${e.afectacion === 'nrus' ? 'selected' : ''}>Nuevo RUS (solo boletas, sin IGV)</option></select></label>
+        <label class="campo">Formato del PDF<select data-k="formato_pdf">${['A4', 'A5', 'TICKET'].map(f => `<option ${e.formato_pdf === f ? 'selected' : ''}>${f}</option>`).join('')}</select></label>
+      </div>
+      <div class="desc" style="margin-top:8px">“Último número usado” solo sube (nunca baja): ponlo si ya emitiste con esa serie desde el panel de ${esc(ESTADO.proveedor)}.</div>
+      <div class="fila"><button class="btn" onclick="guardarCF(${e.id})">Guardar</button></div>
+    </div>`).join('');
+}
+async function guardarCF(id) {
+  const box = $('cf-' + id), b = { correlativos: {} };
+  box.querySelectorAll('[data-k]').forEach(el => { b[el.dataset.k] = el.type === 'checkbox' ? el.checked : el.value.trim().toUpperCase(); });
+  b.afectacion = b.afectacion.toLowerCase();
+  box.querySelectorAll('[data-corr]').forEach(el => { b.correlativos[b[el.dataset.corr]] = Number(el.value) || 0; });
+  try { await api('/api/fe/config/' + id, 'PUT', b); showToast('Configuración guardada'); ESTADO = await api('/api/fe/estado'); pintarAvisoGlobal(); cargarCF(); }
+  catch (e) { showToast(e.message, true); }
+}
+
+iniciar();
+</script>
+</body>
+</html>

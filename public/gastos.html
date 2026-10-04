@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<script src="/tema.js"></script>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Compras y gastos — Kuranko</title>
+<style>
+:root{
+  --bg:#0a1030;--surface:#111a44;--surface2:#0e1640;--surface3:#18224e;
+  --border:#212b54;--text:#eef1f8;--text2:#c6cee2;--muted:#8a93b4;--muted2:#a2abca;
+  --accent:#FFB30D;--accent-text:#000726;--accent-h:#e6a00c;--hover:#1a2450;--white:#ffffff;
+  --bg-ok:#163a29;--fg-ok:#6ee59a;--bg-warn:#3d3315;--fg-warn:#ffcb52;--bg-r:#3f1c20;--fg-r:#f79a9a;
+  --e1:#7C74E8;--e2:#1FB58C;
+  --radius:18px;--radius-sm:12px;--shadow-sm:0 2px 8px rgba(0,0,0,.10);
+}
+[data-theme="light"]{
+  --bg:#f6f8fd;--surface:#ffffff;--surface2:#fbfcff;--surface3:#f2f5fb;
+  --border:#e3e9f5;--text:#1a2140;--text2:#4a5680;--muted:#9aa3c0;--muted2:#727e9f;
+  --hover:#f2f5fb;--white:#1a2140;
+  --bg-ok:#e8f8ef;--fg-ok:#1f9c56;--bg-warn:#fdf5db;--fg-warn:#9a6b00;--bg-r:#fdeded;--fg-r:#dc4b4b;
+  --e1:#5B52C9;--e2:#0E8A68;
+  --shadow-sm:0 2px 10px rgba(30,45,90,.04);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{overflow-x:hidden}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px}
+.wrap{max-width:1240px;margin:0 auto;padding:1.25rem}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.1rem;box-shadow:var(--shadow-sm);margin-bottom:16px}
+.card h3{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px}
+.titulo{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.titulo h2{font-size:18px;color:var(--white)}
+.desc{font-size:12px;color:var(--muted);line-height:1.5;max-width:760px;margin-top:4px}
+.btn{background:var(--accent);border:none;color:var(--accent-text);border-radius:var(--radius-sm);padding:9px 15px;font-size:13px;cursor:pointer;font-weight:600;white-space:nowrap}
+.btn:hover{background:var(--accent-h)}
+.btn:disabled{opacity:.5;cursor:default}
+.btn-sec{background:var(--surface3);border:1px solid var(--border);color:var(--text2)}
+.btn-sec:hover{background:var(--hover)}
+.btn-bad{background:var(--bg-r);color:var(--fg-r)}
+.btn-sm{padding:6px 11px;font-size:12px;border-radius:9px}
+.btn-ico{background:none;border:none;cursor:pointer;font-size:14px;padding:3px 6px;border-radius:7px;color:var(--text2)}
+.btn-ico:hover{background:var(--hover)}
+input,select,textarea{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:8px 10px;font-size:13px;font-family:inherit;min-width:0}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--muted2);font-weight:600}
+.fila{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}
+.seg{display:inline-flex;background:var(--surface3);border:1px solid var(--border);border-radius:10px;padding:3px;gap:2px;flex-wrap:wrap}
+.seg button{background:none;border:none;color:var(--muted2);font-size:12.5px;font-weight:600;padding:6px 11px;border-radius:7px;cursor:pointer;white-space:nowrap}
+.seg button:hover{color:var(--text)}
+.seg button.on{background:var(--accent);color:var(--accent-text)}
+.chk{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text2);cursor:pointer;user-select:none}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:16px}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px}
+.kpi .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
+.kpi .v{font-size:1.3rem;font-weight:700;color:var(--white);font-variant-numeric:tabular-nums}
+.kpi .s{font-size:11px;color:var(--muted2);margin-top:3px}
+.kpi.acc{border-color:var(--accent)}
+.dot{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:6px;vertical-align:middle}
+.chip{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;white-space:nowrap}
+.chip.e1{background:color-mix(in srgb,var(--e1) 18%,transparent);color:var(--e1)}
+.chip.e2{background:color-mix(in srgb,var(--e2) 18%,transparent);color:var(--e2)}
+.chip.neu{background:var(--surface3);color:var(--text2);border:1px solid var(--border)}
+.chip.warn{background:var(--bg-warn);color:var(--fg-warn)}
+.aviso{border-radius:12px;padding:10px 12px;font-size:12.5px;line-height:1.5;margin-bottom:12px;background:var(--bg-warn);color:var(--fg-warn)}
+.aviso.info{background:var(--surface3);color:var(--text2);border:1px solid var(--border)}
+.dos{display:grid;grid-template-columns:1.25fr 1fr;gap:16px}
+@media(max-width:860px){.dos{grid-template-columns:1fr}}
+.tabla-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{font-size:11px;color:var(--muted);font-weight:600;text-align:left;padding:8px;border-bottom:1px solid var(--border);white-space:nowrap}
+td{padding:8px;border-bottom:1px solid var(--border);vertical-align:top}
+tr:hover td{background:var(--hover)}
+tfoot td{font-weight:700;border-bottom:none}
+.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.sub{font-size:11px;color:var(--muted)}
+.vacio{color:var(--muted);text-align:center;padding:1.6rem;font-size:13px}
+.barra{height:6px;border-radius:4px;background:var(--surface3);overflow:hidden;display:flex;margin-top:5px;min-width:80px}
+.barra span{display:block;height:100%}
+.mm th,.mm td{text-align:right;white-space:nowrap}
+.mm th:first-child,.mm td:first-child{text-align:left;position:sticky;left:0;background:var(--surface)}
+.mm td.cero{color:var(--muted)}
+/* Modal */
+.modal-fondo{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:flex-start;justify-content:center;padding:4vh 12px;z-index:50;overflow-y:auto}
+.modal-fondo.on{display:flex}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);width:100%;max-width:640px;padding:18px;box-shadow:0 20px 50px rgba(0,0,0,.35)}
+.modal h3{font-size:15px;color:var(--white);margin-bottom:12px;text-transform:none;letter-spacing:0}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.grid2 .full{grid-column:1/-1}
+@media(max-width:560px){.grid2{grid-template-columns:1fr}}
+.grid2 input,.grid2 select{width:100%}
+.grid2 input[type=checkbox]{width:auto}
+.dos>*,.card{min-width:0}
+.nota-emp{font-size:12px;border-radius:10px;padding:8px 10px;margin-top:2px;display:none}
+.pie-modal{display:flex;justify-content:space-between;gap:8px;margin-top:16px;flex-wrap:wrap}
+details.config summary{cursor:pointer;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--bg-ok);color:var(--fg-ok);padding:12px 18px;border-radius:12px;font-size:13px;display:none;z-index:100;border:1px solid var(--border);max-width:340px}
+.toast.err{background:var(--bg-r);color:var(--fg-r)}
+.oculto{display:none!important}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="titulo">
+    <div>
+      <h2>Compras y gastos</h2>
+      <p class="desc">Todo el dinero que sale y <b>no es mercadería</b>: planilla, alquiler, servicios, fletes, comisiones, publicidad, impuestos… Indica de qué <b>cuenta</b> salió y de qué <b>empresa</b> es el gasto. La mercadería no se anota aquí: ya viene del sistema (entradas e importaciones).</p>
+    </div>
+    <div class="fila">
+      <button class="btn" onclick="abrirForm()">+ Nuevo gasto</button>
+      <button class="btn btn-sec" id="btn-copiar" onclick="copiarFijos()" title="Copia los gastos marcados como fijos del mes anterior a este mes">Copiar fijos del mes anterior</button>
+      <button class="btn btn-sec" onclick="descargarExcel()">Excel</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="fila" style="margin-bottom:10px">
+      <div class="seg" id="f-empresa"></div>
+      <div class="seg" id="f-modo">
+        <button data-v="mes" class="on" onclick="setModo('mes')">Mes</button>
+        <button data-v="rango" onclick="setModo('rango')">Rango</button>
+      </div>
+      <span id="caja-mes" class="fila" style="gap:4px">
+        <button class="btn btn-sec btn-sm" onclick="moverMes(-1)" aria-label="Mes anterior">‹</button>
+        <input type="month" id="f-mes" onchange="cargar()">
+        <button class="btn btn-sec btn-sm" onclick="moverMes(1)" aria-label="Mes siguiente">›</button>
+      </span>
+      <span id="caja-rango" class="fila oculto" style="gap:6px">
+        <input type="date" id="f-desde" aria-label="Desde"> <input type="date" id="f-hasta" aria-label="Hasta">
+        <button class="btn btn-sm" onclick="cargar()">Ver</button>
+      </span>
+    </div>
+    <div class="fila">
+      <select id="f-categoria" onchange="cargar()" aria-label="Categoría"><option value="">Todas las categorías</option></select>
+      <select id="f-cuenta" onchange="cargar()" aria-label="Cuenta"><option value="">Todas las cuentas</option></select>
+      <input type="search" id="f-q" placeholder="Buscar proveedor, descripción, RUC…" style="flex:1;min-width:200px" oninput="clearTimeout(window._tq);window._tq=setTimeout(cargar,350)">
+      <label class="chk"><input type="checkbox" id="f-fijo" onchange="cargar()"> Solo fijos</label>
+      <label class="chk"><input type="checkbox" id="f-entre" onchange="cargar()"> Pagados con cuenta de la otra empresa</label>
+    </div>
+  </div>
+
+  <div class="kpis" id="kpis"></div>
+  <div id="avisos"></div>
+
+  <div class="dos">
+    <div class="card"><h3>Por categoría</h3><div class="tabla-wrap" id="por-categoria"></div></div>
+    <div class="card"><h3>Por cuenta de salida</h3><div class="tabla-wrap" id="por-cuenta"></div></div>
+  </div>
+
+  <div class="card"><h3 id="mm-titulo">Últimos 12 meses</h3><div class="tabla-wrap" id="mensual"></div></div>
+
+  <div class="card">
+    <h3 id="lista-titulo">Gastos</h3>
+    <div class="tabla-wrap" id="lista"></div>
+  </div>
+
+  <details class="card config" id="config">
+    <summary>Categorías y cuentas</summary>
+    <div style="margin-top:12px" id="config-cuerpo"></div>
+  </details>
+</div>
+
+<!-- Formulario de gasto -->
+<div class="modal-fondo" id="modal" onclick="if(event.target===this)cerrarForm()">
+  <form class="modal" id="form" onsubmit="guardar(event)" autocomplete="off">
+    <h3 id="form-titulo">Nuevo gasto</h3>
+    <div class="grid2">
+      <label class="f">Fecha de pago<input type="date" id="g-fecha" required></label>
+      <label class="f">Categoría<select id="g-categoria" required onchange="alCambiarCategoria()"></select></label>
+      <label class="f full">Cuenta de donde salió el dinero<select id="g-cuenta" required onchange="alCambiarCuenta()"></select></label>
+      <div class="full">
+        <label class="f">Empresa del gasto</label>
+        <div class="seg" id="g-empresa" style="margin-top:4px"></div>
+        <div class="nota-emp" id="g-nota-emp"></div>
+      </div>
+      <label class="f">Proveedor<input id="g-proveedor" list="dl-proveedores" maxlength="120" placeholder="Ej. Luz del Sur"></label>
+      <label class="f">RUC / DNI (opcional)<input id="g-ruc" inputmode="numeric" maxlength="11" placeholder="20xxxxxxxxx"></label>
+      <label class="f full">Descripción<input id="g-descripcion" maxlength="255" placeholder="Ej. Recibo de luz tienda – setiembre"></label>
+      <label class="f">Moneda<select id="g-moneda" onchange="alCambiarMoneda()"><option value="PEN">Soles (S/)</option><option value="USD">Dólares (US$)</option></select></label>
+      <label class="f">Monto<input id="g-monto" type="number" step="0.01" min="0.01" required inputmode="decimal" oninput="calcSoles()"></label>
+      <label class="f oculto" id="g-tc-caja">Tipo de cambio<input id="g-tc" type="number" step="0.0001" min="0" inputmode="decimal" oninput="calcSoles()"></label>
+      <div class="sub oculto" id="g-soles" style="align-self:end;padding-bottom:9px"></div>
+      <label class="f">Comprobante<select id="g-comp-tipo" onchange="alCambiarComp()">
+        <option value="ninguno">Sin comprobante</option><option value="factura">Factura</option><option value="boleta">Boleta</option>
+        <option value="recibo_honorarios">Recibo por honorarios</option><option value="ticket">Ticket</option><option value="recibo">Recibo simple</option></select></label>
+      <label class="f">N° de comprobante<input id="g-comp-numero" maxlength="30" placeholder="F001-123" disabled></label>
+      <label class="chk full"><input type="checkbox" id="g-fijo"> Gasto fijo mensual (se repite cada mes)</label>
+    </div>
+    <div class="pie-modal">
+      <button type="button" class="btn btn-bad btn-sm oculto" id="g-borrar" onclick="borrarDesdeForm()">Eliminar</button>
+      <span style="flex:1"></span>
+      <button type="button" class="btn btn-sec" onclick="cerrarForm()">Cancelar</button>
+      <button type="submit" class="btn" id="g-guardar">Guardar</button>
+    </div>
+  </form>
+</div>
+<datalist id="dl-proveedores"></datalist>
+<div class="toast" id="toast"></div>
+
+<script>
+// ── Base compartida (mini-app en iframe; comparte token y origen con admin.html) ──
+let TOKEN='';try{TOKEN=localStorage.getItem('admtoken')||'';}catch(e){}
+let OPC=null, DATOS=null, EMPRESA='', MODO='mes', EDITANDO=null, EMP_FORM=null, EMP_MANUAL=false;
+
+function esc(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+function toast(m,e){const t=document.getElementById('toast');t.textContent=m;t.className='toast'+(e?' err':'');t.style.display='block';clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',4000);}
+const soles=n=>'S/ '+Number(n||0).toLocaleString('es-PE',{minimumFractionDigits:2,maximumFractionDigits:2});
+const solesC=n=>'S/ '+Number(n||0).toLocaleString('es-PE',{maximumFractionDigits:0});
+const fechaTxt=f=>f?f.split('-').reverse().join('/'):'';
+const MESES=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+const mesTxt=m=>{const [a,b]=m.split('-');return MESES[+b-1]+' '+a.slice(2);};
+const hoyLima=()=>new Date(Date.now()-5*3600e3).toISOString().slice(0,10);
+async function api(ep,method='GET',body){
+  const opt={method,headers:{'Authorization':'Bearer '+TOKEN}};
+  if(body){opt.headers['Content-Type']='application/json';opt.body=JSON.stringify(body);}
+  const r=await fetch(ep,opt);
+  if(r.status===401)throw new Error('Sesión del portal expirada — vuelve a entrar al panel.');
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok)throw new Error(d.error||'Error');
+  return d;
+}
+const empNom=id=>{const e=OPC&&OPC.empresas.find(x=>x.id===+id);return e?e.nombre:(id?'Empresa '+id:'—');};
+const empCorto=id=>empNom(id).split(' ')[0];
+const empChip=id=>`<span class="chip e${+id}">${esc(empCorto(id))}</span>`;
+const cuentaDe=ref=>OPC&&OPC.cuentas.find(c=>c.ref===ref);
+
+// ── Filtros ──
+function setModo(m){
+  MODO=m;document.querySelectorAll('#f-modo button').forEach(b=>b.classList.toggle('on',b.dataset.v===m));
+  document.getElementById('caja-mes').classList.toggle('oculto',m!=='mes');
+  document.getElementById('caja-rango').classList.toggle('oculto',m!=='rango');
+  document.getElementById('btn-copiar').classList.toggle('oculto',m!=='mes');
+  if(m==='rango'){
+    const d=document.getElementById('f-desde'),h=document.getElementById('f-hasta');
+    if(!d.value){const mes=document.getElementById('f-mes').value;d.value=mes+'-01';h.value=hoyLima();}
+  }
+  cargar();
+}
+function moverMes(n){const i=document.getElementById('f-mes');const [a,m]=i.value.split('-').map(Number);const d=new Date(Date.UTC(a,m-1+n,1));i.value=d.toISOString().slice(0,7);cargar();}
+function setEmpresa(id){EMPRESA=id;document.querySelectorAll('#f-empresa button').forEach(b=>b.classList.toggle('on',b.dataset.v===String(id)));cargar();}
+function params(extra){
+  const p=new URLSearchParams();
+  if(MODO==='mes')p.set('mes',document.getElementById('f-mes').value);
+  else{p.set('desde',document.getElementById('f-desde').value);p.set('hasta',document.getElementById('f-hasta').value);}
+  if(EMPRESA)p.set('empresa',EMPRESA);
+  const cat=document.getElementById('f-categoria').value;if(cat)p.set('categoria',cat);
+  const cu=document.getElementById('f-cuenta').value;if(cu)p.set('cuenta',cu);
+  const q=document.getElementById('f-q').value.trim();if(q)p.set('q',q);
+  if(document.getElementById('f-fijo').checked)p.set('fijo','1');
+  if(document.getElementById('f-entre').checked)p.set('entre','1');
+  Object.entries(extra||{}).forEach(([k,v])=>p.set(k,v));
+  return p.toString();
+}
+
+// ── Opciones (empresas, cuentas, categorías) ──
+function opcionesCuentas(sel,incluirInactivas,valorActual){
+  const grupos={};
+  OPC.cuentas.forEach(c=>{if(!c.activo&&!incluirInactivas&&c.ref!==valorActual)return;(grupos[c.company_id||0]=grupos[c.company_id||0]||[]).push(c);});
+  return Object.entries(grupos).sort((a,b)=>(+a[0]||9)-(+b[0]||9)).map(([cid,cs])=>
+    `<optgroup label="${esc(+cid?'Cuentas de '+empNom(cid):'Sin titular')}">`+cs.map(c=>`<option value="${esc(c.ref)}">${esc(c.nombre)}${c.tipo!=='banco'?' ('+c.tipo+')':''}${c.activo?'':' — inactiva'}</option>`).join('')+'</optgroup>').join('');
+}
+function pintarOpciones(){
+  document.getElementById('f-empresa').innerHTML=`<button data-v="" class="${EMPRESA===''?'on':''}" onclick="setEmpresa('')">Todas</button>`+
+    OPC.empresas.map(e=>`<button data-v="${e.id}" class="${String(EMPRESA)===String(e.id)?'on':''}" onclick="setEmpresa('${e.id}')"><span class="dot" style="background:var(--e${e.id})"></span>${esc(e.nombre)}</button>`).join('');
+  const fc=document.getElementById('f-categoria'),vc=fc.value;
+  fc.innerHTML='<option value="">Todas las categorías</option>'+OPC.categorias.map(c=>`<option value="${c.id}">${esc(c.nombre)}${c.activo?'':' (inactiva)'}</option>`).join('');fc.value=vc;
+  const fcu=document.getElementById('f-cuenta'),vcu=fcu.value;
+  fcu.innerHTML='<option value="">Todas las cuentas</option>'+opcionesCuentas(null,true);fcu.value=vcu;
+  document.getElementById('g-empresa').innerHTML=OPC.empresas.map(e=>`<button type="button" data-v="${e.id}" onclick="setEmpForm(${e.id},true)"><span class="dot" style="background:var(--e${e.id})"></span>${esc(e.nombre)}</button>`).join('');
+  pintarConfig();
+}
+async function cargarOpciones(){OPC=await api('/api/gastos/opciones');pintarOpciones();}
+
+// ── Datos ──
+let PET=0;
+async function cargar(){
+  const n=++PET;
+  try{
+    const [d,m]=await Promise.all([api('/api/gastos?'+params()),api('/api/gastos/mensual?'+new URLSearchParams({hasta:MODO==='mes'?document.getElementById('f-mes').value:(document.getElementById('f-hasta').value||hoyLima()).slice(0,7),...(EMPRESA?{empresa:EMPRESA}:{})}))]);
+    if(n!==PET)return;
+    DATOS=d;pintar(d);pintarMensual(m);
+  }catch(e){toast(e.message,true);}
+}
+function pintar(d){
+  const r=d.resumen,t=r.totales;
+  const porEmp=Object.fromEntries(r.por_empresa.map(x=>[x.company_id,x.total]));
+  const kp=[{l:'Total egresos',v:soles(t.total),s:t.n+' registro'+(t.n===1?'':'s'),a:1},
+    {l:'Gastos del período',v:soles(t.en_resultado),s:'cuentan en el resultado'}];
+  if(!EMPRESA)OPC.empresas.forEach(e=>kp.push({l:e.nombre,v:soles(porEmp[e.id]||0),s:t.total?Math.round((porEmp[e.id]||0)/t.total*100)+'% del total':'—',dot:e.id}));
+  kp.push({l:'Gastos fijos',v:soles(t.fijos),s:'se repiten cada mes'});
+  if(t.no_resultado)kp.push({l:'Retiros y préstamos',v:soles(t.no_resultado),s:'salida de dinero, no gasto'});
+  document.getElementById('kpis').innerHTML=kp.map(k=>`<div class="kpi ${k.a?'acc':''}"><div class="l">${k.dot?`<span class="dot" style="background:var(--e${k.dot})"></span>`:''}${esc(k.l)}</div><div class="v">${k.v}</div><div class="s">${k.s}</div></div>`).join('');
+  // Entre empresas: lo que cada una pagó por la otra y el saldo neto
+  const ee=r.entre_empresas;
+  if(ee.length){
+    const neto={};ee.forEach(x=>{neto[x.beneficiaria]=(neto[x.beneficiaria]||0)+x.total;neto[x.pagadora]=(neto[x.pagadora]||0)-x.total;});
+    const deudor=Object.keys(neto).find(k=>neto[k]>0.004), acreedor=Object.keys(neto).find(k=>neto[k]<-0.004);
+    document.getElementById('avisos').innerHTML=`<div class="aviso">↔ <b>Gastos pagados con cuentas de la otra empresa</b> en este período:<br>`+
+      ee.map(x=>`· ${esc(empNom(x.pagadora))} pagó <b>${soles(x.total)}</b> en gastos de ${esc(empNom(x.beneficiaria))}`).join('<br>')+
+      `<br>${deudor&&acreedor?`<b>Saldo: ${esc(empCorto(deudor))} le debe ${soles(neto[deudor])} a ${esc(empCorto(acreedor))}</b>`:'<b>Saldo: quedan a mano</b>'} (salvo lo que ya se haya devuelto). <a href="#" onclick="document.getElementById('f-entre').checked=true;cargar();return false" style="color:inherit">Ver cuáles</a></div>`;
+  }else document.getElementById('avisos').innerHTML='';
+  // Por categoría
+  const maxC=Math.max(1,...r.por_categoria.map(c=>c.total));
+  document.getElementById('por-categoria').innerHTML=r.por_categoria.length?
+    `<table><thead><tr><th>Categoría</th>${!EMPRESA?OPC.empresas.map(e=>`<th class="num">${esc(empCorto(e.id))}</th>`).join(''):''}<th class="num">Total</th><th class="num">%</th></tr></thead><tbody>`+
+    r.por_categoria.map(c=>`<tr><td>${esc(c.categoria)}${c.en_resultado?'':' <span class="chip neu" title="Sale dinero pero no es gasto del resultado">no es gasto</span>'}
+      <div class="barra" title="${soles(c.total)}">${OPC.empresas.map(e=>`<span style="width:${(c.por_empresa[e.id]||0)/maxC*100}%;background:var(--e${e.id})"></span>`).join('')}</div></td>
+      ${!EMPRESA?OPC.empresas.map(e=>`<td class="num">${c.por_empresa[e.id]?soles(c.por_empresa[e.id]):'<span class="sub">—</span>'}</td>`).join(''):''}
+      <td class="num"><b>${soles(c.total)}</b></td><td class="num sub">${t.total?(c.total/t.total*100).toFixed(0)+'%':''}</td></tr>`).join('')+
+    `</tbody><tfoot><tr><td>Total</td>${!EMPRESA?OPC.empresas.map(e=>`<td class="num">${soles(porEmp[e.id]||0)}</td>`).join(''):''}<td class="num">${soles(t.total)}</td><td></td></tr></tfoot></table>`
+    :'<div class="vacio">Sin gastos en este período.</div>';
+  // Por cuenta
+  document.getElementById('por-cuenta').innerHTML=r.por_cuenta.length?
+    '<table><thead><tr><th>Cuenta</th><th>Titular</th><th class="num">N°</th><th class="num">Total</th></tr></thead><tbody>'+
+    r.por_cuenta.map(c=>`<tr><td>${esc(c.cuenta)}</td><td>${c.company_id?empChip(c.company_id):'<span class="sub">—</span>'}</td><td class="num">${c.n}</td><td class="num"><b>${soles(c.total)}</b></td></tr>`).join('')+'</tbody></table>'
+    :'<div class="vacio">—</div>';
+  // Lista
+  const per=MODO==='mes'?mesTxt(document.getElementById('f-mes').value):fechaTxt(d.desde)+' a '+fechaTxt(d.hasta);
+  document.getElementById('lista-titulo').textContent=`Gastos · ${per}${d.gastos.length>=5000?' (primeros 5000)':''}`;
+  const prov=new Set();d.gastos.forEach(g=>g.proveedor&&prov.add(g.proveedor));
+  document.getElementById('dl-proveedores').innerHTML=[...prov].slice(0,300).map(p=>`<option value="${esc(p)}">`).join('');
+  document.getElementById('lista').innerHTML=d.gastos.length?
+    '<table><thead><tr><th>Fecha</th><th>Empresa</th><th>Cuenta</th><th>Categoría</th><th>Proveedor / descripción</th><th>Comprobante</th><th class="num">Monto</th><th></th></tr></thead><tbody>'+
+    d.gastos.map(g=>{
+      const otra=g.cuenta_company_id&&g.cuenta_company_id!==g.company_id;
+      return `<tr>
+      <td style="white-space:nowrap">${fechaTxt(g.fecha)}${g.fijo?' <span class="chip neu" title="Gasto fijo mensual">fijo</span>':''}</td>
+      <td>${empChip(g.company_id)}</td>
+      <td>${esc(g.cuenta_nombre)}${otra?`<div><span class="chip warn" title="Se pagó con una cuenta de la otra empresa">pagó ${esc(empCorto(g.cuenta_company_id))}</span></div>`:''}</td>
+      <td>${esc(g.categoria||'')}</td>
+      <td>${esc(g.proveedor||'—')}${g.ruc?` <span class="sub">${esc(g.ruc)}</span>`:''}${g.descripcion?`<div class="sub">${esc(g.descripcion)}</div>`:''}</td>
+      <td>${g.comp_tipo!=='ninguno'?`<span class="sub">${esc(g.comp_tipo.replace('_',' '))}</span> ${esc(g.comp_numero)}`:'<span class="sub">—</span>'}</td>
+      <td class="num"><b>${soles(g.monto_pen)}</b>${g.moneda==='USD'?`<div class="sub">US$ ${Number(g.monto).toLocaleString('es-PE',{minimumFractionDigits:2})} × ${g.tipo_cambio}</div>`:''}</td>
+      <td style="white-space:nowrap"><button class="btn-ico" title="Editar" onclick="abrirForm(${g.id})">✏️</button><button class="btn-ico" title="Duplicar" onclick="abrirForm(${g.id},true)">⧉</button></td></tr>`;}).join('')+
+    `</tbody><tfoot><tr><td colspan="6">Total</td><td class="num">${soles(t.total)}</td><td></td></tr></tfoot></table>`
+    :'<div class="vacio">No hay gastos con estos filtros. Usa <b>+ Nuevo gasto</b> para anotar el primero.</div>';
+}
+function pintarMensual(m){
+  const meses=[];const [a,b]=m.hasta.split('-').map(Number);
+  for(let i=11;i>=0;i--){const d=new Date(Date.UTC(a,b-1-i,1));meses.push(d.toISOString().slice(0,7));}
+  const val=(cid,mes,campo)=>m.filas.filter(f=>f.mes===mes&&(cid==='T'||f.company_id===cid)).reduce((s,f)=>s+(campo==='gasto'?(f.en_resultado?f.total:0):campo==='fijos'?f.fijos:f.total),0);
+  const grupos=EMPRESA?[+EMPRESA]:[...OPC.empresas.map(e=>e.id),'T'];
+  document.getElementById('mm-titulo').textContent='Últimos 12 meses'+(EMPRESA?' — '+empNom(EMPRESA):' por empresa');
+  let h='<table class="mm"><thead><tr><th></th>'+meses.map(x=>`<th>${mesTxt(x)}</th>`).join('')+'<th>Total</th></tr></thead><tbody>';
+  grupos.forEach(cid=>{
+    const nom=cid==='T'?'Total':empNom(cid);
+    [['total','Egresos'],['fijos','de ellos fijos']].forEach(([campo,etq],i)=>{
+      const vals=meses.map(x=>val(cid,x,campo));
+      h+=`<tr><td>${i===0?(cid==='T'?'<b>Total</b>':`<span class="dot" style="background:var(--e${cid})"></span><b>${esc(nom)}</b>`):''} <span class="sub">${etq}</span></td>`+
+        vals.map(v=>`<td class="${v?'':'cero'}">${v?solesC(v):'—'}</td>`).join('')+`<td><b>${solesC(vals.reduce((s,v)=>s+v,0))}</b></td></tr>`;
+    });
+  });
+  document.getElementById('mensual').innerHTML=h+'</tbody></table>';
+}
+
+// ── Formulario ──
+function setEmpForm(id,manual){
+  EMP_FORM=+id; if(manual)EMP_MANUAL=true;
+  document.querySelectorAll('#g-empresa button').forEach(b=>b.classList.toggle('on',+b.dataset.v===EMP_FORM));
+  notaEmpresa();
+}
+function notaEmpresa(){
+  const c=cuentaDe(document.getElementById('g-cuenta').value), n=document.getElementById('g-nota-emp');
+  if(c&&c.company_id&&EMP_FORM&&c.company_id!==EMP_FORM){
+    n.style.display='block';n.className='nota-emp aviso';
+    n.innerHTML=`Este gasto es de <b>${esc(empNom(EMP_FORM))}</b> pero se paga con una cuenta de <b>${esc(empNom(c.company_id))}</b>. Quedará registrado como deuda entre empresas.`;
+  } else n.style.display='none';
+}
+function alCambiarCuenta(){
+  const c=cuentaDe(document.getElementById('g-cuenta').value);
+  if(c&&c.company_id&&!EMP_MANUAL)setEmpForm(c.company_id,false); else notaEmpresa();
+}
+function alCambiarCategoria(){
+  if(EDITANDO)return;
+  const c=OPC.categorias.find(x=>x.id===+document.getElementById('g-categoria').value);
+  document.getElementById('g-fijo').checked=!!(c&&c.fijo_sugerido);
+}
+function alCambiarMoneda(){
+  const usd=document.getElementById('g-moneda').value==='USD';
+  document.getElementById('g-tc-caja').classList.toggle('oculto',!usd);
+  document.getElementById('g-soles').classList.toggle('oculto',!usd);
+  document.getElementById('g-tc').required=usd;calcSoles();
+}
+function calcSoles(){
+  const m=+document.getElementById('g-monto').value||0,tc=+document.getElementById('g-tc').value||0;
+  document.getElementById('g-soles').textContent=tc?'= '+soles(m*tc):'';
+}
+function alCambiarComp(){
+  const v=document.getElementById('g-comp-tipo').value,i=document.getElementById('g-comp-numero');
+  i.disabled=v==='ninguno';if(i.disabled)i.value='';
+}
+function abrirForm(id,duplicar){
+  const g=id?DATOS.gastos.find(x=>x.id===id):null;
+  EDITANDO=g&&!duplicar?g.id:null; EMP_MANUAL=!!g;
+  const catActivas=OPC.categorias.filter(c=>c.activo||(g&&c.id===g.categoria_id));
+  document.getElementById('g-categoria').innerHTML='<option value="">Elige…</option>'+catActivas.map(c=>`<option value="${c.id}">${esc(c.nombre)}${c.en_resultado?'':' (no es gasto)'}</option>`).join('');
+  document.getElementById('g-cuenta').innerHTML='<option value="">Elige la cuenta…</option>'+opcionesCuentas(null,false,g&&g.cuenta_ref);
+  document.getElementById('form-titulo').textContent=EDITANDO?'Editar gasto':(duplicar?'Duplicar gasto':'Nuevo gasto');
+  const set=(k,v)=>document.getElementById(k).value=v==null?'':v;
+  set('g-fecha',g&&!duplicar?g.fecha:(MODO==='mes'&&document.getElementById('f-mes').value!==hoyLima().slice(0,7)?document.getElementById('f-mes').value+'-01':hoyLima()));
+  set('g-categoria',g?g.categoria_id:'');set('g-cuenta',g?g.cuenta_ref:'');
+  set('g-proveedor',g?g.proveedor:'');set('g-ruc',g?g.ruc:'');set('g-descripcion',g?g.descripcion:'');
+  set('g-moneda',g?g.moneda:'PEN');set('g-monto',g?g.monto:'');set('g-tc',g?g.tipo_cambio:'');
+  set('g-comp-tipo',g&&!duplicar?g.comp_tipo:'ninguno');set('g-comp-numero',g&&!duplicar?g.comp_numero:'');
+  document.getElementById('g-fijo').checked=!!(g&&g.fijo);
+  EMP_FORM=null;document.querySelectorAll('#g-empresa button').forEach(b=>b.classList.remove('on'));
+  if(g)setEmpForm(g.company_id,true); else if(EMPRESA)setEmpForm(EMPRESA,false);
+  alCambiarMoneda();alCambiarComp();notaEmpresa();
+  document.getElementById('g-borrar').classList.toggle('oculto',!EDITANDO);
+  document.getElementById('modal').classList.add('on');
+  setTimeout(()=>document.getElementById(g?'g-monto':'g-categoria').focus(),50);
+}
+function cerrarForm(){document.getElementById('modal').classList.remove('on');EDITANDO=null;}
+async function guardar(ev){
+  ev.preventDefault();
+  if(!EMP_FORM)return toast('Elige la empresa del gasto',true);
+  const v=k=>document.getElementById(k).value;
+  const body={fecha:v('g-fecha'),categoria_id:v('g-categoria'),cuenta_ref:v('g-cuenta'),company_id:EMP_FORM,
+    proveedor:v('g-proveedor'),ruc:v('g-ruc'),descripcion:v('g-descripcion'),moneda:v('g-moneda'),monto:v('g-monto'),
+    tipo_cambio:v('g-tc'),comp_tipo:v('g-comp-tipo'),comp_numero:v('g-comp-numero'),fijo:document.getElementById('g-fijo').checked};
+  const b=document.getElementById('g-guardar');b.disabled=true;
+  try{
+    if(EDITANDO)await api('/api/gastos/'+EDITANDO,'PUT',body); else await api('/api/gastos','POST',body);
+    toast(EDITANDO?'Gasto actualizado':'Gasto guardado');cerrarForm();cargar();
+  }catch(e){toast(e.message,true);}finally{b.disabled=false;}
+}
+async function borrarDesdeForm(){
+  if(!EDITANDO||!confirm('¿Eliminar este gasto? Queda registro de quién lo eliminó.'))return;
+  try{await api('/api/gastos/'+EDITANDO,'DELETE');toast('Gasto eliminado');cerrarForm();cargar();}catch(e){toast(e.message,true);}
+}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')cerrarForm();});
+
+// ── Copiar fijos del mes anterior ──
+async function copiarFijos(){
+  const a=document.getElementById('f-mes').value;const [y,m]=a.split('-').map(Number);
+  const de=new Date(Date.UTC(y,m-2,1)).toISOString().slice(0,7);
+  if(!confirm(`¿Copiar los gastos fijos de ${mesTxt(de)} a ${mesTxt(a)}? Los que ya estén en ${mesTxt(a)} no se duplican. Después puedes editar los montos que cambien.`))return;
+  try{const r=await api('/api/gastos/copiar-fijos','POST',{de,a});toast(r.copiados?`Se copiaron ${r.copiados} gasto(s) fijo(s)`+(r.omitidos?`; ${r.omitidos} ya estaban`:''):(r.omitidos?'Todos los fijos ya estaban copiados':`No hay gastos fijos en ${mesTxt(de)}`));cargar();}
+  catch(e){toast(e.message,true);}
+}
+
+// ── Excel ──
+async function descargarExcel(){
+  try{
+    const r=await fetch('/api/gastos-excel?'+params(),{headers:{'Authorization':'Bearer '+TOKEN}});
+    if(!r.ok){const d=await r.json().catch(()=>({}));throw new Error(d.error||'No se pudo generar el Excel');}
+    const url=URL.createObjectURL(await r.blob());
+    const a=document.createElement('a');a.href=url;
+    a.download=(r.headers.get('Content-Disposition')||'').match(/filename="([^"]+)"/)?.[1]||'gastos.xlsx';
+    document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000);
+  }catch(e){toast(e.message,true);}
+}
+
+// ── Configuración: categorías y cuentas propias ──
+function pintarConfig(){
+  const m=OPC.maestro;
+  const cats=OPC.categorias.map(c=>`<tr><td>${m?`<input value="${esc(c.nombre)}" id="cat-n-${c.id}" style="width:100%">`:esc(c.nombre)}</td>
+    <td>${m?`<label class="chk"><input type="checkbox" id="cat-r-${c.id}" ${c.en_resultado?'checked':''}> cuenta como gasto</label>`:(c.en_resultado?'Gasto':'No es gasto')}</td>
+    <td>${m?`<label class="chk"><input type="checkbox" id="cat-f-${c.id}" ${c.fijo_sugerido?'checked':''}> fijo por defecto</label>`:(c.fijo_sugerido?'Fijo':'')}</td>
+    <td>${m?`<label class="chk"><input type="checkbox" id="cat-a-${c.id}" ${c.activo?'checked':''}> activa</label>`:(c.activo?'':'inactiva')}</td>
+    <td>${m?`<button class="btn btn-sec btn-sm" onclick="guardarCat(${c.id})">Guardar</button>`:''}</td></tr>`).join('');
+  const cuentas=OPC.cuentas.map(c=>`<tr><td>${esc(c.nombre)}</td><td>${c.company_id?empChip(c.company_id):'<span class="sub">sin titular</span>'}</td>
+    <td>${c.origen==='erp'?'<span class="sub">del sistema (ERP)</span>':esc(c.tipo)}</td>
+    <td>${c.origen==='portal'&&m?`<label class="chk"><input type="checkbox" ${c.activo?'checked':''} onchange="activarCuenta(${c.id},this.checked)"> activa</label>`:''}</td></tr>`).join('');
+  document.getElementById('config-cuerpo').innerHTML=`
+    <p class="desc" style="margin-bottom:10px">Las categorías marcadas como <b>"no es gasto"</b> (retiros de socios, pago de préstamos) son salidas de dinero, pero no restan en el resultado de la empresa. ${m?'':'Solo el administrador maestro puede cambiarlas.'}</p>
+    <div class="tabla-wrap"><table><thead><tr><th>Categoría</th><th></th><th></th><th></th><th></th></tr></thead><tbody>${cats}</tbody></table></div>
+    ${m?`<div class="fila" style="margin-top:10px"><input id="cat-nueva" placeholder="Nueva categoría" style="flex:1;min-width:200px"><label class="chk"><input type="checkbox" id="cat-nueva-r" checked> cuenta como gasto</label><button class="btn btn-sm" onclick="guardarCat()">Agregar</button></div>`:''}
+    <h3 style="margin-top:22px">Cuentas de salida</h3>
+    <p class="desc" style="margin-bottom:10px">Las cuentas bancarias vienen del sistema (las mismas del reporte de pagos). Aquí puedes agregar otras: efectivo, tarjetas de crédito, caja chica…</p>
+    <div class="tabla-wrap"><table><thead><tr><th>Cuenta</th><th>Titular</th><th>Tipo</th><th></th></tr></thead><tbody>${cuentas}</tbody></table></div>
+    ${m?`<div class="fila" style="margin-top:10px"><input id="cu-nombre" placeholder="Ej. Tarjeta BCP Visa Diseños" style="flex:1;min-width:200px">
+      <select id="cu-empresa">${OPC.empresas.map(e=>`<option value="${e.id}">${esc(e.nombre)}</option>`).join('')}</select>
+      <select id="cu-tipo"><option value="efectivo">Efectivo</option><option value="tarjeta">Tarjeta</option><option value="banco">Banco</option><option value="otro">Otro</option></select>
+      <button class="btn btn-sm" onclick="agregarCuenta()">Agregar cuenta</button></div>`:''}`;
+}
+async function guardarCat(id){
+  try{
+    const body=id?{id,nombre:document.getElementById('cat-n-'+id).value,en_resultado:document.getElementById('cat-r-'+id).checked,
+      fijo_sugerido:document.getElementById('cat-f-'+id).checked,activo:document.getElementById('cat-a-'+id).checked?1:0}
+      :{nombre:document.getElementById('cat-nueva').value,en_resultado:document.getElementById('cat-nueva-r').checked,activo:1};
+    await api('/api/gastos/categorias','POST',body);toast('Categoría guardada');await cargarOpciones();cargar();
+  }catch(e){toast(e.message,true);}
+}
+async function agregarCuenta(){
+  try{await api('/api/gastos/cuentas','POST',{nombre:document.getElementById('cu-nombre').value,company_id:document.getElementById('cu-empresa').value,tipo:document.getElementById('cu-tipo').value});
+    toast('Cuenta agregada');await cargarOpciones();}catch(e){toast(e.message,true);}
+}
+async function activarCuenta(id,on){
+  const c=OPC.cuentas.find(x=>x.origen==='portal'&&x.id===id);if(!c)return;
+  try{await api('/api/gastos/cuentas','POST',{id,nombre:c.nombre,company_id:c.company_id,tipo:c.tipo,activo:on?1:0});toast(on?'Cuenta activada':'Cuenta desactivada');await cargarOpciones();}
+  catch(e){toast(e.message,true);}
+}
+
+// ── Inicio ──
+(async function(){
+  document.getElementById('f-mes').value=hoyLima().slice(0,7);
+  try{await cargarOpciones();await cargar();}catch(e){toast(e.message,true);document.getElementById('lista').innerHTML=`<div class="vacio">${esc(e.message)}</div>`;}
+})();
+</script>
+</body>
+</html>

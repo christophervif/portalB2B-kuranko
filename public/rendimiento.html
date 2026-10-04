@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<script src="/tema.js"></script>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Rendimiento — Kuranko</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+:root{
+  --bg:#0a1030;--surface:#111a44;--surface2:#0e1640;--surface3:#18224e;
+  --border:#212b54;--text:#eef1f8;--text2:#c6cee2;--muted:#8a93b4;--muted2:#a2abca;
+  --accent:#FFB30D;--accent-text:#000726;--accent-h:#e6a00c;--hover:#1a2450;--white:#ffffff;
+  --bg-ok:#163a29;--fg-ok:#6ee59a;--bg-warn:#3d3315;--fg-warn:#ffcb52;--bg-r:#3f1c20;--fg-r:#f79a9a;
+  --e1:#7C74E8;--e2:#1FB58C;
+  /* Series del gráfico (validadas: CVD y contraste en ambos temas) */
+  --s-margen:#3987e5;--s-gastos:#d95926;--s-utilidad:#eef1f8;--grid:rgba(148,163,184,.12);
+  --radius:18px;--radius-sm:12px;--shadow-sm:0 2px 8px rgba(0,0,0,.10);
+}
+[data-theme="light"]{
+  --bg:#f6f8fd;--surface:#ffffff;--surface2:#fbfcff;--surface3:#f2f5fb;
+  --border:#e3e9f5;--text:#1a2140;--text2:#4a5680;--muted:#9aa3c0;--muted2:#727e9f;
+  --hover:#f2f5fb;--white:#1a2140;
+  --bg-ok:#e8f8ef;--fg-ok:#1f9c56;--bg-warn:#fdf5db;--fg-warn:#9a6b00;--bg-r:#fdeded;--fg-r:#dc4b4b;
+  --e1:#5B52C9;--e2:#0E8A68;
+  --s-margen:#2a78d6;--s-gastos:#eb6834;--s-utilidad:#1a2140;--grid:rgba(26,33,64,.08);
+  --shadow-sm:0 2px 10px rgba(30,45,90,.04);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{overflow-x:hidden}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px}
+.wrap{max-width:1240px;margin:0 auto;padding:1.25rem}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.1rem;box-shadow:var(--shadow-sm);margin-bottom:16px;min-width:0}
+.card h3{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px}
+.titulo{margin-bottom:14px}
+.titulo h2{font-size:18px;color:var(--white)}
+.desc{font-size:12px;color:var(--muted);line-height:1.5;max-width:800px;margin-top:4px}
+.btn{background:var(--accent);border:none;color:var(--accent-text);border-radius:var(--radius-sm);padding:9px 15px;font-size:13px;cursor:pointer;font-weight:600}
+.btn-sec{background:var(--surface3);border:1px solid var(--border);color:var(--text2)}
+.btn-sm{padding:6px 11px;font-size:12px;border-radius:9px}
+input{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:7px 10px;font-size:13px;font-family:inherit}
+.fila{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.lbl{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.seg{display:inline-flex;background:var(--surface3);border:1px solid var(--border);border-radius:10px;padding:3px;gap:2px;flex-wrap:wrap}
+.seg button{background:none;border:none;color:var(--muted2);font-size:12.5px;font-weight:600;padding:6px 11px;border-radius:7px;cursor:pointer;white-space:nowrap}
+.seg button:hover{color:var(--text)}
+.seg button.on{background:var(--accent);color:var(--accent-text)}
+.dot{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:6px;vertical-align:middle}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:16px}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px}
+.kpi .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
+.kpi .v{font-size:1.3rem;font-weight:700;color:var(--white);font-variant-numeric:tabular-nums}
+.kpi .s{font-size:11px;color:var(--muted2);margin-top:3px}
+.kpi.acc{border-color:var(--accent)}
+.pos{color:var(--fg-ok)}.neg{color:var(--fg-r)}
+.aviso{border-radius:12px;padding:10px 12px;font-size:12.5px;line-height:1.5;margin-bottom:12px;background:var(--bg-warn);color:var(--fg-warn)}
+.aviso.info{background:var(--surface3);color:var(--text2);border:1px solid var(--border)}
+.tabla-wrap{overflow-x:auto}
+table{border-collapse:collapse;font-size:12.5px;width:100%}
+th,td{padding:7px 10px;border-bottom:1px solid var(--border);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+th{font-size:11px;color:var(--muted);font-weight:600}
+th:first-child,td:first-child{text-align:left;position:sticky;left:0;background:var(--surface);z-index:1}
+tr.grupo td{background:var(--surface3);font-weight:700;color:var(--text);text-align:left}
+tr.grupo td:first-child{background:var(--surface3)}
+tr.res td{font-weight:700;color:var(--white)}
+tr.pct td{color:var(--muted2);font-size:11.5px}
+td.cero,td .sin{color:var(--muted)}
+th.sin-g{color:var(--muted)}
+.sub{font-size:11px;color:var(--muted)}
+.vacio{color:var(--muted);text-align:center;padding:1.6rem;font-size:13px}
+.eq-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+.eq{border:1px solid var(--border);border-radius:14px;padding:14px;background:var(--surface2)}
+.eq .nom{font-weight:700;color:var(--white);margin-bottom:8px}
+.eq p{font-size:12.5px;color:var(--text2);line-height:1.55}
+.meter{height:10px;border-radius:6px;background:var(--surface3);position:relative;margin:12px 0 4px;overflow:visible}
+.meter .fill{height:100%;border-radius:6px;background:var(--s-margen)}
+.meter .marca{position:absolute;top:-4px;width:2px;height:18px;background:var(--white)}
+.meter-lbl{display:flex;justify-content:space-between;font-size:11px;color:var(--muted)}
+.dos{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:860px){.dos{grid-template-columns:1fr}}
+.dos>*{min-width:0}
+#entre td{white-space:normal}
+#entre td:first-child{position:static}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--bg-r);color:var(--fg-r);padding:12px 18px;border-radius:12px;font-size:13px;display:none;z-index:100;max-width:340px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="titulo">
+    <h2>Rendimiento</h2>
+    <p class="desc">Cruce de <b>Ventas e ingresos</b> con <b>Compras y gastos</b>: cuánto te deja realmente cada empresa (utilidad), qué parte de las ventas se va en gastos, cuánto necesitas vender para cubrirlos y cuánto dinero entró y salió de verdad.</p>
+  </div>
+
+  <div class="card">
+    <div class="fila">
+      <span class="lbl">Empresa</span><div class="seg" id="f-empresa"></div>
+      <span class="lbl" style="margin-left:6px">Hasta</span>
+      <span class="fila" style="gap:4px"><button class="btn btn-sec btn-sm" onclick="moverMes(-1)" aria-label="Mes anterior">‹</button><input type="month" id="f-hasta" onchange="cargar()"><button class="btn btn-sec btn-sm" onclick="moverMes(1)" aria-label="Mes siguiente">›</button></span>
+      <span class="lbl" style="margin-left:6px">Ver</span>
+      <div class="seg" id="f-meses">
+        <button data-v="6" onclick="setMeses(6)">6 meses</button>
+        <button data-v="12" class="on" onclick="setMeses(12)">12 meses</button>
+        <button data-v="24" onclick="setMeses(24)">24 meses</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="avisos"></div>
+  <div class="kpis" id="kpis"></div>
+
+  <div class="card">
+    <h3 id="graf-titulo">Margen bruto, gastos y utilidad por mes</h3>
+    <div style="position:relative;height:300px"><canvas id="graf" role="img" aria-label="Gráfico de margen bruto, gastos y utilidad neta por mes"></canvas></div>
+    <p class="sub" style="margin-top:6px">El detalle mes a mes está en el estado de resultados de abajo.</p>
+  </div>
+
+  <div class="card"><h3>Estado de resultados</h3><div class="tabla-wrap" id="er"></div>
+    <p class="sub" style="margin-top:8px">Margen bruto = ventas × margen % de las líneas con costo conocido (la <b>cobertura</b> dice qué parte de lo vendido tiene costo). Los gastos solo cuentan desde el primer mes en que se anotaron; antes la utilidad no se puede calcular (—). Montos tal como están en el sistema.</p></div>
+
+  <div class="card"><h3>Punto de equilibrio</h3><div id="equilibrio"></div></div>
+
+  <div class="dos">
+    <div class="card"><h3 id="cat-titulo">Gastos como % de las ventas</h3><div class="tabla-wrap" id="categorias"></div></div>
+    <div class="card"><h3>Entre empresas</h3><div id="entre"></div></div>
+  </div>
+
+  <div class="card"><h3>Flujo de caja</h3><div class="tabla-wrap" id="flujo"></div>
+    <p class="sub" style="margin-top:8px">Dinero que entró (cobros, por la cuenta donde entró el pago) menos el que salió: gastos, retiros y préstamos, y compras de mercadería (entradas del sistema valorizadas al costo). Un mes con utilidad puede tener flujo negativo si se compró mucha mercadería.</p></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+let TOKEN='';try{TOKEN=localStorage.getItem('admtoken')||'';}catch(e){}
+let EMPRESA='', MESES=12, D=null, CH=null;
+const esc=t=>String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const soles=n=>n==null?'—':'S/ '+Number(n).toLocaleString('es-PE',{maximumFractionDigits:0});
+const pct=n=>n==null?'—':Number(n).toLocaleString('es-PE',{maximumFractionDigits:1})+'%';
+const MESN=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+const mesTxt=(m,largo)=>{const [a,b]=m.split('-');return MESN[+b-1]+' '+(largo?a:a.slice(2));};
+const hoyMes=()=>new Date(Date.now()-5*3600e3).toISOString().slice(0,7);
+function toast(m){const t=document.getElementById('toast');t.textContent=m;t.style.display='block';clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',5000);}
+async function api(ep){
+  const r=await fetch(ep,{headers:{'Authorization':'Bearer '+TOKEN}});
+  if(r.status===401)throw new Error('Sesión del portal expirada — vuelve a entrar al panel.');
+  const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'Error');return d;
+}
+const empNom=id=>{if(id==='T')return 'Total (las dos empresas)';const e=D&&D.empresas.find(x=>x.id===+id);return e?e.nombre:'Empresa '+id;};
+const empCorto=id=>empNom(id).split(' ')[0];
+const cssVar=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+function setEmpresa(id){EMPRESA=id;cargar();}
+function setMeses(n){MESES=n;document.querySelectorAll('#f-meses button').forEach(b=>b.classList.toggle('on',+b.dataset.v===n));cargar();}
+function moverMes(n){const i=document.getElementById('f-hasta');const [a,m]=i.value.split('-').map(Number);i.value=new Date(Date.UTC(a,m-1+n,1)).toISOString().slice(0,7);cargar();}
+
+let PET=0;
+async function cargar(){
+  const n=++PET;
+  try{
+    const q=new URLSearchParams({hasta:document.getElementById('f-hasta').value,meses:MESES});if(EMPRESA)q.set('empresa',EMPRESA);
+    const d=await api('/api/rendimiento?'+q);if(n!==PET)return;
+    D=d;pintar();
+  }catch(e){toast(e.message);document.getElementById('kpis').innerHTML=`<div class="vacio">${esc(e.message)}</div>`;}
+}
+
+function pintar(){
+  const d=D;
+  document.getElementById('f-empresa').innerHTML=`<button class="${EMPRESA===''?'on':''}" onclick="setEmpresa('')">Todas</button>`+
+    d.empresas.map(e=>`<button class="${String(EMPRESA)===String(e.id)?'on':''}" onclick="setEmpresa('${e.id}')"><span class="dot" style="background:var(--e${e.id})"></span>${esc(e.nombre)}</button>`).join('');
+  const g=EMPRESA?String(EMPRESA):'T';            // grupo principal (KPIs y gráfico)
+  const filas=d.resultado[g];
+  const conG=filas.filter(x=>x.con_gastos);
+  // Avisos
+  let av='';
+  if(!d.primer_mes_gastos)av+=`<div class="aviso">Todavía no hay gastos anotados en <b>Compras y gastos</b>. Por ahora solo se ve el margen bruto; la utilidad neta, el punto de equilibrio y el flujo de caja aparecen en cuanto anotes los gastos de un mes.</div>`;
+  else if(d.primer_mes_gastos>d.meses[0])av+=`<div class="aviso info">Los gastos se anotan desde <b>${mesTxt(d.primer_mes_gastos,true)}</b>. Antes de ese mes solo hay margen bruto (la utilidad sale "—").</div>`;
+  if(d.mes_en_curso&&d.meses.includes(d.mes_en_curso))av+=`<div class="aviso info"><b>${mesTxt(d.mes_en_curso,true)}</b> está en curso: sus cifras todavía van a cambiar.</div>`;
+  document.getElementById('avisos').innerHTML=av;
+  // KPIs (ventana; la utilidad solo en los meses con gastos)
+  const s=(arr,k)=>arr.reduce((a,x)=>a+(+x[k]||0),0);
+  const ventas=s(filas,'ventas'), mb=s(filas,'margen_bruto');
+  const vG=s(conG,'ventas'), mbG=s(conG,'margen_bruto'), gas=s(conG,'gastos'), util=s(conG,'utilidad'), flujo=s(conG,'flujo');
+  const rango=conG.length?`${mesTxt(conG[0].mes)} – ${mesTxt(conG[conG.length-1].mes)}`:'';
+  const k=[
+    {l:'Ventas',v:soles(ventas),s:`últimos ${d.meses.length} meses`,a:1},
+    {l:'Margen bruto',v:soles(mb),s:ventas?pct(mb/ventas*100)+' de las ventas':'—'},
+    {l:'Gastos',v:conG.length?soles(gas):'—',s:conG.length?`${pct(vG?gas/vG*100:null)} de las ventas · ${rango}`:'sin gastos anotados'},
+    {l:'Utilidad neta',v:conG.length?`<span class="${util<0?'neg':'pos'}">${soles(util)}</span>`:'—',s:conG.length?`${pct(vG?util/vG*100:null)} de las ventas · ${rango}`:'falta anotar gastos',a:1},
+    {l:'Flujo de caja',v:conG.length?`<span class="${flujo<0?'neg':''}">${soles(flujo)}</span>`:'—',s:conG.length?'cobros − pagos − compras · '+rango:'falta anotar gastos'}
+  ];
+  document.getElementById('kpis').innerHTML=k.map(x=>`<div class="kpi ${x.a?'acc':''}"><div class="l">${x.l}</div><div class="v">${x.v}</div><div class="s">${x.s}</div></div>`).join('');
+  pintarGrafico(filas,g);
+  pintarER();pintarEquilibrio();pintarCategorias();pintarEntre();pintarFlujo();
+}
+
+function pintarGrafico(filas,g){
+  document.getElementById('graf-titulo').textContent='Margen bruto, gastos y utilidad por mes'+(EMPRESA?' — '+empNom(EMPRESA):' — las dos empresas');
+  const cM=cssVar('--s-margen'),cG=cssVar('--s-gastos'),cU=cssVar('--s-utilidad'),grid=cssVar('--grid'),tx=cssVar('--muted');
+  const ds=[
+    {type:'bar',label:'Margen bruto',data:filas.map(x=>x.margen_bruto),backgroundColor:cM,borderRadius:4,borderSkipped:'start',maxBarThickness:28,order:2},
+    {type:'bar',label:'Gastos',data:filas.map(x=>x.gastos),backgroundColor:cG,borderRadius:4,borderSkipped:'start',maxBarThickness:28,order:2},
+    {type:'line',label:'Utilidad neta',data:filas.map(x=>x.utilidad),borderColor:cU,backgroundColor:cU,borderWidth:2,pointRadius:4,pointHoverRadius:6,tension:.25,spanGaps:false,order:1}
+  ];
+  if(CH)CH.destroy();
+  CH=new Chart(document.getElementById('graf'),{data:{labels:filas.map(x=>mesTxt(x.mes)),datasets:ds},options:{
+    responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+    scales:{x:{grid:{display:false},ticks:{color:tx,font:{size:11}}},y:{grid:{color:grid},border:{display:false},ticks:{color:tx,font:{size:11},callback:v=>'S/ '+Number(v).toLocaleString('es-PE')}}},
+    plugins:{legend:{position:'bottom',labels:{color:cssVar('--text2'),boxWidth:12,boxHeight:12,padding:14,font:{size:12}}},
+      tooltip:{callbacks:{title:it=>mesTxt(filas[it[0].dataIndex].mes,true),label:c=>`${c.dataset.label}: ${c.raw==null?'sin gastos anotados':soles(c.raw)}`}}}
+  }});
+}
+
+function filaTabla(etq,vals,total,clase,fmt){
+  return `<tr class="${clase||''}"><td>${etq}</td>`+vals.map(v=>`<td class="${v==null||v===0?'cero':''}">${fmt(v)}</td>`).join('')+`<td>${fmt(total)}</td></tr>`;
+}
+function cabMeses(){return '<thead><tr><th></th>'+D.meses.map(m=>`<th class="${D.primer_mes_gastos&&m>=D.primer_mes_gastos?'':'sin-g'}" title="${D.primer_mes_gastos&&m>=D.primer_mes_gastos?'':'Sin gastos anotados'}">${mesTxt(m)}${m===D.mes_en_curso?' ·':''}</th>`).join('')+'<th>Total</th></tr></thead>';}
+const sum=(arr,k,soloG)=>{const xs=arr.filter(x=>!soloG||x.con_gastos);if(soloG&&!xs.length)return null;return xs.reduce((a,x)=>a+(+x[k]||0),0);};
+const nomGrupo=g=>g==='T'?'<b>Total (las dos empresas)</b>':`<span class="dot" style="background:var(--e${g})"></span><b>${esc(empNom(g))}</b>`;
+
+function pintarER(){
+  let h='<table>'+cabMeses()+'<tbody>';
+  D.grupos.forEach(g=>{
+    const f=D.resultado[g];
+    const v=sum(f,'ventas'),mb=sum(f,'margen_bruto'),vG=sum(f,'ventas',true),gas=sum(f,'gastos',true),u=sum(f,'utilidad',true);
+    if(D.grupos.length>1)h+=`<tr class="grupo"><td colspan="${D.meses.length+2}">${nomGrupo(g)}</td></tr>`;
+    h+=filaTabla('Ventas',f.map(x=>x.ventas),v,'',soles);
+    h+=filaTabla('(−) Costo de lo vendido',f.map(x=>x.costo_ventas),sum(f,'costo_ventas'),'',soles);
+    h+=filaTabla('= Margen bruto',f.map(x=>x.margen_bruto),mb,'res',soles);
+    h+=filaTabla('Margen bruto %',f.map(x=>x.margen_pct),v?mb/v*100:null,'pct',pct);
+    h+=filaTabla('(−) Gastos',f.map(x=>x.gastos),gas,'',soles);
+    h+=filaTabla('= Utilidad neta',f.map(x=>x.utilidad),u,'res',x=>x==null?'—':`<span class="${x<0?'neg':''}">${soles(x)}</span>`);
+    h+=filaTabla('Margen neto %',f.map(x=>x.utilidad_pct),vG&&u!=null?u/vG*100:null,'pct',pct);
+    h+=filaTabla('Cobertura de costo',f.map(x=>x.cobertura),null,'pct',x=>x==null?'':pct(x));
+  });
+  document.getElementById('er').innerHTML=h+'</tbody></table>';
+}
+
+function pintarEquilibrio(){
+  const gs=D.grupos;
+  const html=gs.map(g=>{
+    const e=D.equilibrio[g];
+    if(!e)return `<div class="eq"><div class="nom">${nomGrupo(g)}</div><p class="sub">Falta al menos un mes con gastos anotados.</p></div>`;
+    const meta=e.ventas_equilibrio_total, real=e.ventas_prom, max=Math.max(meta||0,real||0)*1.15||1;
+    const dif=meta?real-meta:null;
+    return `<div class="eq"><div class="nom">${nomGrupo(g)}</div>
+      <p>Con un margen bruto de <b>${pct(e.margen_pct)}</b>, para cubrir tus gastos fijos (<b>${soles(e.fijos_prom)}</b> al mes) necesitas vender <b>${soles(e.ventas_equilibrio_fijos)}</b>; para cubrir todos tus gastos (<b>${soles(e.gastos_prom)}</b>), <b>${soles(meta)}</b> al mes.</p>
+      <div class="meter" title="Ventas promedio vs punto de equilibrio"><div class="fill" style="width:${Math.min(100,real/max*100)}%"></div>${meta?`<div class="marca" style="left:${meta/max*100}%" title="Punto de equilibrio"></div>`:''}</div>
+      <div class="meter-lbl"><span>Vendes en promedio ${soles(real)}</span><span>Equilibrio ${soles(meta)}</span></div>
+      ${dif!=null?`<p style="margin-top:8px" class="${dif<0?'neg':'pos'}"><b>${dif<0?'Te faltan':'Estás'} ${soles(Math.abs(dif))} ${dif<0?'al mes para cubrir los gastos':'por encima del equilibrio'}</b> (${Math.abs(dif/meta*100).toFixed(0)}%).</p>`:''}
+      <p class="sub" style="margin-top:6px">Promedio de ${e.meses.map(m=>mesTxt(m)).join(', ')}.</p></div>`;
+  }).join('');
+  document.getElementById('equilibrio').innerHTML=`<div class="eq-grid">${html}</div>`;
+}
+
+function pintarCategorias(){
+  const g=EMPRESA?String(EMPRESA):'T', cs=D.categorias[g]||[];
+  document.getElementById('cat-titulo').textContent='Gastos como % de las ventas'+(EMPRESA?' — '+empCorto(EMPRESA):'');
+  document.getElementById('categorias').innerHTML=cs.length?
+    '<table><thead><tr><th>Categoría</th><th>Monto</th><th>% de ventas</th></tr></thead><tbody>'+
+    cs.map(c=>`<tr><td>${esc(c.categoria)}${c.en_resultado?'':' <span class="sub">(no es gasto)</span>'}</td><td>${soles(c.total)}</td><td><b>${pct(c.pct_ventas)}</b></td></tr>`).join('')+'</tbody></table>'
+    :'<div class="vacio">Sin gastos anotados en estos meses.</div>';
+}
+
+function pintarEntre(){
+  const ee=D.entre_empresas;
+  if(!ee.length){document.getElementById('entre').innerHTML='<div class="vacio">Ninguna empresa pagó gastos de la otra en estos meses.</div>';return;}
+  const neto={};ee.forEach(x=>{neto[x.beneficiaria]=(neto[x.beneficiaria]||0)+x.total;neto[x.pagadora]=(neto[x.pagadora]||0)-x.total;});
+  const deudor=Object.keys(neto).find(k=>neto[k]>0.004), acreedor=Object.keys(neto).find(k=>neto[k]<-0.004);
+  document.getElementById('entre').innerHTML='<table><tbody>'+ee.map(x=>`<tr><td>${esc(empCorto(x.pagadora))} pagó gastos de ${esc(empCorto(x.beneficiaria))}</td><td>${soles(x.total)}</td></tr>`).join('')+
+    `<tr class="res"><td>Saldo</td><td>${deudor&&acreedor?`${esc(empCorto(deudor))} debe ${soles(neto[deudor])} a ${esc(empCorto(acreedor))}`:'a mano'}</td></tr></tbody></table>
+    <p class="sub" style="margin-top:8px">Sin contar lo que ya se haya devuelto entre empresas.</p>`;
+}
+
+function pintarFlujo(){
+  if(!D.primer_mes_gastos){document.getElementById('flujo').innerHTML='<div class="vacio">Aparece cuando anotes los gastos de al menos un mes.</div>';return;}
+  let h='<table>'+cabMeses()+'<tbody>';
+  D.grupos.forEach(g=>{
+    const f=D.resultado[g];
+    if(D.grupos.length>1)h+=`<tr class="grupo"><td colspan="${D.meses.length+2}">${nomGrupo(g)}</td></tr>`;
+    const solo=k=>f.map(x=>x.con_gastos?x[k]:null);
+    h+=filaTabla('Ingresos cobrados',solo('ingresos'),sum(f,'ingresos',true),'',soles);
+    h+=filaTabla('(−) Gastos',solo('gastos'),sum(f,'gastos',true),'',soles);
+    h+=filaTabla('(−) Retiros y préstamos',solo('no_resultado'),sum(f,'no_resultado',true),'',soles);
+    h+=filaTabla('(−) Compras de mercadería',solo('compras'),sum(f,'compras',true),'',soles);
+    h+=filaTabla('= Flujo del mes',f.map(x=>x.flujo),sum(f,'flujo',true),'res',x=>x==null?'—':`<span class="${x<0?'neg':''}">${soles(x)}</span>`);
+    let ac=0;const acum=f.map(x=>{if(x.flujo==null)return null;ac+=x.flujo;return ac;});
+    h+=filaTabla('Acumulado',acum,null,'pct',x=>x==null?'':`<span class="${x<0?'neg':''}">${soles(x)}</span>`);
+  });
+  document.getElementById('flujo').innerHTML=h+'</tbody></table>';
+}
+
+// Si el panel cambia el tema, redibujar el gráfico con los colores del tema nuevo
+new MutationObserver(()=>{if(D)pintarGrafico(D.resultado[EMPRESA?String(EMPRESA):'T']);}).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+
+document.getElementById('f-hasta').value=hoyMes();
+cargar();
+</script>
+</body>
+</html>

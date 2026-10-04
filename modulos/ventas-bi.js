@@ -343,11 +343,11 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, m
   //  · ingresos            → por la empresa dueña de la cuenta (fecha de pago)
   //  · compras             → entradas de stock tipo compra/importación, valorizadas
   //                          al costo del lote, por la empresa dueña del lote.
-  app.get('/api/bi-serie', authAdmin, mResumen, async (req, res) => {
-    const { desde, hasta, empresa } = req.query;
-    const agrupar = ['dia', 'semana', 'mes'].includes(req.query.agrupar) ? req.query.agrupar : 'dia';
-    if (!esFecha(desde) || !esFecha(hasta)) return res.status(400).json({ error: 'Rango de fechas inválido' });
-    try {
+  // La lógica vive en serieAgrupada() para que Rendimiento la reutilice
+  // (mismos números en las dos pestañas, una sola fuente).
+  async function serieAgrupada({ desde, hasta, empresa, agrupar }) {
+      agrupar = ['dia', 'semana', 'mes'].includes(agrupar) ? agrupar : 'dia';
+      if (!esFecha(desde) || !esFecha(hasta)) { const e = new Error('Rango de fechas inválido'); e.status = 400; throw e; }
       // Con histórico cargado: antes del corte manda el Excel, desde el corte el sistema
       const hist = await leerHist().catch(() => null);
       const corte = hist && hist.corte;
@@ -428,10 +428,16 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, m
         });
       }
       const filas = [...mapa.values()].sort((a, b) => a.periodo.localeCompare(b.periodo) || a.company_id - b.company_id);
-      res.json({ agrupar, filas, codigos_compra: CODIGOS_COMPRA,
+      return { agrupar, filas, codigos_compra: CODIGOS_COMPRA,
         historico: hist ? { corte, usado: usaExcel, desde: hist.desde } : null,
-        otras_entradas: otrasEntradas.map(r => ({ codigo: r.codigo, total: +r.total })) });
-    } catch (e) { res.status(500).json({ error: e.message }); }
+        otras_entradas: otrasEntradas.map(r => ({ codigo: r.codigo, total: +r.total })) };
+  }
+
+  app.get('/api/bi-serie', authAdmin, mResumen, async (req, res) => {
+    try {
+      const { desde, hasta, empresa, agrupar } = req.query;
+      res.json(await serieAgrupada({ desde, hasta, empresa, agrupar }));
+    } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
   });
 
   // ── RENTABILIDAD POR CANAL (B2B vs B2C) ──
@@ -482,4 +488,5 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, m
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
+  return { serieAgrupada };
 };

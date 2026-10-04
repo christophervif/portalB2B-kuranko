@@ -14,8 +14,14 @@
 //      defecto la dueña de la cuenta; si una empresa pagó un gasto de la otra,
 //      queda registrado y el resumen muestra cuánto se deben entre empresas.
 //    · categoría, proveedor (RUC opcional), descripción, comprobante (opcional)
-//    · "fijo": gasto que se repite cada mes (para copiarlo al mes siguiente y,
-//      más adelante, el punto de equilibrio)
+//    · "fijo": gasto que se repite cada mes. Los gastos fijos se definen una vez
+//      (tabla gas_fijos: qué es, empresa, categoría, monto estimado, día de pago)
+//      y cada mes aparecen como PENDIENTES. Al pagarlos se registra el gasto real
+//      eligiendo la cuenta de donde salió el dinero, la fecha y el monto real
+//      (gas_gastos.fijo_id apunta a su gasto fijo).
+//      Frecuencia en meses: 1 mensual, 2 bimestral, 3 trimestral, 6 semestral,
+//      12 anual. "desde_mes" es el primer mes en que toca pagarlo; vuelve a tocar
+//      cada <frecuencia> meses (un anual de marzo aparece cada marzo).
 //    · cpe_id: reservado para vincularlo con el comprobante de SUNAT cuando se
 //      importen los comprobantes recibidos desde Contabilidad (2.ª etapa).
 //
@@ -55,6 +61,11 @@ const CATEGORIAS_INICIALES = [
   ['Retiro de socios', 0, 0],
   ['Pago de préstamos', 0, 0],
 ];
+const FRECUENCIAS = [1, 2, 3, 6, 12];
+const difMeses = (a, b) => { const [y1, m1] = a.split('-').map(Number), [y2, m2] = b.split('-').map(Number); return (y2 - y1) * 12 + (m2 - m1); };
+const sumarMeses = (mes, n) => { const [a, m] = mes.split('-').map(Number); return new Date(Date.UTC(a, m - 1 + n, 1)).toISOString().slice(0, 7); };
+// ¿Le toca pagarse a este gasto fijo en el mes dado?
+const tocaEnMes = (f, mes) => { const d = difMeses(f.desde_mes, mes); return d >= 0 && d % (+f.frecuencia || 1) === 0; };
 const TIPOS_COMPROBANTE = ['factura', 'boleta', 'recibo_honorarios', 'ticket', 'recibo', 'ninguno'];
 
 module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prodPool, portalPool }) {
@@ -115,6 +126,27 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
           borrado_por VARCHAR(60) NULL,
           INDEX (fecha), INDEX (company_id, fecha), INDEX (categoria_id), INDEX (cuenta_ref)
         )`);
+      await portalPool.query(`
+        CREATE TABLE IF NOT EXISTS gas_fijos (
+          id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+          nombre VARCHAR(120) NOT NULL,
+          company_id TINYINT UNSIGNED NOT NULL,
+          categoria_id SMALLINT UNSIGNED NOT NULL,
+          proveedor VARCHAR(120) NOT NULL DEFAULT '',
+          ruc VARCHAR(11) NOT NULL DEFAULT '',
+          moneda CHAR(3) NOT NULL DEFAULT 'PEN',
+          monto DECIMAL(12,2) NOT NULL,
+          dia TINYINT UNSIGNED NOT NULL DEFAULT 1,
+          frecuencia TINYINT UNSIGNED NOT NULL DEFAULT 1,
+          cuenta_ref VARCHAR(20) NULL,
+          desde_mes CHAR(7) NOT NULL,
+          activo TINYINT(1) NOT NULL DEFAULT 1,
+          creado_por VARCHAR(60) NOT NULL DEFAULT '',
+          creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`);
+      // Columna nueva en gas_gastos (instalaciones anteriores no la tienen)
+      try { await portalPool.query(`ALTER TABLE gas_gastos ADD COLUMN fijo_id INT UNSIGNED NULL AFTER fijo, ADD INDEX (fijo_id)`); }
+      catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
       const [[{ n }]] = await portalPool.query(`SELECT COUNT(*) AS n FROM gas_categorias`);
       if (!n) {
         await portalPool.query(`INSERT INTO gas_categorias (nombre, en_resultado, fijo_sugerido, orden) VALUES ?`,
@@ -186,13 +218,19 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
     const ruc = recortar(b.ruc, 11).replace(/\D/g, '');
     if (ruc && ruc.length !== 11 && ruc.length !== 8) err('El RUC debe tener 11 dígitos (o DNI de 8)');
     const comp_tipo = TIPOS_COMPROBANTE.includes(b.comp_tipo) ? b.comp_tipo : 'ninguno';
+    let fijo_id = null;
+    if (b.fijo_id) {
+      const [[f]] = await portalPool.query(`SELECT id FROM gas_fijos WHERE id = ?`, [parseInt(b.fijo_id, 10) || 0]);
+      if (!f) err('El gasto fijo no existe');
+      fijo_id = f.id;
+    }
     return {
       fecha: b.fecha, company_id, cuenta_ref: cuenta.ref, cuenta_nombre: cuenta.nombre,
       cuenta_company_id: cuenta.company_id, categoria_id: cat.id,
       proveedor: recortar(b.proveedor, 120), ruc, descripcion: recortar(b.descripcion, 255),
       moneda, monto, tipo_cambio, monto_pen, comp_tipo,
       comp_numero: comp_tipo === 'ninguno' ? '' : recortar(b.comp_numero, 30).toUpperCase(),
-      fijo: b.fijo ? 1 : 0
+      fijo: fijo_id || b.fijo ? 1 : 0, fijo_id
     };
   }
 
@@ -217,7 +255,7 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
   const SELECT_GASTO = `
     SELECT g.id, DATE_FORMAT(g.fecha, '%Y-%m-%d') AS fecha, g.company_id, g.cuenta_ref, g.cuenta_nombre, g.cuenta_company_id,
       g.categoria_id, c.nombre AS categoria, c.en_resultado, g.proveedor, g.ruc, g.descripcion, g.moneda, g.monto,
-      g.tipo_cambio, g.monto_pen, g.comp_tipo, g.comp_numero, g.fijo, g.cpe_id,
+      g.tipo_cambio, g.monto_pen, g.comp_tipo, g.comp_numero, g.fijo, g.fijo_id, g.cpe_id,
       g.creado_por, g.creado_en, g.actualizado_por, g.actualizado_en
     FROM gas_gastos g LEFT JOIN gas_categorias c ON c.id = g.categoria_id`;
 
@@ -287,9 +325,19 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
   app.post('/api/gastos', authAdmin, mGas, async (req, res) => {
     try {
       await prepararTablas();
-      const g = await validarGasto(req.body || {});
+      const b = req.body || {};
+      const g = await validarGasto(b);
+      // "Repetir cada mes": crea el gasto fijo a partir de este pago y los enlaza
+      if (b.crear_fijo && !g.fijo_id) {
+        const [rf] = await portalPool.query(`INSERT INTO gas_fijos SET ?`, [{
+          nombre: g.descripcion || g.proveedor || 'Gasto fijo', company_id: g.company_id, categoria_id: g.categoria_id,
+          proveedor: g.proveedor, ruc: g.ruc, moneda: g.moneda, monto: g.monto, dia: +g.fecha.slice(8, 10),
+          frecuencia: FRECUENCIAS.includes(+b.frecuencia) ? +b.frecuencia : 1,
+          cuenta_ref: g.cuenta_ref, desde_mes: g.fecha.slice(0, 7), creado_por: usuarioDe(req) }]);
+        g.fijo_id = rf.insertId; g.fijo = 1;
+      }
       const [r] = await portalPool.query(`INSERT INTO gas_gastos SET ?`, [{ ...g, creado_por: usuarioDe(req) }]);
-      res.json({ ok: true, id: r.insertId });
+      res.json({ ok: true, id: r.insertId, fijo_id: g.fijo_id });
     } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
   });
 
@@ -315,33 +363,78 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-  // Copia los gastos FIJOS de un mes al siguiente (mismo día, ajustado al fin de
-  // mes). No duplica: si ya hay un gasto igual (categoría, empresa, cuenta,
-  // proveedor y descripción) en el mes destino, se salta. Montos iguales; se
-  // editan después si cambian (p. ej. la luz).
-  app.post('/api/gastos/copiar-fijos', authAdmin, mGas, async (req, res) => {
+  // ── Gastos fijos ──────────────────────────────────────────────────────────
+  // Lista de gastos fijos con su estado en el mes: pendiente o pagado (con la
+  // cuenta, fecha y monto reales del pago).
+  app.get('/api/gastos/fijos', authAdmin, mGas, async (req, res) => {
     try {
       await prepararTablas();
-      const { de, a } = req.body || {};
-      if (!esMes(de) || !esMes(a) || de === a) return res.status(400).json({ error: 'Elige el mes de origen y el de destino' });
-      const [origen] = await portalPool.query(`SELECT *, DAY(fecha) AS dia FROM gas_gastos WHERE borrado_en IS NULL AND fijo = 1 AND fecha BETWEEN ? AND ?`,
-        [de + '-01', de + '-' + ultimoDia(de)]);
-      const [destino] = await portalPool.query(`SELECT categoria_id, company_id, cuenta_ref, proveedor, descripcion FROM gas_gastos
-        WHERE borrado_en IS NULL AND fecha BETWEEN ? AND ?`, [a + '-01', a + '-' + ultimoDia(a)]);
-      const clave = g => [g.categoria_id, g.company_id, g.cuenta_ref, g.proveedor, g.descripcion].join('|');
-      const ya = new Set(destino.map(clave));
-      const nuevos = origen.filter(g => !ya.has(clave(g)));
-      const dmax = ultimoDia(a);
-      for (const g of nuevos) {
-        const dia = Math.min(+g.dia || 1, dmax);
-        await portalPool.query(`INSERT INTO gas_gastos SET ?`, [{
-          fecha: `${a}-${String(dia).padStart(2, '0')}`, company_id: g.company_id, cuenta_ref: g.cuenta_ref, cuenta_nombre: g.cuenta_nombre,
-          cuenta_company_id: g.cuenta_company_id, categoria_id: g.categoria_id, proveedor: g.proveedor, ruc: g.ruc,
-          descripcion: g.descripcion, moneda: g.moneda, monto: g.monto, tipo_cambio: g.tipo_cambio, monto_pen: g.monto_pen,
-          comp_tipo: 'ninguno', comp_numero: '', fijo: 1, creado_por: usuarioDe(req) + ' (copia fijos)'
-        }]);
+      const mes = esMes(req.query.mes) ? req.query.mes : new Date(Date.now() - 5 * 3600e3).toISOString().slice(0, 7);
+      const emp = empresaValida(req.query.empresa);
+      const todos = req.query.todos === '1';
+      const [fijos] = await portalPool.query(`
+        SELECT f.*, c.nombre AS categoria FROM gas_fijos f LEFT JOIN gas_categorias c ON c.id = f.categoria_id
+        WHERE ${todos ? '1=1' : 'f.activo = 1 AND f.desde_mes <= ?'} ${emp ? 'AND f.company_id = ' + emp : ''}
+        ORDER BY f.activo DESC, f.dia, f.nombre`, todos ? [] : [mes]);
+      // Los no mensuales (anual, semestral…) se pueden pagar hasta 2 meses antes
+      // de su mes: el pago adelantado también los marca como pagados.
+      const [pagos] = await portalPool.query(`
+        SELECT id, fijo_id, DATE_FORMAT(fecha, '%Y-%m-%d') AS fecha, monto_pen, cuenta_nombre, cuenta_company_id, company_id
+        FROM gas_gastos WHERE borrado_en IS NULL AND fijo_id IS NOT NULL AND fecha BETWEEN ? AND ?`,
+        [sumarMeses(mes, -2) + '-01', mes + '-' + ultimoDia(mes)]);
+      const dmax = ultimoDia(mes);
+      const lista = fijos.filter(f => todos || tocaEnMes(f, mes)).map(f => {
+        const frec = +f.frecuencia || 1;
+        const desdeVentana = frec === 1 ? mes : sumarMeses(mes, -Math.min(2, frec - 1));
+        const ps = pagos.filter(p => p.fijo_id === f.id && p.fecha.slice(0, 7) >= desdeVentana).map(p => ({ ...p, monto_pen: +p.monto_pen }));
+        return { id: f.id, nombre: f.nombre, company_id: f.company_id, categoria_id: f.categoria_id, categoria: f.categoria,
+          proveedor: f.proveedor, ruc: f.ruc, moneda: f.moneda, monto: +f.monto, dia: f.dia, frecuencia: frec, cuenta_ref: f.cuenta_ref,
+          proximo: todos ? (() => { let m = f.desde_mes; while (difMeses(m, mes) > 0) m = sumarMeses(m, frec); return m; })() : mes,
+          desde_mes: f.desde_mes, activo: +f.activo,
+          vence: `${mes}-${String(Math.min(f.dia, dmax)).padStart(2, '0')}`,
+          pagos: ps, pagado: ps.length > 0, pagado_monto: r2(ps.reduce((a, p) => a + p.monto_pen, 0)) };
+      });
+      const activos = lista.filter(f => f.activo);
+      res.json({ mes, fijos: lista, resumen: {
+        n: activos.length, pagados: activos.filter(f => f.pagado).length,
+        pagado: r2(activos.reduce((a, f) => a + f.pagado_monto, 0)),
+        // Pendiente estimado en soles (los fijos en dólares se cuentan aparte)
+        pendiente: r2(activos.filter(f => !f.pagado && f.moneda === 'PEN').reduce((a, f) => a + f.monto, 0)),
+        pendiente_usd: r2(activos.filter(f => !f.pagado && f.moneda === 'USD').reduce((a, f) => a + f.monto, 0))
+      } });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Crear o editar un gasto fijo (cualquiera con el permiso 'gastos')
+  app.post('/api/gastos/fijos', authAdmin, mGas, async (req, res) => {
+    try {
+      await prepararTablas();
+      const b = req.body || {};
+      const nombre = recortar(b.nombre, 120); if (!nombre) return res.status(400).json({ error: 'Pon un nombre (ej. Alquiler tienda)' });
+      const company_id = empresaValida(b.company_id); if (!company_id) return res.status(400).json({ error: 'Elige la empresa' });
+      const [[cat]] = await portalPool.query(`SELECT id FROM gas_categorias WHERE id = ?`, [parseInt(b.categoria_id, 10) || 0]);
+      if (!cat) return res.status(400).json({ error: 'Elige una categoría' });
+      const monto = r2(b.monto); if (!(monto > 0)) return res.status(400).json({ error: 'Pon el monto estimado' });
+      const dia = Math.min(31, Math.max(1, parseInt(b.dia, 10) || 1));
+      const frecuencia = FRECUENCIAS.includes(+b.frecuencia) ? +b.frecuencia : 1;
+      let cuenta_ref = null;
+      if (b.cuenta_ref) {
+        const c = (await listarCuentas(true)).find(x => x.ref === b.cuenta_ref);
+        if (!c) return res.status(400).json({ error: 'La cuenta no existe' });
+        cuenta_ref = c.ref;
       }
-      res.json({ ok: true, copiados: nuevos.length, omitidos: origen.length - nuevos.length });
+      const vals = { nombre, company_id, categoria_id: cat.id, proveedor: recortar(b.proveedor, 120),
+        ruc: recortar(b.ruc, 11).replace(/\D/g, ''), moneda: b.moneda === 'USD' ? 'USD' : 'PEN', monto, dia, frecuencia, cuenta_ref,
+        desde_mes: esMes(b.desde_mes) ? b.desde_mes : new Date(Date.now() - 5 * 3600e3).toISOString().slice(0, 7),
+        activo: b.activo === 0 || b.activo === false ? 0 : 1 };
+      if (b.id) {
+        const [r] = await portalPool.query(`UPDATE gas_fijos SET ? WHERE id = ?`, [vals, parseInt(b.id, 10) || 0]);
+        if (!r.affectedRows) return res.status(404).json({ error: 'El gasto fijo no existe' });
+        res.json({ ok: true, id: +b.id });
+      } else {
+        const [r] = await portalPool.query(`INSERT INTO gas_fijos SET ?`, [{ ...vals, creado_por: usuarioDe(req) }]);
+        res.json({ ok: true, id: r.insertId });
+      }
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
@@ -420,7 +513,8 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
     const [porCat] = await portalPool.query(`
       SELECT DATE_FORMAT(g.fecha, '%Y-%m') AS mes, g.company_id, g.categoria_id, c.nombre AS categoria,
         COALESCE(c.en_resultado, 1) AS en_resultado,
-        SUM(g.monto_pen) AS total, SUM(CASE WHEN g.fijo = 1 THEN g.monto_pen ELSE 0 END) AS fijos
+        SUM(g.monto_pen) AS total, SUM(CASE WHEN g.fijo = 1 THEN g.monto_pen ELSE 0 END) AS fijos,
+        SUM(CASE WHEN g.fijo_id IS NOT NULL THEN g.monto_pen ELSE 0 END) AS fijos_plantilla
       FROM gas_gastos g LEFT JOIN gas_categorias c ON c.id = g.categoria_id
       WHERE g.borrado_en IS NULL AND g.fecha BETWEEN ? AND ? ${fe}
       GROUP BY mes, g.company_id, g.categoria_id, c.nombre, COALESCE(c.en_resultado, 1)`, p);
@@ -431,10 +525,28 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
         AND g.cuenta_company_id <> g.company_id ${fe}
       GROUP BY mes, g.cuenta_company_id, g.company_id`, p);
     const [[primero]] = await portalPool.query(`SELECT DATE_FORMAT(MIN(fecha), '%Y-%m') AS mes FROM gas_gastos WHERE borrado_en IS NULL`);
+    // Gastos fijos activos llevados a su costo MENSUAL (un anual de S/ 1,200 =
+    // S/ 100 al mes), para el punto de equilibrio. Los de dólares se convierten
+    // con el último tipo de cambio usado en un gasto.
+    const [fijos] = await portalPool.query(`
+      SELECT f.company_id, f.moneda, f.monto, f.frecuencia FROM gas_fijos f
+      LEFT JOIN gas_categorias c ON c.id = f.categoria_id
+      WHERE f.activo = 1 AND COALESCE(c.en_resultado, 1) = 1 ${fe.replace('g.company_id', 'f.company_id')}`);
+    const [[tc]] = await portalPool.query(`SELECT tipo_cambio FROM gas_gastos WHERE borrado_en IS NULL AND moneda = 'USD' AND tipo_cambio > 0 ORDER BY fecha DESC, id DESC LIMIT 1`);
+    const tcUsd = tc ? +tc.tipo_cambio : null;
+    const fijosMes = {};
+    let sinTc = false;
+    fijos.forEach(f => {
+      let m = +f.monto / (+f.frecuencia || 1);
+      if (f.moneda === 'USD') { if (!tcUsd) { sinTc = true; return; } m *= tcUsd; }
+      fijosMes[f.company_id] = (fijosMes[f.company_id] || 0) + m;
+    });
     return {
-      por_categoria: porCat.map(r => ({ ...r, total: r2(r.total), fijos: r2(r.fijos), en_resultado: +r.en_resultado })),
+      por_categoria: porCat.map(r => ({ ...r, total: r2(r.total), fijos: r2(r.fijos), fijos_plantilla: r2(r.fijos_plantilla), en_resultado: +r.en_resultado })),
       entre: entre.map(r => ({ ...r, total: r2(r.total) })),
-      primer_mes: primero && primero.mes
+      primer_mes: primero && primero.mes,
+      fijos_mensuales: Object.fromEntries(Object.entries(fijosMes).map(([k, v]) => [k, r2(v)])),
+      fijos_definidos: fijos.length, fijos_usd_sin_tc: sinTc
     };
   }
 

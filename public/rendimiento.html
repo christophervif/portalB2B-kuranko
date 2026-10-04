@@ -246,7 +246,7 @@ function pintarEquilibrio(){
       <div class="meter" title="Ventas promedio vs punto de equilibrio"><div class="fill" style="width:${Math.min(100,real/max*100)}%"></div>${meta?`<div class="marca" style="left:${meta/max*100}%" title="Punto de equilibrio"></div>`:''}</div>
       <div class="meter-lbl"><span>Vendes en promedio ${soles(real)}</span><span>Equilibrio ${soles(meta)}</span></div>
       ${dif!=null?`<p style="margin-top:8px" class="${dif<0?'neg':'pos'}"><b>${dif<0?'Te faltan':'Estás'} ${soles(Math.abs(dif))} ${dif<0?'al mes para cubrir los gastos':'por encima del equilibrio'}</b> (${Math.abs(dif/meta*100).toFixed(0)}%).</p>`:''}
-      <p class="sub" style="margin-top:6px">Promedio de ${e.meses.map(m=>mesTxt(m)).join(', ')}.</p></div>`;
+      <p class="sub" style="margin-top:6px">${e.fijos_origen==='definidos'?'Gastos fijos: costo mensual de los gastos fijos definidos (los anuales o semestrales se reparten por mes)'+(e.fijos_usd_sin_tc?'; los fijos en dólares no se incluyen porque aún no hay un tipo de cambio registrado':'')+'. ':''}Ventas y margen: promedio de ${e.meses.map(m=>mesTxt(m)).join(', ')}.</p></div>`;
   }).join('');
   document.getElementById('equilibrio').innerHTML=`<div class="eq-grid">${html}</div>`;
 }

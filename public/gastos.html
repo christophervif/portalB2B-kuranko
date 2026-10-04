@@ -61,6 +61,8 @@ label.f{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--mu
 .chip.e2{background:color-mix(in srgb,var(--e2) 18%,transparent);color:var(--e2)}
 .chip.neu{background:var(--surface3);color:var(--text2);border:1px solid var(--border)}
 .chip.warn{background:var(--bg-warn);color:var(--fg-warn)}
+.chip.ok-c{background:var(--bg-ok);color:var(--fg-ok)}
+.chip.bad-c{background:var(--bg-r);color:var(--fg-r)}
 .aviso{border-radius:12px;padding:10px 12px;font-size:12.5px;line-height:1.5;margin-bottom:12px;background:var(--bg-warn);color:var(--fg-warn)}
 .aviso.info{background:var(--surface3);color:var(--text2);border:1px solid var(--border)}
 .dos{display:grid;grid-template-columns:1.25fr 1fr;gap:16px}
@@ -103,11 +105,10 @@ details.config summary{cursor:pointer;font-size:11px;font-weight:600;color:var(-
   <div class="titulo">
     <div>
       <h2>Compras y gastos</h2>
-      <p class="desc">Todo el dinero que sale y <b>no es mercadería</b>: planilla, alquiler, servicios, fletes, comisiones, publicidad, impuestos… Indica de qué <b>cuenta</b> salió y de qué <b>empresa</b> es el gasto. La mercadería no se anota aquí: ya viene del sistema (entradas e importaciones).</p>
+      <p class="desc">Todo el dinero que sale y <b>no es mercadería</b>: planilla, alquiler, servicios, fletes, comisiones, publicidad, impuestos… Indica de qué <b>cuenta</b> salió y de qué <b>empresa</b> es el gasto. La mercadería no se anota aquí: ya viene del sistema (entradas e importaciones). Los <b>gastos fijos</b> (mensuales, anuales…) se definen una vez y cada mes aparecen como pendientes hasta que registras el pago.</p>
     </div>
     <div class="fila">
       <button class="btn" onclick="abrirForm()">+ Nuevo gasto</button>
-      <button class="btn btn-sec" id="btn-copiar" onclick="copiarFijos()" title="Copia los gastos marcados como fijos del mes anterior a este mes">Copiar fijos del mes anterior</button>
       <button class="btn btn-sec" onclick="descargarExcel()">Excel</button>
     </div>
   </div>
@@ -140,6 +141,18 @@ details.config summary{cursor:pointer;font-size:11px;font-weight:600;color:var(-
 
   <div class="kpis" id="kpis"></div>
   <div id="avisos"></div>
+
+  <div class="card" id="fijos-card">
+    <div class="fila" style="justify-content:space-between;margin-bottom:10px">
+      <h3 id="fijos-titulo" style="margin:0">Gastos fijos del mes</h3>
+      <div class="fila">
+        <button class="btn btn-sec btn-sm" onclick="verTodosFijos()" id="btn-todos-fijos">Ver todos los gastos fijos</button>
+        <button class="btn btn-sm" onclick="abrirFijo()">+ Nuevo gasto fijo</button>
+      </div>
+    </div>
+    <div id="fijos-resumen" class="sub" style="margin-bottom:8px"></div>
+    <div class="tabla-wrap" id="fijos"></div>
+  </div>
 
   <div class="dos">
     <div class="card"><h3>Por categoría</h3><div class="tabla-wrap" id="por-categoria"></div></div>
@@ -183,7 +196,11 @@ details.config summary{cursor:pointer;font-size:11px;font-weight:600;color:var(-
         <option value="ninguno">Sin comprobante</option><option value="factura">Factura</option><option value="boleta">Boleta</option>
         <option value="recibo_honorarios">Recibo por honorarios</option><option value="ticket">Ticket</option><option value="recibo">Recibo simple</option></select></label>
       <label class="f">N° de comprobante<input id="g-comp-numero" maxlength="30" placeholder="F001-123" disabled></label>
-      <label class="chk full"><input type="checkbox" id="g-fijo"> Gasto fijo mensual (se repite cada mes)</label>
+      <div class="full aviso info oculto" id="g-fijo-info"></div>
+      <div class="full fila" id="g-repetir-caja">
+        <label class="chk"><input type="checkbox" id="g-fijo" onchange="document.getElementById('g-frec').classList.toggle('oculto',!this.checked||!!EDITANDO)"> <span id="g-fijo-lbl">Se repite: crear gasto fijo</span></label>
+        <select id="g-frec" class="oculto" aria-label="Frecuencia"><option value="1">cada mes</option><option value="2">cada 2 meses</option><option value="3">cada 3 meses</option><option value="6">cada 6 meses</option><option value="12">cada año</option></select>
+      </div>
     </div>
     <div class="pie-modal">
       <button type="button" class="btn btn-bad btn-sm oculto" id="g-borrar" onclick="borrarDesdeForm()">Eliminar</button>
@@ -193,13 +210,37 @@ details.config summary{cursor:pointer;font-size:11px;font-weight:600;color:var(-
     </div>
   </form>
 </div>
+<!-- Formulario de gasto fijo (plantilla) -->
+<div class="modal-fondo" id="modal-fijo" onclick="if(event.target===this)cerrarFijo()">
+  <form class="modal" onsubmit="guardarFijo(event)" autocomplete="off">
+    <h3 id="fijo-titulo">Nuevo gasto fijo</h3>
+    <p class="desc" style="margin:-6px 0 12px">Defínelo una vez. Cada vez que toque pagarlo aparece como <b>pendiente</b>, y al registrar el pago eliges de qué cuenta salió el dinero y el monto real.</p>
+    <div class="grid2">
+      <label class="f full">Nombre<input id="fx-nombre" maxlength="120" required placeholder="Ej. Alquiler tienda, Planilla, Licencia anual Shopify"></label>
+      <div class="full"><label class="f">Empresa</label><div class="seg" id="fx-emp" style="margin-top:4px"></div></div>
+      <label class="f">Categoría<select id="fx-categoria" required></select></label>
+      <label class="f">Proveedor<input id="fx-proveedor" list="dl-proveedores" maxlength="120"></label>
+      <label class="f">Frecuencia<select id="fx-frec" onchange="ayudaFrec()"><option value="1">Mensual</option><option value="2">Bimestral (cada 2 meses)</option><option value="3">Trimestral (cada 3 meses)</option><option value="6">Semestral (cada 6 meses)</option><option value="12">Anual</option></select></label>
+      <label class="f"><span id="fx-desde-lbl">Desde el mes</span><input type="month" id="fx-desde" required onchange="ayudaFrec()"></label>
+      <label class="f">Día de pago<input type="number" id="fx-dia" min="1" max="31" value="1" required></label>
+      <label class="f">Moneda<select id="fx-moneda"><option value="PEN">Soles (S/)</option><option value="USD">Dólares (US$)</option></select></label>
+      <label class="f">Monto estimado<input id="fx-monto" type="number" step="0.01" min="0.01" required inputmode="decimal"></label>
+      <label class="f">Cuenta habitual (opcional)<select id="fx-cuenta"></select></label>
+      <div class="full sub" id="fx-ayuda"></div>
+      <label class="chk full oculto" id="fx-activo-caja"><input type="checkbox" id="fx-activo" checked> Activo (desmárcalo cuando ya no se pague, p. ej. si dejas el local)</label>
+    </div>
+    <div class="pie-modal"><span style="flex:1"></span>
+      <button type="button" class="btn btn-sec" onclick="cerrarFijo()">Cancelar</button>
+      <button type="submit" class="btn">Guardar</button></div>
+  </form>
+</div>
 <datalist id="dl-proveedores"></datalist>
 <div class="toast" id="toast"></div>
 
 <script>
 // ── Base compartida (mini-app en iframe; comparte token y origen con admin.html) ──
 let TOKEN='';try{TOKEN=localStorage.getItem('admtoken')||'';}catch(e){}
-let OPC=null, DATOS=null, EMPRESA='', MODO='mes', EDITANDO=null, EMP_FORM=null, EMP_MANUAL=false;
+let OPC=null, DATOS=null, FIJOS=null, EMPRESA='', MODO='mes', EDITANDO=null, EMP_FORM=null, EMP_MANUAL=false, FIJO_PAGO=null, FIJO_EDIT=null, FIJO_EMP=null, TODOS_FIJOS=false;
 
 function esc(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 function toast(m,e){const t=document.getElementById('toast');t.textContent=m;t.className='toast'+(e?' err':'');t.style.display='block';clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',4000);}
@@ -228,7 +269,7 @@ function setModo(m){
   MODO=m;document.querySelectorAll('#f-modo button').forEach(b=>b.classList.toggle('on',b.dataset.v===m));
   document.getElementById('caja-mes').classList.toggle('oculto',m!=='mes');
   document.getElementById('caja-rango').classList.toggle('oculto',m!=='rango');
-  document.getElementById('btn-copiar').classList.toggle('oculto',m!=='mes');
+  document.getElementById('fijos-card').classList.toggle('oculto',m!=='mes');
   if(m==='rango'){
     const d=document.getElementById('f-desde'),h=document.getElementById('f-hasta');
     if(!d.value){const mes=document.getElementById('f-mes').value;d.value=mes+'-01';h.value=hoyLima();}
@@ -278,6 +319,7 @@ async function cargar(){
     const [d,m]=await Promise.all([api('/api/gastos?'+params()),api('/api/gastos/mensual?'+new URLSearchParams({hasta:MODO==='mes'?document.getElementById('f-mes').value:(document.getElementById('f-hasta').value||hoyLima()).slice(0,7),...(EMPRESA?{empresa:EMPRESA}:{})}))]);
     if(n!==PET)return;
     DATOS=d;pintar(d);pintarMensual(m);
+    if(MODO==='mes')cargarFijos();
   }catch(e){toast(e.message,true);}
 }
 function pintar(d){
@@ -370,9 +412,10 @@ function alCambiarCuenta(){
   if(c&&c.company_id&&!EMP_MANUAL)setEmpForm(c.company_id,false); else notaEmpresa();
 }
 function alCambiarCategoria(){
-  if(EDITANDO)return;
+  if(EDITANDO||FIJO_PAGO)return;
   const c=OPC.categorias.find(x=>x.id===+document.getElementById('g-categoria').value);
-  document.getElementById('g-fijo').checked=!!(c&&c.fijo_sugerido);
+  const ch=document.getElementById('g-fijo');ch.checked=!!(c&&c.fijo_sugerido);
+  document.getElementById('g-frec').classList.toggle('oculto',!ch.checked);
 }
 function alCambiarMoneda(){
   const usd=document.getElementById('g-moneda').value==='USD';
@@ -388,9 +431,12 @@ function alCambiarComp(){
   const v=document.getElementById('g-comp-tipo').value,i=document.getElementById('g-comp-numero');
   i.disabled=v==='ninguno';if(i.disabled)i.value='';
 }
-function abrirForm(id,duplicar){
+function abrirForm(id,duplicar,fijo){
   const g=id?DATOS.gastos.find(x=>x.id===id):null;
   EDITANDO=g&&!duplicar?g.id:null; EMP_MANUAL=!!g;
+  // Pago de un gasto fijo: viene precargado, falta elegir la cuenta y confirmar monto/fecha
+  FIJO_PAGO=fijo||null;
+  const fijoDe=g&&g.fijo_id&&!duplicar?g.fijo_id:null;
   const catActivas=OPC.categorias.filter(c=>c.activo||(g&&c.id===g.categoria_id));
   document.getElementById('g-categoria').innerHTML='<option value="">Elige…</option>'+catActivas.map(c=>`<option value="${c.id}">${esc(c.nombre)}${c.en_resultado?'':' (no es gasto)'}</option>`).join('');
   document.getElementById('g-cuenta').innerHTML='<option value="">Elige la cuenta…</option>'+opcionesCuentas(null,false,g&&g.cuenta_ref);
@@ -401,15 +447,29 @@ function abrirForm(id,duplicar){
   set('g-proveedor',g?g.proveedor:'');set('g-ruc',g?g.ruc:'');set('g-descripcion',g?g.descripcion:'');
   set('g-moneda',g?g.moneda:'PEN');set('g-monto',g?g.monto:'');set('g-tc',g?g.tipo_cambio:'');
   set('g-comp-tipo',g&&!duplicar?g.comp_tipo:'ninguno');set('g-comp-numero',g&&!duplicar?g.comp_numero:'');
-  document.getElementById('g-fijo').checked=!!(g&&g.fijo);
+  // Bloque "fijo": pago de un gasto fijo / repetir (nuevo) / marca simple (editar antiguo)
+  const info=document.getElementById('g-fijo-info'), caja=document.getElementById('g-repetir-caja');
+  const fInfo=FIJO_PAGO||(fijoDe&&FIJOS&&FIJOS.fijos.find(x=>x.id===fijoDe));
+  info.classList.toggle('oculto',!(FIJO_PAGO||fijoDe));caja.classList.toggle('oculto',!!(FIJO_PAGO||fijoDe));
+  if(FIJO_PAGO||fijoDe)info.innerHTML=`📌 Pago del gasto fijo <b>${esc(fInfo?fInfo.nombre:'#'+fijoDe)}</b>${fInfo?' · '+frecTxt(fInfo.frecuencia):''}. ${FIJO_PAGO?'Elige la <b>cuenta</b> de donde salió el dinero y ajusta el monto si cambió.':''}`;
+  document.getElementById('g-fijo').checked=!!(g&&g.fijo&&!duplicar);
+  document.getElementById('g-fijo-lbl').textContent=EDITANDO?'Gasto fijo':'Se repite: crear gasto fijo';
+  document.getElementById('g-frec').value='1';document.getElementById('g-frec').classList.add('oculto');
+  if(FIJO_PAGO){
+    const f=FIJO_PAGO;
+    document.getElementById('form-titulo').textContent='Registrar pago: '+f.nombre;
+    set('g-categoria',f.categoria_id);set('g-proveedor',f.proveedor);set('g-ruc',f.ruc);set('g-descripcion',f.nombre);
+    set('g-moneda',f.moneda);set('g-monto',f.monto);set('g-cuenta',f.cuenta_ref||'');
+    set('g-fecha',f.vence.slice(0,7)===hoyLima().slice(0,7)?hoyLima():f.vence);
+  }
   EMP_FORM=null;document.querySelectorAll('#g-empresa button').forEach(b=>b.classList.remove('on'));
-  if(g)setEmpForm(g.company_id,true); else if(EMPRESA)setEmpForm(EMPRESA,false);
+  if(g)setEmpForm(g.company_id,true); else if(FIJO_PAGO)setEmpForm(FIJO_PAGO.company_id,true); else if(EMPRESA)setEmpForm(EMPRESA,false);
   alCambiarMoneda();alCambiarComp();notaEmpresa();
   document.getElementById('g-borrar').classList.toggle('oculto',!EDITANDO);
   document.getElementById('modal').classList.add('on');
-  setTimeout(()=>document.getElementById(g?'g-monto':'g-categoria').focus(),50);
+  setTimeout(()=>document.getElementById(FIJO_PAGO?'g-cuenta':(g?'g-monto':'g-categoria')).focus(),50);
 }
-function cerrarForm(){document.getElementById('modal').classList.remove('on');EDITANDO=null;}
+function cerrarForm(){document.getElementById('modal').classList.remove('on');EDITANDO=null;FIJO_PAGO=null;}
 async function guardar(ev){
   ev.preventDefault();
   if(!EMP_FORM)return toast('Elige la empresa del gasto',true);
@@ -417,10 +477,14 @@ async function guardar(ev){
   const body={fecha:v('g-fecha'),categoria_id:v('g-categoria'),cuenta_ref:v('g-cuenta'),company_id:EMP_FORM,
     proveedor:v('g-proveedor'),ruc:v('g-ruc'),descripcion:v('g-descripcion'),moneda:v('g-moneda'),monto:v('g-monto'),
     tipo_cambio:v('g-tc'),comp_tipo:v('g-comp-tipo'),comp_numero:v('g-comp-numero'),fijo:document.getElementById('g-fijo').checked};
+  const gEd=EDITANDO&&DATOS.gastos.find(x=>x.id===EDITANDO);
+  if(FIJO_PAGO)body.fijo_id=FIJO_PAGO.id;
+  else if(gEd&&gEd.fijo_id)body.fijo_id=gEd.fijo_id;
+  else if(!EDITANDO&&body.fijo){body.crear_fijo=true;body.frecuencia=v('g-frec');}
   const b=document.getElementById('g-guardar');b.disabled=true;
   try{
     if(EDITANDO)await api('/api/gastos/'+EDITANDO,'PUT',body); else await api('/api/gastos','POST',body);
-    toast(EDITANDO?'Gasto actualizado':'Gasto guardado');cerrarForm();cargar();
+    toast(EDITANDO?'Gasto actualizado':FIJO_PAGO?'Pago registrado':body.crear_fijo?'Gasto guardado y agregado a los gastos fijos':'Gasto guardado');cerrarForm();cargar();
   }catch(e){toast(e.message,true);}finally{b.disabled=false;}
 }
 async function borrarDesdeForm(){
@@ -429,14 +493,78 @@ async function borrarDesdeForm(){
 }
 document.addEventListener('keydown',e=>{if(e.key==='Escape')cerrarForm();});
 
-// ── Copiar fijos del mes anterior ──
-async function copiarFijos(){
-  const a=document.getElementById('f-mes').value;const [y,m]=a.split('-').map(Number);
-  const de=new Date(Date.UTC(y,m-2,1)).toISOString().slice(0,7);
-  if(!confirm(`¿Copiar los gastos fijos de ${mesTxt(de)} a ${mesTxt(a)}? Los que ya estén en ${mesTxt(a)} no se duplican. Después puedes editar los montos que cambien.`))return;
-  try{const r=await api('/api/gastos/copiar-fijos','POST',{de,a});toast(r.copiados?`Se copiaron ${r.copiados} gasto(s) fijo(s)`+(r.omitidos?`; ${r.omitidos} ya estaban`:''):(r.omitidos?'Todos los fijos ya estaban copiados':`No hay gastos fijos en ${mesTxt(de)}`));cargar();}
+// ── Gastos fijos: pendientes y pagados del mes ──
+const FREC={1:'mensual',2:'cada 2 meses',3:'trimestral',6:'semestral',12:'anual'};
+const frecTxt=f=>FREC[+f]||'cada '+f+' meses';
+async function cargarFijos(){
+  try{
+    const q=new URLSearchParams({mes:document.getElementById('f-mes').value});if(EMPRESA)q.set('empresa',EMPRESA);if(TODOS_FIJOS)q.set('todos','1');
+    FIJOS=await api('/api/gastos/fijos?'+q);pintarFijos();
+  }catch(e){toast(e.message,true);}
+}
+function verTodosFijos(){TODOS_FIJOS=!TODOS_FIJOS;document.getElementById('btn-todos-fijos').textContent=TODOS_FIJOS?'Ver los de este mes':'Ver todos los gastos fijos';cargarFijos();}
+function pintarFijos(){
+  const F=FIJOS, mes=F.mes, hoy=hoyLima();
+  document.getElementById('fijos-titulo').textContent=TODOS_FIJOS?'Todos los gastos fijos':'Gastos fijos de '+mesTxt(mes);
+  const r=F.resumen;
+  document.getElementById('fijos-resumen').innerHTML=TODOS_FIJOS?'Lista de gastos fijos definidos. Desactiva los que ya no se pagan.':
+    (r.n?`<b>${r.pagados} de ${r.n}</b> pagados · pagado <b>${soles(r.pagado)}</b> · pendiente estimado <b>${soles(r.pendiente)}</b>${r.pendiente_usd?` + US$ ${r.pendiente_usd.toLocaleString('es-PE')}`:''}`:'');
+  if(!F.fijos.length){document.getElementById('fijos').innerHTML=`<div class="vacio">${TODOS_FIJOS?'Aún no hay gastos fijos.':'No hay gastos fijos que toquen este mes.'} Agrega los que se repiten (alquiler, planilla, servicios, licencias anuales…) con <b>+ Nuevo gasto fijo</b>.</div>`;return;}
+  if(TODOS_FIJOS){
+    document.getElementById('fijos').innerHTML='<table><thead><tr><th>Gasto fijo</th><th>Empresa</th><th>Frecuencia</th><th>Próximo pago</th><th class="num">Monto estimado</th><th>Cuenta habitual</th><th></th></tr></thead><tbody>'+
+      F.fijos.map(f=>`<tr style="${f.activo?'':'opacity:.55'}"><td><b>${esc(f.nombre)}</b><div class="sub">${esc(f.categoria||'')}${f.proveedor?' · '+esc(f.proveedor):''}</div></td><td>${empChip(f.company_id)}</td>
+        <td>${frecTxt(f.frecuencia)}</td><td>${f.activo?mesTxt(f.proximo)+', día '+f.dia:'<span class="chip neu">inactivo</span>'}</td>
+        <td class="num">${f.moneda==='USD'?'US$ '+f.monto.toLocaleString('es-PE',{minimumFractionDigits:2}):soles(f.monto)}</td>
+        <td>${f.cuenta_ref&&cuentaDe(f.cuenta_ref)?esc(cuentaDe(f.cuenta_ref).nombre):'<span class="sub">se elige al pagar</span>'}</td>
+        <td><button class="btn-ico" title="Editar" onclick="abrirFijo(${f.id})">✏️</button></td></tr>`).join('')+'</tbody></table>';
+    return;
+  }
+  document.getElementById('fijos').innerHTML='<table><thead><tr><th>Estado</th><th>Gasto fijo</th><th>Empresa</th><th>Vence</th><th class="num">Estimado</th><th>Pago</th><th></th></tr></thead><tbody>'+
+    F.fijos.map(f=>{
+      const vencido=!f.pagado&&f.vence<hoy;
+      const estado=f.pagado?'<span class="chip ok-c">✓ pagado</span>':vencido?'<span class="chip bad-c">vencido</span>':'<span class="chip warn">pendiente</span>';
+      const pago=f.pagado?f.pagos.map(p=>`${fechaTxt(p.fecha)} · <b>${soles(p.monto_pen)}</b><div class="sub">${esc(p.cuenta_nombre)}${p.cuenta_company_id&&p.cuenta_company_id!==p.company_id?' · pagó '+esc(empCorto(p.cuenta_company_id)):''}</div>`).join(''):'<span class="sub">—</span>';
+      return `<tr><td>${estado}</td><td><b>${esc(f.nombre)}</b>${f.frecuencia>1?` <span class="chip neu">${frecTxt(f.frecuencia)}</span>`:''}<div class="sub">${esc(f.categoria||'')}${f.proveedor?' · '+esc(f.proveedor):''}</div></td>
+        <td>${empChip(f.company_id)}</td><td style="white-space:nowrap">${fechaTxt(f.vence)}</td>
+        <td class="num">${f.moneda==='USD'?'US$ '+f.monto.toLocaleString('es-PE',{minimumFractionDigits:2}):soles(f.monto)}</td><td>${pago}</td>
+        <td style="white-space:nowrap">${f.pagado?'':`<button class="btn btn-sm" onclick="pagarFijo(${f.id})">Registrar pago</button>`}<button class="btn-ico" title="Editar gasto fijo" onclick="abrirFijo(${f.id})">✏️</button></td></tr>`;
+    }).join('')+'</tbody></table>';
+}
+function pagarFijo(id){const f=FIJOS.fijos.find(x=>x.id===id);if(f)abrirForm(null,false,f);}
+function setFijoEmp(id){FIJO_EMP=+id;document.querySelectorAll('#fx-emp button').forEach(b=>b.classList.toggle('on',+b.dataset.v===FIJO_EMP));}
+function ayudaFrec(){
+  const fr=+document.getElementById('fx-frec').value, d=document.getElementById('fx-desde').value;
+  document.getElementById('fx-desde-lbl').textContent=fr===1?'Desde el mes':'Primer mes en que toca pagarlo';
+  document.getElementById('fx-ayuda').textContent=fr===1||!d?'':`Aparecerá como pendiente en ${mesTxt(d)}`+[1,2,3].map(k=>{const [a,m]=d.split('-').map(Number);return ', '+mesTxt(new Date(Date.UTC(a,m-1+fr*k,1)).toISOString().slice(0,7));}).join('')+'… (se puede pagar hasta 2 meses antes).';
+}
+function abrirFijo(id){
+  const f=id&&FIJOS?FIJOS.fijos.find(x=>x.id===id):null;
+  FIJO_EDIT=f?f.id:null;
+  document.getElementById('fijo-titulo').textContent=f?'Editar gasto fijo':'Nuevo gasto fijo';
+  document.getElementById('fx-emp').innerHTML=OPC.empresas.map(e=>`<button type="button" data-v="${e.id}" onclick="setFijoEmp(${e.id})"><span class="dot" style="background:var(--e${e.id})"></span>${esc(e.nombre)}</button>`).join('');
+  document.getElementById('fx-categoria').innerHTML='<option value="">Elige…</option>'+OPC.categorias.filter(c=>c.activo||(f&&c.id===f.categoria_id)).map(c=>`<option value="${c.id}">${esc(c.nombre)}</option>`).join('');
+  document.getElementById('fx-cuenta').innerHTML='<option value="">— se elige al pagar —</option>'+opcionesCuentas(null,false,f&&f.cuenta_ref);
+  const set=(k,v)=>document.getElementById(k).value=v==null?'':v;
+  set('fx-nombre',f?f.nombre:'');set('fx-categoria',f?f.categoria_id:'');set('fx-proveedor',f?f.proveedor:'');
+  set('fx-frec',f?f.frecuencia:1);set('fx-desde',f?f.desde_mes:document.getElementById('f-mes').value);set('fx-dia',f?f.dia:1);
+  set('fx-moneda',f?f.moneda:'PEN');set('fx-monto',f?f.monto:'');set('fx-cuenta',f?f.cuenta_ref||'':'');
+  document.getElementById('fx-activo').checked=!f||!!f.activo;document.getElementById('fx-activo-caja').classList.toggle('oculto',!f);
+  FIJO_EMP=null;if(f)setFijoEmp(f.company_id);else if(EMPRESA)setFijoEmp(EMPRESA);
+  ayudaFrec();
+  document.getElementById('modal-fijo').classList.add('on');setTimeout(()=>document.getElementById('fx-nombre').focus(),50);
+}
+function cerrarFijo(){document.getElementById('modal-fijo').classList.remove('on');FIJO_EDIT=null;}
+async function guardarFijo(ev){
+  ev.preventDefault();
+  if(!FIJO_EMP)return toast('Elige la empresa',true);
+  const v=k=>document.getElementById(k).value;
+  const body={nombre:v('fx-nombre'),company_id:FIJO_EMP,categoria_id:v('fx-categoria'),proveedor:v('fx-proveedor'),frecuencia:v('fx-frec'),
+    desde_mes:v('fx-desde'),dia:v('fx-dia'),moneda:v('fx-moneda'),monto:v('fx-monto'),cuenta_ref:v('fx-cuenta'),activo:document.getElementById('fx-activo').checked?1:0};
+  if(FIJO_EDIT)body.id=FIJO_EDIT;
+  try{await api('/api/gastos/fijos','POST',body);toast(FIJO_EDIT?'Gasto fijo actualizado':'Gasto fijo agregado');cerrarFijo();cargarFijos();}
   catch(e){toast(e.message,true);}
 }
+document.addEventListener('keydown',e=>{if(e.key==='Escape')cerrarFijo();});
 
 // ── Excel ──
 async function descargarExcel(){

@@ -17,7 +17,8 @@
 //                   anotados; antes no se puede saber y se devuelve null)
 //    Flujo de caja = ingresos cobrados − gastos − retiros/préstamos − compras
 //                   de mercadería
-//    Punto de equilibrio = gastos fijos promedio ÷ margen bruto %
+//    Punto de equilibrio = gastos fijos (costo mensual de los gastos fijos
+//                   definidos; un anual cuenta 1/12 por mes) ÷ margen bruto %
 //
 //  Permiso: módulo 'rendimiento'.
 // ═══════════════════════════════════════════════════════════════════════════
@@ -38,7 +39,7 @@ function calcularRendimiento({ meses, filasVentas, gastos, empresa, mesEnCurso }
   const primerMesGastos = gastos.primer_mes || null;
   const conGastos = mes => !!primerMesGastos && mes >= primerMesGastos;
 
-  const base = () => ({ ...Object.fromEntries(CAMPOS_VENTA.map(c => [c, 0])), gastos: 0, no_resultado: 0, fijos: 0 });
+  const base = () => ({ ...Object.fromEntries(CAMPOS_VENTA.map(c => [c, 0])), gastos: 0, no_resultado: 0, fijos: 0, fijos_plantilla: 0 });
   const celdas = {}; // grupo → mes → valores
   grupos.forEach(g => { celdas[g] = {}; meses.forEach(m => { celdas[g][m] = base(); }); });
   const sumar = (mes, cid, fn) => {
@@ -49,8 +50,8 @@ function calcularRendimiento({ meses, filasVentas, gastos, empresa, mesEnCurso }
   };
   filasVentas.forEach(f => sumar(f.periodo, f.company_id, c => CAMPOS_VENTA.forEach(k => { c[k] += +f[k] || 0; })));
   gastos.por_categoria.forEach(r => sumar(r.mes, r.company_id, c => {
-    if (r.en_resultado) c.gastos += r.total; else c.no_resultado += r.total;
-    c.fijos += r.fijos;
+    if (r.en_resultado) { c.gastos += r.total; c.fijos += r.fijos; c.fijos_plantilla += r.fijos_plantilla || 0; }
+    else c.no_resultado += r.total;
   }));
 
   const resultado = {};
@@ -71,6 +72,7 @@ function calcularRendimiento({ meses, filasVentas, gastos, empresa, mesEnCurso }
         gastos: tiene ? r2(c.gastos) : null,
         no_resultado: tiene ? r2(c.no_resultado) : null,
         fijos: tiene ? r2(c.fijos) : null,
+        fijos_plantilla: tiene ? r2(c.fijos_plantilla) : null,
         utilidad: utilidad == null ? null : r2(utilidad),
         utilidad_pct: utilidad != null && c.ventas > 0 ? Math.round(utilidad / c.ventas * 1000) / 10 : null,
         flujo: tiene ? r2(c.ingresos - c.gastos - c.no_resultado - c.compras) : null
@@ -102,14 +104,26 @@ function calcularRendimiento({ meses, filasVentas, gastos, empresa, mesEnCurso }
     const cerrados = conG.filter(x => x.mes !== mesEnCurso);
     const ref = (cerrados.length ? cerrados : conG).slice(-3);
     if (!ref.length) { equilibrio[g] = null; return; }
-    const fijos = ref.reduce((a, x) => a + x.fijos, 0) / ref.length;
-    const gastosProm = ref.reduce((a, x) => a + x.gastos, 0) / ref.length;
+    const fijosPagados = ref.reduce((a, x) => a + x.fijos, 0) / ref.length;
+    // Pagos de gastos fijos definidos (se reemplazan por su costo mensual)
+    const fijosPlantillaPagados = ref.reduce((a, x) => a + (x.fijos_plantilla || 0), 0) / ref.length;
+    const gastosPagados = ref.reduce((a, x) => a + x.gastos, 0) / ref.length;
+    // Si hay gastos fijos definidos, se usa su costo MENSUAL (un anual repartido
+    // en 12 meses) en vez de lo pagado esos meses, para que un pago anual no
+    // dispare ni esconda el punto de equilibrio.
+    const fm = gastos.fijos_mensuales || {};
+    const usaDefinidos = (gastos.fijos_definidos || 0) > 0;
+    const fijosDefinidos = g === 'T' ? Object.values(fm).reduce((a, v) => a + v, 0) : (fm[g] || 0);
+    // fijos = costo mensual de los definidos + fijos marcados a mano sin definición
+    const fijos = usaDefinidos ? fijosDefinidos + Math.max(0, fijosPagados - fijosPlantillaPagados) : fijosPagados;
+    const gastosProm = usaDefinidos ? Math.max(0, gastosPagados - fijosPlantillaPagados) + fijosDefinidos : gastosPagados;
     const ventas = ref.reduce((a, x) => a + x.ventas, 0) / ref.length;
     const mb = ref.reduce((a, x) => a + x.margen_bruto, 0);
     const vt = ref.reduce((a, x) => a + x.ventas, 0);
     const pct = vt > 0 ? mb / vt : null;
     equilibrio[g] = {
       meses: ref.map(x => x.mes), fijos_prom: r2(fijos), gastos_prom: r2(gastosProm), ventas_prom: r2(ventas),
+      fijos_origen: usaDefinidos ? 'definidos' : 'pagados', fijos_usd_sin_tc: !!gastos.fijos_usd_sin_tc,
       margen_pct: pct == null ? null : Math.round(pct * 1000) / 10,
       ventas_equilibrio_fijos: pct > 0 ? r2(fijos / pct) : null,
       ventas_equilibrio_total: pct > 0 ? r2(gastosProm / pct) : null

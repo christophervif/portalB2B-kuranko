@@ -506,7 +506,8 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
     await listo();
     const [rows] = await portalPool.query(`SELECT * FROM fe_config`);
     const out = {};
-    rows.forEach(r => { out[r.company_id] = { ...r, solo_boletas: !!r.solo_boletas, enviar_email: !!r.enviar_email, activo: !!r.activo }; });
+    // Solo boletas = Nuevo RUS (se deriva del régimen; la columna queda por compatibilidad)
+    rows.forEach(r => { out[r.company_id] = { ...r, solo_boletas: r.afectacion === 'nrus', enviar_email: !!r.enviar_email, activo: !!r.activo }; });
     return out;
   }
   const seriePara = (cfg, tipo, refTipo) =>
@@ -704,7 +705,7 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
     if (!VENTAS_VALIDAS.includes(venta.status)) throw Object.assign(new Error('La venta está ' + venta.status + '; no se puede facturar'), { validacion: true });
     if (venta.pendiente <= 0.009) throw Object.assign(new Error(`${venta.code} ya tiene comprobante por todo su importe`), { validacion: true });
     const cfg = cfgs[venta.company_id];
-    if (!cfg || !cfg.activo) throw Object.assign(new Error(`La facturación de ${venta.empresa} no está activada (Configuración)`), { validacion: true });
+    if (!cfg || !cfg.activo) throw Object.assign(new Error(`${venta.empresa} no tiene activada la emisión de comprobantes (Facturación › Configuración)`), { validacion: true });
     const tipo = body.tipo || sugerirTipo(body.cliente || venta.cliente, cfg);
     if (!['factura', 'boleta'].includes(tipo)) throw Object.assign(new Error('Tipo no válido'), { validacion: true });
 
@@ -1029,7 +1030,7 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
         serie_factura: serie(b.serie_factura, 'F'), serie_boleta: serie(b.serie_boleta, 'B'),
         serie_nc_factura: serie(b.serie_nc_factura, 'F'), serie_nc_boleta: serie(b.serie_nc_boleta, 'B'),
         afectacion: AFECTACIONES.includes(b.afectacion) ? b.afectacion : 'gravado',
-        solo_boletas: b.solo_boletas || b.afectacion === 'nrus' ? 1 : 0, enviar_email: b.enviar_email ? 1 : 0,
+        solo_boletas: b.afectacion === 'nrus' ? 1 : 0, enviar_email: b.enviar_email ? 1 : 0,
         formato_pdf: ['A4', 'A5', 'TICKET'].includes(b.formato_pdf) ? b.formato_pdf : 'A4'
       };
       const [otras] = await portalPool.query(`SELECT company_id, serie_factura, serie_boleta, serie_nc_factura, serie_nc_boleta FROM fe_config WHERE company_id <> ?`, [id]);

@@ -293,7 +293,7 @@ function pintarAvisoGlobal() {
   const av = [];
   const sinConf = ESTADO.empresas.filter(e => !e.activo || !e.conectado);
   if (ESTADO.en_pruebas) av.push(`<b>Modo PRUEBAS de ${esc(ESTADO.proveedor)}</b>: los comprobantes no son válidos ante SUNAT.`);
-  sinConf.forEach(e => av.push(`<b>${esc(e.nombre)}</b>: ${!e.conectado ? `falta conectar ${esc(ESTADO.proveedor)} (variable ${esc(e.variables)})` : 'facturación desactivada'}${ESTADO.maestro ? ' — ver Configuración' : ''}.`));
+  sinConf.forEach(e => av.push(`<b>${esc(e.nombre)}</b>: ${!e.conectado ? `falta conectar ${esc(ESTADO.proveedor)} (variable ${esc(e.variables)})` : 'emisión de comprobantes desactivada'}${ESTADO.maestro ? ' — ver Configuración' : ''}.`));
   if (!ESTADO.correo.lo_envia_proveedor && !ESTADO.correo.resend) av.push('Falta <span class="mono">RESEND_API_KEY</span>: el PDF no se enviará por correo (usa WhatsApp).');
   if (!ESTADO.erp_automatico) av.push('El sistema (ERP) no se actualiza solo: después de emitir, anota la serie-número en la venta y márcalo en <b>Emitidos</b> (o configura <span class="mono">ERP_FACTURACION_URL</span>).');
   $('aviso-global').innerHTML = av.length ? `<div class="aviso">${av.join('<br>')}</div>` : '';
@@ -630,6 +630,13 @@ async function cargarCF() {
   try { ESTADO = await api('/api/fe/estado'); corr = (await api('/api/fe/correlativos')).correlativos; } catch (e) { return showToast(e.message, true); }
   $('cf-desc').innerHTML = `Proveedor: <b>${esc(ESTADO.proveedor)}</b>${ESTADO.en_pruebas ? ' (modo pruebas)' : ''}. El token no se guarda aquí: va en las variables de Railway (${ESTADO.empresas.map(e => '<span class="mono">' + esc(e.variables) + '</span>').join(', ')}). Para salir a producción autoriza a ${esc(ESTADO.proveedor)} como tu PSE en SUNAT (Clave SOL).`;
   const ult = (id, s) => { const c = corr.find(x => x.company_id === id && x.serie === s); return c ? c.ultimo : 0; };
+  const REG = [
+    ['gravado', 'Régimen General / MYPE / RER — facturas y boletas con IGV 18%'],
+    ['nrus', 'Nuevo RUS — solo boletas, sin IGV'],
+    ['exonerado', 'Ventas exoneradas de IGV — facturas y boletas'],
+    ['inafecto', 'Ventas inafectas de IGV — facturas y boletas']];
+  const serie = (e, k, l) => `<label class="campo" data-serie="${k}">${l}<input data-k="${k}" maxlength="4" value="${esc(e[k])}" style="text-transform:uppercase"></label>`;
+  const num = (e, k, l) => `<label class="campo" data-serie="${k}">${l}<input type="number" min="0" data-corr="${k}" value="${ult(e.id, e[k])}"></label>`;
   $('cf-lista').innerHTML = ESTADO.empresas.map(e => `
     <div class="card" style="margin-top:12px;background:var(--surface2)" id="cf-${e.id}">
       <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
@@ -637,24 +644,37 @@ async function cargarCF() {
         <span class="chip ${e.conectado ? 'c-ok' : 'c-r'}">${e.conectado ? esc(ESTADO.proveedor) + ' conectado' + (ESTADO.en_pruebas ? ' (pruebas)' : '') : 'Falta ' + esc(e.variables)}</span>
       </div>
       <div class="fila">
-        <label class="chk"><input type="checkbox" data-k="activo" ${e.activo ? 'checked' : ''}> Facturación activada</label>
-        <label class="chk"><input type="checkbox" data-k="solo_boletas" ${e.solo_boletas ? 'checked' : ''}> Solo boletas (Nuevo RUS)</label>
-        <label class="chk"><input type="checkbox" data-k="enviar_email" ${e.enviar_email ? 'checked' : ''}> Enviar PDF al correo por defecto</label>
+        <label class="chk"><input type="checkbox" data-k="activo" ${e.activo ? 'checked' : ''}> Emitir comprobantes desde el portal</label>
+        <label class="chk"><input type="checkbox" data-k="enviar_email" ${e.enviar_email ? 'checked' : ''}> Enviar el PDF al correo del cliente</label>
       </div>
       <div class="grid2">
-        ${[['serie_factura', 'Serie facturas'], ['serie_boleta', 'Serie boletas'], ['serie_nc_factura', 'Serie NC de facturas'], ['serie_nc_boleta', 'Serie NC de boletas']].map(([k, l]) =>
-          `<label class="campo">${l}<input data-k="${k}" maxlength="4" value="${esc(e[k])}" style="text-transform:uppercase"></label>
-           <label class="campo">Último número usado<input type="number" min="0" data-corr="${k}" value="${ult(e.id, e[k])}"></label>`).join('')}
-        <label class="campo">IGV de las ventas<select data-k="afectacion">
-          <option value="gravado" ${e.afectacion === 'gravado' ? 'selected' : ''}>Gravado 18% (precio incluye IGV)</option>
-          <option value="exonerado" ${e.afectacion === 'exonerado' ? 'selected' : ''}>Exonerado</option>
-          <option value="inafecto" ${e.afectacion === 'inafecto' ? 'selected' : ''}>Inafecto</option>
-          <option value="nrus" ${e.afectacion === 'nrus' ? 'selected' : ''}>Nuevo RUS (solo boletas, sin IGV)</option></select></label>
+        <label class="campo" style="grid-column:span 2">Régimen tributario de la empresa<select data-k="afectacion" onchange="seriesSegunRegimen(${e.id})">
+          ${REG.map(([v, t]) => `<option value="${v}" ${e.afectacion === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
         <label class="campo">Formato del PDF<select data-k="formato_pdf">${['A4', 'A5', 'TICKET'].map(f => `<option ${e.formato_pdf === f ? 'selected' : ''}>${f}</option>`).join('')}</select></label>
       </div>
-      <div class="desc" style="margin-top:8px">“Último número usado” solo sube (nunca baja): ponlo si ya emitiste con esa serie desde el panel de ${esc(ESTADO.proveedor)}.</div>
+      <div class="desc" style="margin-top:10px" data-resumen></div>
+      <details class="avanzado" style="margin-top:10px">
+        <summary class="desc" style="cursor:pointer">Avanzado: series y numeración (normalmente no se tocan)</summary>
+        <div class="grid2">
+          ${serie(e, 'serie_factura', 'Serie facturas')}${num(e, 'serie_factura', 'Último número usado')}
+          ${serie(e, 'serie_boleta', 'Serie boletas')}${num(e, 'serie_boleta', 'Último número usado')}
+          ${serie(e, 'serie_nc_factura', 'Serie NC de facturas')}${num(e, 'serie_nc_factura', 'Último número usado')}
+          ${serie(e, 'serie_nc_boleta', 'Serie NC de boletas')}${num(e, 'serie_nc_boleta', 'Último número usado')}
+        </div>
+        <div class="desc" style="margin-top:8px">El portal numera solo (1, 2, 3…). “Último número usado” solo sirve si emitiste con la misma serie desde la web de ${esc(ESTADO.proveedor)}; solo sube, nunca baja. Las series de SUNAT SOL (E001/EB01) no se usan aquí: SUNAT reserva la E para su portal.</div>
+      </details>
       <div class="fila"><button class="btn" onclick="guardarCF(${e.id})">Guardar</button></div>
     </div>`).join('');
+  ESTADO.empresas.forEach(e => seriesSegunRegimen(e.id));
+}
+// Nuevo RUS no emite facturas: se esconden sus series y se explica qué se emite
+function seriesSegunRegimen(id) {
+  const box = $('cf-' + id), reg = box.querySelector('[data-k=afectacion]').value, nrus = reg === 'nrus';
+  box.querySelectorAll('[data-serie=serie_factura],[data-serie=serie_nc_factura]').forEach(el => el.style.display = nrus ? 'none' : '');
+  const v = k => esc(box.querySelector(`[data-k=${k}]`).value.toUpperCase());
+  box.querySelector('[data-resumen]').innerHTML = nrus
+    ? `Emite <b>solo boletas</b> sin IGV (${v('serie_boleta')}-1, ${v('serie_boleta')}-2…). Para un cliente con RUC también se emite boleta.`
+    : `Emite <b>facturas</b> (${v('serie_factura')}-1, ${v('serie_factura')}-2…) y <b>boletas</b> (${v('serie_boleta')}-1…)${reg === 'gravado' ? ' con IGV 18% incluido en el precio' : ''}.`;
 }
 async function guardarCF(id) {
   const box = $('cf-' + id), b = { correlativos: {} };

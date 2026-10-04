@@ -268,6 +268,7 @@ tr:hover td{background:var(--hover)}
       <button class="tab" data-modulos="resumen,caja_bi,rentabilidad" onclick="tab('ventas_ingresos',this)">Ventas e ingresos</button>
       <button class="tab" onclick="tab('cotizador',this)">Cotizador</button>
       <button class="tab" onclick="tab('precio_importado',this)">Precio importado</button>
+      <button class="tab" onclick="tab('bikes',this)">Bikes a pedido</button>
       <button class="tab" onclick="tab('asistencia',this)">Asistencia</button>
       <button class="tab" data-modulos="conciliacion" onclick="tab('conciliacion',this)">Conciliación</button>
       <button class="tab" onclick="tab('clientes_bi',this)">Clientes BI</button>
@@ -590,6 +591,13 @@ tr:hover td{background:var(--hover)}
       </div>
     </div>
 
+    <div id="tab-bikes" class="panel">
+      <div class="card" style="padding:0;overflow:hidden">
+        <iframe id="bikes-frame" title="Bikes a pedido"
+          style="width:100%;height:calc(100vh - 150px);min-height:560px;border:0;display:block"></iframe>
+      </div>
+    </div>
+
     <div id="tab-asistencia" class="panel">
       <div class="card" style="padding:0;overflow:hidden">
         <iframe id="asis-frame" title="Asistencia" allow="geolocation"
@@ -776,7 +784,7 @@ const APP_ICONOS={
   clientes_gestion:'👤', ventas_ingresos:'📊', clientes_bi:'👥',
   inventario:'📦', restock:'🔁', reportes:'💰', auditoria:'🔍',
   crm:'📣', sistemas:'⚙️', promociones:'🏷️', importaciones:'🚢', recepciones:'📥', seguimiento:'🚚',
-  conciliacion:'🧾', cuentas_cobrar:'💸', saldo_favor:'💵', cotizador:'🧮', precio_importado:'🌍', asistencia:'⏱️', facturacion:'📄'
+  conciliacion:'🧾', cuentas_cobrar:'💸', saldo_favor:'💵', cotizador:'🧮', precio_importado:'🌍', bikes:'🚲', asistencia:'⏱️', facturacion:'📄'
 };
 
 // Genera las tarjetas del launcher a partir de las pestañas visibles (respeta permisos)
@@ -945,6 +953,11 @@ function cargarDatosTab(id){
     // Asistencia (marcar jornada + control) en iframe (public/asistencia.html); comparte token/origen.
     const fr=document.getElementById('asis-frame');
     if(fr&&!fr.src){fr.src='/asistencia.html?v='+Date.now();}
+  }
+  else if(id==='bikes'){
+    // Bikes a pedido: reservas, métricas, catálogo, importador y reglas (public/bikes-admin.html)
+    const fr=document.getElementById('bikes-frame');
+    if(fr&&!fr.src){fr.src='/bikes-admin.html?v='+Date.now();}
   }
   else if(id==='precio_importado'){
     // Calculadora de precio para pedidos especiales importados (public/precio-importado.html)
@@ -2109,7 +2122,7 @@ async function cargarEstadoActualizacion(){
   }catch(e){ if(box)box.style.display='none'; }
 }
 // Nombres legibles de los módulos
-const NOMBRE_MODULO={clientes_gestion:'Gestión de clientes',sync:'Sincronización web (en Sistemas)',auditoria:'Auditoría de catálogo',resumen:'Resumen de ventas (en Ventas e ingresos)',rentabilidad:'Rentabilidad (en Ventas e ingresos)',inventario:'Inventario',restock:'Restock',clientes_bi:'Clientes BI',caja_bi:'Ingresos y caja (en Ventas e ingresos)',crm:'CRM Kommo',reportes:'Contabilidad',pagos:'Métodos de pago (en Sistemas)',importaciones:'Importaciones',recepciones:'Recepciones',seguimiento:'Seguimiento (trackings y backorders)',conciliacion:'Conciliación de pagos online',cuentas_cobrar:'Cuentas por cobrar',saldo_favor:'Créditos',cotizador:'Cotizador rápido',precio_importado:'Precio importado (pedidos especiales)',facturacion:'Facturación electrónica'};
+const NOMBRE_MODULO={clientes_gestion:'Gestión de clientes',sync:'Sincronización web (en Sistemas)',auditoria:'Auditoría de catálogo',resumen:'Resumen de ventas (en Ventas e ingresos)',rentabilidad:'Rentabilidad (en Ventas e ingresos)',inventario:'Inventario',restock:'Restock',clientes_bi:'Clientes BI',caja_bi:'Ingresos y caja (en Ventas e ingresos)',crm:'CRM Kommo',reportes:'Contabilidad',pagos:'Métodos de pago (en Sistemas)',importaciones:'Importaciones',recepciones:'Recepciones',seguimiento:'Seguimiento (trackings y backorders)',conciliacion:'Conciliación de pagos online',cuentas_cobrar:'Cuentas por cobrar',saldo_favor:'Créditos',cotizador:'Cotizador rápido',precio_importado:'Precio importado (pedidos especiales)',bikes:'Bikes a pedido (bikes.kuranko.pe)',facturacion:'Facturación electrónica'};
 let accesosCache={modulos_disponibles:[],usuarios:[]};
 async function cargarAccesos(){
   try{

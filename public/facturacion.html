@@ -111,7 +111,7 @@ a.lnk:hover{text-decoration:underline}
         <label class="campo">Desde<input type="date" id="f-desde"></label>
         <label class="campo">Hasta<input type="date" id="f-hasta"></label>
         <label class="campo" style="flex:1;min-width:180px">Buscar<input type="search" id="f-q" placeholder="Código, cliente, RUC/DNI…" onkeydown="if(event.key==='Enter')cargarPF()"></label>
-        <label class="chk"><input type="checkbox" id="f-pagadas" onchange="cargarPF()"> Solo pagadas</label>
+        <label class="chk" title="Para emitir un solo comprobante cuando el cliente termine de pagar"><input type="checkbox" id="f-pagadas" onchange="cargarPF()"> Solo pagadas</label>
         <button class="btn" onclick="cargarPF()">Buscar</button>
       </div>
       <div class="kpis" id="pf-kpis"></div>
@@ -177,10 +177,17 @@ a.lnk:hover{text-decoration:underline}
   </div>
   <div id="me-previos"></div>
   <div class="grid2">
+    <div class="campo" style="grid-column:span 2">Qué emitir<div class="tipo-sel">
+      <button class="btn btn-sec" id="me-m-normal" onclick="setModo('normal')">Comprobante de la venta</button>
+      <button class="btn btn-sec" id="me-m-anticipo" onclick="setModo('anticipo')">Anticipo (adelanto recibido)</button></div></div>
+  </div>
+  <div class="grid2">
     <div class="campo">Tipo<div class="tipo-sel">
       <button class="btn btn-sec" id="me-t-factura" onclick="setTipo('factura')">Factura</button>
       <button class="btn btn-sec" id="me-t-boleta" onclick="setTipo('boleta')">Boleta</button></div></div>
     <label class="campo">Fecha de emisión<input type="date" id="me-fecha" onchange="previa()"></label>
+    <label class="campo">Moneda<select id="me-moneda" onchange="cambiarMoneda()"><option value="PEN">Soles (S/)</option><option value="USD">Dólares (US$)</option></select></label>
+    <label class="campo" id="me-tc-box">Tipo de cambio<input type="number" step="0.001" min="1" id="me-tc" oninput="cambiarMoneda(true)"><span class="sub" id="me-tc-fuente"></span></label>
   </div>
   <div class="grid2">
     <label class="campo">Documento<select id="me-tdoc" onchange="previa()">
@@ -191,11 +198,22 @@ a.lnk:hover{text-decoration:underline}
     <label class="campo">Correo<input id="me-email" type="email" oninput="previaLenta()"></label>
     <label class="campo">Celular (WhatsApp)<input id="me-tel"></label>
   </div>
-  <div class="tabla-wrap it-tabla" style="max-height:38vh">
+  <div id="me-ant-box" style="display:none">
+    <div class="desc" style="margin-top:10px">Elige qué pagos de la venta se facturan en este anticipo:</div>
+    <div class="tabla-wrap" style="max-height:30vh;margin-top:6px"><table>
+      <thead><tr><th style="width:28px"></th><th>Fecha</th><th>Método</th><th class="n">Monto</th><th>Comprobante</th></tr></thead>
+      <tbody id="me-pagos"></tbody></table></div>
+    <div class="grid2">
+      <label class="campo" style="grid-column:span 3">Descripción del anticipo<input id="me-ant-desc" oninput="previaLenta()"></label>
+      <label class="campo">Monto del anticipo<input type="number" step="0.01" min="0" id="me-ant-monto" oninput="totalesME();previaLenta()"></label>
+    </div>
+  </div>
+  <div id="me-ant-info"></div>
+  <div class="tabla-wrap it-tabla" id="me-items-box" style="max-height:38vh">
     <table><thead><tr><th style="width:28px"></th><th>Descripción</th><th class="n">Cant.</th><th class="n">Precio unit.</th><th class="n">Total</th></tr></thead>
     <tbody id="me-items"></tbody></table>
   </div>
-  <div class="fila"><button class="btn btn-sec btn-sm" onclick="agregarLinea()">+ Agregar línea (servicio, flete…)</button></div>
+  <div class="fila" id="me-agregar"><button class="btn btn-sec btn-sm" onclick="agregarLinea()">+ Agregar línea (servicio, flete…)</button></div>
   <div id="me-credito-box" class="fila" style="display:none">
     <label class="chk"><input type="checkbox" id="me-credito" onchange="pintarCredito();previa()"> Al crédito</label>
     <label class="campo" id="me-cr-f">Fecha de pago<input type="date" id="me-cr-fecha" onchange="previa()"></label>
@@ -256,7 +274,12 @@ let TOKEN = ''; try { TOKEN = localStorage.getItem('admtoken') || ''; } catch (e
 const $ = id => document.getElementById(id);
 const esc = t => String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const N = (n, d = 2) => Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: d, maximumFractionDigits: d });
-const S = n => 'S/ ' + N(n);
+const S = (n, mon) => (mon === 'USD' ? 'US$ ' : 'S/ ') + N(n);
+// Suma por moneda: "S/ 1,200.00 · US$ 350.00" (nunca mezcla soles con dólares)
+function SM(arr, f) {
+  const t = {}; arr.forEach(x => { const m = x.moneda === 'USD' ? 'USD' : 'PEN'; t[m] = (t[m] || 0) + Number(f(x) || 0); });
+  const k = Object.keys(t); return k.length ? k.sort().reverse().map(m => S(t[m], m)).join(' · ') : S(0);
+}
 const fechaTxt = f => { if (!f) return '—'; const s = String(f).slice(0, 10).split('-'); return s.length === 3 ? `${s[2]}/${s[1]}/${s[0]}` : f; };
 const fechaHoraTxt = f => f ? new Date(f).toLocaleDateString('es-PE', { timeZone: 'America/Lima' }) : '—';
 function showToast(m, e) { const t = $('toast'); t.textContent = m; t.className = 'toast' + (e ? ' err' : ''); t.style.display = 'block'; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', 4500); }
@@ -323,15 +346,17 @@ function pintarPF() {
   const tot = PF.reduce((s, v) => s + v.pendiente, 0);
   const f = PF.filter(v => v.tipo_sugerido === 'factura'), b = PF.filter(v => v.tipo_sugerido === 'boleta');
   $('pf-kpis').innerHTML = `
-    <div class="kpi"><div class="l">Ventas por facturar</div><div class="v">${PF.length}</div><div class="s">${S(tot)} pendiente</div></div>
-    <div class="kpi"><div class="l">Con RUC (factura)</div><div class="v">${f.length}</div><div class="s">${S(f.reduce((s, v) => s + v.pendiente, 0))}</div></div>
-    <div class="kpi"><div class="l">Sin RUC (boleta)</div><div class="v">${b.length}</div><div class="s">${S(b.reduce((s, v) => s + v.pendiente, 0))}</div></div>
+    <div class="kpi"><div class="l">Ventas por facturar</div><div class="v">${PF.length}</div><div class="s">${SM(PF, v => v.pendiente)} pendiente</div></div>
+    <div class="kpi"><div class="l">Con RUC (factura)</div><div class="v">${f.length}</div><div class="s">${SM(f, v => v.pendiente)}</div></div>
+    <div class="kpi"><div class="l">Sin RUC (boleta)</div><div class="v">${b.length}</div><div class="s">${SM(b, v => v.pendiente)}</div></div>
     <div class="kpi w"><div class="l">Con comprobante parcial</div><div class="v">${PF.filter(v => v.parcial).length}</div><div class="s">revisar a mano</div></div>`;
   if (!PF.length) { $('pf-body').innerHTML = '<tr><td colspan="9" class="vacio">No hay ventas pendientes de comprobante en este periodo 🎉</td></tr>'; pintarSel(); return; }
   $('pf-body').innerHTML = PF.map(v => {
     const pagada = v.pagado + 0.009 >= v.total;
-    const pago = pagada ? '<span class="chip c-ok">Pagada</span>' : v.pagado > 0 ? `<span class="chip c-w">Debe ${S(v.total - v.pagado)}</span>` : '<span class="chip c-r">Sin pago</span>';
-    const comp = v.parcial ? `<span class="chip c-v" title="${esc(v.comprobantes.map(c => c.serie + '-' + c.numero).join(', '))}">Parcial ${S(v.facturado)}</span>` :
+    const pago = (pagada ? '<span class="chip c-ok">Pagada</span>' : v.pagado > 0 ? `<span class="chip c-w">Debe ${S(v.total - v.pagado, v.moneda)}</span>` : '<span class="chip c-r">Sin pago</span>')
+      + (!pagada && v.pagado_sin_comprobante > 0.009 ? `<div class="sub">Adelanto sin comprobante: ${S(v.pagado_sin_comprobante, v.moneda)}</div>` : '');
+    const comp = v.anticipos.length ? `<span class="chip c-v" title="${esc(v.anticipos.map(a => a.serie + '-' + a.numero).join(', '))}">Anticipo ${S(v.anticipos.reduce((s, a) => s + a.monto_venta, 0), v.moneda)} · falta el final</span>` :
+      v.parcial ? `<span class="chip c-v" title="${esc(v.comprobantes.map(c => c.serie + '-' + c.numero).join(', '))}">Parcial ${S(v.facturado, v.moneda)}</span>` :
       `<span class="chip c-g">${v.tipo_sugerido === 'factura' ? 'Factura' : 'Boleta'}</span>`;
     const lote = !(v.externo > 0.009);
     return `<tr>
@@ -339,7 +364,7 @@ function pintarPF() {
       <td><div class="nom mono">${esc(v.code)}</div><div class="sub">${fechaHoraTxt(v.fecha)} · ${v.n_items} ítem(s)</div></td>
       <td><div class="nom">${esc(v.cliente.nombre || '—')}</div><div class="sub mono">${esc(v.cliente.doc || 'sin documento')}</div></td>
       <td><span class="sub">${esc(v.empresa)}</span></td>
-      <td class="n">${S(v.total)}</td><td class="n"><b>${S(v.pendiente)}</b></td>
+      <td class="n">${S(v.total, v.moneda)}${v.moneda === 'USD' ? '<div class="sub">dólares</div>' : ''}</td><td class="n"><b>${S(v.pendiente, v.moneda)}</b></td>
       <td>${pago}</td><td>${comp}</td>
       <td><button class="btn btn-sm" onclick="abrirEmitir(${v.id})">Revisar</button></td></tr>`;
   }).join('');
@@ -351,23 +376,37 @@ function limpiarSel() { SEL.clear(); $('sel-todas').checked = false; pintarPF();
 function pintarSel() {
   const s = PF.filter(v => SEL.has(v.id));
   $('barra-sel').style.display = s.length ? 'flex' : 'none';
-  $('sel-txt').textContent = `${s.length} venta(s) seleccionada(s) · ${S(s.reduce((a, v) => a + v.pendiente, 0))}`;
+  $('sel-txt').textContent = `${s.length} venta(s) seleccionada(s) · ${SM(s, v => v.pendiente)}`;
 }
 
 // ── Modal revisar y emitir ──
-let ME = null, ME_TIPO = 'boleta', ME_LINEAS = [], tPrev = null;
+let ME = null, ME_TIPO = 'boleta', ME_LINEAS = [], tPrev = null, ME_MODO = 'normal', ME_MON = 'PEN', ME_PAGOS = new Set();
+// Conversión entre la moneda de la venta y la del comprobante
+const tcME = () => Number($('me-tc').value) || 0;
+function aComp(x) { if (ME_MON === ME.moneda) return x; const tc = tcME(); if (!tc) return x; return ME.moneda === 'PEN' ? x / tc : x * tc; }
+function aVenta(x) { if (ME_MON === ME.moneda) return x; const tc = tcME(); if (!tc) return x; return ME.moneda === 'PEN' ? x * tc : x / tc; }
+const r2 = n => Math.round(n * 100) / 100;
+const antTotal = () => (ME.anticipos || []).reduce((s, a) => s + a.monto, 0);
 async function abrirEmitir(id) {
   try { ME = await api('/api/fe/venta/' + id); } catch (e) { return showToast(e.message, true); }
   $('me-titulo').textContent = 'Venta ' + ME.code;
-  $('me-sub').textContent = `${ME.empresa} · Total ${S(ME.total)} · Pendiente de comprobante ${S(ME.pendiente)}`;
-  $('me-previos').innerHTML = ME.comprobantes.length ? `<div class="aviso">Ya tiene comprobante(s): ${ME.comprobantes.map(c => `${esc(c.serie)}-${esc(c.numero)} (${S(c.total)}${c.origen === 'erp' ? ', hecho fuera del portal' : ''})`).join(', ')}.${ME.externo > 0 ? ' Marca solo los ítems que faltan.' : ''}</div>` : '';
+  $('me-sub').textContent = `${ME.empresa} · ${ME.moneda === 'USD' ? 'Venta en DÓLARES' + (ME.tipo_cambio ? ' (TC ' + ME.tipo_cambio + ')' : '') + ' · ' : ''}Total ${S(ME.total, ME.moneda)} · Pendiente de comprobante ${S(ME.pendiente, ME.moneda)}`;
+  $('me-previos').innerHTML = ME.comprobantes.length ? `<div class="aviso">Ya tiene comprobante(s): ${ME.comprobantes.map(c => `${esc(c.serie)}-${esc(c.numero)} (${S(c.total, ME.moneda)}${c.anticipo ? ', anticipo' : ''}${c.origen === 'erp' ? ', hecho fuera del portal' : ''})`).join(', ')}.${ME.externo > 0 ? ' Marca solo los ítems que faltan.' : ''}</div>` : '';
   const c = ME.cliente;
   $('me-doc').value = c.doc || ''; $('me-tdoc').value = c.tipo_doc || (c.doc ? '1' : '-');
   $('me-nombre').value = c.nombre || ''; $('me-dir').value = c.direccion || ''; $('me-email').value = c.email || ''; $('me-tel').value = c.telefono || '';
   $('me-fecha').value = ME.hoy; $('me-fecha').min = ME.fecha_min; $('me-fecha').max = ME.hoy;
   $('me-obs').value = 'Venta ' + ME.code;
   $('me-mail').checked = !!(ME.cfg && ME.cfg.enviar_email);
-  ME_LINEAS = ME.items.map(i => ({ ...i, sel: i.seleccionado }));
+  ME_LINEAS = ME.items.map(i => ({ ...i, sel: i.seleccionado, precio_venta: i.precio }));
+  ME_MON = (ME.anticipos[0] && ME.anticipos[0].moneda) || ME.moneda;
+  $('me-moneda').value = ME_MON;
+  $('me-tc').value = ME.tipo_cambio || '';
+  $('me-tc-fuente').textContent = ME.tipo_cambio ? 'de la venta' : '';
+  $('me-ant-desc').value = `ANTICIPO - Venta ${ME.code}: ` + ME.items.map(i => i.descripcion).slice(0, 3).join(', ');
+  ME_MODO = 'normal';
+  ME_PAGOS = new Set((ME.pagos || []).filter(x => !x.comprobante).map(x => x.id));
+  $('me-ant-monto').value = '';
   $('me-credito').checked = !!ME.credito_sugerido;
   $('me-cr-fecha').value = ME.credito_sugerido ? ME.credito_sugerido.fecha_pago : '';
   $('me-cr-imp').value = ME.credito_sugerido ? ME.credito_sugerido.importe.toFixed(2) : '';
@@ -375,12 +414,71 @@ async function abrirEmitir(id) {
   setTipo(ME.tipo_sugerido, true);
   pintarLineas(); pintarCredito();
   $('m-emitir').classList.add('on');
-  previa();
+  await cambiarMoneda(false, true);
+  setModo('normal');
+}
+// Pagos de la venta: los marcados definen el monto (y la moneda) del anticipo
+function pintarPagos() {
+  const pg = ME.pagos || [];
+  $('me-pagos').innerHTML = pg.map(x => `<tr>
+      <td><input type="checkbox" ${ME_PAGOS.has(x.id) ? 'checked' : ''} ${x.comprobante ? 'disabled' : ''} onchange="marcarPago(${x.id}, this.checked)"></td>
+      <td>${fechaHoraTxt(x.fecha)}</td><td>${esc(x.metodo || '—')}</td>
+      <td class="n">${S(x.monto, x.moneda)}</td>
+      <td>${x.comprobante ? `<span class="chip c-ok">${esc(x.comprobante)}</span>` : '<span class="chip c-w">Sin comprobante</span>'}</td></tr>`).join('')
+    || '<tr><td colspan="5" class="vacio">La venta no tiene pagos registrados: escribe el monto del anticipo</td></tr>';
+  const sel = pg.filter(x => ME_PAGOS.has(x.id));
+  const inp = $('me-ant-monto');
+  if (sel.length) {
+    const mon = sel[0].moneda;
+    if (mon !== ME_MON) { $('me-moneda').value = mon; ME_MON = mon; cambiarMoneda(false, true); }
+    inp.value = r2(sel.reduce((s, x) => s + x.monto, 0)).toFixed(2); inp.readOnly = true;
+  } else { inp.readOnly = false; if (!inp.value) inp.value = ''; }
+  totalesME(); previaLenta();
+}
+function marcarPago(id, on) {
+  const p = ME.pagos.find(x => x.id === id);
+  const sel = ME.pagos.filter(x => ME_PAGOS.has(x.id));
+  if (on && sel.length && sel[0].moneda !== p.moneda) { showToast('Elige pagos de una sola moneda', true); pintarPagos(); return; }
+  on ? ME_PAGOS.add(id) : ME_PAGOS.delete(id); pintarPagos();
+}
+// Comprobante normal o anticipo
+function setModo(m) {
+  ME_MODO = m;
+  ['normal', 'anticipo'].forEach(x => { $('me-m-' + x).className = 'btn ' + (x === m ? '' : 'btn-sec'); });
+  const ant = m === 'anticipo';
+  $('me-ant-box').style.display = ant ? 'grid' : 'none';
+  $('me-items-box').style.display = $('me-agregar').style.display = ant ? 'none' : '';
+  $('me-credito-box').style.display = !ant && ME_TIPO === 'factura' ? 'flex' : 'none';
+  if (ant) pintarPagos();
+  $('me-obs').value = ant ? `Anticipo de la venta ${ME.code}` : `Venta ${ME.code}`;
+  pintarInfoAnticipos();
+  totalesME(); previa();
+}
+function pintarInfoAnticipos() {
+  const a = ME.anticipos || [];
+  let h = '';
+  if (ME_MODO === 'anticipo') h = `<div class="aviso">Comprobante por un <b>adelanto</b> recibido antes de entregar. Cuando emitas el comprobante final de esta venta, los anticipos se descuentan solos.</div>`;
+  else if (a.length) h = `<div class="aviso">Este comprobante final <b>descuenta los anticipos</b> ${a.map(x => `${esc(x.serie)}-${x.numero} (${S(x.monto, x.moneda)})`).join(', ')}. Debe ser ${NOMBRE_TIPO[a[0].tipo].toLowerCase()} y en la misma moneda.</div>`;
+  $('me-ant-info').innerHTML = h;
+}
+// Moneda del comprobante y tipo de cambio: convierte los precios desde la moneda de la venta
+async function cambiarMoneda(soloTC, inicial) {
+  if (!soloTC) ME_MON = $('me-moneda').value;
+  const otra = ME_MON !== ME.moneda || ME_MON === 'USD';
+  $('me-tc-box').style.display = otra ? '' : 'none';
+  if (otra && !tcME()) {
+    try { const t = await api('/api/fe/tipo-cambio'); $('me-tc').value = t.venta; $('me-tc-fuente').textContent = `${t.fuente} · ${t.fecha}`; } catch (e) {}
+  }
+  ME_LINEAS.forEach(l => { if (l.precio_venta != null) l.precio = Math.round(aComp(l.precio_venta) * 1e6) / 1e6; });
+  if (!inicial && ME_MODO === 'anticipo' && !ME_PAGOS.size && $('me-ant-monto').value) $('me-ant-monto').value = '';
+  if (ME.credito_sugerido) $('me-cr-imp').value = r2(aComp(ME.credito_sugerido.importe)).toFixed(2);
+  pintarLineas();
+  if (!inicial) previaLenta();
 }
 function setTipo(t, sinPrevia) {
   ME_TIPO = t;
   ['factura', 'boleta'].forEach(x => { $('me-t-' + x).className = 'btn ' + (x === t ? '' : 'btn-sec'); });
-  $('me-credito-box').style.display = t === 'factura' ? 'flex' : 'none';
+  $('me-credito-box').style.display = t === 'factura' && ME_MODO !== 'anticipo' ? 'flex' : 'none';
   if (t === 'factura' && $('me-tdoc').value !== '6') $('me-tdoc').value = '6';
   $('me-btn').textContent = 'Emitir ' + NOMBRE_TIPO[t].toLowerCase();
   const serie = ME.cfg ? (t === 'factura' ? ME.cfg.serie_factura : ME.cfg.serie_boleta) : '';
@@ -401,28 +499,37 @@ function pintarLineas() {
       <td><input value="${esc(l.descripcion)}" oninput="ME_LINEAS[${i}].descripcion=this.value;previaLenta()">
         <div class="sub">${l.codigo ? esc(l.codigo) + ' · ' : ''}${l.sale_item_id ? `vendido ${N(l.cantidad_venta, 0)}${l.ya_facturado ? `, ya facturado ${N(l.ya_facturado, 0)}` : ''}` : 'línea agregada'}</div></td>
       <td class="n"><input class="q" type="number" min="0" step="any"${tope} value="${l.cantidad}" oninput="ME_LINEAS[${i}].cantidad=Number(this.value);totalesME();previaLenta()"></td>
-      <td class="n"><input class="p" type="number" min="0" step="0.01" value="${Number(l.precio).toFixed(2)}" oninput="ME_LINEAS[${i}].precio=Number(this.value);totalesME();previaLenta()"></td>
-      <td class="n" id="me-lt-${i}">${S(l.cantidad * l.precio)}</td></tr>`;
+      <td class="n"><input class="p" type="number" min="0" step="0.01" value="${Number(l.precio).toFixed(2)}" oninput="ME_LINEAS[${i}].precio=Number(this.value);ME_LINEAS[${i}].precio_venta=aVenta(Number(this.value));totalesME();previaLenta()"></td>
+      <td class="n" id="me-lt-${i}">${S(l.cantidad * l.precio, ME_MON)}</td></tr>`;
   }).join('') || '<tr><td colspan="5" class="vacio">Sin ítems</td></tr>';
   totalesME();
 }
-function agregarLinea() { ME_LINEAS.push({ sale_item_id: null, codigo: '', descripcion: '', cantidad: 1, precio: 0, sel: true }); pintarLineas(); }
+function agregarLinea() { ME_LINEAS.push({ sale_item_id: null, codigo: '', descripcion: '', cantidad: 1, precio: 0, precio_venta: 0, sel: true }); pintarLineas(); }
 function lineasSel() { return ME_LINEAS.filter(l => l.sel && Number(l.cantidad) > 0); }
 function totalesME() {
-  ME_LINEAS.forEach((l, i) => { const c = $('me-lt-' + i); if (c) c.textContent = S(Math.round(l.cantidad * l.precio * 100) / 100); });
-  const t = lineasSel().reduce((s, l) => s + Math.round(l.cantidad * l.precio * 100) / 100, 0);
+  ME_LINEAS.forEach((l, i) => { const c = $('me-lt-' + i); if (c) c.textContent = S(Math.round(l.cantidad * l.precio * 100) / 100, ME_MON); });
+  const ant = ME_MODO === 'anticipo';
+  const bruto = ant ? Number($('me-ant-monto').value) || 0 : lineasSel().reduce((s, l) => s + Math.round(l.cantidad * l.precio * 100) / 100, 0);
+  const desc = ant ? 0 : antTotal();
+  const t = Math.max(0, r2(bruto - desc));
   const af = ME.cfg ? ME.cfg.afectacion : 'gravado';
-  if (af === 'nrus') { $('me-totales').innerHTML = `<span>Nuevo RUS (sin IGV)</span><span>Total <b>${S(t)}</b></span>`; return; }
-  const base = af === 'gravado' ? Math.round(t / 1.18 * 100) / 100 : t;
-  $('me-totales').innerHTML = `<span>${af === 'gravado' ? 'Op. gravada' : af === 'exonerado' ? 'Op. exonerada' : 'Op. inafecta'} ${S(base)}</span><span>IGV ${S(t - base)}</span><span>Total <b>${S(t)}</b></span>`;
+  const partes = [];
+  if (desc) partes.push(`<span>Productos ${S(bruto, ME_MON)}</span><span>Anticipos −${S(desc, ME_MON)}</span>`);
+  if (af === 'nrus') partes.push('<span>Nuevo RUS (sin IGV)</span>');
+  else { const base = af === 'gravado' ? r2(t / 1.18) : t; partes.push(`<span>${af === 'gravado' ? 'Op. gravada' : af === 'exonerado' ? 'Op. exonerada' : 'Op. inafecta'} ${S(base, ME_MON)}</span><span>IGV ${S(t - base, ME_MON)}</span>`); }
+  partes.push(`<span>Total ${desc ? 'a pagar ' : ''}<b>${S(t, ME_MON)}</b></span>`);
+  if (ME_MON !== ME.moneda && tcME()) partes.push(`<span class="sub">≈ ${S(aVenta(t), ME.moneda)}</span>`);
+  $('me-totales').innerHTML = partes.join('');
 }
 function cuerpoEmitir() {
   const b = {
     sale_id: ME.id, tipo: ME_TIPO, fecha: $('me-fecha').value,
     cliente: { tipo_doc: $('me-tdoc').value, doc: $('me-doc').value.trim(), nombre: $('me-nombre').value.trim(), direccion: $('me-dir').value.trim(), email: $('me-email').value.trim(), telefono: $('me-tel').value.trim() },
     items: lineasSel().map(l => ({ sale_item_id: l.sale_item_id, codigo: l.codigo, descripcion: l.descripcion, cantidad: Number(l.cantidad), precio: Number(l.precio) })),
-    observaciones: $('me-obs').value.trim(), enviar_email: $('me-mail').checked
+    observaciones: $('me-obs').value.trim(), enviar_email: $('me-mail').checked,
+    moneda: ME_MON, tipo_cambio: tcME() || undefined
   };
+  if (ME_MODO === 'anticipo') { delete b.items; b.anticipo = { monto: Number($('me-ant-monto').value), descripcion: $('me-ant-desc').value.trim(), pagos: [...ME_PAGOS] }; return b; }
   if (ME_TIPO === 'factura') b.credito = $('me-credito').checked ? { fecha_pago: $('me-cr-fecha').value, importe: Number($('me-cr-imp').value) } : false;
   return b;
 }
@@ -438,8 +545,8 @@ async function previa() {
 }
 async function emitir() {
   const b = cuerpoEmitir();
-  const t = b.items.reduce((s, l) => s + l.cantidad * l.precio, 0);
-  if (!confirm(`¿Emitir ${NOMBRE_TIPO[ME_TIPO].toLowerCase()} por ${S(t)} a ${b.cliente.nombre || 'CLIENTES VARIOS'}?\nSe envía a SUNAT y no se puede deshacer (solo con nota de crédito).`)) return;
+  const t = b.anticipo ? b.anticipo.monto : Math.max(0, b.items.reduce((s, l) => s + l.cantidad * l.precio, 0) - antTotal());
+  if (!confirm(`¿Emitir ${NOMBRE_TIPO[ME_TIPO].toLowerCase()}${b.anticipo ? ' de ANTICIPO' : ''} por ${S(t, ME_MON)}${ME_MON === 'USD' ? ' (en DÓLARES)' : ''} a ${b.cliente.nombre || 'CLIENTES VARIOS'}?\nSe envía a SUNAT y no se puede deshacer (solo con nota de crédito).`)) return;
   $('me-btn').disabled = true; $('me-btn').textContent = 'Emitiendo…';
   try {
     const r = await api('/api/fe/emitir', 'POST', b);
@@ -452,7 +559,7 @@ async function emitir() {
 function linkWhatsApp(c, tel) {
   const num = String(tel || '').replace(/\D/g, ''); if (!c.enlace_pdf) return '';
   const n = num.length === 9 ? '51' + num : num;
-  const txt = `Hola, te enviamos tu ${NOMBRE_TIPO[c.tipo].toLowerCase()} electrónica ${c.serie}-${c.numero} por ${S(c.total)}: ${c.enlace_pdf}`;
+  const txt = `Hola, te enviamos tu ${NOMBRE_TIPO[c.tipo].toLowerCase()} electrónica ${c.serie}-${c.numero} por ${S(c.total, c.moneda)}: ${c.enlace_pdf}`;
   return `https://wa.me/${n}?text=${encodeURIComponent(txt)}`;
 }
 function mostrarResultado(c, cli) {
@@ -460,7 +567,7 @@ function mostrarResultado(c, cli) {
   const wa = linkWhatsApp(c, cli && cli.telefono);
   const box = document.createElement('div');
   box.className = 'aviso ' + (c.estado === 'aceptado' ? 'ok' : c.estado === 'pendiente_sunat' ? '' : 'r');
-  box.innerHTML = `<b>${NOMBRE_TIPO[c.tipo]} ${esc(c.serie)}-${c.numero}</b> · ${S(c.total)} · <span class="chip ${cl}">${tx}</span>
+  box.innerHTML = `<b>${NOMBRE_TIPO[c.tipo]} ${esc(c.serie)}-${c.numero}</b> · ${S(c.total, c.moneda)} · <span class="chip ${cl}">${tx}</span>
     ${c.enlace_pdf ? ` · <a class="lnk" href="${esc(c.enlace_pdf)}" target="_blank">PDF</a>` : ''}
     ${wa ? ` · <a class="lnk" href="${wa}" target="_blank">Enviar por WhatsApp</a>` : ''}
     ${c.erp_estado === 'registrado' ? ' · registrado en el sistema' : c.erp_estado === 'error' ? ` · <b>no se pudo registrar en el sistema:</b> ${esc(c.erp_error)}` : c.erp_estado === 'pendiente' ? ' · <b>anótalo en el sistema</b>' : ''}
@@ -482,12 +589,12 @@ function pintarLote() {
     const sinRuc = x.v.cliente.tipo_doc !== '6';
     const res = !x.res ? '' : x.res.ok ? `<span class="chip c-ok">${esc(x.res.comprobante.serie)}-${x.res.comprobante.numero}</span>${x.res.comprobante.enlace_pdf ? ` <a class="lnk" target="_blank" href="${esc(x.res.comprobante.enlace_pdf)}">PDF</a>` : ''}` : `<span class="chip c-r">Error</span><div class="sub">${esc(x.res.error)}</div>`;
     return `<tr><td class="mono">${esc(x.v.code)}</td><td>${esc(x.v.cliente.nombre || 'CLIENTES VARIOS')}<div class="sub mono">${esc(x.v.cliente.doc || '—')}</div></td>
-      <td class="n">${S(x.v.pendiente)}</td>
+      <td class="n">${S(x.v.pendiente, x.v.moneda)}</td>
       <td><select ${x.res ? 'disabled' : ''} onchange="LOTE[${i}].tipo=this.value"><option value="boleta" ${x.tipo === 'boleta' ? 'selected' : ''}>Boleta</option><option value="factura" ${x.tipo === 'factura' ? 'selected' : ''} ${sinRuc ? 'disabled' : ''}>Factura</option></select></td>
       <td>${res}</td></tr>`;
   }).join('');
   const t = LOTE.reduce((s, x) => s + x.v.pendiente, 0);
-  $('ml-resumen').textContent = `${LOTE.length} comprobante(s) · ${S(t)}`;
+  $('ml-resumen').textContent = `${LOTE.length} comprobante(s) · ${SM(LOTE.map(x => x.v), v => v.pendiente)}`;
 }
 async function emitirLote() {
   const pend = LOTE.filter(x => !x.res || !x.res.ok);
@@ -539,11 +646,11 @@ function pintarEM() {
     if (c.tipo !== 'nc' && ['aceptado', 'pendiente_sunat'].includes(c.estado) && !c.anulado_por_nc) acc.push(`<button class="btn btn-sec btn-sm" onclick="abrirNC(${c.id})">Nota de crédito</button>`);
     const ref = c.tipo === 'nc' ? `<div class="sub">Modifica ${esc(c.ref_serie)}-${c.ref_numero}</div>` : c.anulado_por_nc ? '<div class="sub" style="color:var(--fg-r)">Anulado con nota de crédito</div>' : '';
     return `<tr>
-      <td><div class="nom mono">${esc(c.serie)}-${c.numero}</div><div class="sub">${NOMBRE_TIPO[c.tipo]} · ${esc(c.empresa)}</div>${ref}</td>
+      <td><div class="nom mono">${esc(c.serie)}-${c.numero}</div><div class="sub">${NOMBRE_TIPO[c.tipo]}${c.es_anticipo ? ' de anticipo' + (c.aplicado_en ? ' (ya descontado)' : ' (por descontar)') : ''} · ${esc(c.empresa)}</div>${ref}</td>
       <td>${fechaTxt(c.fecha_emision)}<div class="sub">${esc(c.emitido_por || '')}</div></td>
       <td><div class="nom">${esc(c.cliente_nombre)}</div><div class="sub mono">${esc(c.cliente_doc)}</div>${c.email_enviado ? '<div class="sub">✉ enviado al correo</div>' : ''}</td>
       <td class="mono">${esc(c.sale_code || '—')}</td>
-      <td class="n">${c.tipo === 'nc' ? '−' : ''}${S(c.total)}${c.credito ? '<div class="sub">al crédito</div>' : ''}</td>
+      <td class="n">${c.tipo === 'nc' ? '−' : ''}${S(c.total, c.moneda)}${c.credito ? '<div class="sub">al crédito</div>' : ''}</td>
       <td><span class="chip ${cl}">${tx}</span>${c.sunat_desc && c.estado !== 'aceptado' ? `<div class="sub">${esc(c.sunat_desc)}</div>` : ''}</td>
       <td>${erp}</td>
       <td><div class="acciones">${acc.join(' ')}</div></td></tr>`;
@@ -581,7 +688,7 @@ let NC = null;
 async function abrirNC(id) {
   try { NC = await api(`/api/fe/${id}/detalle`); } catch (e) { return showToast(e.message, true); }
   $('nc-titulo').textContent = `Nota de crédito sobre ${NC.serie}-${NC.numero}`;
-  $('nc-sub').textContent = `${NC.cliente_nombre} · ${S(NC.total)}${NC.notas_credito.length ? ` · ya tiene NC por ${S(NC.total - NC.disponible)}` : ''}`;
+  $('nc-sub').textContent = `${NC.cliente_nombre} · ${S(NC.total, NC.moneda)}${NC.notas_credito.length ? ` · ya tiene NC por ${S(NC.total - NC.disponible, NC.moneda)}` : ''}`;
   const motivos = ESTADO.motivos_nc, parciales = NC.notas_credito.length > 0;
   $('nc-motivo').innerHTML = Object.entries(motivos).map(([k, v]) => `<option value="${k}" ${parciales && ['1', '2', '3', '6'].includes(k) ? 'disabled' : ''}>${k} · ${esc(v)}</option>`).join('');
   $('nc-motivo').value = parciales ? '7' : '1';
@@ -595,7 +702,7 @@ function pintarNC() {
     $('nc-cuerpo').innerHTML = `<div class="desc" style="margin-top:10px">Se anula el comprobante completo (${NC.items.length} ítem(s)).${m === 2 || m === 3 ? ' Después emite el comprobante correcto desde “Por facturar”: la venta vuelve a quedar pendiente.' : ''}</div>`;
   } else if (m === 7) {
     $('nc-cuerpo').innerHTML = `<div class="tabla-wrap it-tabla" style="max-height:40vh"><table><thead><tr><th>Ítem</th><th class="n">Facturado</th><th class="n">Devolver</th><th class="n">Importe</th></tr></thead><tbody>${
-      NC.items.map((it, i) => `<tr><td>${esc(it.descripcion)}</td><td class="n">${N(it.cantidad, 0)} × ${S(it.precio)}</td>
+      NC.items.map((it, i) => `<tr><td>${esc(it.descripcion)}</td><td class="n">${N(it.cantidad, 0)} × ${S(it.precio, NC.moneda)}</td>
         <td class="n"><input class="q" type="number" min="0" max="${it.cantidad}" step="any" value="${it.devolver}" oninput="NC.items[${i}].devolver=Number(this.value);totalNC()"></td><td class="n" id="nc-it-${i}"></td></tr>`).join('')}</tbody></table></div>`;
   } else {
     $('nc-cuerpo').innerHTML = `<div class="grid2"><label class="campo" style="grid-column:span 2">Descripción<input id="nc-desc" value="Descuento posterior a la venta"></label>
@@ -607,9 +714,9 @@ function totalNC() {
   const m = Number($('nc-motivo').value);
   let t = 0;
   if ([1, 2, 3, 6].includes(m)) t = NC.total;
-  else if (m === 7) NC.items.forEach((it, i) => { const v = Math.round(it.devolver * it.precio * 100) / 100; t += v; const c = $('nc-it-' + i); if (c) c.textContent = S(v); });
+  else if (m === 7) NC.items.forEach((it, i) => { const v = Math.round(it.devolver * it.precio * 100) / 100; t += v; const c = $('nc-it-' + i); if (c) c.textContent = S(v, NC.moneda); });
   else t = Number(($('nc-monto') || {}).value || 0);
-  $('nc-total').innerHTML = `<span>Total nota de crédito <b>${S(t)}</b></span>`;
+  $('nc-total').innerHTML = `<span>Total nota de crédito <b>${S(t, NC.moneda)}</b></span>`;
   $('nc-btn').disabled = !(t > 0) || t > NC.disponible + 0.001;
 }
 async function emitirNC() {

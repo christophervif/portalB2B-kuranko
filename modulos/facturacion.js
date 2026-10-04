@@ -36,6 +36,18 @@ const { EMPRESAS_BI, nombreProdVar } = require('./comunes');
 const IGV_PCT = 18;
 const VENTAS_VALIDAS = ['paid', 'confirmed', 'pending_payment'];
 const TOPE_BOLETA_SIN_DOC = 700; // SUNAT: boletas desde S/ 700 exigen documento del cliente
+// Tipo de cambio de referencia SOLO para el tope de S/ 700 en boletas en dólares
+// cuando la venta no trae tipo de cambio (Railway FE_TC_REFERENCIA).
+const TC_REFERENCIA = Number(process.env.FE_TC_REFERENCIA) || 3.8;
+// Moneda de la venta del ERP → 'USD' | 'PEN' (acepta código, nombre o símbolo)
+function monedaDe(...vals) {
+  const t = vals.filter(v => v != null && v !== '').map(v => String(v).trim()).join(' ');
+  if (!t) return 'PEN';
+  // tolera tildes dañadas por codificación ("DÃ³lares")
+  return /\busd\b|d\S{0,3}lar|us\$|(^|\s)\$(\s|$)/i.test(t) ? 'USD' : 'PEN';
+}
+const SIMBOLO = { PEN: 'S/', USD: 'US$' };
+const dinero = (n, mon) => `${SIMBOLO[mon] || 'S/'} ${Number(n || 0).toFixed(2)}`;
 const TIPOS = ['factura', 'boleta', 'nc'];
 // gravado = precio incluye IGV 18 %; nrus = Nuevo RUS (boletas sin IGV, operación 0113)
 const AFECTACIONES = ['gravado', 'exonerado', 'inafecto', 'nrus'];
@@ -122,8 +134,19 @@ function armarComprobante(datos, cfg = {}) {
   });
   if (!items.length) errores.push('El comprobante no tiene ítems');
 
-  const total = r2(items.reduce((s, x) => s + x.total, 0));
-  const totalIgv = r2(items.reduce((s, x) => s + x.igv, 0));
+  const totalItems = r2(items.reduce((s, x) => s + x.total, 0));
+  const igvItems = r2(items.reduce((s, x) => s + x.igv, 0));
+  // Anticipos que este comprobante final descuenta (montos con IGV, en su moneda)
+  const anticipos = (datos.anticipos || []).map(a => ({ tipo: a.tipo, serie: a.serie, numero: a.numero, monto: r2(a.monto) }));
+  const totalAnt = r2(anticipos.reduce((s, a) => s + a.monto, 0));
+  const igvAnt = conIgv ? r2(totalAnt - totalAnt / (1 + IGV_PCT / 100)) : 0;
+  anticipos.forEach(a => { if (a.tipo !== tipo) errores.push(`El anticipo ${a.serie}-${a.numero} es ${a.tipo}: el comprobante final también debe ser ${a.tipo}`); });
+  if (totalAnt > 0 && totalItems - totalAnt < -0.001) errores.push('Los anticipos superan el total del comprobante');
+  const total = r2(Math.max(0, totalItems - totalAnt));
+  const totalIgv = r2(Math.max(0, igvItems - igvAnt));
+  const moneda = datos.moneda === 'USD' ? 'USD' : 'PEN';
+  const tc = Number(datos.tipo_cambio) > 0 ? Number(datos.tipo_cambio) : TC_REFERENCIA;
+  const totalSoles = moneda === 'USD' ? total * tc : total;
 
   // Reglas del cliente según el tipo
   const tipoBase = tipo === 'nc' ? (datos.nc && datos.nc.ref_tipo) : tipo;
@@ -133,7 +156,7 @@ function armarComprobante(datos, cfg = {}) {
     if (!limpiar(cli.direccion)) avisos.push('El cliente no tiene dirección; la factura sale sin dirección');
   } else if (tipoBase === 'boleta') {
     if (!doc || doc === '-' || !tipoDoc || tipoDoc === '-') {
-      if (total >= TOPE_BOLETA_SIN_DOC) errores.push(`Boletas desde S/ ${TOPE_BOLETA_SIN_DOC} exigen DNI u otro documento del cliente`);
+      if (totalSoles >= TOPE_BOLETA_SIN_DOC) errores.push(`Boletas desde S/ ${TOPE_BOLETA_SIN_DOC}${moneda === 'USD' ? ` (≈ US$ ${(TOPE_BOLETA_SIN_DOC / tc).toFixed(2)})` : ''} exigen DNI u otro documento del cliente`);
       tipoDoc = '-'; doc = '-'; nombre = nombre || 'CLIENTES VARIOS';
     } else if (tipoDoc === '1' && !/^\d{8}$/.test(doc)) errores.push('El DNI debe tener 8 dígitos');
     if (!nombre) nombre = 'CLIENTES VARIOS';
@@ -148,18 +171,20 @@ function armarComprobante(datos, cfg = {}) {
 
   const docN = {
     tipo, serie: datos.serie, numero: datos.numero, fecha, afectacion: afect,
+    moneda, tipo_cambio: Number(datos.tipo_cambio) > 0 ? Number(datos.tipo_cambio) : null,
     cliente: { tipo_doc: tipoDoc, doc, nombre, direccion: limpiar(cli.direccion), email },
     items: items.map(({ sale_item_id, ...x }) => x),
     totales: { gravada: conIgv ? r2(total - totalIgv) : 0, exonerada: afect === 'exonerado' ? total : 0,
       inafecta: afect === 'inafecto' || afect === 'nrus' ? total : 0, igv: totalIgv, total },
     credito: null, nc: null,
+    anticipos, total_items: totalItems, es_anticipo: !!datos.es_anticipo,
     observaciones: limpiar(datos.observaciones, 500),
     enviar_email: !!(datos.enviar_email && email),
     formato_pdf: datos.formato_pdf || 'A4'
   };
 
   // Factura al crédito: SUNAT exige indicar las cuotas
-  if (tipo === 'factura' && datos.credito) {
+  if (tipo === 'factura' && datos.credito && total > 0) {
     const imp = r2(datos.credito.importe || total), fp = datos.credito.fecha_pago;
     if (!esFecha(fp) || fp <= fecha) errores.push('Venta al crédito: la fecha de pago debe ser posterior a la emisión');
     if (!(imp > 0) || imp > total + 0.001) errores.push('Venta al crédito: el importe pendiente debe estar entre 0 y el total');
@@ -175,7 +200,7 @@ function armarComprobante(datos, cfg = {}) {
     if (!docN.observaciones) docN.observaciones = MOTIVOS_NC[nc.motivo] || '';
   }
 
-  return { doc: docN, errores, avisos, total, total_igv: totalIgv, items_origen: items.map(x => ({ sale_item_id: x.sale_item_id, cantidad: x.cantidad, total: x.total })) };
+  return { doc: docN, errores, avisos, total, total_igv: totalIgv, total_items: totalItems, total_anticipos: totalAnt, items_origen: items.map(x => ({ sale_item_id: x.sale_item_id, cantidad: x.cantidad, total: x.total })) };
 }
 
 // Cuánto de la venta ya tiene comprobante. Junta los comprobantes del ERP y los
@@ -196,11 +221,13 @@ function calcularFacturado(venta, vouchersERP, compsPortal) {
   });
   (compsPortal || []).forEach(c => {
     if (['error', 'enviando', 'rechazado'].includes(c.estado)) return;
-    if (c.tipo === 'nc') { facturado -= Number(c.total) || 0; lista.push({ origen: 'portal', tipo: 'nc', serie: c.serie, numero: c.numero, total: -Number(c.total) }); return; }
+    // monto_venta = importe en la moneda de la venta (si el comprobante salió en otra moneda)
+    const monto = Number(c.monto_venta != null ? c.monto_venta : c.total) || 0;
+    if (c.tipo === 'nc') { facturado -= monto; lista.push({ origen: 'portal', tipo: 'nc', serie: c.serie, numero: c.numero, total: -monto }); return; }
     const k = clave(c.serie, c.numero);
     if (vistos.has(k)) return; vistos.add(k);
-    facturado += Number(c.total) || 0;
-    lista.push({ origen: 'portal', tipo: c.tipo, serie: c.serie, numero: c.numero, total: Number(c.total) || 0 });
+    facturado += monto;
+    lista.push({ origen: 'portal', tipo: c.tipo, serie: c.serie, numero: c.numero, total: monto, anticipo: !!c.es_anticipo });
   });
   const total = Number(venta.total) || 0;
   return { total: r2(total), facturado: r2(facturado), externo: r2(externo), pendiente: r2(Math.max(0, total - facturado)), comprobantes: lista };
@@ -259,7 +286,7 @@ function apisunatJSON(doc) {
   const j = {
     documento: AS_DOC[doc.tipo], serie: doc.serie, numero: doc.numero,
     fecha_de_emision: doc.fecha,
-    moneda: 'PEN',
+    moneda: doc.moneda === 'USD' ? 'USD' : 'PEN',
     tipo_operacion: doc.afectacion === 'nrus' ? '0113' : '0101',
     cliente_tipo_de_documento: sinDoc ? '1' : doc.cliente.tipo_doc,
     cliente_numero_de_documento: sinDoc ? '99999999' : doc.cliente.doc,
@@ -281,6 +308,8 @@ function apisunatJSON(doc) {
     j.fecha_de_vencimiento = doc.credito.vencimiento;
     j.cuotas = doc.credito.cuotas.map(c => ({ importe: Number(c.importe).toFixed(2), fecha_de_pago: c.fecha_pago }));
   }
+  if (doc.anticipos && doc.anticipos.length)
+    j.anticipos = doc.anticipos.map(a => ({ documento: a.tipo, serie: a.serie, numero: String(a.numero), monto: a.monto.toFixed(2) }));
   if (doc.nc) {
     j.nota_credito_codigo_tipo = String(doc.nc.motivo).padStart(2, '0');
     j.nota_credito_motivo = doc.nc.motivo_texto;
@@ -308,7 +337,7 @@ function proveedorApisunat({ url, token, fetchImpl = fetch, timeoutMs = 60000 })
       ? Object.entries(d.payload).map(([k, v]) => `${k}: ${[].concat(v).join(', ')}`).join(' · ') : '';
     const texto = detalle ? `${msg} (${limpiar(detalle, 400)})` : msg;
     if (status >= 500 || status === 0) return errorMarcado(texto, { red: true });
-    if (status === 401 || status === 403) return errorMarcado('Token de APISUNAT no válido: ' + texto, { config: true });
+    if (status === 401 || status === 403) return errorMarcado((/token/i.test(texto) ? 'Token de APISUNAT no válido: ' : 'APISUNAT no autoriza a esta empresa: ') + texto, { config: true });
     if (consulta && /no se encuentra|no existe|no registrad/i.test(msg)) return errorMarcado(texto, { noExiste: true, validacion: true });
     if (/ya (existe|fue|se encuentra|ha sido)|duplicad|registrado anteriormente/i.test(msg)) return errorMarcado(texto, { duplicado: true, validacion: true });
     return errorMarcado(texto, { validacion: true });
@@ -335,13 +364,15 @@ function proveedorApisunat({ url, token, fetchImpl = fetch, timeoutMs = 60000 })
 const NF_TIPO = { factura: 1, boleta: 2, nc: 3 };
 const NF_IGV = { gravado: 1, exonerado: 8, inafecto: 9, nrus: 9 };
 function nubefactJSON(doc) {
+  if (doc.anticipos && doc.anticipos.length) throw errorMarcado('Con NubeFacT el portal aún no descuenta anticipos; emite este comprobante desde su panel', { validacion: true });
   const tIgv = NF_IGV[doc.afectacion] || 1;
   const j = {
     operacion: 'generar_comprobante', tipo_de_comprobante: NF_TIPO[doc.tipo], serie: doc.serie, numero: doc.numero,
     sunat_transaction: 1,
     cliente_tipo_de_documento: doc.cliente.tipo_doc, cliente_numero_de_documento: doc.cliente.doc,
     cliente_denominacion: doc.cliente.nombre, cliente_direccion: doc.cliente.direccion, cliente_email: doc.cliente.email || '',
-    fecha_de_emision: aDDMMAAAA(doc.fecha), moneda: 1, porcentaje_de_igv: IGV_PCT,
+    fecha_de_emision: aDDMMAAAA(doc.fecha), moneda: doc.moneda === 'USD' ? 2 : 1,
+    tipo_de_cambio: doc.moneda === 'USD' ? (doc.tipo_cambio || '') : '', porcentaje_de_igv: IGV_PCT,
     total_gravada: doc.totales.gravada || '', total_exonerada: doc.totales.exonerada || '', total_inafecta: doc.totales.inafecta || '',
     total_igv: doc.totales.igv, total: doc.totales.total,
     observaciones: doc.observaciones || '',
@@ -385,7 +416,7 @@ function proveedorNubefact({ ruta, token, fetchImpl = fetch, timeoutMs = 60000 }
   return {
     nombre: 'NubeFacT', envia_email: true,
     convertir: nubefactJSON,
-    emitir: doc => enviar(nubefactJSON(doc), false),
+    emitir: async doc => enviar(nubefactJSON(doc), false),
     consultar: (tipo, serie, numero) => enviar({ operacion: 'consultar_comprobante', tipo_de_comprobante: NF_TIPO[tipo], serie, numero }, true)
   };
 }
@@ -434,7 +465,7 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
           from: process.env.FE_EMAIL_DESDE || process.env.RESEND_FROM || 'Portal Kuranko <noreply@kuranko.pe>',
           to: [comp.cliente_email],
           subject: `${nombreTipo} electrónica ${num} — ${emp}`,
-          html: `<p>Hola ${esc(comp.cliente_nombre)},</p><p>Te enviamos tu <b>${esc(nombreTipo.toLowerCase())} electrónica ${num}</b> por <b>S/ ${Number(comp.total).toFixed(2)}</b>, emitida por ${esc(emp)}.</p>
+          html: `<p>Hola ${esc(comp.cliente_nombre)},</p><p>Te enviamos tu <b>${esc(nombreTipo.toLowerCase())} electrónica ${num}</b> por <b>${dinero(comp.total, comp.moneda)}</b>, emitida por ${esc(emp)}.</p>
             <p><a href="${esc(comp.enlace_pdf)}">Ver / descargar el PDF</a>${comp.enlace_xml ? ` · <a href="${esc(comp.enlace_xml)}">XML</a>` : ''}</p><p>Gracias por tu compra.</p>`,
           attachments: [{ filename: `${num}.pdf`, path: comp.enlace_pdf }]
         })
@@ -487,9 +518,21 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
       emitido_por VARCHAR(100), creado DATETIME DEFAULT CURRENT_TIMESTAMP, actualizado DATETIME NULL,
       UNIQUE KEY uq_fe (company_id, serie, numero),
       INDEX idx_sale (sale_id), INDEX idx_fecha (fecha_emision), INDEX idx_estado (estado))`);
+    // Moneda del comprobante (agregada después: se crea si falta)
+    for (const sql of [`ALTER TABLE fe_comprobantes ADD COLUMN moneda CHAR(3) NOT NULL DEFAULT 'PEN'`,
+                       `ALTER TABLE fe_comprobantes ADD COLUMN moneda_erp VARCHAR(40) NULL`,
+                       `ALTER TABLE fe_comprobantes ADD COLUMN tipo_cambio DECIMAL(10,4) NULL`,
+                       `ALTER TABLE fe_comprobantes ADD COLUMN monto_venta DECIMAL(12,2) NULL`,
+                       `ALTER TABLE fe_comprobantes ADD COLUMN es_anticipo TINYINT NOT NULL DEFAULT 0`,
+                       `ALTER TABLE fe_comprobantes ADD COLUMN aplicado_en INT NULL`])
+      try { await portalPool.query(sql); } catch (e) { /* ya existe */ }
     await portalPool.query(`CREATE TABLE IF NOT EXISTS fe_comprobante_items (
       comprobante_id INT NOT NULL, sale_item_id BIGINT NOT NULL, cantidad DECIMAL(14,4) NOT NULL, total DECIMAL(12,2),
       INDEX idx_comp (comprobante_id), INDEX idx_item (sale_item_id))`);
+    // Pagos de la venta que cubre cada comprobante de anticipo (el vendedor los elige)
+    await portalPool.query(`CREATE TABLE IF NOT EXISTS fe_comprobante_pagos (
+      comprobante_id INT NOT NULL, payment_id BIGINT NOT NULL, monto DECIMAL(12,2),
+      INDEX idx_comp (comprobante_id), INDEX idx_pago (payment_id))`);
     // Series por defecto distintas por empresa (F001/B001, F002/B002…): así una
     // serie-número nunca se repite entre las dos empresas (el cruce con SUNAT y
     // sale_vouchers no distinguen empresa).
@@ -535,37 +578,106 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
     return colsParty;
   }
 
+  // Columnas de moneda y tipo de cambio de `sales`: se descubren una vez.
+  //  moneda: columna directa (currency, moneda…) o un *_id que apunta a una tabla
+  //  de monedas (currencies) o al catálogo general (catalog_items).
+  let colsSales = null;
+  async function columnasSales() {
+    if (colsSales) return colsSales;
+    try {
+      const [c] = await prodPool.query(`SELECT TABLE_NAME t, COLUMN_NAME c FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('sales','currencies','catalog_items')`);
+      const de = t => c.filter(x => x.t === t).map(x => x.c);
+      const sales = de('sales');
+      const moneda = ['currency', 'currency_code', 'moneda', 'currency_id', 'moneda_id', 'coin_id', 'coin']
+        .find(x => sales.includes(x)) || sales.find(x => /currenc|moneda/i.test(x) && !/rate|cambio/i.test(x)) || null;
+      const tc = ['exchange_rate', 'tipo_cambio', 'tipo_de_cambio', 'currency_rate'].find(x => sales.includes(x))
+        || sales.find(x => /exchange|tipo_?de?_?cambio/i.test(x)) || null;
+      let join = null;
+      if (moneda && /_id$/.test(moneda)) {
+        const cur = de('currencies');
+        if (cur.length) join = { tabla: 'currencies', cols: ['code', 'iso_code', 'name', 'symbol', 'abbreviation'].filter(x => cur.includes(x)) };
+        else if (de('catalog_items').length) join = { tabla: 'catalog_items', cols: ['name', 'code', 'value', 'abbreviation'].filter(x => de('catalog_items').includes(x)) };
+      }
+      // Moneda de cada pago (sale_payments.currency_id → catalog_items)
+      const [pc] = await prodPool.query(`SELECT COUNT(*) n FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sale_payments' AND COLUMN_NAME = 'currency_id'`);
+      const pagoMoneda = pc[0].n > 0 && de('catalog_items').includes('name');
+      colsSales = { moneda, tc, join, pagoMoneda };
+    } catch (e) { colsSales = { moneda: null, tc: null, join: null, pagoMoneda: false }; }
+    return colsSales;
+  }
+
   // Lee del ERP lo necesario para una o varias ventas.
   async function leerVentas(ids) {
     if (!ids.length) return [];
     const cp = await columnasParty();
+    const cs = await columnasSales();
     const extra = ['direccion', 'telefono', 'email'].map(k => cp[k] ? `cli.\`${cp[k]}\` AS cli_${k}` : `NULL AS cli_${k}`).join(', ');
+    let selMon = `NULL AS mon_raw, NULL AS tc_raw`, joinMon = '';
+    if (cs.moneda) selMon = `s.\`${cs.moneda}\` AS mon_raw, ${cs.tc ? `s.\`${cs.tc}\`` : 'NULL'} AS tc_raw`;
+    else if (cs.tc) selMon = `NULL AS mon_raw, s.\`${cs.tc}\` AS tc_raw`;
+    if (cs.join && cs.join.cols.length) {
+      joinMon = `LEFT JOIN \`${cs.join.tabla}\` mon ON mon.id = s.\`${cs.moneda}\``;
+      selMon += ', ' + cs.join.cols.map((x, i) => `mon.\`${x}\` AS mon_${i}`).join(', ');
+    }
     const ventas = await enBloques(`
       SELECT s.id, s.code, s.company_id, s.customer_id, s.total, s.status, s.created_at,
-        cli.is_company, cli.business_name, cli.first_name, cli.last_name, cli.document_number, ${extra}
-      FROM sales s LEFT JOIN parties cli ON cli.id = s.customer_id
+        cli.is_company, cli.business_name, cli.first_name, cli.last_name, cli.document_number, ${extra}, ${selMon}
+      FROM sales s LEFT JOIN parties cli ON cli.id = s.customer_id ${joinMon}
       WHERE s.id IN (?) AND s.deleted_at IS NULL`, ids);
     const items = await enBloques(`
       SELECT si.id, si.sale_id, si.quantity, si.unit_price, si.total, p.name AS producto, pv.name AS variacion, pv.sku
       FROM sale_items si JOIN product_variations pv ON pv.id = si.product_variation_id JOIN products p ON p.id = pv.product_id
       WHERE si.sale_id IN (?) ORDER BY si.id`, ids);
-    const pagos = await enBloques(`SELECT sale_id, SUM(amount) pagado FROM sale_payments WHERE sale_id IN (?) AND voided_at IS NULL GROUP BY sale_id`, ids);
+    const pagos = await enBloques(cs.pagoMoneda
+      ? `SELECT sp.sale_id, SUM(sp.amount) pagado, GROUP_CONCAT(DISTINCT COALESCE(ci.name, '') SEPARATOR '|') monedas
+         FROM sale_payments sp LEFT JOIN catalog_items ci ON ci.id = sp.currency_id
+         WHERE sp.sale_id IN (?) AND sp.voided_at IS NULL GROUP BY sp.sale_id`
+      : `SELECT sale_id, SUM(amount) pagado, NULL monedas FROM sale_payments WHERE sale_id IN (?) AND voided_at IS NULL GROUP BY sale_id`, ids);
+    // Detalle de cada pago (para elegir cuáles se facturan como anticipo)
+    const listaPagos = await enBloques(`
+      SELECT sp.id, sp.sale_id, sp.amount, sp.paid_at, met.name AS metodo, ${cs.pagoMoneda ? 'mon.name' : 'NULL'} AS moneda_txt
+      FROM sale_payments sp
+      LEFT JOIN catalog_items met ON met.id = sp.payment_method_id
+      ${cs.pagoMoneda ? 'LEFT JOIN catalog_items mon ON mon.id = sp.currency_id' : ''}
+      WHERE sp.sale_id IN (?) AND sp.voided_at IS NULL ORDER BY sp.paid_at, sp.id`, ids).catch(() => []);
     const vouchers = await enBloques(`SELECT sale_id, type, serie, number, emission_date, amount FROM sale_vouchers WHERE sale_id IN (?)`, ids);
-    const [comps] = await portalPool.query(`SELECT id, sale_id, tipo, serie, numero, total, estado FROM fe_comprobantes WHERE sale_id IN (?)`, [ids]);
+    const [comps] = await portalPool.query(`SELECT id, sale_id, tipo, serie, numero, total, monto_venta, moneda, estado, es_anticipo, aplicado_en, anulado_por_nc
+      FROM fe_comprobantes WHERE sale_id IN (?)`, [ids]);
     const compIds = comps.filter(c => !['error', 'enviando', 'rechazado'].includes(c.estado)).map(c => c.id);
     const [citems] = compIds.length ? await portalPool.query(`
       SELECT ci.sale_item_id, ci.cantidad, c.tipo FROM fe_comprobante_items ci JOIN fe_comprobantes c ON c.id = ci.comprobante_id
       WHERE ci.comprobante_id IN (?)`, [compIds]) : [[]];
+    // Pagos ya cubiertos por un comprobante de anticipo vigente
+    const [pagosFact] = compIds.length ? await portalPool.query(`
+      SELECT cp.payment_id, c.serie, c.numero FROM fe_comprobante_pagos cp JOIN fe_comprobantes c ON c.id = cp.comprobante_id
+      WHERE cp.comprobante_id IN (?) AND c.anulado_por_nc IS NULL`, [compIds]) : [[]];
+    const compDePago = Object.fromEntries(pagosFact.map(x => [x.payment_id, `${x.serie}-${x.numero}`]));
     const porItem = {};
     citems.forEach(x => { porItem[x.sale_item_id] = (porItem[x.sale_item_id] || 0) + (x.tipo === 'nc' ? -1 : 1) * Number(x.cantidad); });
 
     const agrupar = (arr, k = 'sale_id') => arr.reduce((m, x) => ((m[x[k]] = m[x[k]] || []).push(x), m), {});
     const itV = agrupar(items), voV = agrupar(vouchers), coV = agrupar(comps);
     const pgV = Object.fromEntries(pagos.map(p => [p.sale_id, Number(p.pagado) || 0]));
+    const monPagos = Object.fromEntries(pagos.map(p => [p.sale_id, String(p.monedas || '').split('|').filter(Boolean)]));
     return ventas.map(v => {
       const fac = calcularFacturado(v, voV[v.id], coV[v.id]);
       const nombre = v.is_company ? (v.business_name || '') : `${v.first_name || ''} ${v.last_name || ''}`;
+      const textosMon = Object.keys(v).filter(k => /^mon_\d+$/.test(k)).map(k => v[k]);
+      // Moneda: columna de la venta si existe; si no, la de los pagos (USD solo si TODOS son en dólares)
+      const mp = monPagos[v.id] || [];
+      const moneda = cs.moneda ? monedaDe(cs.join ? null : v.mon_raw, ...textosMon)
+        : (mp.length && mp.every(x => monedaDe(x) === 'USD') ? 'USD' : 'PEN');
+      // Anticipos emitidos desde el portal que aún no se descontaron en un comprobante final
+      const anticipos = (coV[v.id] || []).filter(c => c.es_anticipo && ['aceptado', 'pendiente_sunat'].includes(c.estado) && !c.aplicado_en && !c.anulado_por_nc)
+        .map(c => ({ id: c.id, tipo: c.tipo, serie: c.serie, numero: c.numero, monto: Number(c.total), moneda: c.moneda || 'PEN', monto_venta: Number(c.monto_venta != null ? c.monto_venta : c.total) }));
+      const pagosVenta = listaPagos.filter(x => x.sale_id === v.id).map(x => ({ id: x.id, monto: r2(x.amount), fecha: x.paid_at, metodo: x.metodo || '',
+        moneda: x.moneda_txt ? monedaDe(x.moneda_txt) : moneda, comprobante: compDePago[x.id] || null }));
       return {
+        moneda, moneda_erp: v.mon_raw, monedas_pago: mp, anticipos, pagos: pagosVenta,
+        pagado_sin_comprobante: r2(Math.max(0, (pgV[v.id] || 0) - fac.facturado)),
+        tipo_cambio: Number(v.tc_raw) > 1 ? Number(v.tc_raw) : null,
         id: v.id, code: v.code, company_id: v.company_id, empresa: empresas[v.company_id] || ('Empresa ' + v.company_id),
         status: v.status, fecha: v.created_at, total: r2(v.total), pagado: r2(pgV[v.id] || 0),
         cliente: { tipo_doc: tipoDocCliente(v.document_number), doc: (v.document_number || '').trim(), nombre: limpiar(nombre, 200),
@@ -594,7 +706,10 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
       const cols = await columnasVoucher();
       const ahora = new Date().toISOString().slice(0, 19).replace('T', ' ');
       const valores = { sale_id: comp.sale_id, type: comp.tipo, serie: comp.serie, number: comp.numero,
-        emission_date: comp.fecha_emision, amount: comp.total, created_at: ahora, updated_at: ahora, company_id: comp.company_id };
+        emission_date: comp.fecha_emision, amount: comp.monto_venta != null ? comp.monto_venta : comp.total, created_at: ahora, updated_at: ahora, company_id: comp.company_id };
+      // Si sale_vouchers también guarda moneda, se copia el mismo valor que tiene la venta
+      const cs = await columnasSales();
+      if (cs.moneda && comp.moneda_erp != null) valores[cs.moneda] = comp.moneda_erp;
       const usar = cols.filter(c => c.c in valores);
       const faltan = cols.filter(c => !(c.c in valores) && c.n === 'NO' && c.d == null && !/auto_increment/i.test(c.e || '')).map(c => c.c);
       if (faltan.length) return { erp_estado: 'error', erp_error: 'sale_vouchers exige columnas que el portal no conoce: ' + faltan.join(', ') };
@@ -623,14 +738,17 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
         if (armado.errores.length) { const e = new Error(armado.errores.join(' · ')); e.validacion = true; throw e; }
         const [ins] = await conn.query(`INSERT INTO fe_comprobantes
           (company_id, tipo, serie, numero, sale_id, sale_code, fecha_emision, cliente_tipo_doc, cliente_doc, cliente_nombre, cliente_email, cliente_telefono,
-           total, total_igv, credito, estado, ref_id, ref_tipo, ref_serie, ref_numero, nc_motivo, payload, emitido_por)
-          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'enviando',?,?,?,?,?,?,?)`,
+           total, total_igv, credito, estado, ref_id, ref_tipo, ref_serie, ref_numero, nc_motivo, payload, emitido_por, moneda, moneda_erp,
+           tipo_cambio, monto_venta, es_anticipo)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'enviando',?,?,?,?,?,?,?,?,?,?,?,?)`,
           [companyId, tipo, serie, numero, venta ? venta.id : null, venta ? venta.code : null, datos.fecha || hoyLima(),
             armado.doc.cliente.tipo_doc, armado.doc.cliente.doc, armado.doc.cliente.nombre,
             armado.doc.cliente.email || null, limpiar(datos.cliente && datos.cliente.telefono, 40) || null,
             armado.total, armado.total_igv, datos.credito ? 1 : 0,
             refComp ? refComp.id : null, refComp ? refComp.tipo : null, refComp ? refComp.serie : null, refComp ? refComp.numero : null,
-            datos.nc ? datos.nc.motivo : null, JSON.stringify(armado.doc), usuario]);
+            datos.nc ? datos.nc.motivo : null, JSON.stringify(armado.doc), usuario, armado.doc.moneda,
+            venta && venta.moneda_erp != null ? String(venta.moneda_erp).slice(0, 40) : (refComp ? refComp.moneda_erp : null),
+            armado.doc.tipo_cambio, r2(armado.total * (datos.factor_venta || 1)), datos.es_anticipo ? 1 : 0]);
         const compId = ins.insertId;
         const borrar = () => conn.query(`DELETE FROM fe_comprobantes WHERE id = ?`, [compId]);
 
@@ -671,7 +789,13 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
           [est.estado, est.sunat_desc || null, est.enlace || null, est.enlace_pdf || null, est.enlace_xml || null, est.enlace_cdr || null,
             armado.doc.enviar_email && prov.envia_email ? 1 : 0, resp ? JSON.stringify(resp.raw).slice(0, 60000) : null, compId]);
 
-        const comp = { id: compId, company_id: companyId, tipo, serie, numero, sale_id: venta ? venta.id : null, fecha_emision: datos.fecha || hoyLima(), total: armado.total };
+        const comp = { id: compId, company_id: companyId, tipo, serie, numero, sale_id: venta ? venta.id : null, fecha_emision: datos.fecha || hoyLima(), total: armado.total,
+          moneda: armado.doc.moneda, moneda_erp: venta ? venta.moneda_erp : null, monto_venta: r2(armado.total * (datos.factor_venta || 1)) };
+        if (est.estado !== 'rechazado' && (datos.pagos || []).length)
+          await conn.query(`INSERT INTO fe_comprobante_pagos (comprobante_id, payment_id, monto) VALUES ?`, [datos.pagos.map(x => [compId, x.id, x.monto])]);
+        // Los anticipos descontados quedan aplicados a este comprobante final
+        if (est.estado !== 'rechazado' && (datos.anticipos || []).length)
+          await conn.query(`UPDATE fe_comprobantes SET aplicado_en = ? WHERE id IN (?)`, [compId, datos.anticipos.map(a => a.id)]);
         // Correo al cliente (si el proveedor no lo manda solo)
         if (armado.doc.enviar_email && !prov.envia_email && est.enlace_pdf && est.estado !== 'rechazado') {
           const m = await enviarCorreo({ ...comp, ...est, cliente_email: armado.doc.cliente.email, cliente_nombre: armado.doc.cliente.nombre });
@@ -703,11 +827,51 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
     const [venta] = await leerVentas([saleId]);
     if (!venta) throw Object.assign(new Error('La venta no existe o fue eliminada'), { validacion: true });
     if (!VENTAS_VALIDAS.includes(venta.status)) throw Object.assign(new Error('La venta está ' + venta.status + '; no se puede facturar'), { validacion: true });
-    if (venta.pendiente <= 0.009) throw Object.assign(new Error(`${venta.code} ya tiene comprobante por todo su importe`), { validacion: true });
+    // Con anticipos que cubren todo, igual falta el comprobante final (que los descuenta)
+    if (venta.pendiente <= 0.009 && !(venta.anticipos.length && !body.anticipo))
+      throw Object.assign(new Error(`${venta.code} ya tiene comprobante por todo su importe`), { validacion: true });
     const cfg = cfgs[venta.company_id];
     if (!cfg || !cfg.activo) throw Object.assign(new Error(`${venta.empresa} no tiene activada la emisión de comprobantes (Facturación › Configuración)`), { validacion: true });
-    const tipo = body.tipo || sugerirTipo(body.cliente || venta.cliente, cfg);
+    const tipo = body.tipo || (!body.anticipo && venta.anticipos[0] && venta.anticipos[0].tipo) || sugerirTipo(body.cliente || venta.cliente, cfg);
     if (!['factura', 'boleta'].includes(tipo)) throw Object.assign(new Error('Tipo no válido'), { validacion: true });
+
+    // Moneda del comprobante: la de la venta, o la que elija el vendedor (con tipo de cambio)
+    const moneda = body.moneda === 'USD' || body.moneda === 'PEN' ? body.moneda : venta.moneda;
+    const tc = Number(body.tipo_cambio) > 0 ? Number(body.tipo_cambio) : venta.tipo_cambio;
+    if (moneda !== venta.moneda && !(tc > 1)) throw Object.assign(new Error('Indica el tipo de cambio para emitir en otra moneda'), { validacion: true });
+    // factor: importe del comprobante × factor = importe en la moneda de la venta
+    const factor = moneda === venta.moneda ? 1 : (venta.moneda === 'PEN' ? tc : 1 / tc);
+    const deVenta = x => r2(x / factor); // de la moneda de la venta a la del comprobante
+    const tol = 0.05 + (factor !== 1 ? 0.005 * venta.pendiente : 0);
+    const err = m => Object.assign(new Error(m), { validacion: true });
+
+    const cliente = { ...venta.cliente, ...(body.cliente || {}) };
+    if (body.cliente && body.cliente.doc != null && !body.cliente.tipo_doc) cliente.tipo_doc = tipoDocCliente(body.cliente.doc);
+    const base = { fecha: body.fecha || hoyLima(), cliente, enviar_email: body.enviar_email != null ? !!body.enviar_email : cfg.enviar_email,
+      formato_pdf: cfg.formato_pdf, moneda, tipo_cambio: moneda === 'USD' || venta.moneda === 'USD' ? tc : null, factor_venta: factor };
+
+    // ── Comprobante de ANTICIPO: un adelanto recibido antes de entregar ──
+    if (body.anticipo) {
+      let monto = r2(body.anticipo.monto);
+      let pagosIds = [];
+      if (Array.isArray(body.anticipo.pagos) && body.anticipo.pagos.length) {
+        const elegidos = body.anticipo.pagos.map(id => venta.pagos.find(x => String(x.id) === String(id)));
+        if (elegidos.some(x => !x)) throw err('Un pago no pertenece a la venta');
+        const usado = elegidos.find(x => x.comprobante);
+        if (usado) throw err(`El pago del ${String(usado.fecha).slice(0, 10)} ya está en el comprobante ${usado.comprobante}`);
+        if (new Set(elegidos.map(x => x.moneda)).size > 1) throw err('Elige pagos de una sola moneda');
+        if (elegidos[0].moneda !== moneda) throw err(`Los pagos elegidos están en ${elegidos[0].moneda === 'USD' ? 'dólares' : 'soles'}: el anticipo va en esa moneda`);
+        monto = r2(elegidos.reduce((s, x) => s + x.monto, 0));
+        pagosIds = elegidos.map(x => ({ id: x.id, monto: x.monto }));
+      }
+      if (!(monto > 0)) throw err('Indica el monto del anticipo');
+      if (monto * factor > venta.pendiente + tol) throw err(`El anticipo (${dinero(monto, moneda)}) supera lo pendiente de facturar (${dinero(venta.pendiente, venta.moneda)})`);
+      const resumen = venta.items.map(i => i.descripcion).slice(0, 3).join(', ') + (venta.items.length > 3 ? '…' : '');
+      const datos = { ...base, es_anticipo: true, credito: null, pagos: pagosIds,
+        items: [{ descripcion: limpiar(body.anticipo.descripcion) || `ANTICIPO - Venta ${venta.code}: ${resumen}`, cantidad: 1, precio: monto, unidad: 'ZZ' }],
+        observaciones: body.observaciones || `Anticipo de la venta ${venta.code}` };
+      return { venta, cfg, tipo, datos };
+    }
 
     // Ítems: los enviados por el vendedor, o los pendientes por defecto (lote)
     const porId = Object.fromEntries(venta.items.map(i => [i.sale_item_id, i]));
@@ -715,30 +879,34 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
     if (Array.isArray(body.items)) {
       items = body.items.map(it => {
         const o = it.sale_item_id ? porId[it.sale_item_id] : null;
-        if (it.sale_item_id && !o) throw Object.assign(new Error('Un ítem no pertenece a la venta'), { validacion: true });
-        if (o && Number(it.cantidad) > o.cantidad + 1e-9) throw Object.assign(new Error(`"${o.descripcion}": solo quedan ${o.cantidad} por facturar`), { validacion: true });
+        if (it.sale_item_id && !o) throw err('Un ítem no pertenece a la venta');
+        if (o && Number(it.cantidad) > o.cantidad + 1e-9) throw err(`"${o.descripcion}": solo quedan ${o.cantidad} por facturar`);
         return { sale_item_id: it.sale_item_id || null, codigo: it.codigo != null ? it.codigo : (o && o.codigo), descripcion: it.descripcion || (o && o.descripcion),
-          cantidad: it.cantidad, precio: it.precio != null ? it.precio : (o && o.precio) };
+          cantidad: it.cantidad, precio: it.precio != null ? it.precio : (o && deVenta(o.precio)) };
       });
     } else {
-      if (venta.externo > 0.009) throw Object.assign(new Error(`${venta.code} ya tiene comprobantes hechos fuera del portal: revísala y emite a mano`), { validacion: true });
-      items = venta.items.filter(i => i.cantidad > 0).map(i => ({ sale_item_id: i.sale_item_id, codigo: i.codigo, descripcion: i.descripcion, cantidad: i.cantidad, precio: i.precio }));
+      if (venta.externo > 0.009) throw err(`${venta.code} ya tiene comprobantes hechos fuera del portal: revísala y emite a mano`);
+      items = venta.items.filter(i => i.cantidad > 0).map(i => ({ sale_item_id: i.sale_item_id, codigo: i.codigo, descripcion: i.descripcion, cantidad: i.cantidad,
+        precio: factor === 1 ? i.precio : Math.round(i.precio / factor * 1e6) / 1e6 }));
     }
-    const totalNuevo = r2(items.reduce((s, i) => s + r2(Number(i.precio) * Number(i.cantidad)), 0));
-    if (totalNuevo > venta.pendiente + 0.05)
-      throw Object.assign(new Error(`${venta.code}: el comprobante (S/ ${totalNuevo.toFixed(2)}) supera lo pendiente de facturar (S/ ${venta.pendiente.toFixed(2)})`), { validacion: true });
 
-    const cliente = { ...venta.cliente, ...(body.cliente || {}) };
-    if (body.cliente && body.cliente.doc != null && !body.cliente.tipo_doc) cliente.tipo_doc = tipoDocCliente(body.cliente.doc);
+    // Comprobante final: descuenta TODOS los anticipos pendientes de la venta
+    const anticipos = venta.anticipos;
+    if (anticipos.some(a => a.moneda !== moneda)) throw err(`Los anticipos de esta venta están en ${anticipos[0].moneda === 'USD' ? 'dólares' : 'soles'}: el comprobante final debe ir en la misma moneda`);
+    const totalItems = r2(items.reduce((s, i) => s + r2(Number(i.precio) * Number(i.cantidad)), 0));
+    const totalAnt = r2(anticipos.reduce((s, a) => s + a.monto, 0));
+    const neto = r2(totalItems - totalAnt);
+    if (neto * factor > venta.pendiente + tol)
+      throw err(`${venta.code}: el comprobante (${dinero(neto, moneda)}${totalAnt ? ', ya descontados los anticipos' : ''}) supera lo pendiente de facturar (${dinero(venta.pendiente, venta.moneda)})`);
+
     let credito = null;
-    if (tipo === 'factura') {
-      const saldo = r2(venta.total - venta.pagado);
+    if (tipo === 'factura' && neto > 0.009) {
+      const saldo = deVenta(r2(venta.total - venta.pagado));
       if (body.credito === false) credito = null;
       else if (body.credito && typeof body.credito === 'object') credito = body.credito;
-      else if (saldo > 0.009) credito = { fecha_pago: sumarDias(hoyLima(), 30), importe: Math.min(saldo, totalNuevo) };
+      else if (saldo > 0.009) credito = { fecha_pago: sumarDias(hoyLima(), 30), importe: Math.min(saldo, neto) };
     }
-    const datos = { fecha: body.fecha || hoyLima(), cliente, items, credito, observaciones: body.observaciones || `Venta ${venta.code}`,
-      enviar_email: body.enviar_email != null ? !!body.enviar_email : cfg.enviar_email, formato_pdf: cfg.formato_pdf };
+    const datos = { ...base, items, credito, anticipos, observaciones: body.observaciones || `Venta ${venta.code}` };
     return { venta, cfg, tipo, datos };
   }
 
@@ -758,6 +926,7 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
         por_verificar: inc[0].n,
         motivos_nc: MOTIVOS_NC,
         proveedor: nombreProv(Number(Object.keys(empresas)[0])), en_pruebas: enPruebas,
+        moneda_erp: await columnasSales().then(c => c.moneda ? 'sales.' + c.moneda + (c.join ? ' → ' + c.join.tabla : '') : null),
         correo: { lo_envia_proveedor: NOMBRE_PROV === 'nubefact', resend: !!process.env.RESEND_API_KEY },
         empresas: Object.keys(empresas).map(id => ({ id: Number(id), nombre: empresas[id], conectado: !!(proveedorFactory ? proveedor(Number(id)) : credenciales(id)),
           variables: varsFaltan(id), ...cfgs[id] }))
@@ -785,9 +954,9 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
       const ventas = await leerVentas(ids.map(x => x.id));
       const cfgs = await leerConfig();
       const lista = ventas
-        .filter(v => q.todas === '1' || v.pendiente > 0.009)
+        .filter(v => q.todas === '1' || v.pendiente > 0.009 || v.anticipos.length)
         .filter(v => q.solo_pagadas !== '1' || v.pagado + 0.009 >= v.total)
-        .map(v => ({ ...v, tipo_sugerido: sugerirTipo(v.cliente, cfgs[v.company_id]), items: undefined,
+        .map(v => ({ ...v, tipo_sugerido: (v.anticipos[0] && v.anticipos[0].tipo) || sugerirTipo(v.cliente, cfgs[v.company_id]), items: undefined,
           n_items: v.items.length, parcial: v.facturado > 0.009 }))
         .sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
       res.json({ desde, hasta, ventas: lista });
@@ -802,7 +971,7 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
       if (!v) return res.status(404).json({ error: 'Venta no encontrada' });
       const cfgs = await leerConfig();
       const saldo = r2(v.total - v.pagado);
-      res.json({ ...v, tipo_sugerido: sugerirTipo(v.cliente, cfgs[v.company_id]), cfg: cfgs[v.company_id] || null,
+      res.json({ ...v, tipo_sugerido: (v.anticipos[0] && v.anticipos[0].tipo) || sugerirTipo(v.cliente, cfgs[v.company_id]), cfg: cfgs[v.company_id] || null,
         hoy: hoyLima(), fecha_min: sumarDias(hoyLima(), -2), saldo_por_cobrar: saldo, credito_sugerido: saldo > 0.009 ? { fecha_pago: sumarDias(hoyLima(), 30), importe: saldo } : null });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
@@ -813,7 +982,8 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
       const cfgs = await leerConfig();
       const { cfg, tipo, datos } = await prepararDesdeVenta(req.body || {}, cfgs);
       const a = armarComprobante({ ...datos, tipo, serie: seriePara(cfg, tipo), numero: 0 }, cfg);
-      res.json({ tipo, serie: seriePara(cfg, tipo), total: a.total, total_igv: a.total_igv, errores: a.errores, avisos: a.avisos, cliente: a.doc.cliente });
+      res.json({ tipo, serie: seriePara(cfg, tipo), total: a.total, total_igv: a.total_igv, total_items: a.total_items, total_anticipos: a.total_anticipos,
+        anticipos: a.doc.anticipos, moneda: a.doc.moneda, errores: a.errores, avisos: a.avisos, cliente: a.doc.cliente });
     } catch (e) { res.status(e.validacion ? 400 : 500).json({ error: e.message }); }
   });
 
@@ -845,6 +1015,25 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
+  // Tipo de cambio del día (venta SBS, el que usa SUNAT) vía APISUNAT; si falla, el de referencia
+  const cacheTC = {};
+  app.get('/api/fe/tipo-cambio', authAdmin, mFe, async (req, res) => {
+    const fecha = esFecha(req.query.fecha) ? req.query.fecha : hoyLima();
+    if (cacheTC[fecha]) return res.json(cacheTC[fecha]);
+    const token = process.env.APISUNAT_TOKEN_1 || process.env.APISUNAT_TOKEN_2;
+    if (token) {
+      try {
+        const url = (process.env.APISUNAT_TC_URL || 'https://dev.apisunat.pe/api/v1/exchange-rate/sbs') + '?date=' + fecha;
+        const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 8000);
+        const r = await fetch(url, { headers: { Authorization: 'Bearer ' + token }, signal: ctrl.signal }).finally(() => clearTimeout(t));
+        const d = await r.json();
+        const usd = d && d.payload && d.payload.USD;
+        if (usd && Number(usd.sale) > 1) return res.json(cacheTC[fecha] = { fecha: usd.date || fecha, venta: Number(usd.sale), compra: Number(usd.purchase), fuente: 'SBS (APISUNAT)' });
+      } catch (e) { /* se usa el de referencia */ }
+    }
+    res.json({ fecha, venta: TC_REFERENCIA, fuente: 'referencial (revísalo)' });
+  });
+
   // Comprobantes emitidos desde el portal
   app.get('/api/fe/emitidos', authAdmin, mFe, async (req, res) => {
     try {
@@ -859,7 +1048,7 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
       else if (q.estado === 'revisar') cond.push(`estado IN ('incierto','pendiente_sunat','rechazado')`);
       else if (q.estado) { cond.push('estado = ?'); params.push(q.estado); }
       if (q.q) { const t = '%' + String(q.q).trim() + '%'; cond.push(`(cliente_nombre LIKE ? OR cliente_doc LIKE ? OR sale_code LIKE ? OR CONCAT(serie,'-',numero) LIKE ?)`); params.push(t, t, t, t); }
-      const [rows] = await portalPool.query(`SELECT id, company_id, tipo, serie, numero, sale_id, sale_code, fecha_emision, cliente_tipo_doc, cliente_doc, cliente_nombre,
+      const [rows] = await portalPool.query(`SELECT id, company_id, tipo, serie, numero, sale_id, sale_code, fecha_emision, cliente_tipo_doc, cliente_doc, cliente_nombre, moneda, monto_venta, tipo_cambio, es_anticipo, aplicado_en,
         cliente_email, cliente_telefono, total, total_igv, credito, estado, sunat_desc, enlace, enlace_pdf, enlace_xml, enlace_cdr, ref_id, ref_tipo, ref_serie, ref_numero,
         nc_motivo, anulado_por_nc, erp_estado, erp_error, email_enviado, emitido_por, creado
         FROM fe_comprobantes WHERE ${cond.join(' AND ')} AND estado <> 'enviando' ORDER BY creado DESC LIMIT 1000`, params);
@@ -967,7 +1156,7 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
       const yaNC = r2(ncs.reduce((s, x) => s + Number(x.total), 0));
       const items = (p.items || []).map((it, i) => ({ codigo: it.codigo, descripcion: it.descripcion, cantidad: Number(it.cantidad),
         precio: Number(it.precio_unitario), total: Number(it.total), sale_item_id: (vinc[i] && vinc[i].sale_item_id) || null }));
-      res.json({ id: c.id, tipo: c.tipo, serie: c.serie, numero: c.numero, total: Number(c.total), cliente_nombre: c.cliente_nombre,
+      res.json({ id: c.id, tipo: c.tipo, serie: c.serie, numero: c.numero, total: Number(c.total), cliente_nombre: c.cliente_nombre, moneda: c.moneda || 'PEN',
         items, notas_credito: ncs, disponible_nc: r2(Number(c.total) - yaNC), anulado_por_nc: c.anulado_por_nc });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
@@ -981,11 +1170,14 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
       if (c.tipo === 'nc') return res.status(400).json({ error: 'No se hace nota de crédito sobre otra nota' });
       if (!['aceptado', 'pendiente_sunat'].includes(c.estado)) return res.status(400).json({ error: 'El comprobante no está aceptado por SUNAT' });
       if (c.anulado_por_nc) return res.status(400).json({ error: 'El comprobante ya fue anulado con una nota de crédito' });
+      if (c.es_anticipo && c.aplicado_en) return res.status(400).json({ error: 'Este anticipo ya se descontó en el comprobante final: haz la nota de crédito sobre el comprobante final' });
       const cfgs = await leerConfig();
       const cfg = cfgs[c.company_id];
       const motivo = Number(req.body && req.body.motivo);
       if (!MOTIVOS_NC[motivo]) return res.status(400).json({ error: 'Elige el motivo' });
       const orig = JSON.parse(c.payload || '{}');
+      if ((orig.anticipos || []).length && motivo !== 9)
+        return res.status(400).json({ error: 'Este comprobante descontó anticipos: usa "Disminución en el valor" (motivo 9) por el monto a devolver' });
       const [vinc] = await portalPool.query(`SELECT sale_item_id, cantidad FROM fe_comprobante_items WHERE comprobante_id = ?`, [c.id]);
       const [ncPrev] = await portalPool.query(`SELECT COALESCE(SUM(total),0) t FROM fe_comprobantes WHERE ref_id = ? AND tipo='nc' AND estado NOT IN ('error','enviando')`, [c.id]);
       const disponible = r2(Number(c.total) - Number(ncPrev[0].t));
@@ -1007,7 +1199,9 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
       }
       const cliente = { tipo_doc: c.cliente_tipo_doc, doc: c.cliente_doc, nombre: c.cliente_nombre, direccion: (orig.cliente || {}).direccion, email: c.cliente_email };
       const datos = { fecha: hoyLima(), cliente, items, nc: { ref_tipo: c.tipo, ref_serie: c.serie, ref_numero: c.numero, motivo, total_ref: disponible },
-        observaciones: limpiar(req.body.observaciones) || MOTIVOS_NC[motivo], enviar_email: cfg.enviar_email, formato_pdf: cfg.formato_pdf };
+        observaciones: limpiar(req.body.observaciones) || MOTIVOS_NC[motivo], enviar_email: cfg.enviar_email, formato_pdf: cfg.formato_pdf,
+        moneda: c.moneda || orig.moneda || 'PEN', tipo_cambio: orig.tipo_cambio || null,
+        factor_venta: c.monto_venta != null && Number(c.total) > 0 ? Number(c.monto_venta) / Number(c.total) : 1 };
       // Las devoluciones se vinculan a los ítems de la venta (vuelve a quedar pendiente lo devuelto)
       const vinculo = motivo !== 9;
       const r = await emitirDocumento({ companyId: c.company_id, tipo: 'nc', serie: seriePara(cfg, 'nc', c.tipo), datos, cfg,

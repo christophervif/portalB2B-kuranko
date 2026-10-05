@@ -98,7 +98,9 @@ a.lnk:hover{text-decoration:underline}
 <div class="wrap">
   <div class="subtabs">
     <button class="subtab on" data-v="pf" onclick="verVista('pf')">Por facturar</button>
-    <button class="subtab" data-v="em" onclick="verVista('em')">Emitidos <span id="badge-em"></span></button>
+    <button class="subtab" data-v="em" onclick="verVista('em')">Facturas y boletas <span id="badge-em"></span></button>
+    <button class="subtab" data-v="gr" onclick="verVista('gr')">Guías de remisión</button>
+    <button class="subtab" data-v="nc" onclick="verVista('nc')">Notas de crédito <span id="badge-nc"></span></button>
     <button class="subtab" data-v="cf" id="st-cf" onclick="verVista('cf')" style="display:none">Configuración</button>
   </div>
   <div id="aviso-global"></div>
@@ -140,14 +142,12 @@ a.lnk:hover{text-decoration:underline}
   <div class="vista" id="v-em">
     <div class="card">
       <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:flex-start">
-        <div><h3>Comprobantes emitidos desde el portal</h3>
-        <div class="desc">Estado en SUNAT, PDF y registro en el sistema. Desde aquí se reenvía al cliente, se hace una nota de crédito o la guía de remisión.</div></div>
-        <div class="acciones"><button class="btn btn-sec" onclick="abrirTransferencias()">🚚 Guía desde transferencia</button>
-        <button class="btn btn-sec" onclick="guiaDesdeVenta()">🚚 Guía desde una venta</button></div>
+        <div><h3>Facturas y boletas emitidas</h3>
+        <div class="desc">Estado en SUNAT, PDF y registro en el sistema. Si alguien ya la anotó a mano en el sistema (con o sin ceros), se detecta sola.</div></div>
       </div>
       <div class="fila">
         <label class="campo">Empresa<select id="e-emp" onchange="cargarEM()"><option value="">Todas</option></select></label>
-        <label class="campo">Tipo<select id="e-tipo" onchange="cargarEM()"><option value="">Todos</option><option value="factura">Facturas</option><option value="boleta">Boletas</option><option value="nc">Notas de crédito</option><option value="guia">Guías de remisión</option></select></label>
+        <label class="campo">Tipo<select id="e-tipo" onchange="cargarEM()"><option value="fb">Facturas y boletas</option><option value="factura">Facturas</option><option value="boleta">Boletas</option></select></label>
         <label class="campo">Estado<select id="e-estado" onchange="cargarEM()">
           <option value="">Todos</option><option value="revisar">Por revisar (SUNAT)</option><option value="erp">Falta en el sistema</option>
           <option value="aceptado">Aceptados</option><option value="rechazado">Rechazados</option><option value="credito">Al crédito: por cobrar</option></select></label>
@@ -159,7 +159,74 @@ a.lnk:hover{text-decoration:underline}
       <div class="tabla-wrap">
         <table>
           <thead><tr><th>Comprobante</th><th>Fecha</th><th>Cliente</th><th>Venta</th><th class="n">Total</th><th>SUNAT</th><th>Sistema</th><th>Acciones</th></tr></thead>
-          <tbody id="em-body"><tr><td colspan="8" class="vacio">—</td></tr></tbody>
+          <tbody id="e-body"><tr><td colspan="8" class="vacio">—</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ GUÍAS DE REMISIÓN ══════════ -->
+  <div class="vista" id="v-gr">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:flex-start">
+        <div><h3>Transferencias sin guía</h3>
+        <div class="desc">Transferencias del sistema (consignaciones y entre almacenes) sin N° de documento. Regístrala en el sistema dejando el N° Documento vacío y emite aquí la guía: el N° se anota solo.</div></div>
+        <div class="acciones"><button class="btn btn-sec" onclick="abrirVentasGuia()">🚚 Guía desde una venta…</button></div>
+      </div>
+      <div class="fila"><label class="campo">Periodo<select id="mt-dias" onchange="cargarTransferencias()"><option value="15">15 días</option><option value="60" selected>60 días</option><option value="180">6 meses</option></select></label>
+        <label class="chk"><input type="checkbox" id="mt-todas" onchange="cargarTransferencias()"> Ver también las que ya tienen N° documento</label></div>
+      <div id="mt-aviso"></div>
+      <div class="tabla-wrap"><table>
+        <thead><tr><th>Fecha</th><th>Origen → Destino</th><th>Tipo</th><th class="n">Unid.</th><th>N° documento</th><th></th></tr></thead>
+        <tbody id="mt-body"><tr><td colspan="6" class="vacio">—</td></tr></tbody></table></div>
+    </div>
+    <div class="card">
+      <h3>Guías emitidas</h3>
+      <div class="fila">
+        <label class="campo">Empresa<select id="g-emp" class="sel-emp" onchange="cargarLista('g')"><option value="">Todas</option></select></label>
+        <label class="campo">Desde<input type="date" id="g-desde"></label>
+        <label class="campo">Hasta<input type="date" id="g-hasta"></label>
+        <label class="campo" style="flex:1;min-width:180px">Buscar<input type="search" id="g-q" placeholder="Serie-número, cliente, venta…" onkeydown="if(event.key==='Enter')cargarLista('g')"></label>
+        <button class="btn" onclick="cargarLista('g')">Buscar</button>
+      </div>
+      <div class="tabla-wrap">
+        <table>
+          <thead><tr><th>Comprobante</th><th>Fecha</th><th>Cliente</th><th>Venta</th><th class="n">Total</th><th>SUNAT</th><th>Sistema</th><th>Acciones</th></tr></thead>
+          <tbody id="g-body"><tr><td colspan="8" class="vacio">—</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════ NOTAS DE CRÉDITO ══════════ -->
+  <div class="vista" id="v-nc">
+    <div class="card">
+      <h3>Ventas anuladas</h3>
+      <div class="desc">Ventas anuladas en el sistema. Las que tienen factura o boleta del portal necesitan su nota de crédito; al emitirla, el N° se agrega solo al motivo de anulación.</div>
+      <div class="fila">
+        <label class="campo">Empresa<select id="a-emp" class="sel-emp" onchange="cargarAnuladas()"><option value="">Todas</option></select></label>
+        <label class="campo">Periodo<select id="a-dias" onchange="cargarAnuladas()"><option value="30">30 días</option><option value="90" selected>90 días</option><option value="365">1 año</option></select></label>
+        <label class="campo">Mostrar<select id="a-ver" onchange="pintarAnuladas()"><option value="falta">Les falta nota de crédito</option><option value="">Todas</option></select></label>
+        <label class="campo" style="flex:1;min-width:180px">Buscar<input type="search" id="a-q" placeholder="Venta, cliente, RUC/DNI…" onkeydown="if(event.key==='Enter')cargarAnuladas()"></label>
+        <button class="btn" onclick="cargarAnuladas()">Buscar</button>
+      </div>
+      <div class="tabla-wrap"><table>
+        <thead><tr><th>Venta</th><th>Anulada</th><th>Cliente</th><th class="n">Total</th><th>Motivo en el sistema</th><th>Comprobante → Nota de crédito</th></tr></thead>
+        <tbody id="a-body"><tr><td colspan="6" class="vacio">—</td></tr></tbody></table></div>
+    </div>
+    <div class="card">
+      <h3>Notas de crédito emitidas</h3>
+      <div class="fila">
+        <label class="campo">Empresa<select id="n-emp" class="sel-emp" onchange="cargarLista('n')"><option value="">Todas</option></select></label>
+        <label class="campo">Desde<input type="date" id="n-desde"></label>
+        <label class="campo">Hasta<input type="date" id="n-hasta"></label>
+        <label class="campo" style="flex:1;min-width:180px">Buscar<input type="search" id="n-q" placeholder="Serie-número, cliente, venta…" onkeydown="if(event.key==='Enter')cargarLista('n')"></label>
+        <button class="btn" onclick="cargarLista('n')">Buscar</button>
+      </div>
+      <div class="tabla-wrap">
+        <table>
+          <thead><tr><th>Comprobante</th><th>Fecha</th><th>Cliente</th><th>Venta</th><th class="n">Total</th><th>SUNAT</th><th>Sistema</th><th>Acciones</th></tr></thead>
+          <tbody id="n-body"><tr><td colspan="8" class="vacio">—</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -256,18 +323,21 @@ a.lnk:hover{text-decoration:underline}
     <button class="btn" id="ml-btn" onclick="emitirLote()">Emitir</button></div></div>
 </div></div>
 
-<!-- ══════════ MODAL: TRANSFERENCIAS SIN GUÍA ══════════ -->
-<div class="modal" id="m-transf"><div class="modal-box">
+<!-- ══════════ MODAL: GUÍA DESDE UNA VENTA ══════════ -->
+<div class="modal" id="m-ventas"><div class="modal-box">
   <div class="modal-top">
-    <div><h3>Transferencias sin guía</h3><div class="desc">Transferencias del sistema (consignaciones y entre almacenes) que aún no tienen N° de documento. Registra la transferencia en el sistema dejando el N° Documento vacío y emite aquí la guía.</div></div>
-    <button class="cerrar" onclick="cerrarModal('m-transf')">×</button>
+    <div><h3>Guía desde una venta</h3><div class="desc">Elige la venta del sistema a la que le emitirás la guía de remisión.</div></div>
+    <button class="cerrar" onclick="cerrarModal('m-ventas')">×</button>
   </div>
-  <div class="fila"><label class="campo">Periodo<select id="mt-dias" onchange="cargarTransferencias()"><option value="15">15 días</option><option value="60" selected>60 días</option><option value="180">6 meses</option></select></label>
-    <label class="chk"><input type="checkbox" id="mt-todas" onchange="cargarTransferencias()"> Ver también las que ya tienen N° documento</label></div>
-  <div id="mt-aviso"></div>
+  <div class="fila">
+    <label class="campo">Empresa<select id="mv-emp" class="sel-emp" onchange="cargarVentasGuia()"><option value="">Todas</option></select></label>
+    <label class="campo">Periodo<select id="mv-dias" onchange="cargarVentasGuia()"><option value="15">15 días</option><option value="60" selected>60 días</option><option value="365">1 año</option></select></label>
+    <label class="campo" style="flex:1;min-width:180px">Buscar<input type="search" id="mv-q" placeholder="VTA-000424, cliente, RUC/DNI…" onkeydown="if(event.key==='Enter')cargarVentasGuia()"></label>
+    <button class="btn" onclick="cargarVentasGuia()">Buscar</button>
+  </div>
   <div class="tabla-wrap" style="max-height:55vh"><table>
-    <thead><tr><th>Fecha</th><th>Origen → Destino</th><th>Tipo</th><th class="n">Unid.</th><th>N° documento</th><th></th></tr></thead>
-    <tbody id="mt-body"></tbody></table></div>
+    <thead><tr><th>Venta</th><th>Fecha</th><th>Cliente</th><th class="n">Total</th><th>Comprobante</th><th></th></tr></thead>
+    <tbody id="mv-body"></tbody></table></div>
 </div></div>
 
 <!-- ══════════ MODAL: GUÍA DE REMISIÓN ══════════ -->
@@ -375,6 +445,8 @@ async function api(ep, method = 'GET', body) {
   return d;
 }
 function cerrarModal(id) { $(id).classList.remove('on'); }
+// Serie-número con ceros, igual que el PDF (F001-000001)
+const numTxt = (serie, numero) => `${serie}-${String(numero).padStart((ESTADO && ESTADO.digitos) || 6, '0')}`;
 const NOMBRE_TIPO = { factura: 'Factura', boleta: 'Boleta', nc: 'Nota de crédito', guia: 'Guía de remisión' };
 const ESTADO_SUNAT = {
   aceptado: ['c-ok', 'Aceptado'], pendiente_sunat: ['c-w', 'Pendiente SUNAT'], rechazado: ['c-r', 'Rechazado'],
@@ -390,6 +462,7 @@ async function iniciar() {
   try { ESTADO = await api('/api/fe/estado'); } catch (e) { $('aviso-global').innerHTML = `<div class="aviso r">${esc(e.message)}</div>`; return; }
   const opts = ESTADO.empresas.map(e => `<option value="${e.id}">${esc(e.nombre)}</option>`).join('');
   $('f-emp').insertAdjacentHTML('beforeend', opts); $('e-emp').insertAdjacentHTML('beforeend', opts);
+  document.querySelectorAll('.sel-emp').forEach(el => el.insertAdjacentHTML('beforeend', opts));
   if (ESTADO.maestro) $('st-cf').style.display = '';
   pintarAvisoGlobal();
   cargarPF();
@@ -408,7 +481,8 @@ function pintarAvisoGlobal() {
 function verVista(v) {
   document.querySelectorAll('.subtab').forEach(b => b.classList.toggle('on', b.dataset.v === v));
   document.querySelectorAll('.vista').forEach(x => x.classList.toggle('on', x.id === 'v-' + v));
-  if (v === 'em') cargarEM(); if (v === 'cf') cargarCF();
+  if (v === 'em') cargarLista('e'); if (v === 'gr') { cargarTransferencias(); cargarLista('g'); }
+  if (v === 'nc') { cargarAnuladas(); cargarLista('n'); } if (v === 'cf') cargarCF();
 }
 
 // ══════════════ POR FACTURAR ══════════════
@@ -665,7 +739,7 @@ async function emitir() {
 function linkWhatsApp(c, tel) {
   const num = String(tel || '').replace(/\D/g, ''); if (!c.enlace_pdf) return '';
   const n = num.length === 9 ? '51' + num : num;
-  const txt = `Hola, te enviamos tu ${NOMBRE_TIPO[c.tipo].toLowerCase()} electrónica ${c.serie}-${c.numero}${c.tipo === 'guia' ? '' : ' por ' + S(c.total, c.moneda)}: ${c.enlace_pdf}`;
+  const txt = `Hola, te enviamos tu ${NOMBRE_TIPO[c.tipo].toLowerCase()} electrónica ${numTxt(c.serie, c.numero)}${c.tipo === 'guia' ? '' : ' por ' + S(c.total, c.moneda)}: ${c.enlace_pdf}`;
   return `https://wa.me/${n}?text=${encodeURIComponent(txt)}`;
 }
 function mostrarResultado(c, cli) {
@@ -673,13 +747,13 @@ function mostrarResultado(c, cli) {
   const wa = linkWhatsApp(c, cli && cli.telefono);
   const box = document.createElement('div');
   box.className = 'aviso ' + (c.estado === 'aceptado' ? 'ok' : c.estado === 'pendiente_sunat' ? '' : 'r');
-  box.innerHTML = `<b>${NOMBRE_TIPO[c.tipo]} ${esc(c.serie)}-${c.numero}</b>${c.tipo === 'guia' ? '' : ' · ' + S(c.total, c.moneda)} · <span class="chip ${cl}">${tx}</span>
+  box.innerHTML = `<b>${NOMBRE_TIPO[c.tipo]} ${esc(numTxt(c.serie, c.numero))}</b>${c.tipo === 'guia' ? '' : ' · ' + S(c.total, c.moneda)} · <span class="chip ${cl}">${tx}</span>
     ${c.enlace_pdf ? ` · <a class="lnk" href="${esc(c.enlace_pdf)}" target="_blank">PDF</a>` : ''}
     ${wa ? ` · <a class="lnk" href="${wa}" target="_blank">Enviar por WhatsApp</a>` : ''}
     ${c.erp_estado === 'registrado' ? ' · registrado en el sistema' : c.erp_estado === 'error' ? ` · <b>no se pudo registrar en el sistema:</b> ${esc(c.erp_error)}` : c.erp_estado === 'pendiente' ? ' · <b>anótalo en el sistema</b>' : ''}
     ${(c.avisos || []).length ? '<br>' + c.avisos.map(esc).join('<br>') : ''}${c.sunat_desc && c.estado !== 'aceptado' ? '<br>' + esc(c.sunat_desc) : ''}`;
   $('aviso-global').prepend(box);
-  showToast(`${c.serie}-${c.numero} emitido`);
+  showToast(`${numTxt(c.serie, c.numero)} emitido`);
 }
 async function refrescarEstado() { try { ESTADO = await api('/api/fe/estado'); const keep = [...$('aviso-global').querySelectorAll('.aviso.ok,.aviso.r')]; pintarAvisoGlobal(); keep.forEach(k => $('aviso-global').prepend(k)); } catch (e) {} }
 
@@ -697,7 +771,7 @@ function pintarLote() {
   $('ml-body').innerHTML = LOTE.map((x, i) => {
     const sinRuc = String(x.doc).replace(/\D/g, '').length !== 11;
     if (sinRuc || x.v.solo_boletas) x.tipo = 'boleta';
-    const res = !x.res ? '' : x.res.ok ? `<span class="chip c-ok">${esc(x.res.comprobante.serie)}-${x.res.comprobante.numero}</span>${x.res.comprobante.enlace_pdf ? ` <a class="lnk" target="_blank" href="${esc(x.res.comprobante.enlace_pdf)}">PDF</a>` : ''}` : `<span class="chip c-r">Error</span><div class="sub">${esc(x.res.error)}</div>`;
+    const res = !x.res ? '' : x.res.ok ? `<span class="chip c-ok">${esc(numTxt(x.res.comprobante.serie, x.res.comprobante.numero))}</span>${x.res.comprobante.enlace_pdf ? ` <a class="lnk" target="_blank" href="${esc(x.res.comprobante.enlace_pdf)}">PDF</a>` : ''}` : `<span class="chip c-r">Error</span><div class="sub">${esc(x.res.error)}</div>`;
     const bloq = x.res && x.res.ok ? 'disabled' : '';
     return `<tr><td class="mono">${esc(x.v.code)}</td><td>
       <input style="width:100%;padding:4px 7px;font-size:12px" placeholder="Nombre o razón social" value="${esc(x.nombre)}" ${bloq || (x.sunat ? 'readonly title="Nombre según SUNAT"' : '')} oninput="LOTE[${i}].nombre=this.value">${x.sunat ? '<div class="sub">✓ SUNAT</div>' : ''}
@@ -740,22 +814,33 @@ async function emitirLote() {
 }
 
 // ══════════════ EMITIDOS ══════════════
-let EM = [];
-async function cargarEM() {
-  $('em-body').innerHTML = '<tr><td colspan="8" class="vacio">Cargando…</td></tr>';
-  const p = new URLSearchParams();
-  ['emp', 'tipo', 'estado', 'desde', 'hasta', 'q'].forEach(k => { const v = $('e-' + k).value.trim(); if (v) p.set(k === 'emp' ? 'empresa' : k, v); });
-  if (['revisar', 'erp', 'credito'].includes($('e-estado').value)) { p.delete('desde'); p.delete('hasta'); }
-  try { EM = (await api('/api/fe/emitidos?' + p)).comprobantes; }
-  catch (e) { $('em-body').innerHTML = `<tr><td colspan="8" class="vacio">${esc(e.message)}</td></tr>`; return; }
-  pintarEM();
+let EMX = {};   // comprobantes cargados en cualquier pestaña, por id
+const TIPO_LISTA = { e: () => $('e-tipo').value || 'fb', g: () => 'guia', n: () => 'nc' };
+async function cargarLista(px) {
+  const body = $(px + '-body'); body.innerHTML = '<tr><td colspan="8" class="vacio">Cargando…</td></tr>';
+  const p = new URLSearchParams({ tipo: TIPO_LISTA[px]() });
+  ['emp', 'estado', 'desde', 'hasta', 'q'].forEach(k => { const el = $(px + '-' + k); const v = el ? el.value.trim() : ''; if (v) p.set(k === 'emp' ? 'empresa' : k, v); });
+  if (['revisar', 'erp', 'credito'].includes(p.get('estado'))) { p.delete('desde'); p.delete('hasta'); }
+  let lista;
+  try { lista = (await api('/api/fe/emitidos?' + p)).comprobantes; }
+  catch (e) { body.innerHTML = `<tr><td colspan="8" class="vacio">${esc(e.message)}</td></tr>`; return; }
+  lista.forEach(c => EMX[c.id] = c);
+  pintarEM(lista, body);
 }
-function pintarEM() {
-  if (!EM.length) { $('em-body').innerHTML = '<tr><td colspan="8" class="vacio">Sin comprobantes con estos filtros</td></tr>'; return; }
-  $('em-body').innerHTML = EM.map(c => {
+// Recarga lo que esté a la vista (después de una acción)
+function cargarEM() {
+  const v = (document.querySelector('.subtab.on') || {}).dataset?.v;
+  if (v === 'gr') { cargarLista('g'); cargarTransferencias(); }
+  else if (v === 'nc') { cargarLista('n'); cargarAnuladas(); }
+  else if (v === 'em') cargarLista('e');
+}
+function pintarEM(EM, body) {
+  if (!EM.length) { body.innerHTML = '<tr><td colspan="8" class="vacio">Sin comprobantes con estos filtros</td></tr>'; return; }
+  body.innerHTML = EM.map(c => {
     const [cl, tx] = ESTADO_SUNAT[c.estado] || ['c-g', c.estado];
-    const erp = c.tipo === 'nc' || (c.tipo === 'guia' && !c.transfer_id) || c.erp_estado === 'no_aplica' ? '<span class="sub">—</span>' :
-      c.erp_estado === 'registrado' ? '<span class="chip c-ok">Registrado</span>' :
+    const erp = (c.tipo === 'guia' && !c.transfer_id) || c.erp_estado === 'no_aplica' || !c.erp_estado ? '<span class="sub">—</span>' :
+      c.erp_estado === 'registrado' ? `<span class="chip c-ok">Registrado</span>${c.erp_por === 'ya estaba en el sistema' ? '<div class="sub">ya estaba anotado</div>' : ''}` :
+      c.tipo === 'nc' && c.erp_estado === 'pendiente' ? `<span class="chip c-w" title="${esc(c.erp_error || '')}">Espera anulación</span>` :
       c.erp_estado === 'error' ? `<span class="chip c-r" title="${esc(c.erp_error)}">Error</span>` :
       ['aceptado', 'pendiente_sunat'].includes(c.estado) ? '<span class="chip c-w">Por anotar</span>' : '<span class="sub">—</span>';
     const acc = [];
@@ -776,9 +861,9 @@ function pintarEM() {
       acc.push(`<button class="btn btn-sec btn-sm" onclick="abrirNC(${c.id})">Nota de crédito</button>`);
       if (!c.es_anticipo || c.aplicado_en) acc.push(`<button class="btn btn-sec btn-sm" onclick="abrirGuia({comprobante_id:${c.id}})">🚚 Guía</button>`);
     }
-    const ref = c.tipo === 'nc' ? `<div class="sub">Modifica ${esc(c.ref_serie)}-${c.ref_numero}</div>` : c.anulado_por_nc ? '<div class="sub" style="color:var(--fg-r)">Anulado con nota de crédito</div>' : '';
+    const ref = c.tipo === 'nc' ? `<div class="sub">Modifica ${esc(numTxt(c.ref_serie, c.ref_numero))}</div>` : c.anulado_por_nc ? '<div class="sub" style="color:var(--fg-r)">Anulado con nota de crédito</div>' : '';
     return `<tr>
-      <td><div class="nom mono">${esc(c.serie)}-${c.numero}</div><div class="sub">${NOMBRE_TIPO[c.tipo]}${c.es_anticipo ? ' de anticipo' + (c.aplicado_en ? ' (ya descontado)' : ' (por descontar)') : ''} · ${esc(c.empresa)}</div>${ref}</td>
+      <td><div class="nom mono">${esc(numTxt(c.serie, c.numero))}</div><div class="sub">${NOMBRE_TIPO[c.tipo]}${c.es_anticipo ? ' de anticipo' + (c.aplicado_en ? ' (ya descontado)' : ' (por descontar)') : ''} · ${esc(c.empresa)}</div>${ref}</td>
       <td>${fechaTxt(c.fecha_emision)}<div class="sub">${esc(c.emitido_por || '')}</div></td>
       <td><div class="nom">${esc(c.cliente_nombre)}</div><div class="sub mono">${esc(c.cliente_doc)}</div>${c.email_enviado ? '<div class="sub">✉ enviado al correo</div>' : ''}</td>
       <td class="mono">${esc(c.sale_code || (c.transfer_id ? 'Transf. #' + c.transfer_id : '—'))}</td>
@@ -797,13 +882,13 @@ function cobro(c) {
   return `<div class="sub">debe ${S(c.saldo_venta, c.moneda_venta)}</div><span class="chip ${cls}">${txt}</span>`;
 }
 function enviarWA(id) {
-  const c = EM.find(x => x.id === id); if (!c) return;
+  const c = EMX[id]; if (!c) return;
   let tel = c.cliente_telefono;
   if (!tel) { tel = prompt('Celular del cliente (9 dígitos):', ''); if (!tel) return; }
   window.open(linkWhatsApp(c, tel), '_blank');
 }
 async function reenviarCorreo(id) {
-  const c = EM.find(x => x.id === id); if (!c) return;
+  const c = EMX[id]; if (!c) return;
   const email = prompt('Correo del cliente:', c.cliente_email || ''); if (!email) return;
   try { await api(`/api/fe/${id}/email`, 'POST', { email: email.trim() }); showToast('Correo enviado a ' + email); cargarEM(); }
   catch (e) { showToast(e.message, true); }
@@ -838,7 +923,7 @@ async function registrarERP(id, manual) {
 let NC = null;
 async function abrirNC(id) {
   try { NC = await api(`/api/fe/${id}/detalle`); } catch (e) { return showToast(e.message, true); }
-  $('nc-titulo').textContent = `Nota de crédito sobre ${NC.serie}-${NC.numero}`;
+  $('nc-titulo').textContent = `Nota de crédito sobre ${numTxt(NC.serie, NC.numero)}`;
   $('nc-sub').textContent = `${NC.cliente_nombre} · ${S(NC.total, NC.moneda)}${NC.notas_credito.length ? ` · ya tiene NC por ${S(NC.total - NC.disponible, NC.moneda)}` : ''}`;
   const motivos = ESTADO.motivos_nc, parciales = NC.notas_credito.length > 0;
   $('nc-motivo').innerHTML = Object.entries(motivos).map(([k, v]) => `<option value="${k}" ${parciales && ['1', '2', '3', '6'].includes(k) ? 'disabled' : ''}>${k} · ${esc(v)}</option>`).join('');
@@ -891,7 +976,6 @@ async function cargarUbigeos() {
 }
 const ubiTxt = c => { const u = (UBIGEOS || []).find(x => x[0] === c); return c ? (u ? `${c} · ${u[1]}` : c) : ''; };
 const ubiCod = v => (String(v || '').match(/^\s*(\d{6})/) || [])[1] || '';
-async function abrirTransferencias() { $('m-transf').classList.add('on'); cargarTransferencias(); }
 async function cargarTransferencias() {
   $('mt-body').innerHTML = '<tr><td colspan="6" class="vacio">Cargando…</td></tr>';
   try {
@@ -902,19 +986,66 @@ async function cargarTransferencias() {
       <td><div class="nom">${esc(t.origen || '—')} → ${esc(t.destino || '—')}</div><div class="sub">Transferencia #${t.id}</div></td>
       <td><span class="sub">${esc(t.tipo || '')}</span></td><td class="n">${N(t.unidades, 0)}</td>
       <td>${t.referencia ? `<span class="chip c-g">${esc(t.referencia)}</span>` : t.guia ? `<span class="chip c-w">${esc(t.guia)} (por anotar)</span>` : '<span class="sub">—</span>'}</td>
-      <td>${t.guia || t.referencia ? '' : `<button class="btn btn-sm" onclick="cerrarModal('m-transf');abrirGuia({transfer_id:${t.id}})">Emitir guía</button>`}</td></tr>`).join('')
+      <td>${t.guia || t.referencia ? '' : `<button class="btn btn-sm" onclick="abrirGuia({transfer_id:${t.id}})">Emitir guía</button>`}</td></tr>`).join('')
       || '<tr><td colspan="6" class="vacio">No hay transferencias sin guía en este periodo</td></tr>';
   } catch (e) { $('mt-body').innerHTML = `<tr><td colspan="6" class="vacio">${esc(e.message)}</td></tr>`; }
 }
-function guiaDesdeVenta() {
-  const code = prompt('Código de la venta (ej. VTA-000424):', ''); if (!code) return;
-  abrirGuia({ codigo: code.trim() });
+// Guía desde una venta: se elige de una lista con búsqueda
+function abrirVentasGuia() { $('m-ventas').classList.add('on'); cargarVentasGuia(); setTimeout(() => $('mv-q').focus(), 50); }
+async function cargarVentasGuia() {
+  $('mv-body').innerHTML = '<tr><td colspan="6" class="vacio">Cargando…</td></tr>';
+  const p = new URLSearchParams({ dias: $('mv-dias').value });
+  if ($('mv-emp').value) p.set('empresa', $('mv-emp').value);
+  if ($('mv-q').value.trim()) p.set('q', $('mv-q').value.trim());
+  try {
+    const r = await api('/api/fe/guia/ventas?' + p);
+    $('mv-body').innerHTML = r.ventas.map(v => `<tr>
+      <td><div class="nom mono">${esc(v.code)}</div><div class="sub">${esc(v.empresa)}</div></td>
+      <td>${fechaTxt(v.fecha)}</td>
+      <td><div class="nom">${esc(v.cliente || '—')}</div><div class="sub mono">${esc(v.doc || '')}</div></td>
+      <td class="n">${S(v.total)}</td>
+      <td>${v.comprobantes ? `<span class="sub mono">${esc(v.comprobantes)}</span>` : '<span class="sub">—</span>'}</td>
+      <td>${v.guias.length ? `<span class="chip c-ok" title="Ya tiene guía">${esc(v.guias.join(', '))}</span> ` : ''}<button class="btn btn-sm ${v.guias.length ? 'btn-sec' : ''}" onclick="cerrarModal('m-ventas');abrirGuia({sale_id:${v.id}})">${v.guias.length ? 'Otra guía' : 'Emitir guía'}</button></td></tr>`).join('')
+      || '<tr><td colspan="6" class="vacio">No hay ventas con esa búsqueda</td></tr>';
+  } catch (e) { $('mv-body').innerHTML = `<tr><td colspan="6" class="vacio">${esc(e.message)}</td></tr>`; }
+}
+
+// ══════════════ NOTAS DE CRÉDITO: ventas anuladas ══════════════
+let ANUL = [];
+async function cargarAnuladas() {
+  $('a-body').innerHTML = '<tr><td colspan="6" class="vacio">Cargando…</td></tr>';
+  const p = new URLSearchParams({ dias: $('a-dias').value });
+  if ($('a-emp').value) p.set('empresa', $('a-emp').value);
+  if ($('a-q').value.trim()) p.set('q', $('a-q').value.trim());
+  try { ANUL = (await api('/api/fe/anuladas?' + p)).ventas; } catch (e) { $('a-body').innerHTML = `<tr><td colspan="6" class="vacio">${esc(e.message)}</td></tr>`; return; }
+  const falta = ANUL.filter(v => v.estado === 'falta_nc').length;
+  $('badge-nc').innerHTML = falta ? `<span class="chip c-w">${falta}</span>` : '';
+  pintarAnuladas();
+}
+function pintarAnuladas() {
+  const L = $('a-ver').value === 'falta' ? ANUL.filter(v => v.estado === 'falta_nc') : ANUL;
+  $('a-body').innerHTML = L.map(v => {
+    const filas = v.comprobantes.map(c => {
+      const nc = c.notas_credito.map(n => `<span class="chip ${n.erp_estado === 'registrado' ? 'c-ok' : 'c-w'}" title="${esc(n.erp_estado === 'registrado' ? 'Anotada en el motivo de anulación' : (n.erp_error || ''))}">${esc(n.numero_txt)}</span>`).join(' ');
+      return `<div style="margin-bottom:4px"><span class="mono">${esc(c.numero_txt)}</span> <span class="sub">${S(c.total, c.moneda)}</span> → ${c.anulado_por_nc ? nc
+        : `${nc} <button class="btn btn-sm" onclick="abrirNC(${c.id})">Emitir nota de crédito</button>`}</div>`;
+    });
+    v.externos.forEach(x => filas.push(`<div class="sub"><span class="mono">${esc(x.numero_txt)}</span> hecho fuera del portal (SOL): su nota de crédito se emite allí</div>`));
+    if (!filas.length) filas.push('<span class="sub">Sin comprobante: no necesita nota de crédito</span>');
+    return `<tr>
+      <td><div class="nom mono">${esc(v.code)}</div><div class="sub">${esc(v.empresa)}</div></td>
+      <td>${fechaTxt(v.fecha)}</td>
+      <td><div class="nom">${esc(v.cliente || '—')}</div><div class="sub mono">${esc(v.doc || '')}</div></td>
+      <td class="n">${S(v.total)}</td>
+      <td><div class="sub" style="max-width:260px;white-space:normal">${esc(v.motivo || '—')}</div>${v.documento ? `<div class="sub">Doc.: <span class="mono">${esc(v.documento)}</span></div>` : ''}</td>
+      <td>${filas.join('')}</td></tr>`;
+  }).join('') || `<tr><td colspan="6" class="vacio">${$('a-ver').value === 'falta' ? 'Ninguna venta anulada espera nota de crédito' : 'No hay ventas anuladas en este periodo'}</td></tr>`;
 }
 async function abrirGuia(origen) {
   MG_ORIGEN = origen;
   try { [MG] = await Promise.all([api('/api/fe/guia/borrador?' + new URLSearchParams(origen)), cargarUbigeos()]); } catch (e) { return showToast(e.message, true); }
   $('mg-titulo').textContent = 'Guía de remisión ' + (MG.serie || '');
-  $('mg-sub').textContent = `${MG.empresa}${MG.venta ? ' · Venta ' + MG.venta.code : ''}${MG.transferencia ? ` · Transferencia #${MG.transferencia.id}: ${MG.transferencia.origen} → ${MG.transferencia.destino}` : ''}${MG.relacionados.length ? ' · ' + MG.relacionados.map(r => r.serie + '-' + r.numero).join(', ') : ''}`;
+  $('mg-sub').textContent = `${MG.empresa}${MG.venta ? ' · Venta ' + MG.venta.code : ''}${MG.transferencia ? ` · Transferencia #${MG.transferencia.id}: ${MG.transferencia.origen} → ${MG.transferencia.destino}` : ''}${MG.relacionados.length ? ' · ' + MG.relacionados.map(r => numTxt(r.serie, r.numero)).join(', ') : ''}`;
   $('mg-motivo').innerHTML = Object.entries(MG.motivos).map(([k, v]) => `<option value="${k}">${k} · ${esc(v)}</option>`).join('');
   $('mg-motivo').value = MG.motivo || '01'; mgMotivo();
   $('mg-fecha').value = $('mg-ftras').value = MG.hoy; $('mg-fecha').max = MG.hoy; $('mg-ftras').min = MG.hoy;
@@ -925,7 +1056,7 @@ async function abrirGuia(origen) {
   $('mg-ldir').value = MG.llegada.direccion || ''; $('mg-lubi').value = ubiTxt(MG.llegada.ubigeo || '');
   $('mg-peso').value = ''; $('mg-bultos').value = 1;
   $('mg-obs').value = MG.venta ? 'Venta ' + MG.venta.code : MG.transferencia ? `Transferencia ${MG.transferencia.origen} → ${MG.transferencia.destino}` : ''; $('mg-mail').checked = !!MG.enviar_email;
-  $('mg-rel').innerHTML = (MG.relacionados.length ? `Documento relacionado: <b>${MG.relacionados.map(r => `${NOMBRE_TIPO[r.tipo] || r.tipo} ${esc(r.serie)}-${r.numero}`).join(', ')}</b>` : 'Sin comprobante relacionado.')
+  $('mg-rel').innerHTML = (MG.relacionados.length ? `Documento relacionado: <b>${MG.relacionados.map(r => `${NOMBRE_TIPO[r.tipo] || r.tipo} ${esc(numTxt(r.serie, r.numero))}`).join(', ')}</b>` : 'Sin comprobante relacionado.')
     + (MG.transferencia ? (MG.escribe_erp ? '<br>Al emitir, el N° de la guía y el RUC/DNI del destinatario se escriben en la transferencia del sistema.' : '<br>Al emitir, copia el N° de la guía en la transferencia del sistema.') : '');
   $('mg-serie').textContent = MG.serie ? `Serie ${MG.serie} · el número lo asigna el portal` : 'Falta la serie de guías (Configuración)';
   MG_ITEMS = MG.items.map(i => ({ ...i, sel: true }));

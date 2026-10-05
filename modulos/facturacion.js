@@ -61,6 +61,12 @@ const MOTIVOS_NC = {
   9: 'Disminución en el valor'
 };
 const MOTIVOS_NC_TOTALES = [1, 2, 3, 6]; // copian el comprobante completo
+// Número con ceros como en el PDF (F001-000001). Para SUNAT 1 = 000001 = 00000001.
+const DIGITOS_NUM = Math.min(8, Math.max(1, Number(process.env.FE_DIGITOS_NUMERO) || 6));
+const numDoc = (serie, numero) => `${serie}-${String(numero).padStart(DIGITOS_NUM, '0')}`;
+const normDoc = t => { const m = String(t || '').toUpperCase().replace(/\s+/g, '').match(/^([A-Z0-9]{4})-?0*(\d+)$/); return m ? `${m[1]}-${Number(m[2])}` : String(t || '').toUpperCase().trim(); };
+// ¿El texto ya menciona este comprobante, escrito con o sin ceros? (F001-1, F001 - 000001…)
+const mencionaDoc = (texto, serie, numero) => new RegExp(`${String(serie).replace(/[^A-Z0-9]/gi, '')}\\s*-\\s*0*${Number(numero)}(?!\\d)`, 'i').test(String(texto || ''));
 
 const r2 = n => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 const r10 = n => Math.round(Number(n) * 1e10) / 1e10;
@@ -589,7 +595,7 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
     if (!comp.enlace_pdf) return { ok: false, error: 'El comprobante aún no tiene PDF' };
     const TIPO = { factura: 'FACTURA ELECTRÓNICA', boleta: 'BOLETA DE VENTA ELECTRÓNICA', nc: 'NOTA DE CRÉDITO ELECTRÓNICA', guia: 'GUÍA DE REMISIÓN ELECTRÓNICA REMITENTE' };
     const tipoTxt = TIPO[comp.tipo] || 'COMPROBANTE ELECTRÓNICO';
-    const num = `${comp.serie}-${String(comp.numero).padStart(8, '0')}`;
+    const num = numDoc(comp.serie, comp.numero);
     let ruc = '';
     try { const cfgs = await leerConfig(); ruc = (cfgs[comp.company_id] || {}).ruc || ''; } catch (e) { /* sin config */ }
     if (!ruc) { const m = String(comp.enlace_pdf || '').match(/\b((?:10|15|17|20)\d{9})-\d{2}-/); if (m) ruc = m[1]; } // el enlace de APISUNAT trae el RUC
@@ -911,7 +917,7 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
         return { erp_estado: 'error', erp_error: `Con este comprobante la venta tendría S/ ${(Number(sv.registrado) + montoV).toFixed(2)} en comprobantes y su total es S/ ${Number(sv.total).toFixed(2)}. Revisa los comprobantes ya anotados en el sistema.` };
       const cols = await columnasVoucher();
       const ahora = new Date().toISOString().slice(0, 19).replace('T', ' ');
-      const valores = { sale_id: comp.sale_id, type: comp.tipo, serie: comp.serie, number: String(comp.numero),
+      const valores = { sale_id: comp.sale_id, type: comp.tipo, serie: comp.serie, number: String(comp.numero).padStart(DIGITOS_NUM, '0'),
         emission_date: comp.fecha_emision, amount: comp.monto_venta != null ? comp.monto_venta : comp.total, created_at: ahora, updated_at: ahora, company_id: comp.company_id };
       // Si sale_vouchers también guarda moneda, se copia el mismo valor que tiene la venta
       const cs = await columnasSales();
@@ -954,13 +960,13 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
   async function escribirTransferencia(comp, usuario) {
     if (!comp.transfer_id) return { erp_estado: 'no_aplica', erp_error: null };
     if (!erpWritePool) return { erp_estado: 'pendiente', erp_error: null };
-    const numero = `${comp.serie}-${comp.numero}`;
+    const numero = numDoc(comp.serie, comp.numero);
     try {
       const ct = await columnasTransfer();
       const [[t]] = await erpWritePool.query(`SELECT id, reference_number, document_type_id${ct.notas ? ', `' + ct.notas + '` AS notas' : ''} FROM stock_transfers WHERE id = ?`, [comp.transfer_id]);
       if (!t) return { erp_estado: 'error', erp_error: 'La transferencia ya no existe en el sistema' };
       const actual = String(t.reference_number || '').trim();
-      if (actual && actual.toUpperCase() !== numero.toUpperCase())
+      if (actual && normDoc(actual) !== normDoc(numero))
         return { erp_estado: 'error', erp_error: `La transferencia ya tiene el N° de documento "${actual}"; no se sobrescribe` };
       if (!actual) {
         await erpWritePool.query(`UPDATE stock_transfers SET reference_number = ? WHERE id = ? AND (reference_number IS NULL OR TRIM(reference_number) = '')`, [numero, comp.transfer_id]);
@@ -977,7 +983,7 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
       }
       if (ct.notas) {
         const notas = String(t.notas || '');
-        if (!notas.includes(numero)) {
+        if (!mencionaDoc(notas, comp.serie, comp.numero)) {
           const doc = comp.cliente_doc ? `${comp.cliente_tipo_doc === '6' ? 'RUC' : comp.cliente_tipo_doc === '1' ? 'DNI' : 'Doc.'} ${comp.cliente_doc}` : '';
           const linea = [`Guía ${numero}`, doc, comp.cliente_nombre].filter(Boolean).join(' · ');
           const nuevas = (notas.trim() ? notas.trim() + '\n' : '') + linea;
@@ -1000,7 +1006,7 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
   async function anotarNC(comp, usuario) {
     if (!comp.sale_id) return { erp_estado: 'no_aplica', erp_error: null };
     if (!erpWritePool) return { erp_estado: 'pendiente', erp_error: null };
-    const numero = `${comp.serie}-${comp.numero}`;
+    const numero = numDoc(comp.serie, comp.numero);
     try {
       const [[s]] = await erpWritePool.query(`SELECT id, status, cancellation_reason, cancellation_document FROM sales WHERE id = ?`, [comp.sale_id]);
       if (!s) return { erp_estado: 'error', erp_error: 'La venta ya no existe en el sistema' };
@@ -1009,13 +1015,13 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
         return { erp_estado: 'pendiente', erp_error: `Anula la venta en el sistema; al hacerlo el portal agrega "${numero}" al motivo. En "N° de Nota de Crédito" puedes poner ${numero}.` };
       }
       const motivo = String(s.cancellation_reason || '');
-      if (!motivo.toUpperCase().includes(numero.toUpperCase())) {
+      if (!mencionaDoc(motivo, comp.serie, comp.numero)) {
         const nuevo = (motivo.trim() ? motivo.trim() + ' · ' : '') + `Nota de crédito ${numero}`;
         await erpWritePool.query(`UPDATE sales SET cancellation_reason = ? WHERE id = ? AND cancellation_reason <=> ?`, [nuevo, s.id, s.cancellation_reason]);
         await logERP({ tabla: 'sales', registro_id: s.id, accion: 'update', campo: 'cancellation_reason', antes: s.cancellation_reason, despues: nuevo, comprobante_id: comp.id, usuario });
       }
       const docu = String(s.cancellation_document || '').trim();
-      if (!docu.toUpperCase().includes(numero.toUpperCase())) {
+      if (!mencionaDoc(docu, comp.serie, comp.numero)) {
         const nuevo = docu ? `${docu} / ${numero}` : numero;
         if (nuevo.length <= 255) {
           await erpWritePool.query(`UPDATE sales SET cancellation_document = ? WHERE id = ? AND cancellation_document <=> ?`, [nuevo, s.id, s.cancellation_document]);
@@ -1025,11 +1031,31 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
       return { erp_estado: 'registrado', erp_error: null, erp_por: usuario };
     } catch (e) { return { erp_estado: 'error', erp_error: limpiar(e.message, 300) }; }
   }
-  // Completa las NC que esperaban la anulación de la venta (se llama al abrir "Emitidos", máx. cada 2 min)
-  let ultimaSyncNC = 0;
+  // Detecta lo que alguien ya anotó a mano en el sistema (con o sin ceros) y lo marca como registrado.
+  // Es una sola consulta de lectura sobre los pendientes; no escribe nada en el sistema.
+  async function detectarAnotados() {
+    try {
+      const [ps] = await portalPool.query(`SELECT id, tipo, serie, numero, sale_id, transfer_id FROM fe_comprobantes
+        WHERE erp_estado IN ('pendiente','error') AND estado IN ('aceptado','pendiente_sunat')
+          AND ((tipo IN ('factura','boleta') AND sale_id IS NOT NULL) OR (tipo = 'guia' AND transfer_id IS NOT NULL)) LIMIT 500`);
+      if (!ps.length) return;
+      const ventas = ps.filter(c => c.tipo !== 'guia'), guias = ps.filter(c => c.tipo === 'guia');
+      const ya = [];
+      if (ventas.length) {
+        const [v] = await prodPool.query(`SELECT sale_id, serie, number FROM sale_vouchers WHERE sale_id IN (?)`, [[...new Set(ventas.map(c => c.sale_id))]]);
+        ventas.forEach(c => { if (v.some(x => x.sale_id === c.sale_id && normDoc(`${x.serie}-${x.number}`) === normDoc(numDoc(c.serie, c.numero)))) ya.push(c.id); });
+      }
+      if (guias.length) {
+        const [t] = await prodPool.query(`SELECT id, reference_number, notes FROM stock_transfers WHERE id IN (?)`, [[...new Set(guias.map(c => c.transfer_id))]]);
+        guias.forEach(c => { const x = t.find(y => y.id === c.transfer_id); if (x && (normDoc(x.reference_number) === normDoc(numDoc(c.serie, c.numero)))) ya.push(c.id); });
+      }
+      if (ya.length) await portalPool.query(`UPDATE fe_comprobantes SET erp_estado='registrado', erp_error=NULL, erp_por='ya estaba en el sistema', erp_en=NOW() WHERE id IN (?)`, [ya]);
+    } catch (e) { console.error('[facturacion] detectar anotados', e.message); }
+  }
+
+  // Completa las NC que esperaban la anulación de la venta (al abrir las listas)
   async function sincronizarNC() {
-    if (!erpWritePool || Date.now() - ultimaSyncNC < 120000) return;
-    ultimaSyncNC = Date.now();
+    if (!erpWritePool) return;   // consulta pequeña: solo las NC que esperan la anulación
     try {
       const [ps] = await portalPool.query(`SELECT * FROM fe_comprobantes WHERE tipo = 'nc' AND erp_estado = 'pendiente' AND sale_id IS NOT NULL
         AND estado NOT IN ('rechazado','error','enviando','incierto') ORDER BY id DESC LIMIT 30`);
@@ -1261,6 +1287,7 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
   app.get('/api/fe/estado', authAdmin, mFe, async (req, res) => {
     try {
       const cfgs = await leerConfig();
+      await detectarAnotados();
       const [pend] = await portalPool.query(`SELECT company_id, erp_estado, COUNT(*) n FROM fe_comprobantes
         WHERE tipo NOT IN ('nc','guia') AND estado IN ('aceptado','pendiente_sunat') AND erp_estado IN ('pendiente','error') GROUP BY company_id, erp_estado`);
       const [inc] = await portalPool.query(`SELECT COUNT(*) n FROM fe_comprobantes WHERE estado IN ('incierto','pendiente_sunat')`);
@@ -1269,7 +1296,7 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
         erp_automatico: !!erpWritePool,
         por_anotar_erp: pend.reduce((s, x) => s + x.n, 0),
         por_verificar: inc[0].n,
-        motivos_nc: MOTIVOS_NC,
+        motivos_nc: MOTIVOS_NC, digitos: DIGITOS_NUM,
         proveedor: nombreProv(Number(Object.keys(empresas)[0])), en_pruebas: enPruebas,
         moneda_erp: await columnasSales().then(c => c.moneda ? 'sales.' + c.moneda + (c.join ? ' → ' + c.join.tabla : '') : null),
         correo: { lo_envia_proveedor: NOMBRE_PROV === 'nubefact', resend: !!process.env.RESEND_API_KEY },
@@ -1568,7 +1595,7 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
         ORDER BY st.transfer_date DESC, st.id DESC LIMIT 300`, [dias]);
       const ids = rows.map(r => r.id);
       const [gs] = ids.length ? await portalPool.query(`SELECT transfer_id, serie, numero, estado FROM fe_comprobantes WHERE tipo='guia' AND transfer_id IN (?) AND estado NOT IN ('error','enviando','rechazado')`, [ids]) : [[]];
-      const guia = Object.fromEntries(gs.map(g => [g.transfer_id, `${g.serie}-${g.numero}`]));
+      const guia = Object.fromEntries(gs.map(g => [g.transfer_id, numDoc(g.serie, g.numero)]));
       res.json({ transferencias: rows.map(r => ({ ...r, tipo: TIPO_TRANSF[r.codigo] || r.codigo, unidades: Number(r.unidades), guia: guia[r.id] || null })), escribe_erp: !!erpWritePool, columna_empresa: ct.empresa });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
@@ -1660,16 +1687,72 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
   });
 
   // Comprobantes emitidos desde el portal
+  // Buscar ventas del sistema para emitirles la guía de remisión
+  app.get('/api/fe/guia/ventas', authAdmin, mFe, async (req, res) => {
+    try {
+      await listo();
+      const dias = Math.min(730, Math.max(1, Number(req.query.dias) || 60));
+      const cond = [`s.status IN ('confirmed','pending_payment','paid','completed')`, `s.deleted_at IS NULL`, `s.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)`], params = [dias];
+      if (req.query.empresa) { cond.push('s.company_id = ?'); params.push(Number(req.query.empresa)); }
+      if (req.query.q) { const t = '%' + String(req.query.q).trim() + '%'; cond.push(`(s.code LIKE ? OR cli.business_name LIKE ? OR cli.first_name LIKE ? OR cli.last_name LIKE ? OR cli.document_number LIKE ?)`); params.push(t, t, t, t, t); }
+      const [ventas] = await prodPool.query(`SELECT s.id, s.code, s.company_id, s.total, s.status, s.created_at,
+          cli.business_name, cli.first_name, cli.last_name, cli.document_number,
+          (SELECT GROUP_CONCAT(CONCAT(v.serie,'-',v.number) SEPARATOR ', ') FROM sale_vouchers v WHERE v.sale_id = s.id) comprobantes
+        FROM sales s LEFT JOIN parties cli ON cli.id = s.customer_id WHERE ${cond.join(' AND ')} ORDER BY s.created_at DESC LIMIT 100`, params);
+      const ids = ventas.map(v => v.id);
+      const [gs] = ids.length ? await portalPool.query(`SELECT sale_id, serie, numero FROM fe_comprobantes WHERE tipo='guia' AND sale_id IN (?) AND estado IN ('aceptado','pendiente_sunat')`, [ids]) : [[]];
+      res.json({ ventas: ventas.map(v => ({ id: v.id, code: v.code, empresa: empresas[v.company_id] || '', total: Number(v.total), estado: v.status,
+        fecha: isoFecha(v.created_at), cliente: v.business_name || [v.first_name, v.last_name].filter(Boolean).join(' '), doc: v.document_number,
+        comprobantes: v.comprobantes || '', guias: gs.filter(g => g.sale_id === v.id).map(g => numDoc(g.serie, g.numero)) })) });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Ventas anuladas en el sistema y sus comprobantes, para emitirles la nota de crédito
+  app.get('/api/fe/anuladas', authAdmin, mFe, async (req, res) => {
+    try {
+      await listo();
+      await sincronizarNC();
+      const dias = Math.min(730, Math.max(1, Number(req.query.dias) || 90));
+      const cond = [`s.status = 'cancelled'`, `s.deleted_at IS NULL`, `COALESCE(s.cancelled_at, s.created_at) >= DATE_SUB(NOW(), INTERVAL ? DAY)`], params = [dias];
+      if (req.query.empresa) { cond.push('s.company_id = ?'); params.push(Number(req.query.empresa)); }
+      if (req.query.q) { const t = '%' + String(req.query.q).trim() + '%'; cond.push(`(s.code LIKE ? OR cli.business_name LIKE ? OR cli.first_name LIKE ? OR cli.last_name LIKE ? OR cli.document_number LIKE ?)`); params.push(t, t, t, t, t); }
+      const [ventas] = await prodPool.query(`SELECT s.id, s.code, s.company_id, s.total, s.cancelled_at, s.created_at, s.cancellation_reason, s.cancellation_document,
+          cli.business_name, cli.first_name, cli.last_name, cli.document_number
+        FROM sales s LEFT JOIN parties cli ON cli.id = s.customer_id WHERE ${cond.join(' AND ')} ORDER BY COALESCE(s.cancelled_at, s.created_at) DESC LIMIT 300`, params);
+      if (!ventas.length) return res.json({ ventas: [] });
+      const ids = ventas.map(v => v.id);
+      const [comps] = await portalPool.query(`SELECT id, tipo, serie, numero, sale_id, total, moneda, estado, ref_id, anulado_por_nc, erp_estado, erp_error, fecha_emision
+        FROM fe_comprobantes WHERE sale_id IN (?) AND estado IN ('aceptado','pendiente_sunat') AND tipo IN ('factura','boleta','nc')`, [ids]);
+      const [ext] = await prodPool.query(`SELECT sale_id, type, serie, number, amount FROM sale_vouchers WHERE sale_id IN (?)`, [ids]);
+      res.json({ ventas: ventas.map(v => {
+        const cp = comps.filter(c => c.sale_id === v.id && c.tipo !== 'nc').map(c => {
+          const ncs = comps.filter(n => n.tipo === 'nc' && n.ref_id === c.id);
+          return { ...c, numero_txt: numDoc(c.serie, c.numero), notas_credito: ncs.map(n => ({ id: n.id, numero_txt: numDoc(n.serie, n.numero), total: n.total, erp_estado: n.erp_estado, erp_error: n.erp_error })) };
+        });
+        // Comprobantes anotados en el sistema que NO salieron del portal (SOL, a mano)
+        const externos = ext.filter(x => x.sale_id === v.id && !cp.some(c => normDoc(`${x.serie}-${x.number}`) === normDoc(numDoc(c.serie, c.numero))))
+          .map(x => ({ tipo: x.type, numero_txt: `${x.serie}-${x.number}`, monto: Number(x.amount) }));
+        const pendiente = cp.some(c => !c.anulado_por_nc);
+        return { id: v.id, code: v.code, empresa: empresas[v.company_id] || '', company_id: v.company_id, total: Number(v.total),
+          fecha: isoFecha(v.cancelled_at || v.created_at), motivo: v.cancellation_reason, documento: v.cancellation_document,
+          cliente: v.business_name || [v.first_name, v.last_name].filter(Boolean).join(' '), doc: v.document_number,
+          comprobantes: cp, externos, estado: cp.length ? (pendiente ? 'falta_nc' : 'con_nc') : (externos.length ? 'externo' : 'sin_comprobante') };
+      }) });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
   app.get('/api/fe/emitidos', authAdmin, mFe, async (req, res) => {
     try {
       await listo();
+      await detectarAnotados();
       await sincronizarNC();
       const q = req.query;
       const cond = ['1=1'], params = [];
       if (esFecha(q.desde)) { cond.push('fecha_emision >= ?'); params.push(q.desde); }
       if (esFecha(q.hasta)) { cond.push('fecha_emision <= ?'); params.push(q.hasta); }
       if (q.empresa) { cond.push('company_id = ?'); params.push(Number(q.empresa)); }
-      if (q.tipo) { cond.push('tipo = ?'); params.push(q.tipo); }
+      if (q.tipo === 'fb') cond.push(`tipo IN ('factura','boleta')`);
+      else if (q.tipo) { cond.push('tipo = ?'); params.push(q.tipo); }
       if (q.estado === 'credito') cond.push(`tipo IN ('factura','boleta') AND estado IN ('aceptado','pendiente_sunat') AND anulado_por_nc IS NULL AND sale_id IS NOT NULL`);
       else if (q.estado === 'erp') cond.push(`tipo NOT IN ('nc','guia') AND estado IN ('aceptado','pendiente_sunat') AND erp_estado IN ('pendiente','error')`);
       else if (q.estado === 'revisar') cond.push(`estado IN ('incierto','pendiente_sunat','rechazado')`);

@@ -300,6 +300,9 @@ function armarCatalogo(skus, R, tc, hoy = hoyLima(), mods = {}) {
     const md = mods[k] || {};
     if (md.imgs && md.imgs.length && !m.gal) { m.gal = md.imgs; m.img = md.imgs[0]; }
     if (md.desc && !m.desc) m.desc = md.desc;
+    if (md.specs && md.specs.length && !m.specs) m.specs = md.specs;
+    const dt = md.datos || {};
+    if (dt.recorrido && !m.rec) m.rec = dt.recorrido; if (dt.material && !m.mat) m.mat = dt.material; if (dt.peso && !m.peso) m.peso = dt.peso; if (dt.motor && !m.motor) m.motor = dt.motor;
     if (md.url_ficha && !m.ficha) m.ficha = md.url_ficha;
     if (!m.img && s.url_imagen) m.img = s.url_imagen;
     if (!m.ficha && s.url_ficha) m.ficha = s.url_ficha;
@@ -474,9 +477,115 @@ function leerFichaHtml(html, base) {
   }
   if (!desc) desc = meta('og:description') || meta('description');
   desc = desc.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 1500);
-  return { titulo: titulo.slice(0, 200), descripcion: desc, imagenes: imgs.slice(0, 20) };
+  return { titulo: titulo.slice(0, 200), descripcion: desc, imagenes: elegirImagenes(imgs, base).slice(0, 16) };
 }
-async function leerFicha(url) {
+// De todas las fotos de la página: si varias llevan el nombre del modelo en el archivo, solo esas;
+// y de cada foto repetida en varios tamaños, la más grande (ej. Mondraker: 366x250_ vs 2000_).
+function elegirImagenes(imgs, base) {
+  const slugPag = (String(base).split('?')[0].split('/').filter(Boolean).pop() || '').toLowerCase();
+  const tam = u => { let m = u.match(/[-_/](\d{1,4})x(\d{1,4})_/); if (m) return Math.max(+m[1], +m[2]);
+    m = u.match(/[-_/](\d{3,4})_/) || u.match(/[-_](\d{3,4})w\b/) || u.match(/[?&](?:w|width)=(\d+)/); return m ? +m[1] : 800; };
+  const cola = u => u.split('?')[0].split('/').pop().replace(/^\d+-[\dx]+_[0-9a-f]+-/i, '').replace(/[-_]\d{2,4}x\d{2,4}(?=\.)/, '').toLowerCase();
+  let lista = imgs;
+  if (slugPag.length > 3) { const del = imgs.filter(u => cola(u).includes(slugPag)); if (del.length >= 2) lista = del; }
+  const mejor = new Map();
+  for (const u of lista) { const k = cola(u); const prev = mejor.get(k); if (!prev || tam(u) > tam(prev)) mejor.set(k, u); }
+  return [...mejor.values()].filter(u => tam(u) >= 400);
+}
+// HTML → texto con saltos de línea (para leer especificaciones)
+function htmlATexto(html) {
+  return decodificar(String(html).replace(/<(script|style|noscript|svg)[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<\/(p|div|li|tr|h\d|dt|dd|section|table)>|<br\s*\/?>/gi, '\n').replace(/<\/t[dh]>/gi, '\t').replace(/<[^>]+>/g, ' '))
+    .replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim();
+}
+// Especificaciones sin IA: pares "Título corto" + "valor" a partir de la sección de especificaciones
+function specsSimples(texto) {
+  const i = inicioSpecs(texto);
+  if (i < 0) return [];
+  const lineas = texto.slice(i, i + 12000).split('\n').map(l => l.trim()).filter(Boolean);
+  const out = [];
+  // Formato "Horquilla · Fox 38…" en una sola línea
+  for (const l of lineas) { const m = l.match(/^([A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑáéíóúñ ]{1,30}?)\s*[·:]\s+(.{3,300})$/); if (m) out.push({ k: m[1].trim(), v: m[2].trim() }); if (out.length >= 30) break; }
+  if (out.length >= 4) return out;
+  out.length = 0; lineas.shift();
+  for (let k = 0; k < lineas.length - 1 && out.length < 30; k++) {
+    const a = lineas[k], b = lineas[k + 1];
+    if (a.length <= 32 && /^[A-ZÁÉÍÓÚÑa-z]/.test(a) && !/[.:]$/.test(a) && b.length > a.length && b.length < 400) { out.push({ k: a, v: b }); k++; }
+  }
+  return out;
+}
+// Con IA (Gemini): resumen de venta y datos clave a partir del texto de la página
+// Dónde empiezan las especificaciones: título, o la zona donde aparecen horquilla y frenos juntos
+function inicioSpecs(texto) {
+  let i = texto.search(/ESPECIFICACIONES|SPECIFICATIONS|FICHA T[ÉE]CNICA|TECHNISCHE DATEN/);
+  if (i >= 0) return i;
+  for (const m of texto.matchAll(/Horquilla|Fork\b|Gabel/g)) { const w = texto.slice(Math.max(0, m.index - 2500), m.index + 2500); if (/Freno|Brake|Bremse/.test(w) && /Cuadro|Frame|Rahmen/.test(w)) return Math.max(0, w.search(/Cuadro|Frame|Rahmen/) + Math.max(0, m.index - 2500) - 50); }
+  return -1;
+}
+async function fichaIA(texto, nombre) {
+  const key = process.env.GEMINI_API_KEY; if (!key) return null;
+  const i = inicioSpecs(texto);
+  const trozo = i >= 0 ? texto.slice(Math.max(0, i - 2500), i + 9000) : texto.slice(Math.min(3000, texto.length / 4), Math.min(3000, texto.length / 4) + 11000);
+  const prompt = `Eres redactor de una tienda de bicicletas en Perú. Con el texto de la página oficial de la bicicleta «${nombre}», responde SOLO JSON:
+{"descripcion": "2 a 3 frases en español neutro, para vender, sin inventar nada que no esté en el texto",
+ "categoria": "Downhill|Bike Park|Enduro|Trail|XC|Gravel|E-MTB|Dirt|Kids|Ruta u otra breve",
+ "recorrido": "ej. 165/170 mm o vacío", "material": "ej. Carbono, Aluminio", "aro": "29, 27.5 o Mullet",
+ "motor": "solo e-bikes, ej. Bosch CX Gen5 · 800 Wh", "peso": "ej. 23.5 kg o vacío",
+ "specs": [{"k": "Cuadro", "v": "valor resumido (máx. 120 caracteres)"}]}
+En "specs" pon hasta 18 filas en español (Cuadro, Horquilla, Amortiguador, Motor, Batería, Transmisión, Frenos, Ruedas, Neumáticos, Tija, Tallas…), con valores resumidos.
+TEXTO:
+${trozo}`;
+  try {
+    const mdl = (process.env.BIKES_GEMINI_MODEL || 'gemini-3.6-flash').replace(/[^a-zA-Z0-9.\-]/g, '');
+    const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 40000);
+    const g = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${mdl}:generateContent?key=${encodeURIComponent(key)}`, { method: 'POST', signal: ctrl.signal,
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2, response_mime_type: 'application/json' } }) });
+    clearTimeout(to);
+    const j = await g.json();
+    const txt = (((j.candidates || [])[0] || {}).content || {}).parts?.map(x => x.text).join('') || '';
+    const o = JSON.parse(txt);
+    const corto = (v, n) => String(v || '').trim().slice(0, n);
+    return { descripcion: corto(o.descripcion, 900), categoria: corto(o.categoria, 40), recorrido: corto(o.recorrido, 40), material: corto(o.material, 60), aro: corto(o.aro, 20),
+      motor: corto(o.motor, 120), peso: corto(o.peso, 20), specs: (Array.isArray(o.specs) ? o.specs : []).slice(0, 20).map(x => ({ k: corto(x.k, 40), v: corto(x.v, 160) })).filter(x => x.k && x.v) };
+  } catch (e) { console.warn('[bikes] ficha IA', e.message); return null; }
+}
+// Links de modelos en una página de la marca (mismo dominio e idioma), para la carga masiva
+function linksDeModelos(html, base) {
+  const b = new URL(base); const pref = b.pathname.split('/').filter(Boolean).slice(0, 2).join('/');
+  const out = new Map();
+  for (const m of html.matchAll(/href=["']([^"'#?]+)["']/gi)) {
+    let u; try { u = new URL(decodificar(m[1]), b); } catch (e) { continue; }
+    if (u.hostname !== b.hostname) continue;
+    const partes = u.pathname.split('/').filter(Boolean);
+    if (partes.length < 1 || (pref && !u.pathname.slice(1).startsWith(pref))) continue;
+    const sl = partes[partes.length - 1].toLowerCase();
+    if (!/[a-z]/.test(sl) || sl.length < 3 || /\.(jpe?g|png|pdf|css|js)$/.test(sl)) continue;
+    if (!out.has(sl)) out.set(sl, u.href);
+  }
+  return [...out.entries()].map(([slug, url]) => ({ slug, url }));
+}
+const IGNORAR_TOK = new Set(['mx', 'mullet', '29', '275', '27', '5', '2025', '2026', '2027', 'my26', 'my27']);
+// Tokens de un nombre o slug; quita códigos pegados al final (ej. "foxy-carbon-rr68f09832861fb" → foxy carbon rr)
+const tokensDe = t => slug(t).replace(/^(.*?[a-z])(?:[0-9a-f]{8,}|\d{6,})$/, '$1').split('-').filter(x => x && !IGNORAR_TOK.has(x));
+// Empareja cada modelo del catálogo con el link más parecido: uno debe contener todas las palabras del otro
+// (ej. "SUMMUM R MX" ↔ summum-r-quasar-blue), gana el de mayor parecido.
+function emparejarModelos(modelos, links) {
+  const out = {};
+  for (const mo of modelos) {
+    const mt = tokensDe(mo); if (!mt.length) continue; const ms = new Set(mt); let best = null, bs = 0;
+    for (const l of links) {
+      const lt = tokensDe(l.slug); if (!lt.length) continue; const ls = new Set(lt);
+      if (!(lt.every(t => ms.has(t)) || mt.every(t => ls.has(t)))) continue;
+      const inter = mt.filter(t => ls.has(t)).length, union = new Set([...mt, ...lt]).size, sc = inter / union;
+      const minimo = mt.every(t => ls.has(t)) ? 0.3 : 0.5; // si el link contiene todo el nombre del modelo, basta menos parecido
+      if (inter >= Math.min(2, mt.length) && sc >= minimo && sc > bs) { bs = sc; best = l; }
+    }
+    if (best) out[mo] = best.url;
+  }
+  return out;
+}
+
+async function leerFicha(url, opciones = {}) {
   let u; try { u = new URL(url); } catch (e) { throw new Error('El link no es válido'); }
   if (!/^https?:$/.test(u.protocol)) throw new Error('Solo links http(s)');
   const ips = await dnsP.lookup(u.hostname, { all: true }).catch(() => []);
@@ -485,8 +594,13 @@ async function leerFicha(url) {
   const r = await fetch(u.href, { signal: ctrl.signal, redirect: 'follow', headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36', 'Accept-Language': 'es,en;q=0.8' } });
   clearTimeout(to);
   if (!r.ok) throw new Error(`La página respondió ${r.status}`);
-  const html = (await r.text()).slice(0, 3e6);
+  const html = (await r.text()).slice(0, 4e6);
+  if (opciones.soloHtml) return { html, url: r.url || u.href };
   const f = leerFichaHtml(html, r.url || u.href);
+  const texto = htmlATexto(html);
+  const ia = opciones.ia === false ? null : await fichaIA(texto, opciones.nombre || f.titulo);
+  if (ia) { f.ia = true; if (ia.descripcion) f.descripcion = ia.descripcion; f.specs = ia.specs; f.datos = { categoria: ia.categoria, recorrido: ia.recorrido, material: ia.material, aro: ia.aro, motor: ia.motor, peso: ia.peso }; }
+  else f.specs = specsSimples(texto);
   if (!f.imagenes.length && !f.descripcion) throw new Error('No encontré fotos ni descripción en esa página (puede que cargue todo con JavaScript). Pega los links de las fotos a mano.');
   return { ...f, url: u.href };
 }
@@ -538,7 +652,10 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       // Datos por modelo: fotos y descripción traídas del link de la marca, y ajustes de envío
       await portalPool.query(`CREATE TABLE IF NOT EXISTS bk_modelos (marca VARCHAR(60) NOT NULL, modelo VARCHAR(120) NOT NULL,
           descripcion TEXT NULL, imagenes MEDIUMTEXT NULL, url_ficha VARCHAR(500) NULL, aereo VARCHAR(5) NOT NULL DEFAULT 'auto', unidad VARCHAR(5) NOT NULL DEFAULT 'auto',
+          specs MEDIUMTEXT NULL, datos TEXT NULL, manual TINYINT(1) NOT NULL DEFAULT 0,
           actualizado DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (marca, modelo)) DEFAULT CHARSET=utf8mb4`);
+      for (const col of ['specs MEDIUMTEXT NULL', 'datos TEXT NULL', 'manual TINYINT(1) NOT NULL DEFAULT 0'])
+        await portalPool.query(`ALTER TABLE bk_modelos ADD COLUMN ${col}`).catch(() => {}); // ya existe
       // Métricas propias: clics y embudo (visita → modelo → configura → carrito → reserva)
       await portalPool.query(`CREATE TABLE IF NOT EXISTS bk_eventos (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
           creado DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, sesion VARCHAR(24) NOT NULL, tipo VARCHAR(16) NOT NULL,
@@ -566,10 +683,10 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
 
   async function leerModelos() {
     await prepararTablas();
-    const [rows] = await portalPool.query('SELECT marca, modelo, descripcion, imagenes, url_ficha, aereo, unidad FROM bk_modelos');
-    const out = {};
-    for (const r of rows) { let imgs = []; try { imgs = JSON.parse(r.imagenes || '[]'); } catch (e) {}
-      out[r.marca + '|' + r.modelo] = { desc: r.descripcion || '', imgs, url_ficha: r.url_ficha || null, aereo: r.aereo, unidad: r.unidad }; }
+    const [rows] = await portalPool.query('SELECT marca, modelo, descripcion, imagenes, url_ficha, aereo, unidad, specs, datos, manual FROM bk_modelos');
+    const out = {}, js = (t, d) => { try { return JSON.parse(t || '') ?? d; } catch (e) { return d; } };
+    for (const r of rows) out[r.marca + '|' + r.modelo] = { desc: r.descripcion || '', imgs: js(r.imagenes, []), url_ficha: r.url_ficha || null, aereo: r.aereo, unidad: r.unidad,
+      specs: js(r.specs, []), datos: js(r.datos, {}), manual: !!r.manual };
     return out;
   }
   // Envíos en grupo (e-bikes): reservas activas con envío "grupo", por marca
@@ -617,6 +734,10 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
         catCache = { t: Date.now(), data: {
           modelos: armarCatalogo(skus, R, tc, hoyLima(), mods),
           grupos: await gruposPorMarca(R), grupo_min: Math.max(2, num(R.grupo_min) || 3),
+          pagina: await (async () => { const pg = await leerPagina(); const f = pg.fotos || {};
+            return { asesor_nombre: pg.asesor_nombre || 'Jean Pierre', asesor_cargo: pg.asesor_cargo || 'Asesor de bicicletas', asesor_whatsapp: (pg.asesor_whatsapp || '').replace(/\D/g, '') || null,
+              soporte_url: pg.soporte_url || null, soporte_texto: pg.soporte_texto || null,
+              fotos: Object.fromEntries(CLAVES_FOTO.map(k => [k, f[k] ? `/api/bikes/foto/${k}?v=${f[k]}` : null])) }; })(),
           logos: Object.fromEntries(Object.entries(await leerMarcas()).filter(([, v]) => v && v.logo).map(([k, v]) => [k, v.logo])),
           marcas: [...new Set([...MARCAS_BASE, ...skus.map(s => s.marca)])],
           adelanto: num(R.adelanto), tc_usd: tc.usd, aereo: !!R.aereo_activo, validez_horas: num(R.validez_horas),
@@ -830,7 +951,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       const [imports] = await portalPool.query(`SELECT id, UNIX_TIMESTAMP(creado) creado, usuario, archivo, marcas, modo, nuevas, actualizadas, desactivadas FROM bk_imports ORDER BY id DESC LIMIT 20`);
       res.json({ reglas: R, tc, maestro: !!(req.admin && req.admin.maestro), skus: conPrecio, reservas: reservas.map(r => ({ ...r, total: num(r.total), adelanto: num(r.adelanto),
           creado: horaLima(r.creado), actualizado: horaLima(r.actualizado), valido_hasta: horaLima(r.valido_hasta), vencida: r.estado === 'Nueva' && r.valido_hasta && r.valido_hasta * 1000 < Date.now() })),
-        modelos: mods, marcas_info: await leerMarcas(), grupos: await gruposPorMarca(R),
+        modelos: mods, marcas_info: await leerMarcas(), pagina: await leerPagina(), grupos: await gruposPorMarca(R),
         imports: imports.map(i => ({ ...i, creado: horaLima(i.creado) })), estados_reserva: ESTADOS_RESERVA, estados_sku: ESTADOS_SKU, marcas_base: MARCAS_BASE });
     } catch (e) { console.error('[bikes] estado', e.message); res.status(500).json({ error: e.message }); }
   });
@@ -1032,7 +1153,7 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
 
   // Traer fotos y descripción desde el link del modelo en la web de la marca
   app.post('/api/bikes/admin/ficha', authAdmin, mBikes, async (req, res) => {
-    try { res.json(await leerFicha(String((req.body && req.body.url) || '').trim())); }
+    try { res.json(await leerFicha(String((req.body && req.body.url) || '').trim(), { nombre: String((req.body && req.body.nombre) || '') })); }
     catch (e) { res.status(400).json({ error: e.message }); }
   });
   app.post('/api/bikes/admin/modelo', authAdmin, mBikes, async (req, res) => {
@@ -1043,11 +1164,93 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
     const ok = v => ['auto', 'si', 'no'].includes(v) ? v : 'auto';
     try {
       await prepararTablas();
-      await portalPool.query(`INSERT INTO bk_modelos (marca, modelo, descripcion, imagenes, url_ficha, aereo, unidad) VALUES (?,?,?,?,?,?,?)
-        ON DUPLICATE KEY UPDATE descripcion=VALUES(descripcion), imagenes=VALUES(imagenes), url_ficha=VALUES(url_ficha), aereo=VALUES(aereo), unidad=VALUES(unidad), actualizado=NOW()`,
-        [marca, modelo, String(b.descripcion || '').slice(0, 4000), JSON.stringify(imgs), /^https?:\/\//i.test(b.url_ficha || '') ? String(b.url_ficha).slice(0, 500) : null, ok(b.aereo), ok(b.unidad)]);
+      const specs = (Array.isArray(b.specs) ? b.specs : null);
+      await portalPool.query(`INSERT INTO bk_modelos (marca, modelo, descripcion, imagenes, url_ficha, aereo, unidad, specs, manual) VALUES (?,?,?,?,?,?,?,?,1)
+        ON DUPLICATE KEY UPDATE descripcion=VALUES(descripcion), imagenes=VALUES(imagenes), url_ficha=VALUES(url_ficha), aereo=VALUES(aereo), unidad=VALUES(unidad),
+          specs=IFNULL(VALUES(specs), specs), manual=1, actualizado=NOW()`,
+        [marca, modelo, String(b.descripcion || '').slice(0, 4000), JSON.stringify(imgs), /^https?:\/\//i.test(b.url_ficha || '') ? String(b.url_ficha).slice(0, 500) : null, ok(b.aereo), ok(b.unidad),
+          specs ? JSON.stringify(specs.slice(0, 25).map(x => ({ k: String(x.k || '').slice(0, 40), v: String(x.v || '').slice(0, 200) })).filter(x => x.k && x.v)) : null]);
       limpiarCache(); res.json({ ok: true });
     } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // ── Carga masiva de fichas: un link de la web de la marca → todos los modelos ──
+  // 1) Busca en esa página los links de modelos y los empareja con los modelos del catálogo de esa marca.
+  // 2) Recorre cada link (uno cada ~1.5 s) y guarda fotos, descripción y especificaciones (con IA si hay GEMINI_API_KEY).
+  //    Los modelos editados a mano no se pisan, salvo que se pida "sobrescribir".
+  let trabajo = null;
+  app.post('/api/bikes/admin/fichas-masivo', authAdmin, mBikes, async (req, res) => {
+    const b = req.body || {}; const marca = String(b.marca || '').trim();
+    if (!marca) return res.status(400).json({ error: 'Elige la marca' });
+    if (trabajo && trabajo.corriendo) return res.status(409).json({ error: 'Ya hay una carga en curso', trabajo });
+    try {
+      await prepararTablas();
+      const [mods] = await portalPool.query('SELECT DISTINCT modelo FROM bk_skus WHERE marca=? AND activo=1 ORDER BY modelo', [marca]);
+      const modelos = mods.map(r => r.modelo);
+      let pares = b.pares && typeof b.pares === 'object' ? b.pares : null;
+      if (!pares) {
+        const pag = await leerFicha(String(b.url || '').trim(), { soloHtml: true });
+        pares = emparejarModelos(modelos, linksDeModelos(pag.html, pag.url));
+      }
+      const sin = modelos.filter(m => !pares[m]);
+      if (!b.iniciar) return res.json({ pares, sin, total: modelos.length });
+      const existentes = await leerModelos();
+      const lista = Object.entries(pares).filter(([m, u]) => modelos.includes(m) && /^https?:\/\//.test(u) && (b.sobrescribir || !(existentes[marca + '|' + m] || {}).manual));
+      trabajo = { marca, total: lista.length, hechos: 0, ok: 0, errores: [], corriendo: true, inicio: Date.now() };
+      res.json({ iniciado: true, trabajo });
+      for (const [modelo, url] of lista) {
+        try {
+          const f = await leerFicha(url, { nombre: marca + ' ' + modelo });
+          await portalPool.query(`INSERT INTO bk_modelos (marca, modelo, descripcion, imagenes, url_ficha, specs, datos, manual) VALUES (?,?,?,?,?,?,?,0)
+            ON DUPLICATE KEY UPDATE descripcion=VALUES(descripcion), imagenes=IF(VALUES(imagenes)='[]', imagenes, VALUES(imagenes)), url_ficha=VALUES(url_ficha),
+              specs=VALUES(specs), datos=VALUES(datos), manual=0, actualizado=NOW()`,
+            [marca, modelo, String(f.descripcion || '').slice(0, 4000), JSON.stringify(f.imagenes || []), url.slice(0, 500), JSON.stringify(f.specs || []), JSON.stringify(f.datos || {})]);
+          trabajo.ok++;
+        } catch (e) { trabajo.errores.push(`${modelo}: ${e.message}`.slice(0, 200)); }
+        trabajo.hechos++;
+        await new Promise(r => setTimeout(r, 1500));
+      }
+      trabajo.corriendo = false; limpiarCache();
+    } catch (e) {
+      if (trabajo && trabajo.corriendo) { trabajo.corriendo = false; trabajo.errores.push(e.message); }
+      if (!res.headersSent) res.status(400).json({ error: e.message });
+    }
+  });
+  app.get('/api/bikes/admin/fichas-masivo', authAdmin, mBikes, (req, res) => res.json({ trabajo }));
+
+  // ── Página: fotos reales (portada, asesor, taller) y datos del asesor ──
+  const CLAVES_FOTO = ['hero', 'asesor', 'taller', 'taller2'];
+  async function leerPagina() {
+    await prepararTablas();
+    const [[row]] = await portalPool.query(`SELECT valor FROM bk_config WHERE clave='pagina'`);
+    try { return row ? JSON.parse(row.valor) : {}; } catch (e) { return {}; }
+  }
+  app.post('/api/bikes/admin/pagina', authAdmin, mBikes, async (req, res) => {
+    const b = req.body || {};
+    try {
+      const pg = await leerPagina();
+      for (const k of ['asesor_nombre', 'asesor_cargo', 'asesor_whatsapp', 'soporte_url', 'soporte_texto']) if (b[k] !== undefined) pg[k] = String(b[k]).trim().slice(0, k === 'soporte_texto' ? 300 : 120);
+      if (b.foto && CLAVES_FOTO.includes(b.foto.clave)) {
+        const d = String(b.foto.dato || '');
+        if (d && !/^data:image\/(png|jpe?g|webp);base64,/i.test(d)) return res.status(400).json({ error: 'La foto debe ser JPG, PNG o WEBP' });
+        if (d.length > 1.6e6) return res.status(400).json({ error: 'La foto pesa mucho (máx. 1.2 MB). Redúcela antes de subirla.' });
+        await portalPool.query(`INSERT INTO bk_config (clave, valor, actualizado_por) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE valor=VALUES(valor), actualizado=NOW(), actualizado_por=VALUES(actualizado_por)`, ['foto_' + b.foto.clave, d, usuarioDe(req)]);
+        pg.fotos = { ...(pg.fotos || {}), [b.foto.clave]: d ? Date.now() : null };
+      }
+      await portalPool.query(`INSERT INTO bk_config (clave, valor, actualizado_por) VALUES ('pagina', ?, ?) ON DUPLICATE KEY UPDATE valor=VALUES(valor), actualizado=NOW(), actualizado_por=VALUES(actualizado_por)`, [JSON.stringify(pg), usuarioDe(req)]);
+      limpiarCache(); res.json({ ok: true, pagina: pg });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+  // Foto pública (se sirve como imagen, con caché)
+  app.get('/api/bikes/foto/:clave', async (req, res) => {
+    if (!CLAVES_FOTO.includes(req.params.clave)) return res.status(404).end();
+    try {
+      await prepararTablas();
+      const [[row]] = await portalPool.query(`SELECT valor FROM bk_config WHERE clave=?`, ['foto_' + req.params.clave]);
+      const m = row && String(row.valor).match(/^data:(image\/[a-z+]+);base64,(.+)$/i);
+      if (!m) return res.status(404).end();
+      res.set({ 'Content-Type': m[1], 'Cache-Control': 'public, max-age=86400' }).send(Buffer.from(m[2], 'base64'));
+    } catch (e) { res.status(500).end(); }
   });
 
   // Exportar el catálogo en el formato de la plantilla (para editar en Excel y volver a subir)
@@ -1073,4 +1276,4 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
   return { prepararTablas };
 };
 
-module.exports._test = { leerFichaHtml, opcionesEnvio, leerMenuKuranko, MENU_RESPALDO, calcularPrecio, calcularEntrega, reconocerColumnas, normalizarFila, aFecha, aNumero, armarCatalogo, mezclarReglas, claveSku, REGLAS_BASE };
+module.exports._test = { elegirImagenes, htmlATexto, specsSimples, linksDeModelos, emparejarModelos, leerFichaHtml, opcionesEnvio, leerMenuKuranko, MENU_RESPALDO, calcularPrecio, calcularEntrega, reconocerColumnas, normalizarFila, aFecha, aNumero, armarCatalogo, mezclarReglas, claveSku, REGLAS_BASE };

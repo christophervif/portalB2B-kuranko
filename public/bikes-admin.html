@@ -88,6 +88,7 @@ tr.off td{opacity:.45}
     <button data-t="cat">Catálogo</button>
     <button data-t="imp">Importar Excel</button>
     <button data-t="mod">Modelos (fotos y envío)</button>
+    <button data-t="pag">Página (fotos y asesor)</button>
     <button data-t="reg">Reglas de precio</button>
   </div>
   <div id="msg"></div>
@@ -135,11 +136,19 @@ tr.off td{opacity:.45}
   <section data-p="mod" hidden>
     <div class="card">
       <p class="desc">Un modelo agrupa todas sus tallas y colores. Aquí le pones fotos y descripción (pegando el link de la web de la marca) y decides el envío aéreo. El margen va en verde si supera el mínimo por 10 puntos, en ámbar si está cerca y en rojo si está por debajo.</p>
+      <div class="card" style="background:var(--surface3);margin:10px 0">
+        <h3>Carga masiva de fichas (fotos, descripción y especificaciones)</h3>
+        <p class="desc">Pega <b>cualquier página de la marca</b> que liste sus modelos (por ejemplo, la ficha de un modelo de esa temporada). El portal busca los links de todos los modelos, los empareja con tu catálogo y trae fotos, descripción y especificaciones de cada uno, con IA si está activa. No pisa los modelos que editaste a mano.</p>
+        <div class="row" style="margin-top:8px"><select id="fmMarca"></select><input id="fmUrl" style="flex:1;min-width:260px" placeholder="https://mondraker.com/es/es/season-history/detail/19-2027/zendit-rr"><button class="btn" id="fmBuscar">Buscar modelos</button></div>
+        <div id="fmOut" style="margin-top:10px"></div>
+      </div>
       <div class="row" style="margin:10px 0"><input id="modQ" placeholder="Buscar modelo…" style="flex:1;min-width:200px"><label class="muted"><input type="checkbox" id="modSin"> Solo sin fotos</label></div>
       <div class="tbl" id="modTbl"></div>
     </div>
     <div id="modEd"></div>
   </section>
+
+  <section data-p="pag" hidden><div class="card" id="pagCard"></div></section>
 
   <section data-p="reg" hidden>
     <div class="card" id="regCard"></div>
@@ -429,6 +438,7 @@ function pintarModelos(){
     <div id="medMsg" class="muted"></div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin:10px 0">${MOD_ED.imgs.map((u,i)=>`<label style="position:relative;border:2px solid ${MOD_ED.sel.has(u)?'var(--accent)':'var(--border)'};border-radius:8px;overflow:hidden;background:#fff;cursor:pointer"><input type="checkbox" data-medimg="${i}" ${MOD_ED.sel.has(u)?'checked':''} style="position:absolute;top:6px;left:6px"><img src="${esc(u)}" style="width:100%;height:90px;object-fit:contain" loading="lazy"></label>`).join('')||'<span class="muted">Sin fotos todavía.</span>'}</div>
     <div class="row" style="margin-bottom:8px"><input id="medAdd" style="flex:1;min-width:240px" placeholder="O pega aquí el link de una foto"><button class="btn sec" id="medAddB">Agregar foto</button></div>
+    ${(MOD_ED.specs||md.specs||[]).length?`<details style="margin-bottom:8px"><summary class="muted">${(MOD_ED.specs||md.specs).length} especificaciones</summary><table>${(MOD_ED.specs||md.specs).map(x=>`<tr><td class="muted">${esc(x.k)}</td><td style="white-space:normal">${esc(x.v)}</td></tr>`).join('')}</table></details>`:''}
     <label class="muted" style="display:grid;gap:4px">Descripción<textarea id="medDesc" style="min-height:110px">${esc(MOD_ED.desc??md.desc??'')}</textarea></label>
     ${MOD_ED.ebike?`<label class="muted" style="display:block;margin-top:8px">Envío marítimo individual <select id="medUni">${['auto','si','no'].map(v=>`<option value="${v}" ${(md.unidad||'auto')===v?'selected':''}>${{auto:'Automático (si el margen alcanza)',si:'Siempre ofrecer',no:'Solo en grupo'}[v]}</option>`).join('')}</select></label>`:''}
     <div class="row" style="margin-top:12px"><button class="btn" id="medGuardar">Guardar</button><button class="btn sec" id="medCerrar">Cerrar</button></div></div>`;
@@ -446,14 +456,51 @@ document.addEventListener('click',async e=>{const t=e.target;
   if(!MOD_ED)return;
   if(t.id==='medCerrar'){MOD_ED=null;pintarModelos()}
   if(t.id==='medTraer'){const url=$('#medUrl').value.trim();if(!url)return toast('Pega el link primero');t.disabled=true;t.textContent='Leyendo la página…';
-    try{const f=await api('/api/bikes/admin/ficha',{method:'POST',body:JSON.stringify({url})});
+    try{const f=await api('/api/bikes/admin/ficha',{method:'POST',body:JSON.stringify({url,nombre:MOD_ED.k.replace('|',' ')})});MOD_ED.specs=f.specs||[];
       MOD_ED.url=url;f.imagenes.forEach(u=>{if(!MOD_ED.imgs.includes(u))MOD_ED.imgs.push(u)});if(!MOD_ED.sel.size)f.imagenes.slice(0,6).forEach(u=>MOD_ED.sel.add(u));
       MOD_ED.desc=$('#medDesc').value||f.descripcion;pintarModelos();$('#medMsg').textContent=`Encontré ${f.imagenes.length} fotos${f.descripcion?' y la descripción':''}. Desmarca las que no sirvan.`}
     catch(err){MOD_ED.url=url;MOD_ED.desc=$('#medDesc').value;pintarModelos();$('#medMsg').innerHTML=`<span class="err">${esc(err.message)}</span>`}}
   if(t.id==='medAddB'){const u=$('#medAdd').value.trim();if(!/^https?:\/\//.test(u))return toast('Pega un link que empiece con https://');MOD_ED.imgs.push(u);MOD_ED.sel.add(u);MOD_ED.desc=$('#medDesc').value;MOD_ED.url=$('#medUrl').value;pintarModelos()}
   if(t.id==='medGuardar'){const [marca,modelo]=MOD_ED.k.split('|');const md=E.modelos[MOD_ED.k]||{};
-    try{await api('/api/bikes/admin/modelo',{method:'POST',body:JSON.stringify({marca,modelo,descripcion:$('#medDesc').value,imagenes:MOD_ED.imgs.filter(u=>MOD_ED.sel.has(u)),url_ficha:$('#medUrl').value.trim(),aereo:md.aereo||'auto',unidad:($('#medUni')||{}).value||md.unidad||'auto'})});
+    try{await api('/api/bikes/admin/modelo',{method:'POST',body:JSON.stringify({marca,modelo,descripcion:$('#medDesc').value,imagenes:MOD_ED.imgs.filter(u=>MOD_ED.sel.has(u)),url_ficha:$('#medUrl').value.trim(),aereo:md.aereo||'auto',unidad:($('#medUni')||{}).value||md.unidad||'auto',specs:MOD_ED.specs||md.specs||null})});
       toast('Modelo guardado. Ya se ve en la tienda.');MOD_ED=null;await cargar()}catch(err){toast(err.message)}}
+});
+
+/* ---------- Carga masiva de fichas ---------- */
+let FM=null,fmPoll=null;
+function pintarFM(){const out=$('#fmOut');if(!FM){out.innerHTML='';return}
+  if(FM.trabajo){const t=FM.trabajo;out.innerHTML=`<div class="funnel"><div class="f"><span>${t.corriendo?'Trayendo fichas…':'Terminado'}</span><div class="bar" style="width:${Math.max(1,Math.round(t.hechos/Math.max(1,t.total)*100))}%"></div><span>${t.hechos} de ${t.total} · ${t.ok} ok</span></div></div>${t.errores.length?`<details style="margin-top:6px"><summary class="err">${t.errores.length} con problemas</summary><ul class="desc" style="padding-left:18px">${t.errores.map(e=>`<li>${esc(e)}</li>`).join('')}</ul></details>`:''}`;return}
+  const pares=Object.entries(FM.pares);
+  out.innerHTML=`<p class="desc"><b>${pares.length}</b> de ${FM.total} modelos encontrados en la web de la marca${FM.sin.length?`; sin link: ${FM.sin.map(esc).join(', ')} (puedes pegarlo abajo o cargarlo a mano)`:''}.</p>
+   <div class="tbl" style="max-height:300px;margin:8px 0"><table><thead><tr><th>Modelo del catálogo</th><th>Link encontrado</th></tr></thead><tbody>${[...pares,...FM.sin.map(m=>[m,''])].map(([m,u])=>`<tr><td>${esc(m)}</td><td><input data-fmpar="${esc(m)}" value="${esc(u)}" style="width:100%;min-width:320px" placeholder="(sin link)"></td></tr>`).join('')}</tbody></table></div>
+   <div class="row"><label class="muted"><input type="checkbox" id="fmSobre"> Sobrescribir también los editados a mano</label><button class="btn" id="fmIniciar">Traer fichas</button></div>`}
+async function fmEstado(){try{const j=await api('/api/bikes/admin/fichas-masivo');if(j.trabajo){FM={trabajo:j.trabajo};pintarFM();if(!j.trabajo.corriendo){clearInterval(fmPoll);fmPoll=null;await cargar()}}}catch(e){}}
+document.addEventListener('click',async e=>{const t=e.target;
+  if(t.id==='fmBuscar'){const url=$('#fmUrl').value.trim(),marca=$('#fmMarca').value;if(!url)return toast('Pega un link de la marca');t.disabled=true;t.textContent='Buscando…';
+    try{FM=await api('/api/bikes/admin/fichas-masivo',{method:'POST',body:JSON.stringify({marca,url})});FM.marca=marca;pintarFM()}catch(err){toast(err.message)}t.disabled=false;t.textContent='Buscar modelos'}
+  if(t.id==='fmIniciar'&&FM){const pares={};$$('[data-fmpar]').forEach(i=>{if(i.value.trim())pares[i.dataset.fmpar]=i.value.trim()});
+    try{const j=await api('/api/bikes/admin/fichas-masivo',{method:'POST',body:JSON.stringify({marca:FM.marca,pares,iniciar:true,sobrescribir:$('#fmSobre').checked})});FM={trabajo:j.trabajo};pintarFM();fmPoll=setInterval(fmEstado,2500)}catch(err){toast(err.message)}}
+});
+
+/* ---------- Página: fotos reales y asesor ---------- */
+const FOTOS=[['hero','Foto de portada (bicis, taller o clientes reales)','4:3'],['asesor','Foto del asesor (cara, fondo simple)','1:1'],['taller','Foto del taller o la tienda','16:9'],['taller2','Segunda foto (equipo, entregas)','3:4']];
+function pintarPagina(){const pg=E.pagina||{},f=pg.fotos||{};
+  $('#pagCard').innerHTML=`<h3>Fotos reales y asesor</h3><p class="desc">Las fotos reales dan confianza. Sube JPG o PNG; se reducen solas antes de subir. Mientras no subas una, la página muestra un espacio neutro.</p>
+  <div class="rules" style="margin-top:12px">
+    <label>Nombre del asesor<input id="pgNom" value="${esc(pg.asesor_nombre||'Jean Pierre')}"></label>
+    <label>Cargo<input id="pgCargo" value="${esc(pg.asesor_cargo||'Asesor de bicicletas')}"></label>
+    <label>WhatsApp del asesor (51…)<input id="pgWa" value="${esc(pg.asesor_whatsapp||'')}" placeholder="51963358335"></label>
+    <label>Link de soporte técnico (Aviante)<input id="pgSop" value="${esc(pg.soporte_url||'')}" placeholder="https://…"></label>
+  </div><button class="btn" id="pgGuardar">Guardar datos</button>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-top:16px">${FOTOS.map(([k,l,r])=>`<div class="kpi" style="display:grid;gap:8px"><span>${l} · ${r}</span>
+    <div style="aspect-ratio:${r.replace(':','/')};background:#eee ${f[k]?`url('/api/bikes/foto/${k}?v=${f[k]}') center/cover`:''};border-radius:8px"></div>
+    <div class="row"><label class="btn sec" style="cursor:pointer;font-size:12px">${f[k]?'Cambiar':'Subir'}<input type="file" accept="image/*" data-pgfoto="${k}" hidden></label>${f[k]?`<button class="btn sec" style="font-size:12px" data-pgquitar="${k}">Quitar</button>`:''}</div></div>`).join('')}</div>`}
+function achicar(file,max=1600){return new Promise((ok,mal)=>{const img=new Image();img.onload=()=>{const k=Math.min(1,max/Math.max(img.width,img.height));const c=document.createElement('canvas');c.width=Math.round(img.width*k);c.height=Math.round(img.height*k);c.getContext('2d').drawImage(img,0,0,c.width,c.height);ok(c.toDataURL('image/jpeg',0.82))};img.onerror=()=>mal(new Error('No pude leer la imagen'));img.src=URL.createObjectURL(file)})}
+document.addEventListener('change',async e=>{const el=e.target;if(!el.dataset.pgfoto||!el.files[0])return;
+  try{const dato=await achicar(el.files[0]);await api('/api/bikes/admin/pagina',{method:'POST',body:JSON.stringify({foto:{clave:el.dataset.pgfoto,dato}})});toast('Foto subida');await cargar()}catch(err){toast(err.message)}});
+document.addEventListener('click',async e=>{const t=e.target;
+  if(t.dataset.pgquitar){try{await api('/api/bikes/admin/pagina',{method:'POST',body:JSON.stringify({foto:{clave:t.dataset.pgquitar,dato:''}})});await cargar()}catch(err){toast(err.message)}}
+  if(t.id==='pgGuardar'){try{await api('/api/bikes/admin/pagina',{method:'POST',body:JSON.stringify({asesor_nombre:$('#pgNom').value,asesor_cargo:$('#pgCargo').value,asesor_whatsapp:$('#pgWa').value,soporte_url:$('#pgSop').value})});toast('Guardado');await cargar()}catch(err){toast(err.message)}}
 });
 
 /* ---------- General ---------- */
@@ -463,7 +510,8 @@ $('#tabs').addEventListener('click',e=>{const b=e.target.closest('button');if(b)
 async function cargar(){
   try{E=await api('/api/bikes/admin/estado');$('#msg').innerHTML='';
     $('#tcInfo').textContent=`TC USD ${E.tc.usd.toFixed(3)} · EUR ${E.tc.eur.toFixed(3)} (${E.tc.fuente})`;
-    pintarReservas();pintarCatalogo();pintarReglas();pintarModelos();
+    pintarReservas();pintarCatalogo();pintarReglas();pintarModelos();pintarPagina();
+    const fm=$('#fmMarca');if(fm&&!fm.options.length){const ms=[...new Set(E.skus.map(x=>x.marca))].sort();fm.innerHTML=ms.map(m=>`<option>${esc(m)}</option>`).join('')}
     const tabRes=$('#tabs [data-t="res"]');const n=E.reservas.filter(r=>r.estado==='Nueva').length;tabRes.textContent=n?`Reservas (${n} nuevas)`:'Reservas';
   }catch(e){if(e.message!=='401')$('#msg').innerHTML=`<div class="card"><p class="err">${esc(e.message)}</p></div>`}
 }

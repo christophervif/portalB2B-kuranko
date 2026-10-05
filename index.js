@@ -38,7 +38,17 @@ const portalPool = mysql.createPool(process.env.PORTAL_URL + '?connectionLimit=5
 // Cuenta del portal con permisos de ESCRITURA limitados en la base del sistema (ERP).
 // Es una sola cuenta para todos los módulos; se le van dando permisos tabla por tabla (ver railway-cuenta-portal-erp.sql).
 const ERP_ESCRITURA_URL = process.env.ERP_ESCRITURA_URL || process.env.ERP_FACTURACION_URL; // el 2.º nombre es el antiguo
-const erpWritePool = ERP_ESCRITURA_URL ? mysql.createPool(ERP_ESCRITURA_URL + (ERP_ESCRITURA_URL.includes('?') ? '&' : '?') + 'connectionLimit=3') : null;
+// Se lee la URL a mano (la clave puede tener símbolos como % # @ /) y, si algo falla, el portal sigue
+// funcionando igual, solo que sin escribir en el sistema.
+function poolDesdeUrl(url, limite) {
+  try {
+    const m = String(url).trim().match(/^mysql:\/\/([^:@\/]+):(.*)@([^@:\/]+)(?::(\d+))?\/([^?\/]+)/);
+    if (!m) throw new Error('formato esperado mysql://usuario:clave@host:puerto/base');
+    let clave = m[2]; try { clave = decodeURIComponent(clave); } catch (e) { /* clave con % literal */ }
+    return mysql.createPool({ user: m[1], password: clave, host: m[3], port: Number(m[4] || 3306), database: m[5], connectionLimit: limite });
+  } catch (e) { console.error('[ERP_ESCRITURA_URL] no se pudo usar:', e.message); return null; }
+}
+const erpWritePool = ERP_ESCRITURA_URL ? poolDesdeUrl(ERP_ESCRITURA_URL, 3) : null;
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const ADMIN_USER = process.env.ADMIN_USER;

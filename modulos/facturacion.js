@@ -558,7 +558,8 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
   // Escritura en el ERP (opcional)
   const urlEscritura = process.env.ERP_ESCRITURA_URL || process.env.ERP_FACTURACION_URL;
   if (erpWritePool === undefined && urlEscritura)
-    erpWritePool = mysql.createPool(urlEscritura + (urlEscritura.includes('?') ? '&' : '?') + 'connectionLimit=2');
+    try { erpWritePool = mysql.createPool(urlEscritura + (urlEscritura.includes('?') ? '&' : '?') + 'connectionLimit=2'); }
+    catch (e) { console.error('[facturacion] ERP_ESCRITURA_URL no válida:', e.message); erpWritePool = null; }
 
   // Proveedor: APISUNAT por defecto (FE_PROVEEDOR=nubefact para usar NubeFacT)
   const NOMBRE_PROV = String(process.env.FE_PROVEEDOR || 'apisunat').toLowerCase() === 'nubefact' ? 'nubefact' : 'apisunat';

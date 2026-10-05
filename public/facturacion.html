@@ -32,6 +32,7 @@ body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min
 .campo{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--muted2)}
 input,select,textarea{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:8px 10px;font-size:13px;font-family:inherit}
 input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
+input[readonly]{opacity:.85;cursor:default}
 .chk{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);cursor:pointer;white-space:nowrap;padding-bottom:8px}
 .btn{background:var(--accent);border:none;color:var(--accent-text);border-radius:var(--radius-sm);padding:9px 16px;font-size:13px;cursor:pointer;font-weight:600;white-space:nowrap}
 .btn:hover{background:var(--accent-h)}
@@ -83,6 +84,7 @@ a.lnk:hover{text-decoration:underline}
 .tipo-sel button{flex:1}
 .it-tabla input{padding:5px 7px;font-size:12.5px;width:100%}
 .it-tabla input.q{width:70px;text-align:right}.it-tabla input.p{width:96px;text-align:right}
+.it-tabla input[readonly]{background:transparent;border-color:transparent;color:var(--text2)}
 .totales{display:flex;justify-content:flex-end;gap:18px;margin-top:10px;font-size:13px;color:var(--text2);flex-wrap:wrap}
 .totales b{color:var(--white);font-size:16px}
 .pie-modal{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-top:14px;flex-wrap:wrap}
@@ -137,14 +139,18 @@ a.lnk:hover{text-decoration:underline}
   <!-- ══════════ EMITIDOS ══════════ -->
   <div class="vista" id="v-em">
     <div class="card">
-      <h3>Comprobantes emitidos desde el portal</h3>
-      <div class="desc">Estado en SUNAT, PDF y registro en el sistema. Desde aquí se reenvía al cliente o se hace una nota de crédito.</div>
+      <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:flex-start">
+        <div><h3>Comprobantes emitidos desde el portal</h3>
+        <div class="desc">Estado en SUNAT, PDF y registro en el sistema. Desde aquí se reenvía al cliente, se hace una nota de crédito o la guía de remisión.</div></div>
+        <div class="acciones"><button class="btn btn-sec" onclick="abrirTransferencias()">🚚 Guía desde transferencia</button>
+        <button class="btn btn-sec" onclick="guiaDesdeVenta()">🚚 Guía desde una venta</button></div>
+      </div>
       <div class="fila">
         <label class="campo">Empresa<select id="e-emp" onchange="cargarEM()"><option value="">Todas</option></select></label>
-        <label class="campo">Tipo<select id="e-tipo" onchange="cargarEM()"><option value="">Todos</option><option value="factura">Facturas</option><option value="boleta">Boletas</option><option value="nc">Notas de crédito</option></select></label>
+        <label class="campo">Tipo<select id="e-tipo" onchange="cargarEM()"><option value="">Todos</option><option value="factura">Facturas</option><option value="boleta">Boletas</option><option value="nc">Notas de crédito</option><option value="guia">Guías de remisión</option></select></label>
         <label class="campo">Estado<select id="e-estado" onchange="cargarEM()">
           <option value="">Todos</option><option value="revisar">Por revisar (SUNAT)</option><option value="erp">Falta en el sistema</option>
-          <option value="aceptado">Aceptados</option><option value="rechazado">Rechazados</option></select></label>
+          <option value="aceptado">Aceptados</option><option value="rechazado">Rechazados</option><option value="credito">Al crédito: por cobrar</option></select></label>
         <label class="campo">Desde<input type="date" id="e-desde"></label>
         <label class="campo">Hasta<input type="date" id="e-hasta"></label>
         <label class="campo" style="flex:1;min-width:180px">Buscar<input type="search" id="e-q" placeholder="Serie-número, cliente, venta…" onkeydown="if(event.key==='Enter')cargarEM()"></label>
@@ -192,7 +198,7 @@ a.lnk:hover{text-decoration:underline}
   <div class="grid2">
     <label class="campo">Documento<select id="me-tdoc" onchange="previa()">
       <option value="6">RUC</option><option value="1">DNI</option><option value="4">Carné de extranjería</option><option value="7">Pasaporte</option><option value="-">Sin documento (varios)</option></select></label>
-    <label class="campo">Número<input id="me-doc" oninput="autoTipoDoc();previaLenta()"></label>
+    <label class="campo">Número<input id="me-doc" oninput="autoTipoDoc();previaLenta()"><span class="sub" id="me-doc-fuente"></span></label>
     <label class="campo" style="grid-column:span 2">Nombre o razón social<input id="me-nombre" oninput="previaLenta()"></label>
     <label class="campo" style="grid-column:span 2">Dirección<input id="me-dir" oninput="previaLenta()"></label>
     <label class="campo">Correo<input id="me-email" type="email" oninput="previaLenta()"></label>
@@ -250,6 +256,82 @@ a.lnk:hover{text-decoration:underline}
     <button class="btn" id="ml-btn" onclick="emitirLote()">Emitir</button></div></div>
 </div></div>
 
+<!-- ══════════ MODAL: TRANSFERENCIAS SIN GUÍA ══════════ -->
+<div class="modal" id="m-transf"><div class="modal-box">
+  <div class="modal-top">
+    <div><h3>Transferencias sin guía</h3><div class="desc">Transferencias del sistema (consignaciones y entre almacenes) que aún no tienen N° de documento. Registra la transferencia en el sistema dejando el N° Documento vacío y emite aquí la guía.</div></div>
+    <button class="cerrar" onclick="cerrarModal('m-transf')">×</button>
+  </div>
+  <div class="fila"><label class="campo">Periodo<select id="mt-dias" onchange="cargarTransferencias()"><option value="15">15 días</option><option value="60" selected>60 días</option><option value="180">6 meses</option></select></label>
+    <label class="chk"><input type="checkbox" id="mt-todas" onchange="cargarTransferencias()"> Ver también las que ya tienen N° documento</label></div>
+  <div id="mt-aviso"></div>
+  <div class="tabla-wrap" style="max-height:55vh"><table>
+    <thead><tr><th>Fecha</th><th>Origen → Destino</th><th>Tipo</th><th class="n">Unid.</th><th>N° documento</th><th></th></tr></thead>
+    <tbody id="mt-body"></tbody></table></div>
+</div></div>
+
+<!-- ══════════ MODAL: GUÍA DE REMISIÓN ══════════ -->
+<datalist id="dl-ubigeos"></datalist>
+<div class="modal" id="m-guia"><div class="modal-box">
+  <div class="modal-top">
+    <div><h3 id="mg-titulo">Guía de remisión</h3><div class="desc" id="mg-sub"></div></div>
+    <button class="cerrar" onclick="cerrarModal('m-guia')">×</button>
+  </div>
+  <div class="grid2">
+    <label class="campo" style="grid-column:span 2">Motivo del traslado<select id="mg-motivo" onchange="mgMotivo();previaGuiaLenta()"></select></label>
+    <label class="campo">Fecha de emisión<input type="date" id="mg-fecha" onchange="previaGuiaLenta()"></label>
+    <label class="campo">Inicio del traslado<input type="date" id="mg-ftras" onchange="previaGuiaLenta()"></label>
+    <label class="campo" id="mg-mdesc-box" style="grid-column:span 4;display:none">Describe el motivo<input id="mg-mdesc" maxlength="100" oninput="previaGuiaLenta()"></label>
+  </div>
+  <div class="desc" style="margin-top:12px"><b>Destinatario</b></div>
+  <div class="grid2">
+    <label class="campo">Documento<select id="mg-tdoc" onchange="previaGuiaLenta()"><option value="6">RUC</option><option value="1">DNI</option><option value="4">Carné ext.</option><option value="7">Pasaporte</option></select></label>
+    <label class="campo">Número<input id="mg-doc" oninput="previaGuiaLenta()"></label>
+    <label class="campo" style="grid-column:span 2">Nombre o razón social<input id="mg-nombre" oninput="previaGuiaLenta()"></label>
+    <label class="campo" style="grid-column:span 2">Correo<input id="mg-email" type="email"></label>
+  </div>
+  <div class="desc" style="margin-top:12px"><b>Recorrido</b></div>
+  <div class="grid2">
+    <label class="campo" style="grid-column:span 2">Punto de partida<input id="mg-pdir" oninput="previaGuiaLenta()"></label>
+    <label class="campo" style="grid-column:span 2">Distrito de partida<input id="mg-pubi" list="dl-ubigeos" placeholder="Escribe el distrito…" oninput="previaGuiaLenta()"></label>
+    <label class="campo" style="grid-column:span 2">Dirección de llegada<input id="mg-ldir" oninput="previaGuiaLenta()"></label>
+    <label class="campo" style="grid-column:span 2">Distrito de llegada<input id="mg-lubi" list="dl-ubigeos" placeholder="Escribe el distrito…" oninput="previaGuiaLenta()"></label>
+  </div>
+  <div class="desc" style="margin-top:12px"><b>Transporte</b></div>
+  <div class="grid2">
+    <div class="campo" style="grid-column:span 2">Quién lleva la mercadería<div class="tipo-sel">
+      <button class="btn btn-sec" id="mg-mod-01" onclick="mgModalidad('01')">Agencia / courier</button>
+      <button class="btn btn-sec" id="mg-mod-02" onclick="mgModalidad('02')">Vehículo propio / motorizado</button></div></div>
+    <label class="campo">Peso bruto (kg)<input type="number" step="0.001" min="0" id="mg-peso" oninput="previaGuiaLenta()"></label>
+    <label class="campo">Bultos<input type="number" step="1" min="1" id="mg-bultos" value="1" oninput="previaGuiaLenta()"></label>
+  </div>
+  <div id="mg-t-01" class="grid2" style="display:none">
+    <label class="campo" style="grid-column:span 3">Agencia<select id="mg-agencia" onchange="previaGuiaLenta()"></select></label>
+    <div class="campo" style="justify-content:flex-end"><button class="btn btn-sec btn-sm" onclick="nuevoTransporte('agencia')">+ Nueva agencia</button></div>
+  </div>
+  <div id="mg-t-02" class="grid2" style="display:none">
+    <label class="campo" style="grid-column:span 2">Conductor<select id="mg-conductor" onchange="previaGuiaLenta()"></select></label>
+    <label class="campo">Vehículo (placa)<select id="mg-vehiculo" onchange="previaGuiaLenta()"></select></label>
+    <div class="campo" style="justify-content:flex-end;gap:4px"><button class="btn btn-sec btn-sm" onclick="nuevoTransporte('conductor')">+ Conductor</button><button class="btn btn-sec btn-sm" onclick="nuevoTransporte('vehiculo')">+ Vehículo</button></div>
+  </div>
+  <div class="tabla-wrap it-tabla" style="max-height:30vh">
+    <table><thead><tr><th style="width:28px"></th><th>Producto</th><th class="n">Cantidad</th></tr></thead><tbody id="mg-items"></tbody></table>
+  </div>
+  <div class="fila">
+    <label class="campo" style="flex:1">Observaciones<input id="mg-obs" maxlength="250"></label>
+    <label class="chk"><input type="checkbox" id="mg-mail"> Enviar la guía al correo</label>
+  </div>
+  <div class="desc" id="mg-rel" style="margin-top:6px"></div>
+  <div id="mg-msgs"></div>
+  <div class="pie-modal">
+    <span class="desc" id="mg-serie"></span>
+    <div class="acciones">
+      <button class="btn btn-sec" onclick="cerrarModal('m-guia')">Cancelar</button>
+      <button class="btn" id="mg-btn" onclick="emitirGuia()">Emitir guía</button>
+    </div>
+  </div>
+</div></div>
+
 <!-- ══════════ MODAL: NOTA DE CRÉDITO ══════════ -->
 <div class="modal" id="m-nc"><div class="modal-box">
   <div class="modal-top">
@@ -293,7 +375,7 @@ async function api(ep, method = 'GET', body) {
   return d;
 }
 function cerrarModal(id) { $(id).classList.remove('on'); }
-const NOMBRE_TIPO = { factura: 'Factura', boleta: 'Boleta', nc: 'Nota de crédito' };
+const NOMBRE_TIPO = { factura: 'Factura', boleta: 'Boleta', nc: 'Nota de crédito', guia: 'Guía de remisión' };
 const ESTADO_SUNAT = {
   aceptado: ['c-ok', 'Aceptado'], pendiente_sunat: ['c-w', 'Pendiente SUNAT'], rechazado: ['c-r', 'Rechazado'],
   incierto: ['c-r', 'Sin respuesta'], error: ['c-r', 'Error']
@@ -318,7 +400,7 @@ function pintarAvisoGlobal() {
   if (ESTADO.en_pruebas) av.push(`<b>Modo PRUEBAS de ${esc(ESTADO.proveedor)}</b>: los comprobantes no son válidos ante SUNAT.`);
   sinConf.forEach(e => av.push(`<b>${esc(e.nombre)}</b>: ${!e.conectado ? `falta conectar ${esc(ESTADO.proveedor)} (variable ${esc(e.variables)})` : 'emisión de comprobantes desactivada'}${ESTADO.maestro ? ' — ver Configuración' : ''}.`));
   if (!ESTADO.correo.lo_envia_proveedor && !ESTADO.correo.resend) av.push('Falta <span class="mono">RESEND_API_KEY</span>: el PDF no se enviará por correo (usa WhatsApp).');
-  if (!ESTADO.erp_automatico) av.push('El sistema (ERP) no se actualiza solo: después de emitir, anota la serie-número en la venta y márcalo en <b>Emitidos</b> (o configura <span class="mono">ERP_FACTURACION_URL</span>).');
+  if (!ESTADO.erp_automatico) av.push('El sistema (ERP) no se actualiza solo: después de emitir, anota la serie-número en la venta y márcalo en <b>Emitidos</b> (o configura <span class="mono">ERP_ESCRITURA_URL</span>).');
   $('aviso-global').innerHTML = av.length ? `<div class="aviso">${av.join('<br>')}</div>` : '';
   const pend = ESTADO.por_anotar_erp + ESTADO.por_verificar;
   $('badge-em').innerHTML = pend ? `<span class="chip c-w">${pend}</span>` : '';
@@ -393,7 +475,9 @@ async function abrirEmitir(id) {
   $('me-sub').textContent = `${ME.empresa} · ${ME.moneda === 'USD' ? 'Venta en DÓLARES' + (ME.tipo_cambio ? ' (TC ' + ME.tipo_cambio + ')' : '') + ' · ' : ''}Total ${S(ME.total, ME.moneda)} · Pendiente de comprobante ${S(ME.pendiente, ME.moneda)}`;
   $('me-previos').innerHTML = ME.comprobantes.length ? `<div class="aviso">Ya tiene comprobante(s): ${ME.comprobantes.map(c => `${esc(c.serie)}-${esc(c.numero)} (${S(c.total, ME.moneda)}${c.anticipo ? ', anticipo' : ''}${c.origen === 'erp' ? ', hecho fuera del portal' : ''})`).join(', ')}.${ME.externo > 0 ? ' Marca solo los ítems que faltan.' : ''}</div>` : '';
   const c = ME.cliente;
-  $('me-doc').value = c.doc || ''; $('me-tdoc').value = c.tipo_doc || (c.doc ? '1' : '-');
+  $('me-doc').value = c.doc || ''; $('me-tdoc').value = c.tipo_doc || (c.doc ? '1' : '-'); $('me-doc-fuente').textContent = '';
+  $('me-nombre').readOnly = false; $('me-dir').readOnly = false;
+  { const d0 = String(c.doc || '').replace(/\D/g, ''); if (d0.length === 8 || d0.length === 11) buscarDoc(d0); } // el nombre lo confirma SUNAT
   $('me-nombre').value = c.nombre || ''; $('me-dir').value = c.direccion || ''; $('me-email').value = c.email || ''; $('me-tel').value = c.telefono || '';
   $('me-fecha').value = ME.hoy; $('me-fecha').min = ME.fecha_min; $('me-fecha').max = ME.hoy;
   $('me-obs').value = 'Venta ' + ME.code;
@@ -415,6 +499,9 @@ async function abrirEmitir(id) {
   pintarLineas(); pintarCredito();
   $('m-emitir').classList.add('on');
   await cambiarMoneda(false, true);
+  const parcial = ME.pagado > 0.009 && ME.pagado + 0.009 < ME.total;
+  $('me-m-anticipo').disabled = !parcial;
+  $('me-m-anticipo').title = parcial ? '' : (ME.pagado > 0.009 ? 'La venta está pagada completa: emite el comprobante de la venta' : 'La venta no tiene pagos');
   setModo('normal');
 }
 // Pagos de la venta: los marcados definen el monto (y la moneda) del anticipo
@@ -487,19 +574,38 @@ function setTipo(t, sinPrevia) {
 }
 function autoTipoDoc() {
   const d = $('me-doc').value.replace(/\D/g, '');
-  if (d.length === 11) $('me-tdoc').value = '6'; else if (d.length === 8 && $('me-tdoc').value === '6') $('me-tdoc').value = '1';
+  if (d.length === 11) $('me-tdoc').value = '6'; else if (d.length === 8 && ['6', '-', ''].includes($('me-tdoc').value)) $('me-tdoc').value = '1';
+  $('me-nombre').readOnly = false; $('me-dir').readOnly = false;
+  if (d.length === 8 || d.length === 11) buscarDoc(d);
+}
+// Nombre (y dirección) del RUC/DNI: de la ficha del sistema o de SUNAT
+let tDoc = null;
+function buscarDoc(d) {
+  clearTimeout(tDoc);
+  tDoc = setTimeout(async () => {
+    try {
+      const r = await api('/api/fe/documento/' + d);
+      if ($('me-doc').value.replace(/\D/g, '') !== d) return;
+      if (r.nombre) { $('me-nombre').value = r.nombre; if (r.direccion) $('me-dir').value = r.direccion; if (r.email && !$('me-email').value) $('me-email').value = r.email; }
+      const sunat = r.fuente === 'SUNAT';
+      $('me-nombre').readOnly = sunat; if (sunat && r.direccion && r.tipo_doc === '6') $('me-dir').readOnly = true;
+      $('me-doc-fuente').textContent = r.nombre ? (sunat ? `✓ SUNAT${r.estado ? ' · ' + r.estado + (r.condicion ? ' / ' + r.condicion : '') : ''}` : 'del sistema (SUNAT no respondió)') : 'no encontrado: escribe el nombre';
+      previaLenta();
+    } catch (e) { $('me-doc-fuente').textContent = ''; }
+  }, 350);
 }
 function pintarCredito() { const on = $('me-credito').checked; $('me-cr-f').style.display = $('me-cr-i').style.display = on ? '' : 'none'; }
 function pintarLineas() {
   $('me-items').innerHTML = ME_LINEAS.map((l, i) => {
-    const tope = l.sale_item_id ? ` max="${l.cantidad_max != null ? l.cantidad_max : l.cantidad}"` : '';
-    if (l.cantidad_max == null) l.cantidad_max = l.sale_item_id ? l.cantidad : null;
+    const deVenta = l.sale_item_id != null;
+    const tope = deVenta ? ` max="${l.cantidad_max != null ? l.cantidad_max : l.cantidad}"` : '';
+    if (l.cantidad_max == null) l.cantidad_max = deVenta ? l.cantidad : null;
     return `<tr>
-      <td><input type="checkbox" ${l.sel ? 'checked' : ''} ${l.sale_item_id && l.cantidad_max <= 0 ? 'disabled title="Ya facturado"' : ''} onchange="ME_LINEAS[${i}].sel=this.checked;totalesME();previaLenta()"></td>
+      <td><input type="checkbox" ${l.sel ? 'checked' : ''} ${deVenta && l.cantidad_max <= 0 ? 'disabled title="Ya facturado"' : ''} onchange="ME_LINEAS[${i}].sel=this.checked;totalesME();previaLenta()"></td>
       <td><input value="${esc(l.descripcion)}" oninput="ME_LINEAS[${i}].descripcion=this.value;previaLenta()">
-        <div class="sub">${l.codigo ? esc(l.codigo) + ' · ' : ''}${l.sale_item_id ? `vendido ${N(l.cantidad_venta, 0)}${l.ya_facturado ? `, ya facturado ${N(l.ya_facturado, 0)}` : ''}` : 'línea agregada'}</div></td>
-      <td class="n"><input class="q" type="number" min="0" step="any"${tope} value="${l.cantidad}" oninput="ME_LINEAS[${i}].cantidad=Number(this.value);totalesME();previaLenta()"></td>
-      <td class="n"><input class="p" type="number" min="0" step="0.01" value="${Number(l.precio).toFixed(2)}" oninput="ME_LINEAS[${i}].precio=Number(this.value);ME_LINEAS[${i}].precio_venta=aVenta(Number(this.value));totalesME();previaLenta()"></td>
+        <div class="sub">${l.es_envio ? 'cobrado en la venta además de los productos' : (l.codigo ? esc(l.codigo) + ' · ' : '') + (deVenta ? `vendido ${N(l.cantidad_venta, 0)}${l.ya_facturado ? `, ya facturado ${N(l.ya_facturado, 0)}` : ''}` : 'línea agregada')}</div></td>
+      <td class="n"><input class="q" type="number" min="0" step="any"${tope} value="${l.cantidad}" ${l.es_envio ? 'readonly' : ''} oninput="ME_LINEAS[${i}].cantidad=Number(this.value);totalesME();previaLenta()"></td>
+      <td class="n"><input class="p" type="number" min="0" step="0.01" value="${Number(l.precio).toFixed(2)}" ${deVenta ? 'readonly title="Es el precio al que se vendió"' : ''} oninput="ME_LINEAS[${i}].precio=Number(this.value);ME_LINEAS[${i}].precio_venta=aVenta(Number(this.value));totalesME();previaLenta()"></td>
       <td class="n" id="me-lt-${i}">${S(l.cantidad * l.precio, ME_MON)}</td></tr>`;
   }).join('') || '<tr><td colspan="5" class="vacio">Sin ítems</td></tr>';
   totalesME();
@@ -559,7 +665,7 @@ async function emitir() {
 function linkWhatsApp(c, tel) {
   const num = String(tel || '').replace(/\D/g, ''); if (!c.enlace_pdf) return '';
   const n = num.length === 9 ? '51' + num : num;
-  const txt = `Hola, te enviamos tu ${NOMBRE_TIPO[c.tipo].toLowerCase()} electrónica ${c.serie}-${c.numero} por ${S(c.total, c.moneda)}: ${c.enlace_pdf}`;
+  const txt = `Hola, te enviamos tu ${NOMBRE_TIPO[c.tipo].toLowerCase()} electrónica ${c.serie}-${c.numero}${c.tipo === 'guia' ? '' : ' por ' + S(c.total, c.moneda)}: ${c.enlace_pdf}`;
   return `https://wa.me/${n}?text=${encodeURIComponent(txt)}`;
 }
 function mostrarResultado(c, cli) {
@@ -567,7 +673,7 @@ function mostrarResultado(c, cli) {
   const wa = linkWhatsApp(c, cli && cli.telefono);
   const box = document.createElement('div');
   box.className = 'aviso ' + (c.estado === 'aceptado' ? 'ok' : c.estado === 'pendiente_sunat' ? '' : 'r');
-  box.innerHTML = `<b>${NOMBRE_TIPO[c.tipo]} ${esc(c.serie)}-${c.numero}</b> · ${S(c.total, c.moneda)} · <span class="chip ${cl}">${tx}</span>
+  box.innerHTML = `<b>${NOMBRE_TIPO[c.tipo]} ${esc(c.serie)}-${c.numero}</b>${c.tipo === 'guia' ? '' : ' · ' + S(c.total, c.moneda)} · <span class="chip ${cl}">${tx}</span>
     ${c.enlace_pdf ? ` · <a class="lnk" href="${esc(c.enlace_pdf)}" target="_blank">PDF</a>` : ''}
     ${wa ? ` · <a class="lnk" href="${wa}" target="_blank">Enviar por WhatsApp</a>` : ''}
     ${c.erp_estado === 'registrado' ? ' · registrado en el sistema' : c.erp_estado === 'error' ? ` · <b>no se pudo registrar en el sistema:</b> ${esc(c.erp_error)}` : c.erp_estado === 'pendiente' ? ' · <b>anótalo en el sistema</b>' : ''}
@@ -580,21 +686,41 @@ async function refrescarEstado() { try { ESTADO = await api('/api/fe/estado'); c
 // ── Lote ──
 let LOTE = [];
 function abrirLote() {
-  LOTE = PF.filter(v => SEL.has(v.id)).map(v => ({ v, tipo: v.tipo_sugerido, res: null }));
+  LOTE = PF.filter(v => SEL.has(v.id)).map(v => ({ v, tipo: v.tipo_sugerido, res: null, doc: v.cliente.doc || '', nombre: v.cliente.nombre || '' }));
+  // Confirmar nombres con SUNAT
+  LOTE.forEach((x, i) => { const d = String(x.doc).replace(/\D/g, ''); if (d.length === 8 || d.length === 11)
+    api('/api/fe/documento/' + d).then(r => { if (r.nombre && r.fuente === 'SUNAT') { x.nombre = r.nombre; x.sunat = true; pintarLote(); } }).catch(() => {}); });
   $('ml-msg').innerHTML = ''; $('ml-btn').disabled = false; $('ml-btn').style.display = '';
   pintarLote(); $('m-lote').classList.add('on');
 }
 function pintarLote() {
   $('ml-body').innerHTML = LOTE.map((x, i) => {
-    const sinRuc = x.v.cliente.tipo_doc !== '6';
+    const sinRuc = String(x.doc).replace(/\D/g, '').length !== 11;
+    if (sinRuc || x.v.solo_boletas) x.tipo = 'boleta';
     const res = !x.res ? '' : x.res.ok ? `<span class="chip c-ok">${esc(x.res.comprobante.serie)}-${x.res.comprobante.numero}</span>${x.res.comprobante.enlace_pdf ? ` <a class="lnk" target="_blank" href="${esc(x.res.comprobante.enlace_pdf)}">PDF</a>` : ''}` : `<span class="chip c-r">Error</span><div class="sub">${esc(x.res.error)}</div>`;
-    return `<tr><td class="mono">${esc(x.v.code)}</td><td>${esc(x.v.cliente.nombre || 'CLIENTES VARIOS')}<div class="sub mono">${esc(x.v.cliente.doc || '—')}</div></td>
+    const bloq = x.res && x.res.ok ? 'disabled' : '';
+    return `<tr><td class="mono">${esc(x.v.code)}</td><td>
+      <input style="width:100%;padding:4px 7px;font-size:12px" placeholder="Nombre o razón social" value="${esc(x.nombre)}" ${bloq || (x.sunat ? 'readonly title="Nombre según SUNAT"' : '')} oninput="LOTE[${i}].nombre=this.value">${x.sunat ? '<div class="sub">✓ SUNAT</div>' : ''}
+      <input class="mono" style="margin-top:4px;width:140px;padding:4px 7px;font-size:12px" placeholder="RUC o DNI" value="${esc(x.doc)}" ${bloq} onchange="docLote(${i}, this.value)">
+      ${x.aviso ? `<div class="sub" style="color:var(--fg-warn)">${esc(x.aviso)}</div>` : ''}</td>
       <td class="n">${S(x.v.pendiente, x.v.moneda)}</td>
-      <td><select ${x.res ? 'disabled' : ''} onchange="LOTE[${i}].tipo=this.value"><option value="boleta" ${x.tipo === 'boleta' ? 'selected' : ''}>Boleta</option><option value="factura" ${x.tipo === 'factura' ? 'selected' : ''} ${sinRuc ? 'disabled' : ''}>Factura</option></select></td>
+      <td><select ${x.res ? 'disabled' : ''} onchange="LOTE[${i}].tipo=this.value"><option value="boleta" ${x.tipo === 'boleta' ? 'selected' : ''}>Boleta</option><option value="factura" ${x.tipo === 'factura' ? 'selected' : ''} ${sinRuc || x.v.solo_boletas ? 'disabled' : ''}>Factura${x.v.solo_boletas ? ' (Nuevo RUS: no)' : ''}</option></select></td>
       <td>${res}</td></tr>`;
   }).join('');
   const t = LOTE.reduce((s, x) => s + x.v.pendiente, 0);
   $('ml-resumen').textContent = `${LOTE.length} comprobante(s) · ${SM(LOTE.map(x => x.v), v => v.pendiente)}`;
+}
+async function docLote(i, val) {
+  const x = LOTE[i], d = String(val || '').replace(/\D/g, '');
+  x.doc = d; x.aviso = '';
+  if (d !== (x.v.cliente.doc || '')) {
+    x.nombre = ''; x.sunat = false;
+    if (d.length === 8 || d.length === 11) {
+      try { const r = await api('/api/fe/documento/' + d); if (r.nombre) { x.nombre = r.nombre; x.sunat = r.fuente === 'SUNAT'; } } catch (e) {}
+    }
+    if (!x.nombre) x.aviso = 'No encontrado: escribe el nombre o razón social';
+  } else x.nombre = x.v.cliente.nombre || '';
+  pintarLote();
 }
 async function emitirLote() {
   const pend = LOTE.filter(x => !x.res || !x.res.ok);
@@ -602,7 +728,8 @@ async function emitirLote() {
   if (!confirm(`¿Emitir ${pend.length} comprobante(s)? Se envían a SUNAT y no se pueden deshacer.`)) return;
   $('ml-btn').disabled = true; $('ml-btn').textContent = 'Emitiendo…';
   try {
-    const r = await api('/api/fe/emitir-lote', 'POST', { ventas: pend.map(x => ({ sale_id: x.v.id, tipo: x.tipo })), enviar_email: $('ml-mail').checked });
+    const r = await api('/api/fe/emitir-lote', 'POST', { ventas: pend.map(x => ({ sale_id: x.v.id, tipo: x.tipo,
+      cliente: x.doc !== (x.v.cliente.doc || '') || x.nombre !== (x.v.cliente.nombre || '') ? { doc: x.doc, nombre: x.nombre } : undefined })), enviar_email: $('ml-mail').checked });
     r.resultados.forEach(res => { const x = LOTE.find(l => l.v.id === res.sale_id); if (x) x.res = res; });
     pintarLote();
     $('ml-msg').innerHTML = `<div class="aviso ${r.fallidos ? '' : 'ok'}">${r.ok} emitido(s)${r.fallidos ? `, ${r.fallidos} con error (revísalos con “Revisar”)` : ''}.</div>`;
@@ -618,7 +745,7 @@ async function cargarEM() {
   $('em-body').innerHTML = '<tr><td colspan="8" class="vacio">Cargando…</td></tr>';
   const p = new URLSearchParams();
   ['emp', 'tipo', 'estado', 'desde', 'hasta', 'q'].forEach(k => { const v = $('e-' + k).value.trim(); if (v) p.set(k === 'emp' ? 'empresa' : k, v); });
-  if (['revisar', 'erp'].includes($('e-estado').value)) { p.delete('desde'); p.delete('hasta'); }
+  if (['revisar', 'erp', 'credito'].includes($('e-estado').value)) { p.delete('desde'); p.delete('hasta'); }
   try { EM = (await api('/api/fe/emitidos?' + p)).comprobantes; }
   catch (e) { $('em-body').innerHTML = `<tr><td colspan="8" class="vacio">${esc(e.message)}</td></tr>`; return; }
   pintarEM();
@@ -627,7 +754,7 @@ function pintarEM() {
   if (!EM.length) { $('em-body').innerHTML = '<tr><td colspan="8" class="vacio">Sin comprobantes con estos filtros</td></tr>'; return; }
   $('em-body').innerHTML = EM.map(c => {
     const [cl, tx] = ESTADO_SUNAT[c.estado] || ['c-g', c.estado];
-    const erp = c.tipo === 'nc' ? '<span class="sub">—</span>' :
+    const erp = c.tipo === 'nc' || (c.tipo === 'guia' && !c.transfer_id) || c.erp_estado === 'no_aplica' ? '<span class="sub">—</span>' :
       c.erp_estado === 'registrado' ? '<span class="chip c-ok">Registrado</span>' :
       c.erp_estado === 'error' ? `<span class="chip c-r" title="${esc(c.erp_error)}">Error</span>` :
       ['aceptado', 'pendiente_sunat'].includes(c.estado) ? '<span class="chip c-w">Por anotar</span>' : '<span class="sub">—</span>';
@@ -639,22 +766,35 @@ function pintarEM() {
     if (c.enlace_pdf && c.estado !== 'rechazado') acc.push(`<a class="lnk" href="#" onclick="reenviarCorreo(${c.id});return false">${c.email_enviado ? 'Reenviar correo' : 'Enviar correo'}</a>`);
     if (['pendiente_sunat', 'incierto'].includes(c.estado)) acc.push(`<button class="btn btn-sec btn-sm" onclick="consultar(${c.id})">Consultar</button>`);
     if (c.estado === 'incierto') acc.push(`<button class="btn btn-sec btn-sm" onclick="reintentar(${c.id})">Reintentar</button>`);
-    if (c.tipo !== 'nc' && ['aceptado', 'pendiente_sunat'].includes(c.estado) && ['pendiente', 'error'].includes(c.erp_estado)) {
+    if (c.tipo !== 'nc' && (c.tipo !== 'guia' || c.transfer_id) && ['aceptado', 'pendiente_sunat'].includes(c.estado) && ['pendiente', 'error'].includes(c.erp_estado)) {
       if (ESTADO && ESTADO.erp_automatico) acc.push(`<button class="btn btn-sec btn-sm" onclick="registrarERP(${c.id})">Registrar en sistema</button>`);
       acc.push(`<button class="btn btn-sec btn-sm" onclick="registrarERP(${c.id},true)">Ya lo anoté</button>`);
     }
-    if (c.tipo !== 'nc' && ['aceptado', 'pendiente_sunat'].includes(c.estado) && !c.anulado_por_nc) acc.push(`<button class="btn btn-sec btn-sm" onclick="abrirNC(${c.id})">Nota de crédito</button>`);
+    if (ESTADO && ESTADO.maestro && ESTADO.erp_automatico && c.erp_estado === 'registrado' && !String(c.erp_por || '').includes('(a mano)'))
+      acc.push(`<button class="btn btn-sec btn-sm" title="Quita del sistema lo que el portal escribió" onclick="deshacerERP(${c.id})">↩ Deshacer en sistema</button>`);
+    if (['factura', 'boleta'].includes(c.tipo) && ['aceptado', 'pendiente_sunat'].includes(c.estado) && !c.anulado_por_nc) {
+      acc.push(`<button class="btn btn-sec btn-sm" onclick="abrirNC(${c.id})">Nota de crédito</button>`);
+      if (!c.es_anticipo || c.aplicado_en) acc.push(`<button class="btn btn-sec btn-sm" onclick="abrirGuia({comprobante_id:${c.id}})">🚚 Guía</button>`);
+    }
     const ref = c.tipo === 'nc' ? `<div class="sub">Modifica ${esc(c.ref_serie)}-${c.ref_numero}</div>` : c.anulado_por_nc ? '<div class="sub" style="color:var(--fg-r)">Anulado con nota de crédito</div>' : '';
     return `<tr>
       <td><div class="nom mono">${esc(c.serie)}-${c.numero}</div><div class="sub">${NOMBRE_TIPO[c.tipo]}${c.es_anticipo ? ' de anticipo' + (c.aplicado_en ? ' (ya descontado)' : ' (por descontar)') : ''} · ${esc(c.empresa)}</div>${ref}</td>
       <td>${fechaTxt(c.fecha_emision)}<div class="sub">${esc(c.emitido_por || '')}</div></td>
       <td><div class="nom">${esc(c.cliente_nombre)}</div><div class="sub mono">${esc(c.cliente_doc)}</div>${c.email_enviado ? '<div class="sub">✉ enviado al correo</div>' : ''}</td>
-      <td class="mono">${esc(c.sale_code || '—')}</td>
-      <td class="n">${c.tipo === 'nc' ? '−' : ''}${S(c.total, c.moneda)}${c.credito ? '<div class="sub">al crédito</div>' : ''}</td>
+      <td class="mono">${esc(c.sale_code || (c.transfer_id ? 'Transf. #' + c.transfer_id : '—'))}</td>
+      <td class="n">${c.tipo === 'guia' ? '<span class="sub">—</span>' : (c.tipo === 'nc' ? '−' : '') + S(c.total, c.moneda)}${c.credito ? '<div class="sub">al crédito</div>' : ''}${cobro(c)}</td>
       <td><span class="chip ${cl}">${tx}</span>${c.sunat_desc && c.estado !== 'aceptado' ? `<div class="sub">${esc(c.sunat_desc)}</div>` : ''}</td>
       <td>${erp}</td>
       <td><div class="acciones">${acc.join(' ')}</div></td></tr>`;
   }).join('');
+}
+// Saldo por cobrar y vencimiento de un comprobante al crédito
+function cobro(c) {
+  if (c.saldo_venta == null) return '';
+  if (c.saldo_venta <= 0.009) return '<div class="sub" style="color:var(--fg-ok)">pagado</div>';
+  const d = c.dias_para_vencer, cls = d == null ? 'c-w' : d < 0 ? 'c-r' : d <= 7 ? 'c-w' : 'c-g';
+  const txt = d == null ? 'sin fecha' : d < 0 ? `vencido hace ${-d} d` : d === 0 ? 'vence hoy' : `vence en ${d} d`;
+  return `<div class="sub">debe ${S(c.saldo_venta, c.moneda_venta)}</div><span class="chip ${cls}">${txt}</span>`;
 }
 function enviarWA(id) {
   const c = EM.find(x => x.id === id); if (!c) return;
@@ -667,6 +807,17 @@ async function reenviarCorreo(id) {
   const email = prompt('Correo del cliente:', c.cliente_email || ''); if (!email) return;
   try { await api(`/api/fe/${id}/email`, 'POST', { email: email.trim() }); showToast('Correo enviado a ' + email); cargarEM(); }
   catch (e) { showToast(e.message, true); }
+}
+async function deshacerERP(id) {
+  try {
+    const r = await api('/api/fe/erp-log?comprobante_id=' + id);
+    const pend = r.cambios.filter(x => !x.deshecho_en);
+    if (!pend.length) return showToast('No hay cambios del portal para deshacer', true);
+    const desc = pend.map(x => x.tabla === 'sale_vouchers' ? `• Quitar el comprobante de la venta (${x.despues})` : `• ${x.campo === 'reference_number' ? 'N° documento' : 'Notas'} de la transferencia #${x.registro_id}: volver a "${x.antes || '(vacío)'}"`).join('\n');
+    if (!confirm('Se deshará en el sistema:\n' + desc + '\n\n¿Continuar?')) return;
+    for (const x of pend) await api(`/api/fe/erp-log/${x.id}/deshacer`, 'POST');
+    showToast('Cambios deshechos en el sistema'); cargarEM(); refrescarEstado();
+  } catch (e) { showToast(e.message, true); cargarEM(); }
 }
 async function consultar(id) {
   try { const r = await api(`/api/fe/${id}/consultar`, 'POST'); showToast(r.mensaje || ('Estado: ' + ((ESTADO_SUNAT[r.estado] || [])[1] || r.estado))); cargarEM(); refrescarEstado(); }
@@ -731,10 +882,136 @@ async function emitirNC() {
   finally { $('nc-btn').disabled = false; }
 }
 
+// ══════════════ GUÍA DE REMISIÓN ══════════════
+let MG = null, MG_ORIGEN = null, MG_MOD = '01', MG_ITEMS = [], tGuia = null, UBIGEOS = null;
+async function cargarUbigeos() {
+  if (UBIGEOS) return;
+  try { UBIGEOS = (await (await fetch('/vendor/ubigeos.json')).json()).ubigeos; } catch (e) { UBIGEOS = []; }
+  $('dl-ubigeos').innerHTML = UBIGEOS.map(([c, n]) => `<option value="${c} · ${esc(n)}"></option>`).join('');
+}
+const ubiTxt = c => { const u = (UBIGEOS || []).find(x => x[0] === c); return c ? (u ? `${c} · ${u[1]}` : c) : ''; };
+const ubiCod = v => (String(v || '').match(/^\s*(\d{6})/) || [])[1] || '';
+async function abrirTransferencias() { $('m-transf').classList.add('on'); cargarTransferencias(); }
+async function cargarTransferencias() {
+  $('mt-body').innerHTML = '<tr><td colspan="6" class="vacio">Cargando…</td></tr>';
+  try {
+    const r = await api(`/api/fe/guia/transferencias?dias=${$('mt-dias').value}${$('mt-todas').checked ? '&todas=1' : ''}`);
+    $('mt-aviso').innerHTML = r.escribe_erp ? '' : '<div class="aviso">El portal no tiene permiso para escribir en el sistema: después de emitir, copia el N° de la guía en la transferencia.</div>';
+    $('mt-body').innerHTML = r.transferencias.map(t => `<tr>
+      <td>${fechaTxt(String(t.fecha).slice(0, 10))}</td>
+      <td><div class="nom">${esc(t.origen || '—')} → ${esc(t.destino || '—')}</div><div class="sub">Transferencia #${t.id}</div></td>
+      <td><span class="sub">${esc(t.tipo || '')}</span></td><td class="n">${N(t.unidades, 0)}</td>
+      <td>${t.referencia ? `<span class="chip c-g">${esc(t.referencia)}</span>` : t.guia ? `<span class="chip c-w">${esc(t.guia)} (por anotar)</span>` : '<span class="sub">—</span>'}</td>
+      <td>${t.guia || t.referencia ? '' : `<button class="btn btn-sm" onclick="cerrarModal('m-transf');abrirGuia({transfer_id:${t.id}})">Emitir guía</button>`}</td></tr>`).join('')
+      || '<tr><td colspan="6" class="vacio">No hay transferencias sin guía en este periodo</td></tr>';
+  } catch (e) { $('mt-body').innerHTML = `<tr><td colspan="6" class="vacio">${esc(e.message)}</td></tr>`; }
+}
+function guiaDesdeVenta() {
+  const code = prompt('Código de la venta (ej. VTA-000424):', ''); if (!code) return;
+  abrirGuia({ codigo: code.trim() });
+}
+async function abrirGuia(origen) {
+  MG_ORIGEN = origen;
+  try { [MG] = await Promise.all([api('/api/fe/guia/borrador?' + new URLSearchParams(origen)), cargarUbigeos()]); } catch (e) { return showToast(e.message, true); }
+  $('mg-titulo').textContent = 'Guía de remisión ' + (MG.serie || '');
+  $('mg-sub').textContent = `${MG.empresa}${MG.venta ? ' · Venta ' + MG.venta.code : ''}${MG.transferencia ? ` · Transferencia #${MG.transferencia.id}: ${MG.transferencia.origen} → ${MG.transferencia.destino}` : ''}${MG.relacionados.length ? ' · ' + MG.relacionados.map(r => r.serie + '-' + r.numero).join(', ') : ''}`;
+  $('mg-motivo').innerHTML = Object.entries(MG.motivos).map(([k, v]) => `<option value="${k}">${k} · ${esc(v)}</option>`).join('');
+  $('mg-motivo').value = MG.motivo || '01'; mgMotivo();
+  $('mg-fecha').value = $('mg-ftras').value = MG.hoy; $('mg-fecha').max = MG.hoy; $('mg-ftras').min = MG.hoy;
+  const d = MG.destinatario || {};
+  $('mg-tdoc').value = d.tipo_doc && d.tipo_doc !== '-' ? d.tipo_doc : (String(d.doc || '').length === 11 ? '6' : '1');
+  $('mg-doc').value = d.doc && d.doc !== '-' ? d.doc : ''; $('mg-nombre').value = d.nombre || ''; $('mg-email').value = d.email || '';
+  $('mg-pdir').value = MG.partida.direccion || ''; $('mg-pubi').value = ubiTxt(MG.partida.ubigeo);
+  $('mg-ldir').value = MG.llegada.direccion || ''; $('mg-lubi').value = ubiTxt(MG.llegada.ubigeo || '');
+  $('mg-peso').value = ''; $('mg-bultos').value = 1;
+  $('mg-obs').value = MG.venta ? 'Venta ' + MG.venta.code : MG.transferencia ? `Transferencia ${MG.transferencia.origen} → ${MG.transferencia.destino}` : ''; $('mg-mail').checked = !!MG.enviar_email;
+  $('mg-rel').innerHTML = (MG.relacionados.length ? `Documento relacionado: <b>${MG.relacionados.map(r => `${NOMBRE_TIPO[r.tipo] || r.tipo} ${esc(r.serie)}-${r.numero}`).join(', ')}</b>` : 'Sin comprobante relacionado.')
+    + (MG.transferencia ? (MG.escribe_erp ? '<br>Al emitir, el N° de la guía y el RUC/DNI del destinatario se escriben en la transferencia del sistema.' : '<br>Al emitir, copia el N° de la guía en la transferencia del sistema.') : '');
+  $('mg-serie').textContent = MG.serie ? `Serie ${MG.serie} · el número lo asigna el portal` : 'Falta la serie de guías (Configuración)';
+  MG_ITEMS = MG.items.map(i => ({ ...i, sel: true }));
+  pintarItemsGuia(); pintarTransporte(); mgModalidad(MG_MOD);
+  $('m-guia').classList.add('on');
+}
+function mgMotivo() { $('mg-mdesc-box').style.display = $('mg-motivo').value === '13' ? '' : 'none'; }
+function mgModalidad(m) {
+  MG_MOD = m;
+  ['01', '02'].forEach(x => { $('mg-mod-' + x).className = 'btn ' + (x === m ? '' : 'btn-sec'); $('mg-t-' + x).style.display = x === m ? 'grid' : 'none'; });
+  previaGuiaLenta();
+}
+function pintarTransporte(sel) {
+  const T = MG.transporte || [];
+  const opts = (cl, txt) => { const l = T.filter(x => x.clase === cl); return l.length ? l.map(x => `<option value="${x.id}">${esc(txt(x))}</option>`).join('') : '<option value="">— agrega uno —</option>'; };
+  $('mg-agencia').innerHTML = opts('agencia', x => `${x.nombre} (${x.doc})`);
+  $('mg-conductor').innerHTML = opts('conductor', x => `${x.nombre} ${x.apellidos} · DNI ${x.doc} · Lic. ${x.licencia}`);
+  $('mg-vehiculo').innerHTML = opts('vehiculo', x => `${x.placa}${x.detalle ? ' · ' + x.detalle : ''}`);
+  if (sel) { const el = $('mg-' + sel.clase); if (el) el.value = sel.id; }
+}
+async function nuevoTransporte(clase) {
+  let b = { clase };
+  if (clase === 'agencia') {
+    b.doc = prompt('RUC de la agencia o courier:'); if (!b.doc) return;
+    b.nombre = prompt('Razón social:'); if (!b.nombre) return;
+    b.mtc = prompt('N° de registro MTC (opcional):') || '';
+  } else if (clase === 'conductor') {
+    b.doc = prompt('DNI del conductor:'); if (!b.doc) return;
+    b.nombre = prompt('Nombres:'); if (!b.nombre) return;
+    b.apellidos = prompt('Apellidos:'); if (!b.apellidos) return;
+    b.licencia = prompt('N° de licencia de conducir:'); if (!b.licencia) return;
+  } else {
+    b.placa = prompt('Placa (moto o auto):'); if (!b.placa) return;
+    b.detalle = prompt('Descripción (opcional, ej. Moto Honda):') || '';
+  }
+  try {
+    const r = await api('/api/fe/gre/transporte', 'POST', b);
+    MG.transporte = (await api('/api/fe/gre/transporte')).transporte;
+    pintarTransporte({ clase, id: r.id }); previaGuiaLenta(); showToast('Guardado');
+  } catch (e) { showToast(e.message, true); }
+}
+function pintarItemsGuia() {
+  $('mg-items').innerHTML = MG_ITEMS.map((it, i) => `<tr>
+    <td><input type="checkbox" ${it.sel ? 'checked' : ''} onchange="MG_ITEMS[${i}].sel=this.checked;previaGuiaLenta()"></td>
+    <td><input value="${esc(it.descripcion)}" oninput="MG_ITEMS[${i}].descripcion=this.value;previaGuiaLenta()"><div class="sub">${esc(it.codigo || '')}</div></td>
+    <td class="n"><input class="q" type="number" min="0" step="any" value="${it.cantidad}" oninput="MG_ITEMS[${i}].cantidad=Number(this.value);previaGuiaLenta()"></td></tr>`).join('')
+    || '<tr><td colspan="3" class="vacio">Sin productos</td></tr>';
+}
+function cuerpoGuia() {
+  const T = MG.transporte || [], por = id => T.find(x => String(x.id) === String(id)) || {};
+  const b = { ...MG_ORIGEN, motivo: $('mg-motivo').value, motivo_desc: $('mg-mdesc').value.trim(), modalidad: MG_MOD,
+    fecha: $('mg-fecha').value, fecha_traslado: $('mg-ftras').value,
+    destinatario: { tipo_doc: $('mg-tdoc').value, doc: $('mg-doc').value.trim(), nombre: $('mg-nombre').value.trim(), email: $('mg-email').value.trim(), direccion: $('mg-ldir').value.trim() },
+    partida: { ubigeo: ubiCod($('mg-pubi').value), direccion: $('mg-pdir').value.trim() },
+    llegada: { ubigeo: ubiCod($('mg-lubi').value), direccion: $('mg-ldir').value.trim() },
+    peso: Number($('mg-peso').value), bultos: Number($('mg-bultos').value),
+    items: MG_ITEMS.filter(i => i.sel && Number(i.cantidad) > 0).map(i => ({ codigo: i.codigo, descripcion: i.descripcion, cantidad: Number(i.cantidad) })),
+    observaciones: $('mg-obs').value.trim(), enviar_email: $('mg-mail').checked };
+  if (MG_MOD === '01') { const a = por($('mg-agencia').value); b.transportista = { ruc: a.doc, denominacion: a.nombre, mtc: a.mtc }; }
+  else { const c = por($('mg-conductor').value), v = por($('mg-vehiculo').value); b.conductor = { tipo_doc: '1', doc: c.doc, nombres: c.nombre, apellidos: c.apellidos, licencia: c.licencia }; b.vehiculo = { placa: v.placa }; }
+  return b;
+}
+function previaGuiaLenta() { clearTimeout(tGuia); tGuia = setTimeout(previaGuia, 450); }
+async function previaGuia() {
+  if (!MG) return;
+  try {
+    const r = await api('/api/fe/guia/previsualizar', 'POST', cuerpoGuia());
+    $('mg-msgs').innerHTML = (r.errores.length ? `<div class="aviso r">${r.errores.map(esc).join('<br>')}</div>` : '') + (r.avisos.length ? `<div class="aviso">${r.avisos.map(esc).join('<br>')}</div>` : '');
+    $('mg-btn').disabled = r.errores.length > 0;
+  } catch (e) { $('mg-msgs').innerHTML = `<div class="aviso r">${esc(e.message)}</div>`; $('mg-btn').disabled = true; }
+}
+async function emitirGuia() {
+  const b = cuerpoGuia();
+  if (!confirm(`¿Emitir la guía de remisión a ${b.destinatario.nombre}?\\nSe envía a SUNAT y no se puede deshacer.`)) return;
+  $('mg-btn').disabled = true; $('mg-btn').textContent = 'Emitiendo…';
+  try {
+    const r = await api('/api/fe/guia', 'POST', b);
+    cerrarModal('m-guia'); mostrarResultado(r.comprobante, { telefono: (MG.destinatario || {}).telefono }); cargarEM();
+  } catch (e) { $('mg-msgs').innerHTML = `<div class="aviso r">${esc(e.message)}</div>`; }
+  finally { $('mg-btn').disabled = false; $('mg-btn').textContent = 'Emitir guía'; }
+}
+
 // ══════════════ CONFIGURACIÓN ══════════════
 async function cargarCF() {
   let corr = [];
-  try { ESTADO = await api('/api/fe/estado'); corr = (await api('/api/fe/correlativos')).correlativos; } catch (e) { return showToast(e.message, true); }
+  try { ESTADO = await api('/api/fe/estado'); corr = (await api('/api/fe/correlativos')).correlativos; await cargarUbigeos(); } catch (e) { return showToast(e.message, true); }
   $('cf-desc').innerHTML = `Proveedor: <b>${esc(ESTADO.proveedor)}</b>${ESTADO.en_pruebas ? ' (modo pruebas)' : ''}. El token no se guarda aquí: va en las variables de Railway (${ESTADO.empresas.map(e => '<span class="mono">' + esc(e.variables) + '</span>').join(', ')}). Para salir a producción autoriza a ${esc(ESTADO.proveedor)} como tu PSE en SUNAT (Clave SOL).`;
   const ult = (id, s) => { const c = corr.find(x => x.company_id === id && x.serie === s); return c ? c.ultimo : 0; };
   const REG = [
@@ -760,6 +1037,12 @@ async function cargarCF() {
         <label class="campo">Formato del PDF<select data-k="formato_pdf">${['A4', 'A5', 'TICKET'].map(f => `<option ${e.formato_pdf === f ? 'selected' : ''}>${f}</option>`).join('')}</select></label>
       </div>
       <div class="desc" style="margin-top:10px" data-resumen></div>
+      <div class="desc" style="margin-top:12px"><b>Guías de remisión</b></div>
+      <div class="grid2">
+        <label class="campo">RUC de la empresa<input data-k="ruc" maxlength="11" value="${esc(e.ruc || '')}"></label>
+        <label class="campo" style="grid-column:span 2">Punto de partida (almacén)<input data-k="partida_direccion" value="${esc(e.partida_direccion || '')}" placeholder="Dirección del almacén"></label>
+        <label class="campo">Distrito de partida<input data-ubi="partida_ubigeo" list="dl-ubigeos" value="${esc(ubiTxt(e.partida_ubigeo))}" placeholder="Escribe el distrito…"></label>
+      </div>
       <details class="avanzado" style="margin-top:10px">
         <summary class="desc" style="cursor:pointer">Avanzado: series y numeración (normalmente no se tocan)</summary>
         <div class="grid2">
@@ -767,6 +1050,7 @@ async function cargarCF() {
           ${serie(e, 'serie_boleta', 'Serie boletas')}${num(e, 'serie_boleta', 'Último número usado')}
           ${serie(e, 'serie_nc_factura', 'Serie NC de facturas')}${num(e, 'serie_nc_factura', 'Último número usado')}
           ${serie(e, 'serie_nc_boleta', 'Serie NC de boletas')}${num(e, 'serie_nc_boleta', 'Último número usado')}
+          ${serie(e, 'serie_guia', 'Serie guías de remisión')}${num(e, 'serie_guia', 'Último número usado')}
         </div>
         <div class="desc" style="margin-top:8px">El portal numera solo (1, 2, 3…). “Último número usado” solo sirve si emitiste con la misma serie desde la web de ${esc(ESTADO.proveedor)}; solo sube, nunca baja. Las series de SUNAT SOL (E001/EB01) no se usan aquí: SUNAT reserva la E para su portal.</div>
       </details>
@@ -787,6 +1071,8 @@ async function guardarCF(id) {
   const box = $('cf-' + id), b = { correlativos: {} };
   box.querySelectorAll('[data-k]').forEach(el => { b[el.dataset.k] = el.type === 'checkbox' ? el.checked : el.value.trim().toUpperCase(); });
   b.afectacion = b.afectacion.toLowerCase();
+  box.querySelectorAll('[data-ubi]').forEach(el => { b[el.dataset.ubi] = ubiCod(el.value); });
+  b.partida_direccion = box.querySelector('[data-k=partida_direccion]').value.trim();
   box.querySelectorAll('[data-corr]').forEach(el => { b.correlativos[b[el.dataset.corr]] = Number(el.value) || 0; });
   try { await api('/api/fe/config/' + id, 'PUT', b); showToast('Configuración guardada'); ESTADO = await api('/api/fe/estado'); pintarAvisoGlobal(); cargarCF(); }
   catch (e) { showToast(e.message, true); }

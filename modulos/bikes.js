@@ -33,8 +33,15 @@ const REGLAS_BASE = {
   seguro: 1.5, arancel: 0, aduana: 70,     // %, %, US$ por bici
   igv: 18, adelanto: 30,                   // %
   margen_defecto: 25,
+  // Cómo se calcula el precio de cada marca: 'costo' = costo + flete + aduana + margen;
+  // 'pvp' = PVP sugerido de la marca × factor (IGV incluido), como hoy con Mondraker (× 1.03).
+  modos: { Mondraker: 'pvp' }, factores_pvp: { Mondraker: 1.03 }, factor_pvp_defecto: 1.03,
   margenes: { Mondraker: 24, Forestal: 22, Atherton: 22, 'Thömus': 22, Crestline: 25, Forbidden: 23, Megamo: 26, Steppenwolf: 26, Revel: 23 },
   aereo_activo: true,
+  // Envíos: aéreo solo si el precio final (marítimo) no pasa este tope en US$ y la marca lo acepta. Las e-bikes no vuelan (baterías).
+  aereo_max_usd: 6000, aereo_marcas: {},
+  // E-bikes por mar: envío individual (flete_unidad) si el margen queda ≥ margen_minimo; si no, envío en grupo (flete_grupo, mínimo grupo_min unidades por marca).
+  flete_unidad: 650, flete_grupo: 300, grupo_min: 3, margen_minimo: 15,
   prep: 7, mar_min: 45, mar_max: 60, aereo_min: 10, aereo_max: 16, aduana_min: 4, aduana_max: 8, lima_min: 2, lima_max: 4,
   validez_horas: 48,
   extras: [
@@ -57,7 +64,8 @@ const soles = n => 'S/ ' + Math.round(n).toLocaleString('es-PE');
 
 function mezclarReglas(guardadas) {
   const g = guardadas || {};
-  const r = { ...REGLAS_BASE, ...g, margenes: { ...REGLAS_BASE.margenes, ...(g.margenes || {}) } };
+  const r = { ...REGLAS_BASE, ...g, margenes: { ...REGLAS_BASE.margenes, ...(g.margenes || {}) },
+    modos: { ...REGLAS_BASE.modos, ...(g.modos || {}) }, aereo_marcas: { ...(g.aereo_marcas || {}) }, factores_pvp: { ...REGLAS_BASE.factores_pvp, ...(g.factores_pvp || {}) } };
   if (!Array.isArray(r.extras)) r.extras = REGLAS_BASE.extras;
   return r;
 }
@@ -67,12 +75,42 @@ function mezclarReglas(guardadas) {
 function calcularPrecio(sku, envio, R, tc) {
   const lima = sku.estado === 'Stock Lima';
   const costoUSD = sku.moneda === 'EUR' ? num(sku.costo) * tc.eur / tc.usd : num(sku.costo);
-  const flete = lima ? 0 : (envio === 'aereo' ? num(R.flete_aereo) : num(R.flete_maritimo));
+  const flete = lima ? 0 : num({ aereo: R.flete_aereo, unidad: R.flete_unidad, grupo: R.flete_grupo }[envio] ?? R.flete_maritimo);
   const puesto = (costoUSD * (1 + num(R.seguro) / 100) + flete) * (1 + num(R.arancel) / 100) + (lima ? 0 : num(R.aduana));
-  const m = Math.min(90, num(R.margenes && R.margenes[sku.marca] != null ? R.margenes[sku.marca] : R.margen_defecto)) / 100;
-  const pen = ceil10(puesto / (1 - m) * (1 + num(R.igv) / 100) * tc.usd);
-  const ganancia = pen / (1 + num(R.igv) / 100) / tc.usd - puesto;
-  return { pen, usd: pen / tc.usd, costoUSD, flete, puesto, margen: m * 100, ganancia };
+  const igv = 1 + num(R.igv) / 100;
+  const modo = (R.modos && R.modos[sku.marca]) || 'costo';
+  let pen;
+  if (modo === 'pvp' && num(sku.pvp) > 0) {
+    // PVP de la marca × factor = precio final con IGV. El envío aéreo suma la diferencia de flete (con IGV).
+    const f = num(R.factores_pvp && R.factores_pvp[sku.marca] != null ? R.factores_pvp[sku.marca] : R.factor_pvp_defecto) || 1;
+    const pvpUSD = sku.moneda === 'EUR' ? num(sku.pvp) * tc.eur / tc.usd : num(sku.pvp);
+    const extraAereo = !lima && envio === 'aereo' ? (num(R.flete_aereo) - num(R.flete_maritimo)) * igv : 0;
+    pen = ceil10((pvpUSD * f + extraAereo) * tc.usd);
+  } else {
+    const m = Math.min(90, num(R.margenes && R.margenes[sku.marca] != null ? R.margenes[sku.marca] : R.margen_defecto)) / 100;
+    pen = ceil10(puesto / (1 - m) * igv * tc.usd);
+  }
+  const sinIGV = pen / igv / tc.usd;
+  const ganancia = sinIGV - puesto;
+  return { pen, usd: pen / tc.usd, costoUSD, flete, puesto, margen: sinIGV > 0 ? ganancia / sinIGV * 100 : 0, ganancia, modo: modo === 'pvp' && num(sku.pvp) > 0 ? 'pvp' : 'costo' };
+}
+
+// Opciones de envío de un SKU (lo que ve el cliente). mod = ajustes del modelo { aereo: 'auto'|'si'|'no' }.
+const esEbike = s => s.categoria === 'E-MTB' || !!(s.motor && String(s.motor).trim());
+function opcionesEnvio(sku, R, tc, mod = {}, hoy = hoyLima()) {
+  const op = (k) => { const p = calcularPrecio(sku, k, R, tc); return { k, p: p.pen, f: calcularEntrega(sku, k, R, hoy), margen: Math.round(p.margen * 10) / 10 }; };
+  if (sku.estado === 'Stock Lima') return [op('lima')];
+  const out = [];
+  if (esEbike(sku)) {
+    const u = op('unidad');
+    if (mod.unidad === 'si' || (mod.unidad !== 'no' && u.margen >= num(R.margen_minimo))) out.push(u); else out.push(op('grupo'));
+  } else {
+    const m = op('maritimo'); out.push(m);
+    const marcaOk = !R.aereo_activo ? false : (R.aereo_marcas || {})[sku.marca] !== false;
+    const permitido = mod.aereo === 'si' || (mod.aereo !== 'no' && marcaOk && m.p / tc.usd <= num(R.aereo_max_usd));
+    if (permitido) out.push(op('aereo'));
+  }
+  return out;
 }
 
 // Rango de fechas estimadas de entrega en Lima (AAAA-MM-DD).
@@ -86,7 +124,8 @@ function calcularEntrega(sku, envio, R, hoy = hoyLima()) {
 // ── Lectura de Excel de marcas: reconocimiento de columnas ────────────────────
 const CAMPOS = {
   marca: ['marca', 'brand', 'manufacturer', 'fabricante', 'hersteller'],
-  modelo: ['modelo', 'model', 'modelname', 'modelo nombre', 'producto', 'product', 'productname', 'nombre', 'name', 'bike', 'bikemodel', 'descripcion', 'description', 'bezeichnung'],
+  modelo: ['modelo', 'model', 'modelname', 'modelo nombre', 'producto', 'product', 'bike', 'bikemodel', 'familia modelo'],
+  nombre: ['nombre', 'name', 'itemname', 'productname', 'descripcion', 'description', 'bezeichnung', 'articulo'],
   montaje: ['montaje', 'version', 'kit', 'build', 'buildkit', 'spec', 'specification', 'grupo', 'variant', 'variante', 'ausstattung'],
   anio: ['anio', 'ano', 'year', 'my', 'modelyear', 'temporada', 'season', 'modelljahr'],
   categoria: ['categoria', 'category', 'segment', 'segmento', 'familia', 'family', 'type', 'tipo', 'discipline', 'disciplina', 'kategorie'],
@@ -98,12 +137,12 @@ const CAMPOS = {
   color: ['color', 'colour', 'colorway', 'farbe', 'colores'],
   color_hex: ['colorhex', 'hex'],
   sku: ['sku', 'ref', 'referencia', 'code', 'codigo', 'articleno', 'article', 'articulo', 'artnr', 'ean', 'upc', 'itemno', 'itemnumber', 'partnumber', 'mpn'],
-  costo: ['costo', 'cost', 'dealerprice', 'dealer', 'precioneto', 'net', 'netprice', 'wholesale', 'b2b', 'pvd', 'preciocompra', 'distributorprice', 'preciodistribuidor', 'ek', 'ekpreis', 'haendlerpreis', 'precio dealer', 'fob', 'fobprice'],
+  costo: ['costo', 'cost', 'dealerprice', 'dealer', 'precioneto', 'net', 'netprice', 'wholesale', 'b2b', 'pvd', 'preciocompra', 'distributorprice', 'distributor', 'distribuidor', 'preciodistribuidor', 'ek', 'ekpreis', 'haendlerpreis', 'precio dealer', 'fob', 'fobprice'],
   moneda: ['moneda', 'currency', 'divisa', 'curr', 'wahrung'],
   pvp: ['pvp', 'msrp', 'rrp', 'retail', 'retailprice', 'precioventa', 'pvpr', 'uvp', 'pvpsugerido', 'srp'],
-  stock: ['stock', 'qty', 'quantity', 'cantidad', 'disponible', 'available', 'units', 'unidades', 'qtyavailable', 'inventory', 'bestand', 'existencias'],
+  stock: ['stock', 'qty', 'quantity', 'cantidad', 'disponible', 'units', 'unidades', 'qtyavailable', 'inventory', 'bestand', 'existencias'],
   estado: ['estado', 'status'],
-  fecha_disponible: ['fechadisponible', 'eta', 'fecha', 'date', 'disponibilidad', 'availability', 'delivery', 'entrega', 'availabledate', 'etadate', 'arrival', 'llegada', 'liefertermin', 'verfugbarkeit', 'shipdate'],
+  fecha_disponible: ['fechadisponible', 'eta', 'available', 'fecha', 'date', 'disponibilidad', 'availability', 'delivery', 'entrega', 'availabledate', 'etadate', 'arrival', 'llegada', 'liefertermin', 'verfugbarkeit', 'shipdate'],
   peso: ['peso', 'pesokg', 'weight', 'gewicht'],
   url_imagen: ['urlimagen', 'imagen', 'image', 'imageurl', 'foto', 'picture', 'bild'],
   url_ficha: ['urlficha', 'ficha', 'link', 'url', 'specsheet', 'datasheet'],
@@ -116,6 +155,7 @@ function reconocerColumnas(headers) {
   // Columnas que son tallas (S, M, L…) con cantidades → "tallas en columnas"
   const tallasCols = [];
   headers.forEach((h, i) => { const t = String(h || '').trim(); if (RE_TALLA.test(t)) tallasCols.push({ i, talla: t.toUpperCase() }); });
+  if (tallasCols.length && tallasCols.every(t => /^S[1-6]$/.test(t.talla))) tallasCols.length = 0; // ej. Mondraker: S1–S4 = trimestres
   if (tallasCols.length >= 2) tallasCols.forEach(t => usados.add(t.i));
   // Todas las parejas (campo, columna) con su puntaje; se asignan de mayor a menor
   const pares = [];
@@ -124,9 +164,9 @@ function reconocerColumnas(headers) {
       if (usados.has(i)) return;
       const n = norm(h); if (!n) return;
       let s = 0;
-      for (const w of sin) {
+      for (const [k, w] of sin.entries()) {
         const nw = norm(w);
-        if (n === nw) { s = 1; break; }
+        if (n === nw) { s = 1 - k * 0.001; break; }
         if (nw.length >= 3 && (n.startsWith(nw) || n.endsWith(nw))) s = Math.max(s, 0.8);
         else if (nw.length > 3 && n.includes(nw)) s = Math.max(s, 0.6);
       }
@@ -174,7 +214,11 @@ function aFecha(v, hoy = hoyLima()) {
   if (m && MESES[m[1]]) {
     let y = m[2] ? (+m[2] < 100 ? 2000 + +m[2] : +m[2]) : +hoy.slice(0, 4);
     let iso = `${y}-${String(MESES[m[1]]).padStart(2, '0')}-01`;
-    if (!m[2] && iso.slice(0, 7) < hoy.slice(0, 7)) iso = `${y + 1}-${iso.slice(5)}`;
+    if (!m[2] && iso.slice(0, 7) < hoy.slice(0, 7)) {
+      // Mes ya pasado sin año: si fue hace 6 meses o menos, ya está disponible; si no, es del próximo año
+      const meses = (+hoy.slice(0, 4) - y) * 12 + (+hoy.slice(5, 7) - MESES[m[1]]);
+      return meses <= 6 ? hoy : `${y + 1}-${iso.slice(5)}`;
+    }
     return iso;
   }
   return null; // no reconocida
@@ -190,7 +234,10 @@ function aCategoria(s, motor) {
   if (/gravel/.test(n)) return 'Gravel';
   if (/road|ruta|carretera/.test(n)) return 'Ruta';
   if (/trail|allmountain|am/.test(n)) return 'Trail';
-  return String(s || '').trim().slice(0, 40) || 'Trail';
+  if (/kid|youth|junior|nino/.test(n)) return 'Kids';
+  if (/dirt|bikepark|park|slope/.test(n)) return n.includes('dirt') ? 'Dirt' : 'Bike Park';
+  const t = String(s || '').trim().toLowerCase().replace(/(^|[\s\-\/])\p{L}/gu, c => c.toUpperCase());
+  return t.slice(0, 40) || 'Trail';
 }
 function aTalla(s) {
   let t = String(s == null ? '' : s).trim().toUpperCase();
@@ -212,9 +259,14 @@ function normalizarFila(r, def = {}, hoy = hoyLima()) {
   if (r.fecha_disponible !== undefined && r.fecha_disponible !== '' && fd === null) errores.push(`fecha «${r.fecha_disponible}» no reconocida (se usa hoy)`);
   const fecha = fd || hoy;
   if (!estado) estado = fecha > hoy ? 'Pre-orden' : 'A pedido';
+  // Talla al final del nombre (ej. "SUMMUM R Mullet Quasar Blue M")
+  const nombre = String(r.nombre || '').trim();
+  const mTalla = nombre.match(/\s(XXS|XS|S|M|L|XL|XXL|SM|ML|LXL|S\/M|M\/L|L\/XL|S[1-6])$/i);
+  if (!r.talla && mTalla) r.talla = ({ SM: 'S/M', ML: 'M/L', LXL: 'L/XL' })[mTalla[1].toUpperCase()] || mTalla[1];
+  if (!r.modelo && nombre) r.modelo = mTalla ? nombre.slice(0, -mTalla[0].length) : nombre;
   const f = {
     marca, modelo: String(r.modelo || '').trim().slice(0, 120), montaje: String(r.montaje || '').trim().slice(0, 80) || 'Base',
-    anio: Math.round(aNumero(r.anio)) || null, categoria: aCategoria(r.categoria, motor), aro: String(r.aro || '29').replace(/["”'']/g, '').trim().slice(0, 20) || '29',
+    anio: Math.round(aNumero(r.anio)) || null, categoria: aCategoria(r.categoria, motor), aro: String(r.aro || (/mullet|\bMX\b/i.test(nombre + ' ' + (r.modelo || '')) ? 'Mullet' : '29')).replace(/["”'']/g, '').trim().slice(0, 20) || '29',
     recorrido: String(r.recorrido || '').trim().slice(0, 40), material: String(r.material || '').trim().slice(0, 60), motor,
     talla: aTalla(r.talla) || 'Única', color: String(r.color || '').trim().slice(0, 80) || 'Único',
     color_hex: /^#?[0-9a-f]{6}$/i.test(String(r.color_hex || '').trim()) ? '#' + String(r.color_hex).trim().replace('#', '') : null,
@@ -235,7 +287,7 @@ function normalizarFila(r, def = {}, hoy = hoyLima()) {
 const claveSku = f => f.sku ? `${norm(f.marca)}|sku|${norm(f.sku)}` : `${norm(f.marca)}|${norm(f.modelo)}|${norm(f.montaje)}|${norm(f.talla)}|${norm(f.color)}`;
 
 // Agrupa SKUs (ya con precios) en modelos para la tienda pública.
-function armarCatalogo(skus, R, tc, hoy = hoyLima()) {
+function armarCatalogo(skus, R, tc, hoy = hoyLima(), mods = {}) {
   const g = new Map();
   for (const s of skus) {
     const k = s.marca + '|' + s.modelo;
@@ -245,17 +297,20 @@ function armarCatalogo(skus, R, tc, hoy = hoyLima()) {
         motor: s.motor || null, peso: s.peso || null, img: s.url_imagen || null, ficha: s.url_ficha || null, montajes: [], colores: [], tallas: [], skus: [] };
       g.set(k, m);
     }
+    const md = mods[k] || {};
+    if (md.imgs && md.imgs.length && !m.gal) { m.gal = md.imgs; m.img = md.imgs[0]; }
+    if (md.desc && !m.desc) m.desc = md.desc;
+    if (md.url_ficha && !m.ficha) m.ficha = md.url_ficha;
     if (!m.img && s.url_imagen) m.img = s.url_imagen;
     if (!m.ficha && s.url_ficha) m.ficha = s.url_ficha;
     if (!m.motor && s.motor) m.motor = s.motor;
     if (!m.montajes.includes(s.montaje)) m.montajes.push(s.montaje);
     if (!m.colores.find(c => c.n === s.color)) m.colores.push({ n: s.color, h: s.color_hex || null });
     if (!m.tallas.includes(s.talla)) m.tallas.push(s.talla);
-    const lima = s.estado === 'Stock Lima';
-    const pm = calcularPrecio(s, 'maritimo', R, tc).pen;
+    const ops = opcionesEnvio(s, R, tc, md, hoy);
+    const base = ops.reduce((a, o) => o.p < a.p ? o : a, ops[0]);
     const it = { id: s.id, mo: s.montaje, t: s.talla, c: s.color, d: Math.max(0, num(s.stock) - num(s.reservado)), e: s.estado,
-      pm, fm: calcularEntrega(s, 'maritimo', R, hoy) };
-    if (!lima && R.aereo_activo) { it.pa = calcularPrecio(s, 'aereo', R, tc).pen; it.fa = calcularEntrega(s, 'aereo', R, hoy); }
+      pm: base.p, fm: base.f, op: ops.map(o => ({ k: o.k, p: o.p, f: o.f })) };
     if (s.pvp > 0) it.ref = Math.ceil(s.pvp * (s.moneda === 'EUR' ? tc.eur : tc.usd) / 10) * 10; // PVP de la marca en soles, referencia
     m.skus.push(it);
   }
@@ -390,6 +445,52 @@ const ACTIVOS = {
 };
 const activosCache = new Map();
 
+// ── Leer la ficha de un modelo en la web de la marca (fotos y descripción) ─────
+const dnsP = require('dns').promises;
+let ipPrivada = () => false;
+try { ipPrivada = require('./precio-importado')._interno.ipPrivada; } catch (e) { /* sin bloqueo extra */ }
+function leerFichaHtml(html, base) {
+  const meta = n => { const m = html.match(new RegExp(`<meta[^>]+(?:property|name)=["']${n}["'][^>]*content=["']([^"']*)["']`, 'i')) || html.match(new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]*(?:property|name)=["']${n}["']`, 'i')); return m ? decodificar(m[1]).trim() : ''; };
+  const abs = u => { try { return new URL(decodificar(u), base).href; } catch (e) { return null; } };
+  const imgs = [], add = u => { const a = u && abs(String(u).split(' ')[0]); if (a && /^https?:/i.test(a) && !/\.svg(\?|$)|logo|icon|sprite|favicon|placeholder|blank|pixel|badge|flag|payment/i.test(a) && !imgs.includes(a)) imgs.push(a); };
+  let titulo = meta('og:title'), desc = '';
+  // JSON-LD Product: nombre, descripción e imágenes
+  for (const b of html.matchAll(/<script[^>]+application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi)) {
+    try {
+      const visitar = o => { if (!o || typeof o !== 'object') return; if (Array.isArray(o)) return o.forEach(visitar);
+        if (/Product/i.test([].concat(o['@type'] || []).join())) { if (!titulo && o.name) titulo = decodificar(o.name); if (!desc && o.description) desc = decodificar(String(o.description)); [].concat(o.image || []).forEach(i => add(typeof i === 'string' ? i : i && (i.url || i.contentUrl))); }
+        if (o['@graph']) visitar(o['@graph']); };
+      visitar(JSON.parse(b[1].trim()));
+    } catch (e) {}
+  }
+  for (const m of html.matchAll(/<meta[^>]+property=["']og:image(?::secure_url)?["'][^>]*content=["']([^"']+)["']/gi)) add(m[1]);
+  // Fotos grandes de la página (src, data-src, srcset: se toma la de mayor tamaño)
+  for (const m of html.matchAll(/<img\b[^>]*>/gi)) {
+    const tag = m[0];
+    const srcset = (tag.match(/\b(?:data-)?srcset=["']([^"']+)["']/i) || [])[1];
+    if (srcset) { const ult = srcset.split(',').map(x => x.trim().split(/\s+/)).sort((a, b) => (parseInt(b[1]) || 0) - (parseInt(a[1]) || 0))[0]; if (ult) add(ult[0]); }
+    add((tag.match(/\b(?:data-src|data-lazy-src|data-original|src)=["']([^"']+\.(?:jpe?g|png|webp)[^"']*)["']/i) || [])[1]);
+    if (imgs.length >= 30) break;
+  }
+  if (!desc) desc = meta('og:description') || meta('description');
+  desc = desc.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 1500);
+  return { titulo: titulo.slice(0, 200), descripcion: desc, imagenes: imgs.slice(0, 20) };
+}
+async function leerFicha(url) {
+  let u; try { u = new URL(url); } catch (e) { throw new Error('El link no es válido'); }
+  if (!/^https?:$/.test(u.protocol)) throw new Error('Solo links http(s)');
+  const ips = await dnsP.lookup(u.hostname, { all: true }).catch(() => []);
+  if (!ips.length || ips.some(x => ipPrivada(x.address))) throw new Error('No se pudo abrir ese dominio');
+  const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 15000);
+  const r = await fetch(u.href, { signal: ctrl.signal, redirect: 'follow', headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36', 'Accept-Language': 'es,en;q=0.8' } });
+  clearTimeout(to);
+  if (!r.ok) throw new Error(`La página respondió ${r.status}`);
+  const html = (await r.text()).slice(0, 3e6);
+  const f = leerFichaHtml(html, r.url || u.href);
+  if (!f.imagenes.length && !f.descripcion) throw new Error('No encontré fotos ni descripción en esa página (puede que cargue todo con JavaScript). Pega los links de las fotos a mano.');
+  return { ...f, url: u.href };
+}
+
 // ── Registro de rutas ─────────────────────────────────────────────────────────
 module.exports = function registrarBikes({ app, authAdmin, requiereModulo, portalPool }) {
   // sendBeacon manda text/plain; express.json global no lo lee
@@ -434,6 +535,10 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       await portalPool.query(`CREATE TABLE IF NOT EXISTS bk_imports (id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
           creado DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, usuario VARCHAR(80) NULL, archivo VARCHAR(200) NULL,
           marcas VARCHAR(300) NULL, modo VARCHAR(20) NULL, nuevas INT NOT NULL DEFAULT 0, actualizadas INT NOT NULL DEFAULT 0, desactivadas INT NOT NULL DEFAULT 0) DEFAULT CHARSET=utf8mb4`);
+      // Datos por modelo: fotos y descripción traídas del link de la marca, y ajustes de envío
+      await portalPool.query(`CREATE TABLE IF NOT EXISTS bk_modelos (marca VARCHAR(60) NOT NULL, modelo VARCHAR(120) NOT NULL,
+          descripcion TEXT NULL, imagenes MEDIUMTEXT NULL, url_ficha VARCHAR(500) NULL, aereo VARCHAR(5) NOT NULL DEFAULT 'auto', unidad VARCHAR(5) NOT NULL DEFAULT 'auto',
+          actualizado DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (marca, modelo)) DEFAULT CHARSET=utf8mb4`);
       // Métricas propias: clics y embudo (visita → modelo → configura → carrito → reserva)
       await portalPool.query(`CREATE TABLE IF NOT EXISTS bk_eventos (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
           creado DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, sesion VARCHAR(24) NOT NULL, tipo VARCHAR(16) NOT NULL,
@@ -457,6 +562,22 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
     await prepararTablas();
     const [rows] = await portalPool.query(`SELECT ${COLS} FROM bk_skus ${soloActivos ? 'WHERE activo=1' : ''} ORDER BY marca, modelo, montaje, id`);
     return rows.map(r => ({ ...r, costo: num(r.costo), pvp: r.pvp == null ? null : num(r.pvp) }));
+  }
+
+  async function leerModelos() {
+    await prepararTablas();
+    const [rows] = await portalPool.query('SELECT marca, modelo, descripcion, imagenes, url_ficha, aereo, unidad FROM bk_modelos');
+    const out = {};
+    for (const r of rows) { let imgs = []; try { imgs = JSON.parse(r.imagenes || '[]'); } catch (e) {}
+      out[r.marca + '|' + r.modelo] = { desc: r.descripcion || '', imgs, url_ficha: r.url_ficha || null, aereo: r.aereo, unidad: r.unidad }; }
+    return out;
+  }
+  // Envíos en grupo (e-bikes): reservas activas con envío "grupo", por marca
+  async function gruposPorMarca(R, conn = portalPool) {
+    const [rows] = await conn.query(`SELECT marca, COUNT(*) n FROM bk_reservas WHERE envio='grupo' AND estado NOT IN ('Cancelada','Entregada') GROUP BY marca`);
+    const min = Math.max(2, num(R.grupo_min) || 3), out = {};
+    for (const r of rows) out[r.marca] = { min, actual: r.n % min, completos: Math.floor(r.n / min) };
+    return out;
   }
 
   // Caché corta del catálogo público (se limpia al importar o cambiar reglas)
@@ -492,8 +613,11 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       if (!catCache || Date.now() - catCache.t > 60000) {
         const R = await leerReglas(); const tc = await tcEfectivo(R);
         const skus = await leerSkus(true);
+        const mods = await leerModelos();
         catCache = { t: Date.now(), data: {
-          modelos: armarCatalogo(skus, R, tc),
+          modelos: armarCatalogo(skus, R, tc, hoyLima(), mods),
+          grupos: await gruposPorMarca(R), grupo_min: Math.max(2, num(R.grupo_min) || 3),
+          logos: Object.fromEntries(Object.entries(await leerMarcas()).filter(([, v]) => v && v.logo).map(([k, v]) => [k, v.logo])),
           marcas: [...new Set([...MARCAS_BASE, ...skus.map(s => s.marca)])],
           adelanto: num(R.adelanto), tc_usd: tc.usd, aereo: !!R.aereo_activo, validez_horas: num(R.validez_horas),
           extras: (R.extras || []).map(e => ({ id: e.id, nombre: e.nombre, precio: num(e.precio), incluido: !!e.incluido })),
@@ -553,7 +677,6 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
     const email = String(b.email || '').trim().slice(0, 120);
     const ciudad = String(b.ciudad || 'Lima').trim().slice(0, 60);
     const ref = String(b.ref || '').trim().replace(/[^\w.\-]/g, '').slice(0, 60) || null;
-    const envio = b.envio === 'aereo' ? 'aereo' : 'maritimo';
     const err = [];
     if (nombre.length < 3) err.push('escribe tu nombre completo');
     if (!/^(\d{8}|\d{11})$/.test(doc)) err.push('el DNI tiene 8 dígitos y el RUC 11');
@@ -570,9 +693,12 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       if (!s) { await conn.rollback(); return res.status(404).json({ error: 'Esa combinación ya no está disponible. Actualiza la página.' }); }
       s.costo = num(s.costo);
       if (num(s.stock) - num(s.reservado) <= 0) { await conn.rollback(); return res.status(409).json({ error: `La talla ${s.talla} en ${s.color} se acaba de agotar. Elige otra o escríbenos por WhatsApp.` }); }
-      const env = s.estado === 'Stock Lima' ? 'lima' : (envio === 'aereo' && R.aereo_activo ? 'aereo' : 'maritimo');
-      const p = calcularPrecio(s, env === 'aereo' ? 'aereo' : 'maritimo', R, tc);
-      const fechas = calcularEntrega(s, env === 'aereo' ? 'aereo' : 'maritimo', R);
+      const mods = await leerModelos();
+      const ops = opcionesEnvio(s, R, tc, mods[s.marca + '|' + s.modelo] || {});
+      const op = ops.find(o => o.k === String(b.envio || '')) || ops[0];
+      const env = op.k;
+      const p = calcularPrecio(s, env, R, tc);
+      const fechas = op.f;
       const pedidos = Array.isArray(b.extras) ? b.extras.map(String) : [];
       const extras = (R.extras || []).filter(e => e.incluido || pedidos.includes(e.id)).map(e => ({ id: e.id, nombre: e.nombre, precio: num(e.precio) }));
       const extrasTotal = extras.reduce((a, e) => a + e.precio, 0);
@@ -595,7 +721,12 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       limpiarCache();
       intentos.set('ok:' + ip, [...(intentos.get('ok:' + ip) || []), Date.now()]);
 
-      const envTxt = env === 'lima' ? 'stock en Lima' : env === 'aereo' ? 'aéreo' : 'marítimo';
+      const ENV_TXT = { lima: 'stock en Lima', aereo: 'aéreo', maritimo: 'marítimo', unidad: 'marítimo individual', grupo: 'marítimo en grupo' };
+      let envTxt = ENV_TXT[env] || env;
+      if (env === 'grupo') {
+        const g = (await gruposPorMarca(R))[s.marca] || { min: Math.max(2, num(R.grupo_min) || 3), actual: 0, completos: 0 };
+        envTxt += g.actual === 0 ? ` (¡grupo completo de ${g.min}!)` : ` (${g.actual} de ${g.min}; faltan ${g.min - g.actual})`;
+      }
       const fechasTxt = `${fechaCorta(fechas[0])} – ${fechaCorta(fechas[1])}`;
       const msg = `Hola Kuranko, hice la reserva ${codigo}: ${s.marca} ${s.modelo} ${s.montaje}, talla ${s.talla}, color ${s.color}, envío ${envTxt}.\n` +
         `Precio final: ${soles(total)} · Adelanto: ${soles(adelanto)}\nEntrega estimada: ${fechasTxt}\nNombre: ${nombre} · DNI/RUC: ${doc}`;
@@ -683,9 +814,13 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
     try {
       const R = await leerReglas(); const tc = await tcEfectivo(R);
       const skus = await leerSkus(false);
+      const mods = await leerModelos();
       const conPrecio = skus.map(s => {
-        const p = calcularPrecio(s, 'maritimo', R, tc);
+        const ops = opcionesEnvio(s, R, tc, mods[s.marca + '|' + s.modelo] || {});
+        const p = calcularPrecio(s, ops[0].k, R, tc);
+        const ms = ops.map(o => o.margen);
         return { ...s, precio: p.pen, puesto: Math.round(p.puesto), ganancia: Math.round(p.ganancia), margen: p.margen,
+          envios: ops.map(o => ({ k: o.k, p: o.p, margen: o.margen })), margen_min: Math.min(...ms), margen_max: Math.max(...ms),
           pvp_pen: s.pvp > 0 ? ceil10(s.pvp * (s.moneda === 'EUR' ? tc.eur : tc.usd)) : null };
       });
       const [reservas] = await portalPool.query(`SELECT id, codigo, UNIX_TIMESTAMP(creado) creado, sku_id, marca, modelo, montaje, talla, color, envio, extras,
@@ -695,6 +830,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       const [imports] = await portalPool.query(`SELECT id, UNIX_TIMESTAMP(creado) creado, usuario, archivo, marcas, modo, nuevas, actualizadas, desactivadas FROM bk_imports ORDER BY id DESC LIMIT 20`);
       res.json({ reglas: R, tc, maestro: !!(req.admin && req.admin.maestro), skus: conPrecio, reservas: reservas.map(r => ({ ...r, total: num(r.total), adelanto: num(r.adelanto),
           creado: horaLima(r.creado), actualizado: horaLima(r.actualizado), valido_hasta: horaLima(r.valido_hasta), vencida: r.estado === 'Nueva' && r.valido_hasta && r.valido_hasta * 1000 < Date.now() })),
+        modelos: mods, marcas_info: await leerMarcas(), grupos: await gruposPorMarca(R),
         imports: imports.map(i => ({ ...i, creado: horaLima(i.creado) })), estados_reserva: ESTADOS_RESERVA, estados_sku: ESTADOS_SKU, marcas_base: MARCAS_BASE });
     } catch (e) { console.error('[bikes] estado', e.message); res.status(500).json({ error: e.message }); }
   });
@@ -708,6 +844,8 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       for (const k of Object.keys(REGLAS_BASE)) {
         if (b[k] === undefined) continue;
         if (k === 'margenes') { nuevo.margenes = {}; for (const [m, v] of Object.entries(b.margenes || {})) if (isFinite(+v) && +v >= 0 && +v < 90) nuevo.margenes[String(m).slice(0, 60)] = +v; }
+        else if (k === 'modos') { nuevo.modos = {}; for (const [m, v] of Object.entries(b.modos || {})) nuevo.modos[String(m).slice(0, 60)] = v === 'pvp' ? 'pvp' : 'costo'; }
+        else if (k === 'factores_pvp') { nuevo.factores_pvp = {}; for (const [m, v] of Object.entries(b.factores_pvp || {})) if (+v > 0.5 && +v < 3) nuevo.factores_pvp[String(m).slice(0, 60)] = +v; }
         else if (k === 'extras') nuevo.extras = (Array.isArray(b.extras) ? b.extras : []).slice(0, 12).map((e, i) => ({ id: slug(e.id || e.nombre) || 'x' + i, nombre: String(e.nombre || '').slice(0, 120), precio: Math.max(0, num(e.precio)), incluido: !!e.incluido })).filter(e => e.nombre);
         else if (k === 'tc_modo') nuevo.tc_modo = b.tc_modo === 'manual' ? 'manual' : 'auto';
         else if (k === 'aereo_activo') nuevo.aereo_activo = !!b.aereo_activo;
@@ -724,9 +862,20 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
 
   // Reconoce columnas: primero por nombre; si faltan las clave, pregunta a la IA.
   app.post('/api/bikes/admin/mapear', authAdmin, mBikes, async (req, res) => {
+    // Si llegan las primeras filas del Excel, se elige como encabezado la que más columnas reconoce
+    let fila_encabezado = null;
+    if (Array.isArray(req.body && req.body.primeras)) {
+      let mejor = -1;
+      req.body.primeras.slice(0, 25).forEach((f, i) => { const n = Object.keys(reconocerColumnas((f || []).map(c => String(c == null ? '' : c))).map).length; if (n > mejor) { mejor = n; fila_encabezado = i; } });
+      req.body.headers = req.body.primeras[fila_encabezado];
+      req.body.muestra = req.body.primeras.slice(fila_encabezado + 1).filter(f => (f || []).filter(c => c !== '' && c != null).length > 2).slice(0, 5);
+    }
     const headers = (Array.isArray(req.body && req.body.headers) ? req.body.headers : []).slice(0, 80).map(h => String(h == null ? '' : h).slice(0, 80));
     const muestra = (Array.isArray(req.body && req.body.muestra) ? req.body.muestra : []).slice(0, 6).map(r => (Array.isArray(r) ? r : []).slice(0, 80).map(c => String(c == null ? '' : c).slice(0, 60)));
     const r = reconocerColumnas(headers);
+    if (r.map.stock != null && r.map.fecha_disponible == null && muestra.length && muestra.filter(f => /[a-z]/i.test(String(f[r.map.stock] || ''))).length > muestra.length / 2) {
+      r.map.fecha_disponible = r.map.stock; r.conf.fecha_disponible = 0.8; delete r.map.stock; delete r.conf.stock;
+    }
     const faltan = ['modelo', 'costo'].filter(k => r.map[k] == null).concat(r.map.talla == null && !r.tallas_cols.length ? ['talla'] : []);
     let fuente = 'nombres';
     const key = process.env.GEMINI_API_KEY;
@@ -758,7 +907,7 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
         fuente = 'nombres + IA';
       } catch (e) { console.warn('[bikes] mapear IA', e.message); r.nota = 'La IA no respondió; revisa las columnas a mano.'; }
     } else if (faltan.length && !key) r.nota = 'Falta GEMINI_API_KEY para que la IA ayude; elige las columnas a mano.';
-    res.json({ ...r, fuente, campos: Object.keys(CAMPOS) });
+    res.json({ ...r, fuente, campos: Object.keys(CAMPOS), fila_encabezado });
   });
 
   // Importar filas (ya mapeadas por campo). simular=true solo devuelve la vista previa.
@@ -861,6 +1010,46 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
     finally { if (conn) conn.release(); }
   });
 
+  // Datos de cada marca para la tienda: logo (link o imagen subida) y si acepta envío aéreo
+  async function leerMarcas() {
+    await prepararTablas();
+    const [[row]] = await portalPool.query(`SELECT valor FROM bk_config WHERE clave='marcas'`);
+    try { return row ? JSON.parse(row.valor) : {}; } catch (e) { return {}; }
+  }
+  app.post('/api/bikes/admin/marca', authAdmin, mBikes, async (req, res) => {
+    const b = req.body || {}; const marca = String(b.marca || '').trim().slice(0, 60);
+    if (!marca) return res.status(400).json({ error: 'Falta la marca' });
+    const logo = String(b.logo || '');
+    if (logo && !/^https?:\/\//i.test(logo) && !/^data:image\/(png|jpe?g|webp|svg\+xml);base64,/i.test(logo)) return res.status(400).json({ error: 'El logo debe ser un link o una imagen PNG, JPG, WEBP o SVG' });
+    if (logo.length > 400000) return res.status(400).json({ error: 'El logo pesa mucho (máx. 300 KB)' });
+    try {
+      const m = await leerMarcas();
+      m[marca] = { ...(m[marca] || {}), logo: logo || null };
+      await portalPool.query(`INSERT INTO bk_config (clave, valor, actualizado_por) VALUES ('marcas', ?, ?) ON DUPLICATE KEY UPDATE valor=VALUES(valor), actualizado=NOW(), actualizado_por=VALUES(actualizado_por)`, [JSON.stringify(m), usuarioDe(req)]);
+      limpiarCache(); res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Traer fotos y descripción desde el link del modelo en la web de la marca
+  app.post('/api/bikes/admin/ficha', authAdmin, mBikes, async (req, res) => {
+    try { res.json(await leerFicha(String((req.body && req.body.url) || '').trim())); }
+    catch (e) { res.status(400).json({ error: e.message }); }
+  });
+  app.post('/api/bikes/admin/modelo', authAdmin, mBikes, async (req, res) => {
+    const b = req.body || {};
+    const marca = String(b.marca || '').slice(0, 60), modelo = String(b.modelo || '').slice(0, 120);
+    if (!marca || !modelo) return res.status(400).json({ error: 'Falta el modelo' });
+    const imgs = (Array.isArray(b.imagenes) ? b.imagenes : []).filter(u => /^https?:\/\//i.test(u)).slice(0, 12).map(u => String(u).slice(0, 600));
+    const ok = v => ['auto', 'si', 'no'].includes(v) ? v : 'auto';
+    try {
+      await prepararTablas();
+      await portalPool.query(`INSERT INTO bk_modelos (marca, modelo, descripcion, imagenes, url_ficha, aereo, unidad) VALUES (?,?,?,?,?,?,?)
+        ON DUPLICATE KEY UPDATE descripcion=VALUES(descripcion), imagenes=VALUES(imagenes), url_ficha=VALUES(url_ficha), aereo=VALUES(aereo), unidad=VALUES(unidad), actualizado=NOW()`,
+        [marca, modelo, String(b.descripcion || '').slice(0, 4000), JSON.stringify(imgs), /^https?:\/\//i.test(b.url_ficha || '') ? String(b.url_ficha).slice(0, 500) : null, ok(b.aereo), ok(b.unidad)]);
+      limpiarCache(); res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
   // Exportar el catálogo en el formato de la plantilla (para editar en Excel y volver a subir)
   app.get('/api/bikes/admin/exportar', authAdmin, mBikes, async (req, res) => {
     try {
@@ -884,4 +1073,4 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
   return { prepararTablas };
 };
 
-module.exports._test = { leerMenuKuranko, MENU_RESPALDO, calcularPrecio, calcularEntrega, reconocerColumnas, normalizarFila, aFecha, aNumero, armarCatalogo, mezclarReglas, claveSku, REGLAS_BASE };
+module.exports._test = { leerFichaHtml, opcionesEnvio, leerMenuKuranko, MENU_RESPALDO, calcularPrecio, calcularEntrega, reconocerColumnas, normalizarFila, aFecha, aNumero, armarCatalogo, mezclarReglas, claveSku, REGLAS_BASE };

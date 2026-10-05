@@ -37,7 +37,7 @@ h1,h2,h3{font-family:var(--display);margin:0;text-wrap:balance;letter-spacing:.0
 .ktop{background:#252525;color:#eee;font:14.4px/1.35 var(--body)}
 .ktop .kc{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;min-height:49px;gap:12px}
 .ktop a{color:#eee;text-decoration:none}
-.ktop .t-izq a{display:inline-flex;align-items:center;gap:6px}
+.ktop .t-izq{display:flex;align-items:center;gap:5px;flex-wrap:wrap}.ktop .t-izq a{display:inline-flex;align-items:center;gap:6px}
 .ktop .t-izq img{width:24px;height:24px}
 .ktop .t-cen{text-align:center}
 .newtag{background:#e84e0e;color:#eee;border-radius:50px;padding:3px 8px 2px;margin-right:4px}
@@ -99,6 +99,25 @@ nav.km a:hover{background:var(--surface-2)}
 nav.km a.on{background:#141414;color:#fff}
 @media (max-width:1320px){.kmenu>ul{gap:14px}.kmenu>ul>li>a{font-size:16px}}
 @media (max-width:1160px){.kmenu>ul{gap:11px}.kmenu>ul>li>a{font-size:14.5px}.klogo img{width:150px;height:38px}.kicons{gap:14px}}
+/* confianza, galería, grupo, logos */
+.trust{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:8px 0 26px}
+.trust div{border:1px solid var(--line);border-radius:var(--r);padding:14px;display:grid;gap:4px;background:var(--surface)}
+.trust b{font-size:15px}.trust span{font-size:13px;color:var(--muted)}
+.trust svg{width:26px;height:26px;color:var(--amber)}
+.gal{display:flex;gap:6px;overflow-x:auto}.gal button{border:1px solid var(--line);border-radius:6px;padding:0;width:64px;height:48px;flex:none;background:#fff;overflow:hidden}
+.gal button[aria-pressed="true"]{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}.gal img{width:100%;height:100%;object-fit:contain}
+.desc{font-size:14px;color:var(--muted);line-height:1.55;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}.desc.full{display:block}
+.grp{background:var(--surface-2);border-radius:var(--r);padding:10px 12px;font-size:13.5px;display:grid;gap:6px}
+.grp .barra{height:8px;border-radius:99px;background:var(--line);overflow:hidden}.grp .barra i{display:block;height:100%;background:var(--amber)}
+.chip img{height:16px;width:auto;max-width:90px;object-fit:contain;display:block}
+.blogo{height:22px;width:auto;max-width:120px;object-fit:contain}
+.modal{position:fixed;inset:0;z-index:70;background:rgba(10,10,10,.6);display:grid;place-items:center;padding:16px}
+.modal .cj{background:#fff;color:#141414;border-radius:14px;max-width:520px;width:100%;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.35);animation:entra .35s ease}
+.modal .top{background:#141414;color:#fff;padding:22px 24px}.modal .top h2{font-size:30px;line-height:1;text-transform:uppercase}.modal .top h2 em{font-style:normal;color:var(--amber)}
+.modal ul{list-style:none;margin:0;padding:18px 24px;display:grid;gap:12px}.modal li{display:grid;grid-template-columns:28px 1fr;gap:10px;font-size:14.5px}.modal li svg{width:24px;height:24px;color:var(--amber)}
+.modal li span{color:#666;font-size:13px;display:block}.modal .pie{padding:0 24px 22px;display:flex;gap:10px;flex-wrap:wrap}
+@keyframes entra{from{opacity:0;transform:translateY(16px) scale(.98)}to{opacity:1;transform:none}}
+@media (max-width:860px){.trust{grid-template-columns:1fr 1fr}}
 @media (max-width:991px){
   .ktop .kc{grid-template-columns:1fr}.ktop .t-izq,.ktop .t-cen{display:none}
   header.kh .kc{height:60px;justify-content:space-between}
@@ -279,6 +298,7 @@ footer.kf a{color:#fff}
       <div class="grid" id="grid"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>
     </div>
   </div>
+  <div class="trust" id="confianza"><div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg><b>Garantía oficial de la marca</b><span>Bicis nuevas, con factura y garantía del fabricante gestionada por Kuranko.</span></div><div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg><b>Soporte técnico en Lima</b><span>Taller propio en Magdalena: armado, ajuste de suspensión y servicio post venta.</span></div><div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.27 6.96L12 12.01l8.73-5.05M12 22.08V12"/></svg><b>Importación sin sorpresas</b><span>Precio final en soles con envío, aduana e IGV. Te avisamos cada etapa.</span></div><div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg><b>Adelanto protegido</b><span>Si la marca no puede entregar tu unidad, te devolvemos el 100%.</span></div></div>
   <div class="terms" id="terminos">
     <h2>Cómo funciona la reserva</h2>
     <ul>
@@ -310,6 +330,11 @@ footer.kf a{color:#fff}
   <span><a href="https://kuranko.pe/">kuranko.pe</a> · <a href="#terminos">Condiciones de la reserva</a></span>
 </div></footer>
 
+<div class="modal" id="bienvenida" hidden role="dialog" aria-modal="true" aria-labelledby="bvT"><div class="cj">
+  <div class="top"><h2 id="bvT">Tu nave, <em>de fábrica</em></h2><p style="margin:8px 0 0;color:#ccc;font-size:14px">Bicis de 9 marcas traídas a pedido por Kuranko, con todo incluido.</p></div>
+  <ul><li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg><div><b>Garantía oficial de la marca</b><span>Bicis nuevas, con factura y garantía del fabricante gestionada por Kuranko.</span></div></li><li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg><div><b>Soporte técnico en Lima</b><span>Taller propio en Magdalena: armado, ajuste de suspensión y servicio post venta.</span></div></li><li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.27 6.96L12 12.01l8.73-5.05M12 22.08V12"/></svg><div><b>Importación sin sorpresas</b><span>Precio final en soles con envío, aduana e IGV. Te avisamos cada etapa.</span></div></li><li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg><div><b>Adelanto protegido</b><span>Si la marca no puede entregar tu unidad, te devolvemos el 100%.</span></div></li></ul>
+  <div class="pie"><button class="btn" id="bvOk">Ver catálogo</button><a class="btn sec" href="https://wa.me/51963358335" target="_blank" rel="noopener" data-wa>Hablar con un asesor</a></div>
+</div></div>
 <div class="scrim" id="scrim" hidden></div>
 <aside class="drawer" id="drawer" hidden aria-modal="true" role="dialog" aria-label="Configurar bicicleta"></aside>
 
@@ -401,7 +426,7 @@ function resumen(m){
 const F={marca:'all',cat:'all',aro:'all',eta:'all',max:60000,talla:'all',sort:'eta'};
 function pintarFiltros(){
   const cnt={};D.modelos.forEach(m=>cnt[m.marca]=(cnt[m.marca]||0)+1);
-  $('#brands').innerHTML=[['all','Todas',D.modelos.length],...D.marcas.map(b=>[b,b,cnt[b]||0])].map(([k,l,n])=>`<button class="chip" aria-pressed="${F.marca===k}" data-b="${esc(k)}">${esc(l)}<span class="ct">${n}</span></button>`).join('');
+  $('#brands').innerHTML=[['all','Todas',D.modelos.length],...D.marcas.map(b=>[b,b,cnt[b]||0])].map(([k,l,n])=>`<button class="chip" aria-pressed="${F.marca===k}" data-b="${esc(k)}">${k!=='all'&&(D.logos||{})[k]?`<img src="${esc(D.logos[k])}" alt="${esc(l)}">`:esc(l)}<span class="ct">${n}</span></button>`).join('');
   const cats=['all',...new Set(D.modelos.map(m=>m.cat))];
   $('#fCat').innerHTML=cats.map(c=>`<option value="${esc(c)}" ${F.cat===c?'selected':''}>${c==='all'?'Todas':esc(c)}</option>`).join('');
   const aros=['all',...new Set(D.modelos.map(m=>m.aro))];
@@ -422,7 +447,8 @@ function pintarGrid(){
   if(!L.length){$('#grid').innerHTML='<div class="empty">Ningún modelo coincide con estos filtros. Prueba quitando la talla o subiendo el precio máximo.</div>';return}
   $('#grid').innerHTML=L.map(({m,r})=>{
     const col=COL[m.marca]||'#5a6285';
-    const badge=r.agotado?'<span class="badge">Agotado</span>':r.lima?'<span class="badge lima">En stock Lima</span>':r.tot<=2?'<span class="badge last">Últimas unidades</span>':'<span class="badge">A pedido</span>';
+    const soloGrupo=m.skus.every(x=>(x.op||[]).length&&x.op.every(o=>o.k==='grupo'));
+    const badge=soloGrupo&&!r.agotado?'<span class="badge last">Envío en grupo</span>':r.agotado?'<span class="badge">Agotado</span>':r.lima?'<span class="badge lima">En stock Lima</span>':r.tot<=2?'<span class="badge last">Últimas unidades</span>':'<span class="badge">A pedido</span>';
     return `<button class="card" data-id="${esc(m.id)}"><div class="pic" style="color:var(--ink)">${foto(m,col)}${badge}</div>
     <div class="bd"><span class="br">${esc(m.marca)} · ${esc(m.cat)}</span><h3>${esc(m.modelo)}</h3>
       <span class="spec">${[m.aro?(m.aro==='Mullet'?'Mullet 29/27.5':'Aro '+m.aro):'',m.rec,m.mat,m.motor].filter(Boolean).map(esc).join(' · ')}</span>
@@ -449,10 +475,14 @@ function ajustar(){ // si la combinación no existe o está agotada, elige la m�
   s=m.skus.find(x=>x.mo===S.mo&&x.t===S.t&&x.d>0)||m.skus.find(x=>x.mo===S.mo&&x.d>0)||m.skus.find(x=>x.mo===S.mo);
   if(s){S.t=s.t;S.c=s.c}
 }
+const ENVL={maritimo:'Marítimo',aereo:'Aéreo',unidad:'Marítimo individual',grupo:'Marítimo en grupo',lima:'Stock Lima'};
+function grupoHTML(marca){const g=(D.grupos||{})[marca]||{actual:0,min:D.grupo_min||3};const n=g.actual,mn=g.min||D.grupo_min||3;
+  return `<div class="grp"><b>Envío en grupo: ${n} de ${mn} reservas</b><div class="barra"><i style="width:${Math.round(n/mn*100)}%"></i></div><span>Las e-bikes viajan por mar como carga especial. Al juntar ${mn} reservas de ${esc(marca)} el envío sale a cuenta para todos. ${n?`Faltan ${mn-n}. Comparte el link con amigos que también quieran una.`:'Sé el primero: te avisamos cuando se complete.'}</span></div>`}
 function totales(){
   const s=skuSel();if(!s)return null;
-  const env=s.e==='Stock Lima'?'lima':(S.envio==='aereo'&&s.pa?'aereo':'maritimo');
-  const bici=env==='aereo'?s.pa:s.pm, f=env==='aereo'?s.fa:s.fm;
+  const ops=s.op&&s.op.length?s.op:[{k:s.e==='Stock Lima'?'lima':'maritimo',p:s.pm,f:s.fm}];
+  const o=ops.find(x=>x.k===S.envio)||ops[0];
+  const env=o.k, bici=o.p, f=o.f;
   const ex=D.extras.filter(e=>e.incluido||S.extras[e.id]);const exT=ex.reduce((a,e)=>a+e.precio,0);
   const total=bici+exT, dep=Math.ceil(total*D.adelanto/100/10)*10;
   return {s,env,bici,f,exT,total,dep,saldo:total-dep};
@@ -466,12 +496,14 @@ function pintarCfg(){
   const colHex=(m.colores.find(c=>c.n===S.c)||{}).h;
   const ship=s.e==='Stock Lima'
     ?`<div class="when"><b>${dias(s.fm[0])}–${dias(s.fm[1])} días</b><div>Unidad en nuestra tienda de Lima. Se entrega armada y ajustada.</div></div>`
-    :`<div class="ship">${[['maritimo','Marítimo',s.pm,s.fm],...(s.pa?[['aereo','Aéreo',s.pa,s.fa]]:[])].map(([k,l,p,f])=>`<button class="o" aria-pressed="${T.env===k}" data-env="${k}"><b>${l}</b><small>Llega ${fD(f[0])}–${fD(f[1])}</small><small class="num">${soles(p)}</small></button>`).join('')}</div>`;
+    :`<div class="ship">${(s.op||[]).map(o=>`<button class="o" aria-pressed="${T.env===o.k}" data-env="${o.k}"><b>${ENVL[o.k]||o.k}</b><small>Llega ${fD(o.f[0])}–${fD(o.f[1])}</small><small class="num">${soles(o.p)}</small></button>`).join('')}</div>${T.env==='grupo'?grupoHTML(m.marca):''}`;
   $('#drawer').innerHTML=`
-  <div class="dhead"><div><span class="br">${esc(m.marca)} · ${esc(m.cat)}${m.anio?' · '+m.anio:''}</span><h2 style="font-size:30px;line-height:1">${esc(m.modelo)}</h2></div><button class="x" id="xClose" aria-label="Cerrar">×</button></div>
+  <div class="dhead"><div>${(D.logos||{})[m.marca]?`<img class="blogo" src="${esc(D.logos[m.marca])}" alt="${esc(m.marca)}"><br>`:''}<span class="br">${esc(m.marca)} · ${esc(m.cat)}${m.anio?' · '+m.anio:''}</span><h2 style="font-size:30px;line-height:1">${esc(m.modelo)}</h2></div><button class="x" id="xClose" aria-label="Cerrar">×</button></div>
   <div class="dbody">
-    <div class="dpic" style="color:var(--ink)">${m.img?foto(m,col):bike(colHex||col,m.cat)}</div>
+    <div class="dpic" style="color:var(--ink)">${m.gal&&m.gal.length?`<img src="${esc(m.gal[S.img||0])}" alt="${esc(m.marca+' '+m.modelo)}">`:m.img?foto(m,col):bike(colHex||col,m.cat)}</div>
+    ${m.gal&&m.gal.length>1?`<div class="gal">${m.gal.map((u,i)=>`<button data-img="${i}" aria-pressed="${(S.img||0)===i}" aria-label="Foto ${i+1}"><img src="${esc(u)}" alt="" loading="lazy"></button>`).join('')}</div>`:''}
     <div class="spec">${[m.aro?(m.aro==='Mullet'?'Mullet 29/27.5':'Aro '+m.aro):'',m.rec&&'Recorrido '+m.rec,m.mat,m.peso&&m.peso+(/kg/i.test(m.peso)?'':' kg'),m.motor].filter(Boolean).map(esc).join(' · ')}${m.ficha?` · <a href="${esc(m.ficha)}" target="_blank" rel="noopener">Ficha técnica</a>`:''}</div>
+    ${m.desc?`<div class="desc ${S.descFull?'full':''}" id="dDesc">${esc(m.desc)}</div>${S.descFull?'':'<button class="btn sec" id="dMas" style="justify-self:start;padding:4px 10px;font-size:13px">Leer más</button>'}`:''}
     ${m.montajes.length>1||m.montajes[0]!=='Base'?`<div class="opt"><div class="lbl">Montaje</div><div class="opts">${m.montajes.map(mo=>{const p=Math.min(...m.skus.filter(x=>x.mo===mo).map(x=>x.pm));return `<button class="o" aria-pressed="${S.mo===mo}" data-mo="${esc(mo)}" ${disp(x=>x.mo===mo)?'':'disabled'}><b>${esc(mo)}</b><small class="num">${soles(p)}</small></button>`}).join('')}</div></div>`:''}
     <div class="opt"><div class="lbl">Talla <span style="text-transform:none;letter-spacing:0">Unidades disponibles</span></div><div class="opts">${m.tallas.map(t=>{const n=m.skus.filter(x=>x.mo===S.mo&&x.t===t).reduce((a,x)=>a+x.d,0);return `<button class="o" aria-pressed="${S.t===t}" data-t="${esc(t)}" ${n>0?'':'disabled'}><b>${esc(t)}</b><small>${n>0?n+' disp.':'agotada'}</small></button>`}).join('')}</div></div>
     <div class="opt"><div class="lbl">Color</div><div class="opts">${m.colores.map(c=>`<button class="o" aria-pressed="${S.c===c.n}" data-c="${esc(c.n)}" ${disp(x=>x.mo===S.mo&&x.t===S.t&&x.c===c.n)?'':'disabled'}><span>${c.h?`<span class="sw" style="background:${esc(c.h)}"></span>`:''}${esc(c.n)}</span></button>`).join('')}</div></div>
@@ -561,6 +593,8 @@ document.addEventListener('click',e=>{
     if(t.dataset.mo!==undefined){S.mo=t.dataset.mo;ajustar();S.aceptoNuevo=false;pintarCfg();evM('config')}
     else if(t.dataset.t!==undefined){S.t=t.dataset.t;ajustar();S.aceptoNuevo=false;pintarCfg();evM('config')}
     else if(t.dataset.c!==undefined){S.c=t.dataset.c;ajustar();pintarCfg();evM('config')}
+    else if(t.dataset.img!==undefined){S.img=+t.dataset.img;pintarCfg()}
+    else if(t.id==='dMas'){S.descFull=true;pintarCfg()}
     else if(t.dataset.env){S.envio=t.dataset.env;S.aceptoNuevo=false;pintarCfg();evM('config')}
     else if(t.id==='loQuiero'){S.carrito=true;pintarCfg();evM('carrito');const n=document.getElementById('rNom');if(n){n.focus();n.scrollIntoView({block:'center',behavior:'smooth'})}}
     else if(t.dataset.wa!==undefined){ev('whatsapp',{marca:S.m.marca,modelo:S.m.modelo,valor:S.done&&S.done.total})}
@@ -581,6 +615,7 @@ async function recargar(silencioso){
   try{
     const r=await fetch('/api/bikes/catalogo',{cache:'no-store'});const j=await r.json();if(!r.ok)throw new Error(j.error);
     D=j;
+    D.modelos.forEach(m=>m.skus.forEach(x=>{const a=(x.op||[]).find(o=>o.k==='aereo');if(a){x.pa=a.p;x.fa=a.f}else{delete x.pa;delete x.fa}}));
     $('#depHero').textContent=D.adelanto;$('#valH').textContent=D.validez_horas;
     $('#waTop').href='https://wa.me/'+D.whatsapp;
     pintarFiltros();pintarGrid();
@@ -590,6 +625,9 @@ async function recargar(silencioso){
 (async()=>{
   await recargar(false);
   if(D){cargarAnalitica();ev('visita',{origen})}
+  try{const v=+localStorage.getItem('kb_bienvenida')||0;if(Date.now()-v>7*864e5&&!location.hash){document.getElementById('bienvenida').hidden=false}}catch(e){}
+  const cerrarBv=()=>{document.getElementById('bienvenida').hidden=true;try{localStorage.setItem('kb_bienvenida',Date.now())}catch(e){}};
+  document.getElementById('bvOk').onclick=cerrarBv;document.getElementById('bienvenida').addEventListener('click',e=>{if(e.target.id==='bienvenida')cerrarBv()});
   const h=decodeURIComponent((location.hash||'').slice(1));
   if(h==='pedido')vista('pedido');else if(h&&D)abrir(h,false);
 })();

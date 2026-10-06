@@ -42,6 +42,10 @@ const REGLAS_BASE = {
   aereo_max_usd: 6000, aereo_marcas: {},
   // E-bikes por mar: envío individual (flete_unidad) si el margen queda ≥ margen_minimo; si no, envío en grupo (flete_grupo, mínimo grupo_min unidades por marca).
   flete_unidad: 650, flete_grupo: 300, grupo_min: 3, margen_minimo: 15,
+  // Los costos de importación son aproximados: el margen se muestra como rango con flete/seguro/aduana ± este % y el TC ± 2%
+  variacion_costos: 25,
+  // Tienda: mostrar solo modelos con ficha completa (foto + descripción + especificaciones)
+  solo_completos: true,
   prep: 7, mar_min: 45, mar_max: 60, aereo_min: 10, aereo_max: 16, aduana_min: 4, aduana_max: 8, lima_min: 2, lima_max: 4,
   validez_horas: 48,
   extras: [
@@ -92,13 +96,26 @@ function calcularPrecio(sku, envio, R, tc) {
   }
   const sinIGV = pen / igv / tc.usd;
   const ganancia = sinIGV - puesto;
-  return { pen, usd: pen / tc.usd, costoUSD, flete, puesto, margen: sinIGV > 0 ? ganancia / sinIGV * 100 : 0, ganancia, modo: modo === 'pvp' && num(sku.pvp) > 0 ? 'pvp' : 'costo' };
+  // Rango de margen: logística (todo lo que no es el costo de la bici) ± variacion_costos, y el costo de la bici ± 2% por tipo de cambio
+  const v = num(R.variacion_costos ?? 25) / 100, logist = puesto - costoUSD;
+  const mg = pu => sinIGV > 0 ? (sinIGV - pu) / sinIGV * 100 : 0;
+  const margen_bajo = mg(costoUSD * 1.02 + logist * (1 + v)), margen_alto = mg(costoUSD * 0.98 + logist * Math.max(0, 1 - v));
+  return { pen, usd: pen / tc.usd, costoUSD, flete, puesto, margen: sinIGV > 0 ? ganancia / sinIGV * 100 : 0, ganancia, margen_bajo, margen_alto, modo: modo === 'pvp' && num(sku.pvp) > 0 ? 'pvp' : 'costo' };
+}
+
+// Ficha completa = al menos una foto, descripción y especificaciones
+function fichaCompleta(md = {}, skus = []) {
+  const falta = [];
+  if (!((md.imgs || []).length || skus.some(s => s.url_imagen))) falta.push('foto');
+  if (!String(md.desc || '').trim()) falta.push('descripción');
+  if (!(md.specs || []).length) falta.push('especificaciones');
+  return falta;
 }
 
 // Opciones de envío de un SKU (lo que ve el cliente). mod = ajustes del modelo { aereo: 'auto'|'si'|'no' }.
 const esEbike = s => s.categoria === 'E-MTB' || !!(s.motor && String(s.motor).trim());
 function opcionesEnvio(sku, R, tc, mod = {}, hoy = hoyLima()) {
-  const op = (k) => { const p = calcularPrecio(sku, k, R, tc); return { k, p: p.pen, f: calcularEntrega(sku, k, R, hoy), margen: Math.round(p.margen * 10) / 10 }; };
+  const op = (k) => { const p = calcularPrecio(sku, k, R, tc); return { k, p: p.pen, f: calcularEntrega(sku, k, R, hoy), margen: Math.round(p.margen * 10) / 10, mb: p.margen_bajo, ma: p.margen_alto }; };
   if (sku.estado === 'Stock Lima') return [op('lima')];
   const out = [];
   if (esEbike(sku)) {
@@ -729,8 +746,12 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
     try {
       if (!catCache || Date.now() - catCache.t > 60000) {
         const R = await leerReglas(); const tc = await tcEfectivo(R);
-        const skus = await leerSkus(true);
+        let skus = await leerSkus(true);
         const mods = await leerModelos();
+        if (R.solo_completos !== false) {
+          const porMod = {}; skus.forEach(s => (porMod[s.marca + '|' + s.modelo] ||= []).push(s));
+          skus = skus.filter(s => !fichaCompleta(mods[s.marca + '|' + s.modelo], porMod[s.marca + '|' + s.modelo]).length);
+        }
         catCache = { t: Date.now(), data: {
           modelos: armarCatalogo(skus, R, tc, hoyLima(), mods),
           grupos: await gruposPorMarca(R), grupo_min: Math.max(2, num(R.grupo_min) || 3),
@@ -939,9 +960,9 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       const conPrecio = skus.map(s => {
         const ops = opcionesEnvio(s, R, tc, mods[s.marca + '|' + s.modelo] || {});
         const p = calcularPrecio(s, ops[0].k, R, tc);
-        const ms = ops.map(o => o.margen);
+        const ms = ops.flatMap(o => [o.mb, o.ma]);
         return { ...s, precio: p.pen, puesto: Math.round(p.puesto), ganancia: Math.round(p.ganancia), margen: p.margen,
-          envios: ops.map(o => ({ k: o.k, p: o.p, margen: o.margen })), margen_min: Math.min(...ms), margen_max: Math.max(...ms),
+          envios: ops.map(o => ({ k: o.k, p: o.p, margen: o.margen, mb: Math.floor(o.mb), ma: Math.ceil(o.ma) })), margen_min: Math.min(...ms), margen_max: Math.max(...ms),
           pvp_pen: s.pvp > 0 ? ceil10(s.pvp * (s.moneda === 'EUR' ? tc.eur : tc.usd)) : null };
       });
       const [reservas] = await portalPool.query(`SELECT id, codigo, UNIX_TIMESTAMP(creado) creado, sku_id, marca, modelo, montaje, talla, color, envio, extras,
@@ -970,6 +991,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
         else if (k === 'extras') nuevo.extras = (Array.isArray(b.extras) ? b.extras : []).slice(0, 12).map((e, i) => ({ id: slug(e.id || e.nombre) || 'x' + i, nombre: String(e.nombre || '').slice(0, 120), precio: Math.max(0, num(e.precio)), incluido: !!e.incluido })).filter(e => e.nombre);
         else if (k === 'tc_modo') nuevo.tc_modo = b.tc_modo === 'manual' ? 'manual' : 'auto';
         else if (k === 'aereo_activo') nuevo.aereo_activo = !!b.aereo_activo;
+        else if (k === 'solo_completos') nuevo.solo_completos = !!b.solo_completos;
         else if (isFinite(+b[k]) && +b[k] >= 0) nuevo[k] = +b[k];
       }
       if (nuevo.margen_defecto >= 90 || nuevo.adelanto > 100 || nuevo.mar_min > nuevo.mar_max || nuevo.aereo_min > nuevo.aereo_max || nuevo.aduana_min > nuevo.aduana_max || nuevo.lima_min > nuevo.lima_max)
@@ -1276,4 +1298,4 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
   return { prepararTablas };
 };
 
-module.exports._test = { elegirImagenes, htmlATexto, specsSimples, linksDeModelos, emparejarModelos, leerFichaHtml, opcionesEnvio, leerMenuKuranko, MENU_RESPALDO, calcularPrecio, calcularEntrega, reconocerColumnas, normalizarFila, aFecha, aNumero, armarCatalogo, mezclarReglas, claveSku, REGLAS_BASE };
+module.exports._test = { fichaCompleta, elegirImagenes, htmlATexto, specsSimples, linksDeModelos, emparejarModelos, leerFichaHtml, opcionesEnvio, leerMenuKuranko, MENU_RESPALDO, calcularPrecio, calcularEntrega, reconocerColumnas, normalizarFila, aFecha, aNumero, armarCatalogo, mezclarReglas, claveSku, REGLAS_BASE };

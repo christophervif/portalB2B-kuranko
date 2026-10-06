@@ -1003,7 +1003,10 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
   // el portal agrega el N° de la NC al final del motivo y en "N° de Nota de Crédito / Guía" si falta.
   // Si aún no está anulada queda pendiente y se completa sola al anularla.
   const MOTIVOS_NC_ANULA = [1, 6];
-  async function anotarNC(comp, usuario) {
+  // Decisión del usuario (oct 2026): el sistema exige el N° de la NC al anular la venta, así que se
+  // anota a mano en ese momento. El portal NO escribe nada para las notas de crédito.
+  async function anotarNC() { return { erp_estado: 'no_aplica', erp_error: null }; }
+  async function anotarNC_desactivado(comp, usuario) {
     if (!comp.sale_id) return { erp_estado: 'no_aplica', erp_error: null };
     if (!erpWritePool) return { erp_estado: 'pendiente', erp_error: null };
     const numero = numDoc(comp.serie, comp.numero);
@@ -1055,6 +1058,7 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
 
   // Completa las NC que esperaban la anulación de la venta (al abrir las listas)
   async function sincronizarNC() {
+    return; // desactivado: las NC se anotan a mano al anular la venta
     if (!erpWritePool) return;   // consulta pequeña: solo las NC que esperan la anulación
     try {
       const [ps] = await portalPool.query(`SELECT * FROM fe_comprobantes WHERE tipo = 'nc' AND erp_estado = 'pendiente' AND sale_id IS NOT NULL
@@ -1586,17 +1590,21 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
       await listo();
       const dias = Math.min(365, Math.max(1, Number(req.query.dias) || 60));
       const ct = await columnasTransfer();
+      // Solo las que salen a / vuelven de una consignación necesitan guía. Los movimientos internos
+      // (almacén principal ↔ tienda Kuranko, exhibición, cuarentena…) son el mismo local: no llevan guía.
+      const tl = ct.tipoLoc;
+      const filtroInternas = req.query.internas === '1' || !tl ? '' : `AND (lf.\`${tl}\` = 'consignment' OR lt.\`${tl}\` = 'consignment')`;
       const [rows] = await prodPool.query(`SELECT st.id, st.transfer_date AS fecha, st.reference_number AS referencia, st.operation_type_code AS codigo,
-          lf.name AS origen, lt.name AS destino,
+          lf.name AS origen, lt.name AS destino, ${tl ? `(lf.\`${tl}\` <> 'consignment' AND lt.\`${tl}\` <> 'consignment')` : '0'} AS interna,
           (SELECT COALESCE(SUM(sti.quantity),0) FROM stock_transfer_items sti WHERE sti.stock_transfer_id = st.id) AS unidades
         FROM stock_transfers st
         LEFT JOIN locations lf ON lf.id = st.location_from_id LEFT JOIN locations lt ON lt.id = st.location_to_id
-        WHERE st.transfer_date >= DATE_SUB(CURDATE(), INTERVAL ? DAY) ${req.query.todas === '1' ? '' : "AND (st.reference_number IS NULL OR TRIM(st.reference_number) = '')"}
+        WHERE st.transfer_date >= DATE_SUB(CURDATE(), INTERVAL ? DAY) ${req.query.todas === '1' ? '' : "AND (st.reference_number IS NULL OR TRIM(st.reference_number) = '')"} ${filtroInternas}
         ORDER BY st.transfer_date DESC, st.id DESC LIMIT 300`, [dias]);
       const ids = rows.map(r => r.id);
       const [gs] = ids.length ? await portalPool.query(`SELECT transfer_id, serie, numero, estado FROM fe_comprobantes WHERE tipo='guia' AND transfer_id IN (?) AND estado NOT IN ('error','enviando','rechazado')`, [ids]) : [[]];
       const guia = Object.fromEntries(gs.map(g => [g.transfer_id, numDoc(g.serie, g.numero)]));
-      res.json({ transferencias: rows.map(r => ({ ...r, tipo: TIPO_TRANSF[r.codigo] || r.codigo, unidades: Number(r.unidades), guia: guia[r.id] || null })), escribe_erp: !!erpWritePool, columna_empresa: ct.empresa });
+      res.json({ transferencias: rows.map(r => ({ ...r, interna: !!Number(r.interna), tipo: TIPO_TRANSF[r.codigo] || r.codigo, unidades: Number(r.unidades), guia: guia[r.id] || null })), escribe_erp: !!erpWritePool, columna_empresa: ct.empresa });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
@@ -1704,6 +1712,34 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
       res.json({ ventas: ventas.map(v => ({ id: v.id, code: v.code, empresa: empresas[v.company_id] || '', total: Number(v.total), estado: v.status,
         fecha: isoFecha(v.created_at), cliente: v.business_name || [v.first_name, v.last_name].filter(Boolean).join(' '), doc: v.document_number,
         comprobantes: v.comprobantes || '', guias: gs.filter(g => g.sale_id === v.id).map(g => numDoc(g.serie, g.numero)) })) });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Buscador para emitir notas de crédito: facturas y boletas del portal, con el estado de su venta
+  app.get('/api/fe/nc/buscar', authAdmin, mFe, async (req, res) => {
+    try {
+      await listo();
+      const dias = Math.min(730, Math.max(1, Number(req.query.dias) || 90));
+      const cond = [`c.tipo IN ('factura','boleta')`, `c.estado IN ('aceptado','pendiente_sunat')`, `c.fecha_emision >= DATE_SUB(CURDATE(), INTERVAL ? DAY)`], params = [dias];
+      if (req.query.empresa) { cond.push('c.company_id = ?'); params.push(Number(req.query.empresa)); }
+      if (req.query.q) {
+        const t = '%' + String(req.query.q).trim() + '%', n = normDoc(req.query.q);
+        cond.push(`(c.sale_code LIKE ? OR c.cliente_nombre LIKE ? OR c.cliente_doc LIKE ? OR CONCAT(c.serie,'-',c.numero) = ?)`); params.push(t, t, t, n);
+      }
+      const [comps] = await portalPool.query(`SELECT c.id, c.company_id, c.tipo, c.serie, c.numero, c.sale_id, c.sale_code, c.fecha_emision, c.cliente_doc, c.cliente_nombre,
+          c.total, c.moneda, c.es_anticipo, c.aplicado_en, c.anulado_por_nc
+        FROM fe_comprobantes c WHERE ${cond.join(' AND ')} ORDER BY c.fecha_emision DESC, c.id DESC LIMIT 200`, params);
+      if (!comps.length) return res.json({ comprobantes: [] });
+      const [ncs] = await portalPool.query(`SELECT id, ref_id, serie, numero, total, nc_motivo FROM fe_comprobantes WHERE tipo='nc' AND ref_id IN (?) AND estado IN ('aceptado','pendiente_sunat')`, [comps.map(c => c.id)]);
+      const ventaIds = [...new Set(comps.map(c => c.sale_id).filter(Boolean))];
+      const [ventas] = ventaIds.length ? await prodPool.query(`SELECT id, status, cancellation_document FROM sales WHERE id IN (?)`, [ventaIds]) : [[]];
+      res.json({ comprobantes: comps.map(c => {
+        const v = ventas.find(x => x.id === c.sale_id);
+        const notas = ncs.filter(n => n.ref_id === c.id).map(n => ({ id: n.id, numero_txt: numDoc(n.serie, n.numero), total: Number(n.total), motivo: n.nc_motivo,
+          anotada: !!(v && v.cancellation_document && mencionaDoc(v.cancellation_document, n.serie, n.numero)) }));
+        return { ...c, empresa: empresas[c.company_id] || '', numero_txt: numDoc(c.serie, c.numero), fecha_emision: isoFecha(c.fecha_emision), total: Number(c.total),
+          venta_estado: v ? v.status : null, notas_credito: notas };
+      }) });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 

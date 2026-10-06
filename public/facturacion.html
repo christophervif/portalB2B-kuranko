@@ -158,9 +158,16 @@ a.lnk:hover{text-decoration:underline}
       </div>
       <div class="tabla-wrap">
         <table>
-          <thead><tr><th>Comprobante</th><th>Fecha</th><th>Cliente</th><th>Venta</th><th class="n">Total</th><th>SUNAT</th><th>Sistema</th><th>Acciones</th></tr></thead>
-          <tbody id="e-body"><tr><td colspan="8" class="vacio">—</td></tr></tbody>
+          <thead><tr><th style="width:28px"><input type="checkbox" id="e-todas" title="Seleccionar las que faltan en el sistema" onchange="selERPTodas(this.checked)"></th><th>Comprobante</th><th>Fecha</th><th>Cliente</th><th>Venta</th><th class="n">Total</th><th>SUNAT</th><th>Sistema</th><th>Acciones</th></tr></thead>
+          <tbody id="e-body"><tr><td colspan="9" class="vacio">—</td></tr></tbody>
         </table>
+      </div>
+      <div class="barra-sel" id="e-barra">
+        <span id="e-sel-txt"></span>
+        <div class="acciones">
+          <button class="btn btn-sec" onclick="SEL_ERP.clear();pintarSelERP()">Quitar selección</button>
+          <button class="btn" id="e-reg-btn" onclick="registrarERPLote()">Registrar en sistema</button>
+        </div>
       </div>
     </div>
   </div>
@@ -834,8 +841,14 @@ function cargarEM() {
   else if (v === 'nc') { cargarLista('n'); cargarAnuladas(); }
   else if (v === 'em') cargarLista('e');
 }
+// Se puede registrar en el sistema desde el portal
+const porRegistrar = c => ESTADO && ESTADO.erp_automatico && c.tipo !== 'nc' && (c.tipo !== 'guia' || c.transfer_id)
+  && ['aceptado', 'pendiente_sunat'].includes(c.estado) && ['pendiente', 'error'].includes(c.erp_estado);
+let SEL_ERP = new Set();
 function pintarEM(EM, body) {
-  if (!EM.length) { body.innerHTML = '<tr><td colspan="8" class="vacio">Sin comprobantes con estos filtros</td></tr>'; return; }
+  const conSel = body.id === 'e-body';
+  if (conSel) { SEL_ERP = new Set([...SEL_ERP].filter(id => EM.some(c => c.id === id && porRegistrar(c)))); pintarSelERP(); }
+  if (!EM.length) { body.innerHTML = `<tr><td colspan="${conSel ? 9 : 8}" class="vacio">Sin comprobantes con estos filtros</td></tr>`; return; }
   body.innerHTML = EM.map(c => {
     const [cl, tx] = ESTADO_SUNAT[c.estado] || ['c-g', c.estado];
     const erp = (c.tipo === 'guia' && !c.transfer_id) || c.erp_estado === 'no_aplica' || !c.erp_estado ? '<span class="sub">—</span>' :
@@ -853,16 +866,15 @@ function pintarEM(EM, body) {
     if (c.estado === 'incierto') acc.push(`<button class="btn btn-sec btn-sm" onclick="reintentar(${c.id})">Reintentar</button>`);
     if (c.tipo !== 'nc' && (c.tipo !== 'guia' || c.transfer_id) && ['aceptado', 'pendiente_sunat'].includes(c.estado) && ['pendiente', 'error'].includes(c.erp_estado)) {
       if (ESTADO && ESTADO.erp_automatico) acc.push(`<button class="btn btn-sec btn-sm" onclick="registrarERP(${c.id})">Registrar en sistema</button>`);
-      acc.push(`<button class="btn btn-sec btn-sm" onclick="registrarERP(${c.id},true)">Ya lo anoté</button>`);
+      // Sin acceso de escritura al sistema no hay detección posible: se marca a mano
+      else acc.push(`<button class="btn btn-sec btn-sm" onclick="registrarERP(${c.id},true)">Ya lo anoté</button>`);
     }
     if (ESTADO && ESTADO.maestro && ESTADO.erp_automatico && c.erp_estado === 'registrado' && !String(c.erp_por || '').includes('(a mano)'))
       acc.push(`<button class="btn btn-sec btn-sm" title="Quita del sistema lo que el portal escribió" onclick="deshacerERP(${c.id})">↩ Deshacer en sistema</button>`);
-    if (['factura', 'boleta'].includes(c.tipo) && ['aceptado', 'pendiente_sunat'].includes(c.estado) && !c.anulado_por_nc) {
-      acc.push(`<button class="btn btn-sec btn-sm" onclick="abrirNC(${c.id})">Nota de crédito</button>`);
-      if (!c.es_anticipo || c.aplicado_en) acc.push(`<button class="btn btn-sec btn-sm" onclick="abrirGuia({comprobante_id:${c.id}})">🚚 Guía</button>`);
-    }
+    // La nota de crédito se emite desde "Notas de crédito" (ventas anuladas) y la guía desde "Guías de remisión"
     const ref = c.tipo === 'nc' ? `<div class="sub">Modifica ${esc(numTxt(c.ref_serie, c.ref_numero))}</div>` : c.anulado_por_nc ? '<div class="sub" style="color:var(--fg-r)">Anulado con nota de crédito</div>' : '';
-    return `<tr>
+    const chk = !conSel ? '' : `<td>${porRegistrar(c) ? `<input type="checkbox" data-id="${c.id}" ${SEL_ERP.has(c.id) ? 'checked' : ''} onchange="selERP(${c.id}, this.checked)">` : ''}</td>`;
+    return `<tr>${chk}
       <td><div class="nom mono">${esc(numTxt(c.serie, c.numero))}</div><div class="sub">${NOMBRE_TIPO[c.tipo]}${c.es_anticipo ? ' de anticipo' + (c.aplicado_en ? ' (ya descontado)' : ' (por descontar)') : ''} · ${esc(c.empresa)}</div>${ref}</td>
       <td>${fechaTxt(c.fecha_emision)}<div class="sub">${esc(c.emitido_por || '')}</div></td>
       <td><div class="nom">${esc(c.cliente_nombre)}</div><div class="sub mono">${esc(c.cliente_doc)}</div>${c.email_enviado ? '<div class="sub">✉ enviado al correo</div>' : ''}</td>
@@ -912,6 +924,33 @@ async function reintentar(id) {
   if (!confirm('Se vuelve a enviar el comprobante con el mismo número. ¿Continuar?')) return;
   try { const r = await api(`/api/fe/${id}/reintentar`, 'POST'); showToast('Estado: ' + ((ESTADO_SUNAT[r.estado] || [])[1] || r.estado)); cargarEM(); refrescarEstado(); }
   catch (e) { showToast(e.message, true); }
+}
+function selERP(id, on) { on ? SEL_ERP.add(id) : SEL_ERP.delete(id); pintarSelERP(); }
+function selERPTodas(on) {
+  const cajas = [...document.querySelectorAll('#e-body input[data-id]')];
+  cajas.forEach(ch => { ch.checked = on; });
+  SEL_ERP = new Set(on ? cajas.map(ch => Number(ch.dataset.id)) : []);
+  pintarSelERP();
+}
+function pintarSelERP() {
+  $('e-barra').style.display = SEL_ERP.size ? 'flex' : 'none';
+  $('e-sel-txt').textContent = `${SEL_ERP.size} comprobante(s) seleccionado(s) para anotar en el sistema`;
+  if (!SEL_ERP.size && $('e-todas')) $('e-todas').checked = false;
+}
+async function registrarERPLote() {
+  const ids = [...SEL_ERP]; if (!ids.length) return;
+  const btn = $('e-reg-btn'); btn.disabled = true;
+  let ok = 0; const errores = [];
+  for (const [i, id] of ids.entries()) {
+    btn.textContent = `Registrando ${i + 1}/${ids.length}…`;
+    try { const r = await api(`/api/fe/${id}/erp`, 'POST', {}); if (r.erp_estado === 'registrado') ok++; else errores.push(`${numTxt(EMX[id].serie, EMX[id].numero)}: ${r.erp_error || r.erp_estado}`); }
+    catch (e) { errores.push(`${numTxt(EMX[id].serie, EMX[id].numero)}: ${e.message}`); }
+  }
+  btn.disabled = false; btn.textContent = 'Registrar en sistema';
+  SEL_ERP.clear();
+  showToast(`${ok} registrado(s) en el sistema${errores.length ? ` · ${errores.length} con error` : ''}`, errores.length > 0);
+  if (errores.length) alert('No se registraron:\n\n' + errores.join('\n'));
+  cargarEM(); refrescarEstado();
 }
 async function registrarERP(id, manual) {
   if (manual && !confirm('¿Confirmas que ya anotaste este comprobante en la venta del sistema?')) return;

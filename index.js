@@ -19,6 +19,13 @@ catch (e) { console.warn('[perf] compression no disponible (npm i compression):'
 app.use(cors({ origin: '*' }));
 // Límite amplio: el módulo de Importaciones reenvía PDFs (base64) a la IA.
 app.use(express.json({ limit: '25mb' }));
+// bikes.kuranko.pe → tienda pública de bicis a pedido (public/bikes.html).
+// El resto de rutas (/api, /admin.html…) funciona igual en ese dominio.
+app.use((req, res, next) => {
+  if (/^bikes\./i.test(req.hostname || '') && (req.path === '/' || req.path === '/index.html'))
+    return res.set('Cache-Control', 'no-cache').sendFile(path.join(__dirname, 'public', 'bikes.html'));
+  next();
+});
 // Estáticos: el HTML SIEMPRE revalida (no-cache + etag) para no servir versiones
 // viejas tras un deploy; los demás recursos sí se cachean 1h. La compresión gzip
 // (arriba) es la que ahorra egress, no la caché.
@@ -124,7 +131,7 @@ function soloMaestro(req, res, next) {
 // LOGIN ADMIN
 // ════════════════════════════════════════════════════════════════════════════
 // Lista de módulos (pestañas) del admin. Debe coincidir con las pestañas del HTML.
-const MODULOS_ADMIN = ['clientes_gestion', 'sync', 'auditoria', 'resumen', 'rentabilidad', 'inventario', 'restock', 'clientes_bi', 'caja_bi', 'crm', 'reportes', 'pagos', 'importaciones', 'recepciones', 'seguimiento', 'conciliacion', 'cuentas_cobrar', 'saldo_favor', 'cotizador', 'precio_importado', 'asistencia', 'facturacion'];
+const MODULOS_ADMIN = ['clientes_gestion', 'sync', 'auditoria', 'resumen', 'rentabilidad', 'inventario', 'restock', 'clientes_bi', 'caja_bi', 'crm', 'reportes', 'pagos', 'importaciones', 'recepciones', 'seguimiento', 'conciliacion', 'cuentas_cobrar', 'saldo_favor', 'cotizador', 'precio_importado', 'asistencia', 'facturacion', 'bikes'];
 
 // Usuarios admin secundarios definidos en variables de entorno (Railway).
 // Formato por usuario (numeradas del 2 en adelante):
@@ -204,6 +211,7 @@ let modRecepciones = null;
 let modSeguimiento = null;
 let modAsistencia = null;
 let modGestion = null;
+let modBikes = null;
 
 // Registro de endpoints del dashboard (inyectado directamente)
 (function(){
@@ -314,6 +322,9 @@ let modGestion = null;
   //    Todos los usuarios marcan su jornada; el módulo 'asistencia' da acceso al control.
   modAsistencia = require('./modulos/asistencia')({ app, authAdmin, requiereModulo, prodPool, portalPool, leerAdminsSecundarios });
 
+  // ── Módulo Bikes a pedido (bikes.kuranko.pe) — public/bikes.html (tienda) + public/bikes-admin.html (panel) ──
+  modBikes = require('./modulos/bikes')({ app, authAdmin, requiereModulo, portalPool });
+
   // ── Módulo Sincronización web ──
   modSync = require('./modulos/sincronizacion')({ app, authAdmin, requiereModulo, prodPool, portalPool });
 
@@ -379,6 +390,7 @@ app.listen(PORT, async () => {
     if (modRecepciones && modRecepciones.prepararTablas) await modRecepciones.prepararTablas();
     if (modSeguimiento && modSeguimiento.prepararTablas) await modSeguimiento.prepararTablas();
     if (modAsistencia && modAsistencia.prepararTablas) await modAsistencia.prepararTablas();
+    if (modBikes && modBikes.prepararTablas) await modBikes.prepararTablas();
     console.log('Tablas del portal listas.');
   } catch (e) { console.error('No se pudieron preparar las tablas al arrancar:', e.message); }
 });

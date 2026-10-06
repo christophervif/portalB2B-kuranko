@@ -41,7 +41,11 @@ const REGLAS_BASE = {
   // Envíos: aéreo solo si el precio final (marítimo) no pasa este tope en US$ y la marca lo acepta. Las e-bikes no vuelan (baterías).
   aereo_max_usd: 6000, aereo_marcas: {},
   // E-bikes por mar: envío individual (flete_unidad) si el margen queda ≥ margen_minimo; si no, envío en grupo (flete_grupo, mínimo grupo_min unidades por marca).
-  flete_unidad: 650, flete_grupo: 300, grupo_min: 3, margen_minimo: 15,
+  flete_unidad: 650, flete_grupo: 300, grupo_min: 3, margen_minimo: 20,
+  // Cuotas sin intereses con tarjeta: % que cobra el banco por número de cuotas (lo asume Kuranko si el margen sigue ≥ margen_minimo)
+  cuotas: { 3: 5, 6: 7, 9: 9, 12: 11 }, cuotas_bancos: 'BBVA, Scotiabank y Diners Club',
+  // Powerpay: acepta cualquier tarjeta de crédito; a Kuranko le cobra un % fijo y al cliente le cobra su propio interés
+  powerpay_pct: 5,
   // Los costos de importación son aproximados: el margen se muestra como rango con flete/seguro/aduana ± este % y el TC ± 2%
   variacion_costos: 25,
   // Tienda: mostrar solo modelos con ficha completa (foto + descripción + especificaciones)
@@ -69,14 +73,14 @@ const soles = n => 'S/ ' + Math.round(n).toLocaleString('es-PE');
 function mezclarReglas(guardadas) {
   const g = guardadas || {};
   const r = { ...REGLAS_BASE, ...g, margenes: { ...REGLAS_BASE.margenes, ...(g.margenes || {}) },
-    modos: { ...REGLAS_BASE.modos, ...(g.modos || {}) }, aereo_marcas: { ...(g.aereo_marcas || {}) }, factores_pvp: { ...REGLAS_BASE.factores_pvp, ...(g.factores_pvp || {}) } };
+    modos: { ...REGLAS_BASE.modos, ...(g.modos || {}) }, cuotas: g.cuotas && typeof g.cuotas === 'object' ? g.cuotas : REGLAS_BASE.cuotas, aereo_marcas: { ...(g.aereo_marcas || {}) }, factores_pvp: { ...REGLAS_BASE.factores_pvp, ...(g.factores_pvp || {}) } };
   if (!Array.isArray(r.extras)) r.extras = REGLAS_BASE.extras;
   return r;
 }
 
 // Precio final en soles (IGV incluido) de un SKU para un tipo de envío.
 // tc = { usd, eur } en soles (ya con recargo). Devuelve también el desglose (solo admin).
-function calcularPrecio(sku, envio, R, tc) {
+function calcularPrecio(sku, envio, R, tc, margenForzado = null) {
   const lima = sku.estado === 'Stock Lima';
   const costoUSD = sku.moneda === 'EUR' ? num(sku.costo) * tc.eur / tc.usd : num(sku.costo);
   const flete = lima ? 0 : num({ aereo: R.flete_aereo, unidad: R.flete_unidad, grupo: R.flete_grupo }[envio] ?? R.flete_maritimo);
@@ -84,7 +88,9 @@ function calcularPrecio(sku, envio, R, tc) {
   const igv = 1 + num(R.igv) / 100;
   const modo = (R.modos && R.modos[sku.marca]) || 'costo';
   let pen;
-  if (modo === 'pvp' && num(sku.pvp) > 0) {
+  if (margenForzado != null) {
+    pen = ceil10(puesto / (1 - margenForzado / 100) * igv * tc.usd);
+  } else if (modo === 'pvp' && num(sku.pvp) > 0) {
     // PVP de la marca × factor = precio final con IGV. El envío aéreo suma la diferencia de flete (con IGV).
     const f = num(R.factores_pvp && R.factores_pvp[sku.marca] != null ? R.factores_pvp[sku.marca] : R.factor_pvp_defecto) || 1;
     const pvpUSD = sku.moneda === 'EUR' ? num(sku.pvp) * tc.eur / tc.usd : num(sku.pvp);
@@ -100,7 +106,7 @@ function calcularPrecio(sku, envio, R, tc) {
   const v = num(R.variacion_costos ?? 25) / 100, logist = puesto - costoUSD;
   const mg = pu => sinIGV > 0 ? (sinIGV - pu) / sinIGV * 100 : 0;
   const margen_bajo = mg(costoUSD * 1.02 + logist * (1 + v)), margen_alto = mg(costoUSD * 0.98 + logist * Math.max(0, 1 - v));
-  return { pen, usd: pen / tc.usd, costoUSD, flete, puesto, margen: sinIGV > 0 ? ganancia / sinIGV * 100 : 0, ganancia, margen_bajo, margen_alto, modo: modo === 'pvp' && num(sku.pvp) > 0 ? 'pvp' : 'costo' };
+  return { pen, usd: pen / tc.usd, costoUSD, flete, puesto, margen: sinIGV > 0 ? ganancia / sinIGV * 100 : 0, ganancia, margen_bajo, margen_alto, modo: margenForzado != null ? 'minimo' : modo === 'pvp' && num(sku.pvp) > 0 ? 'pvp' : 'costo' };
 }
 
 // Ficha completa = al menos una foto, descripción y especificaciones
@@ -115,12 +121,23 @@ function fichaCompleta(md = {}, skus = []) {
 // Opciones de envío de un SKU (lo que ve el cliente). mod = ajustes del modelo { aereo: 'auto'|'si'|'no' }.
 const esEbike = s => s.categoria === 'E-MTB' || !!(s.motor && String(s.motor).trim());
 function opcionesEnvio(sku, R, tc, mod = {}, hoy = hoyLima()) {
-  const op = (k) => { const p = calcularPrecio(sku, k, R, tc); return { k, p: p.pen, f: calcularEntrega(sku, k, R, hoy), margen: Math.round(p.margen * 10) / 10, mb: p.margen_bajo, ma: p.margen_alto }; };
+  const min = num(R.margen_minimo);
+  const op = (k, forzado = null) => { const p = calcularPrecio(sku, k, R, tc, forzado);
+    // Cuotas sin intereses: el mayor número de cuotas cuya comisión deja el margen ≥ mínimo
+    let cu = 0; for (const [n, pct] of Object.entries(R.cuotas || {})) { const sin = p.pen / (1 + num(R.igv) / 100) / tc.usd; if (sin > 0 && ((sin * (1 - num(pct) / 100) - p.puesto) / sin * 100) >= min && +n > cu) cu = +n; }
+    const sinI = p.pen / (1 + num(R.igv) / 100) / tc.usd;
+    const pp = num(R.powerpay_pct) > 0 && sinI > 0 && ((sinI * (1 - num(R.powerpay_pct) / 100) - p.puesto) / sinI * 100) >= min;
+    return { k, p: p.pen, f: calcularEntrega(sku, k, R, hoy), margen: Math.round(p.margen * 10) / 10, mb: p.margen_bajo, ma: p.margen_alto, cu, pp }; };
   if (sku.estado === 'Stock Lima') return [op('lima')];
   const out = [];
   if (esEbike(sku)) {
     const u = op('unidad');
-    if (mod.unidad === 'si' || (mod.unidad !== 'no' && u.margen >= num(R.margen_minimo))) out.push(u); else out.push(op('grupo'));
+    if (mod.unidad === 'si' || (mod.unidad !== 'no' && u.margen >= min)) out.push(u);
+    else {
+      out.push(op('grupo'));
+      // Quien no quiere esperar al grupo: envío individual pagando un adicional, con el margen en el mínimo
+      if (mod.unidad !== 'no') { const x = op('unidad', min); x.k = 'unidad'; x.adicional = true; out.push(x); }
+    }
   } else {
     const m = op('maritimo'); out.push(m);
     const marcaOk = !R.aereo_activo ? false : (R.aereo_marcas || {})[sku.marca] !== false;
@@ -330,7 +347,7 @@ function armarCatalogo(skus, R, tc, hoy = hoyLima(), mods = {}) {
     const ops = opcionesEnvio(s, R, tc, md, hoy);
     const base = ops.reduce((a, o) => o.p < a.p ? o : a, ops[0]);
     const it = { id: s.id, mo: s.montaje, t: s.talla, c: s.color, d: Math.max(0, num(s.stock) - num(s.reservado)), e: s.estado,
-      pm: base.p, fm: base.f, op: ops.map(o => ({ k: o.k, p: o.p, f: o.f })) };
+      pm: base.p, fm: base.f, op: ops.map(o => ({ k: o.k, p: o.p, f: o.f, cu: o.cu, ...(o.pp ? { pp: 1 } : {}), ...(o.adicional ? { ad: 1 } : {}) })) };
     if (s.pvp > 0) it.ref = Math.ceil(s.pvp * (s.moneda === 'EUR' ? tc.eur : tc.usd) / 10) * 10; // PVP de la marca en soles, referencia
     m.skus.push(it);
   }
@@ -673,6 +690,9 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
           actualizado DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (marca, modelo)) DEFAULT CHARSET=utf8mb4`);
       for (const col of ['specs MEDIUMTEXT NULL', 'datos TEXT NULL', 'manual TINYINT(1) NOT NULL DEFAULT 0'])
         await portalPool.query(`ALTER TABLE bk_modelos ADD COLUMN ${col}`).catch(() => {}); // ya existe
+      await portalPool.query(`CREATE TABLE IF NOT EXISTS bk_llamadas (id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY, creado DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          nombre VARCHAR(120) NOT NULL, tel VARCHAR(15) NOT NULL, fecha DATE NULL, franja VARCHAR(30) NULL, tema VARCHAR(300) NULL, ref VARCHAR(60) NULL,
+          estado VARCHAR(20) NOT NULL DEFAULT 'Pendiente', nota TEXT NULL, ip VARCHAR(45) NULL) DEFAULT CHARSET=utf8mb4`);
       // Métricas propias: clics y embudo (visita → modelo → configura → carrito → reserva)
       await portalPool.query(`CREATE TABLE IF NOT EXISTS bk_eventos (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
           creado DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, sesion VARCHAR(24) NOT NULL, tipo VARCHAR(16) NOT NULL,
@@ -754,6 +774,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
         }
         catCache = { t: Date.now(), data: {
           modelos: armarCatalogo(skus, R, tc, hoyLima(), mods),
+          cuotas: R.cuotas || {}, cuotas_bancos: R.cuotas_bancos || '', franjas: FRANJAS,
           grupos: await gruposPorMarca(R), grupo_min: Math.max(2, num(R.grupo_min) || 3),
           pagina: await (async () => { const pg = await leerPagina(); const f = pg.fotos || {};
             return { asesor_nombre: pg.asesor_nombre || 'Jean Pierre', asesor_cargo: pg.asesor_cargo || 'Asesor de bicicletas', asesor_whatsapp: (pg.asesor_whatsapp || '').replace(/\D/g, '') || null,
@@ -839,7 +860,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       const ops = opcionesEnvio(s, R, tc, mods[s.marca + '|' + s.modelo] || {});
       const op = ops.find(o => o.k === String(b.envio || '')) || ops[0];
       const env = op.k;
-      const p = calcularPrecio(s, env, R, tc);
+      const p = calcularPrecio(s, env, R, tc, op.adicional ? num(R.margen_minimo) : null);
       const fechas = op.f;
       const pedidos = Array.isArray(b.extras) ? b.extras.map(String) : [];
       const extras = (R.extras || []).filter(e => e.incluido || pedidos.includes(e.id)).map(e => ({ id: e.id, nombre: e.nombre, precio: num(e.precio) }));
@@ -891,6 +912,27 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       console.error('[bikes] reservar', e.message);
       res.status(500).json({ error: 'No pudimos guardar la reserva. Intenta otra vez o escríbenos por WhatsApp.' });
     } finally { if (conn) conn.release(); }
+  });
+
+  // Agendar una llamada con el asesor
+  const FRANJAS = ['10:00–12:00', '12:00–14:00', '14:00–16:00', '16:00–19:00'];
+  app.post('/api/bikes/llamada', async (req, res) => {
+    const b = req.body || {}; if (b.web) return res.json({ ok: true });
+    const ip = ipDe(req);
+    if (demasiados('ll:' + ip, 5)) return res.status(429).json({ error: 'Ya agendaste varias llamadas. Escríbenos por WhatsApp.' });
+    const nombre = String(b.nombre || '').trim().slice(0, 120); let tel = String(b.tel || '').replace(/\D/g, ''); if (tel.length === 11 && tel.startsWith('51')) tel = tel.slice(2);
+    const fecha = /^\d{4}-\d{2}-\d{2}$/.test(b.fecha || '') && b.fecha >= hoyLima() ? b.fecha : null;
+    const franja = FRANJAS.includes(b.franja) ? b.franja : null;
+    if (nombre.length < 3 || !/^9\d{8}$/.test(tel) || !fecha || !franja) return res.status(400).json({ error: 'Completa tu nombre, un celular de 9 dígitos, el día y la hora.' });
+    try {
+      await prepararTablas();
+      const tema = String(b.tema || '').slice(0, 300), ref = String(b.ref || '').replace(/[^\w.\-]/g, '').slice(0, 60) || null;
+      await portalPool.query('INSERT INTO bk_llamadas (nombre, tel, fecha, franja, tema, ref, ip) VALUES (?,?,?,?,?,?,?)', [nombre, tel, fecha, franja, tema, ref, ip]);
+      const txt = `Llamada agendada: ${nombre} · ${tel} · ${fechaCorta(fecha)} ${franja}${tema ? ' · ' + tema : ''}`;
+      enviarCorreo((process.env.BIKES_EMAIL || 'info@kuranko.pe,ventas@kuranko.pe').split(',').map(x => x.trim()).filter(Boolean), `Llamada agendada: ${nombre} · ${fechaCorta(fecha)} ${franja}`,
+        `<div style="font-family:Arial,sans-serif;font-size:15px"><b>${escH(nombre)}</b> quiere una llamada el <b>${escH(fechaCorta(fecha))}</b> entre <b>${escH(franja)}</b>.<br>Celular: ${escH(tel)}${tema ? '<br>Tema: ' + escH(tema) : ''}${ref ? '<br>Vendedor: ' + escH(ref) : ''}<br><br><a href="https://wa.me/51${escH(tel)}">Escribir por WhatsApp</a></div>`, txt);
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: 'No se pudo agendar. Escríbenos por WhatsApp.' }); }
   });
 
   app.get('/api/bikes/pedido', async (req, res) => {
@@ -972,7 +1014,8 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       const [imports] = await portalPool.query(`SELECT id, UNIX_TIMESTAMP(creado) creado, usuario, archivo, marcas, modo, nuevas, actualizadas, desactivadas FROM bk_imports ORDER BY id DESC LIMIT 20`);
       res.json({ reglas: R, tc, maestro: !!(req.admin && req.admin.maestro), skus: conPrecio, reservas: reservas.map(r => ({ ...r, total: num(r.total), adelanto: num(r.adelanto),
           creado: horaLima(r.creado), actualizado: horaLima(r.actualizado), valido_hasta: horaLima(r.valido_hasta), vencida: r.estado === 'Nueva' && r.valido_hasta && r.valido_hasta * 1000 < Date.now() })),
-        modelos: mods, marcas_info: await leerMarcas(), pagina: await leerPagina(), grupos: await gruposPorMarca(R),
+        modelos: mods, marcas_info: await leerMarcas(), pagina: await leerPagina(),
+        llamadas: (await portalPool.query(`SELECT id, UNIX_TIMESTAMP(creado) creado, nombre, tel, DATE_FORMAT(fecha,'%Y-%m-%d') fecha, franja, tema, ref, estado, nota FROM bk_llamadas ORDER BY (estado='Pendiente') DESC, fecha, id DESC LIMIT 200`))[0].map(l => ({ ...l, creado: horaLima(l.creado) })), grupos: await gruposPorMarca(R),
         imports: imports.map(i => ({ ...i, creado: horaLima(i.creado) })), estados_reserva: ESTADOS_RESERVA, estados_sku: ESTADOS_SKU, marcas_base: MARCAS_BASE });
     } catch (e) { console.error('[bikes] estado', e.message); res.status(500).json({ error: e.message }); }
   });
@@ -991,7 +1034,9 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
         else if (k === 'extras') nuevo.extras = (Array.isArray(b.extras) ? b.extras : []).slice(0, 12).map((e, i) => ({ id: slug(e.id || e.nombre) || 'x' + i, nombre: String(e.nombre || '').slice(0, 120), precio: Math.max(0, num(e.precio)), incluido: !!e.incluido })).filter(e => e.nombre);
         else if (k === 'tc_modo') nuevo.tc_modo = b.tc_modo === 'manual' ? 'manual' : 'auto';
         else if (k === 'aereo_activo') nuevo.aereo_activo = !!b.aereo_activo;
+        else if (k === 'cuotas_bancos') nuevo.cuotas_bancos = String(b.cuotas_bancos || '').slice(0, 120);
         else if (k === 'solo_completos') nuevo.solo_completos = !!b.solo_completos;
+        else if (k === 'cuotas') { nuevo.cuotas = {}; for (const [n, v] of Object.entries(b.cuotas || {})) if (+n >= 2 && +n <= 36 && +v >= 0 && +v < 40) nuevo.cuotas[+n] = +v; }
         else if (isFinite(+b[k]) && +b[k] >= 0) nuevo[k] = +b[k];
       }
       if (nuevo.margen_defecto >= 90 || nuevo.adelanto > 100 || nuevo.mar_min > nuevo.mar_max || nuevo.aereo_min > nuevo.aereo_max || nuevo.aduana_min > nuevo.aduana_max || nuevo.lima_min > nuevo.lima_max)
@@ -1121,6 +1166,12 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
       await portalPool.query(`UPDATE bk_skus SET ${sets.join(', ')}, actualizado=NOW() WHERE id IN (?)`, [...vals, ids]);
       limpiarCache(); res.json({ ok: true });
     } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post('/api/bikes/admin/llamada', authAdmin, mBikes, async (req, res) => {
+    const b = req.body || {};
+    try { await portalPool.query('UPDATE bk_llamadas SET estado=?, nota=? WHERE id=?', [['Pendiente', 'Hecha', 'No contestó', 'Cancelada'].includes(b.estado) ? b.estado : 'Pendiente', String(b.nota || '').slice(0, 1000), num(b.id)]); res.json({ ok: true }); }
+    catch (e) { res.status(500).json({ error: e.message }); }
   });
 
   // Cambiar estado / nota / N° de venta del ERP de una reserva

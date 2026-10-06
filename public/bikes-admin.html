@@ -99,6 +99,8 @@ tr.off td{opacity:.45}
       <div class="row" style="margin-bottom:10px"><input id="resQ" placeholder="Buscar cliente, código, DNI, modelo…" style="flex:1;min-width:200px">
         <select id="resEst"><option value="abiertas">Abiertas</option><option value="">Todas</option></select></div>
       <div class="tbl" id="resTbl"></div>
+      <h3 style="margin-top:16px">Llamadas agendadas</h3>
+      <div class="tbl" id="llTbl" style="margin-top:6px"></div>
       <p class="desc" style="margin-top:8px">El sistema de ventas (ERP) es de solo lectura: cuando registres la venta allá, anota su número en «Venta ERP». Al cancelar, la unidad vuelve a estar disponible en la tienda.</p>
     </div>
   </section>
@@ -202,6 +204,10 @@ document.addEventListener('change',async e=>{
   try{await api('/api/bikes/admin/reserva',{method:'POST',body:JSON.stringify({id:+el.dataset.res,[el.dataset.campo]:el.value})});toast('Guardado');
     if(el.dataset.campo==='estado'){await cargar()}}catch(err){toast('No se guardó: '+err.message)}
 });
+function pintarLlamadas(){const L=E.llamadas||[];$('#llTbl').innerHTML=L.length?`<table><thead><tr><th>Día y hora</th><th>Cliente</th><th>Tema</th><th>Estado</th><th>Nota</th></tr></thead><tbody>${L.map(l=>`<tr><td><b>${fD(l.fecha)}</b> · ${esc(l.franja)}<br><span class="muted">pedida ${esc(l.creado)}</span></td><td>${esc(l.nombre)}<br><a href="https://wa.me/51${esc(l.tel)}" target="_blank" rel="noopener" style="color:var(--accent)">${esc(l.tel)}</a>${l.ref?' · '+esc(l.ref):''}</td><td style="white-space:normal;max-width:280px">${esc(l.tema||'')}</td>
+  <td><select data-ll="${l.id}">${['Pendiente','Hecha','No contestó','Cancelada'].map(x=>`<option ${x===l.estado?'selected':''}>${x}</option>`).join('')}</select></td><td><input data-llnota="${l.id}" value="${esc(l.nota||'')}" style="width:200px"></td></tr>`).join('')}</tbody></table>`:'<p class="muted" style="padding:12px">Aún no hay llamadas agendadas.</p>'}
+document.addEventListener('change',async e=>{const el=e.target;const id=el.dataset.ll||el.dataset.llnota;if(!id)return;
+  const fila=el.closest('tr');try{await api('/api/bikes/admin/llamada',{method:'POST',body:JSON.stringify({id:+id,estado:fila.querySelector('[data-ll]').value,nota:fila.querySelector('[data-llnota]').value})});toast('Guardado')}catch(err){toast(err.message)}});
 $('#resQ').addEventListener('input',pintarReservas);$('#resEst').addEventListener('change',pintarReservas);
 
 /* ---------- Métricas ---------- */
@@ -390,6 +396,11 @@ function pintarReglas(){
     <td class="n"><input type="number" step="0.5" data-marg="${esc(m)}" value="${R.margenes[m]??R.margen_defecto}" style="width:80px" ${dis}></td>
     <td><label class="muted"><input type="checkbox" data-aer="${esc(m)}" ${(R.aereo_marcas||{})[m]===false?'':'checked'} ${dis}> sí</label></td>
     <td><div class="row" style="flex-wrap:nowrap">${((E.marcas_info||{})[m]||{}).logo?`<img src="${esc(E.marcas_info[m].logo)}" alt="" style="height:22px;max-width:90px;object-fit:contain;background:#fff;border-radius:4px;padding:2px">`:''}<label class="btn sec" style="padding:4px 10px;font-size:12px;cursor:pointer">Subir<input type="file" accept="image/*" data-logo="${esc(m)}" hidden></label><button class="btn sec" style="padding:4px 10px;font-size:12px" data-logolink="${esc(m)}">Link</button></div></td></tr>`).join('')}</tbody></table></div>
+  <h3 style="margin-top:14px">Cuotas sin intereses (comisión del banco, %)</h3>
+  <p class="desc">Se ofrecen solo las cuotas cuya comisión deja el margen en tu mínimo o más. Deja vacío para no ofrecer ese plazo.</p>
+  <div class="rules">${[3,6,9,12].map(n=>`<label>${n} cuotas (%)<input type="number" step="0.1" data-cuota="${n}" value="${(R.cuotas||{})[n]??''}" ${dis}></label>`).join('')}
+    <label>Bancos con cuotas sin intereses<input id="g-cuotas_bancos" value="${esc(R.cuotas_bancos||'')}" ${dis}></label>
+    <label>Powerpay: comisión fija a Kuranko (%)<input type="number" step="0.1" id="g-powerpay_pct" value="${R.powerpay_pct??5}" ${dis}></label></div>
   <h3 style="margin-top:14px">Extras que se ofrecen</h3>
   <div id="extras">${R.extras.map((x,i)=>`<div class="row" style="margin:6px 0"><input data-ex="${i}" data-k="nombre" value="${esc(x.nombre)}" style="flex:1;min-width:200px" ${dis}><input type="number" data-ex="${i}" data-k="precio" value="${x.precio}" style="width:100px" ${dis}><label class="muted"><input type="checkbox" data-ex="${i}" data-k="incluido" ${x.incluido?'checked':''} ${dis}> incluido</label></div>`).join('')}</div>
   ${E.maestro?'<div class="row" style="margin-top:8px"><button class="btn sec" id="addEx">+ Agregar extra</button><button class="btn" id="saveReg">Guardar reglas</button></div>':''}`;
@@ -400,6 +411,8 @@ document.addEventListener('click',async e=>{
     const b={};['tc_modo','recargo_usd','recargo_eur','tc_usd_manual','tc_eur_manual',...RL.map(r=>r[0])].forEach(k=>{const el=$('#g-'+k);b[k]=k==='tc_modo'?el.value:+el.value});
     b.aereo_activo=$('#g-aereo_activo').value==='1';
     b.solo_completos=$('#g-solo_completos').value==='1';
+    b.cuotas_bancos=$('#g-cuotas_bancos').value;b.powerpay_pct=+$('#g-powerpay_pct').value;
+    b.cuotas={};$$('[data-cuota]').forEach(el=>{if(el.value!=='')b.cuotas[el.dataset.cuota]=+el.value});
     b.margenes={};$$('[data-marg]').forEach(el=>b.margenes[el.dataset.marg]=+el.value);
     b.modos={};$$('[data-modo]').forEach(el=>b.modos[el.dataset.modo]=el.value);
     b.aereo_marcas={};$$('[data-aer]').forEach(el=>{if(!el.checked)b.aereo_marcas[el.dataset.aer]=false});
@@ -519,7 +532,7 @@ $('#tabs').addEventListener('click',e=>{const b=e.target.closest('button');if(b)
 async function cargar(){
   try{E=await api('/api/bikes/admin/estado');$('#msg').innerHTML='';
     $('#tcInfo').textContent=`TC USD ${E.tc.usd.toFixed(3)} · EUR ${E.tc.eur.toFixed(3)} (${E.tc.fuente})`;
-    pintarReservas();pintarCatalogo();pintarReglas();pintarModelos();pintarPagina();
+    pintarReservas();pintarLlamadas();pintarCatalogo();pintarReglas();pintarModelos();pintarPagina();
     const fm=$('#fmMarca');if(fm&&!fm.options.length){const ms=[...new Set(E.skus.map(x=>x.marca))].sort();fm.innerHTML=ms.map(m=>`<option>${esc(m)}</option>`).join('')}
     const tabRes=$('#tabs [data-t="res"]');const n=E.reservas.filter(r=>r.estado==='Nueva').length;tabRes.textContent=n?`Reservas (${n} nuevas)`:'Reservas';
   }catch(e){if(e.message!=='401')$('#msg').innerHTML=`<div class="card"><p class="err">${esc(e.message)}</p></div>`}

@@ -112,6 +112,11 @@ nav.km a.on{background:#141414;color:#fff}
 .specs{border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}.specs summary{cursor:pointer;padding:10px 12px;font-weight:600;font-size:14px}
 .specs table{width:100%;border-collapse:collapse;font-size:13px}.specs td{padding:6px 12px;border-top:1px solid var(--line);vertical-align:top}.specs td:first-child{color:var(--muted);width:34%;white-space:nowrap}
 @media (max-width:640px){.asesor{grid-template-columns:auto 1fr}.asesor .btn{grid-column:1/-1}.taller{grid-template-columns:1fr}}
+/* cuotas, envíos en tarjeta, agendar */
+.cuotas{font-size:13.5px;margin-top:8px;color:var(--ink)}.cuotas span{color:var(--muted);font-size:12px}
+.envs{display:flex;gap:4px;flex-wrap:wrap}.envs span{font-size:11px;font-weight:600;border-radius:4px;padding:2px 6px;background:var(--surface-2);color:var(--ink)}.envs .cu{background:var(--amber);color:var(--amber-ink)}
+.agenda{border:1px solid var(--line);border-radius:10px;padding:16px;background:var(--surface);margin:-14px 0 26px;display:grid;gap:10px}
+.agenda .form{grid-template-columns:repeat(4,minmax(0,1fr))}@media (max-width:760px){.agenda .form{grid-template-columns:1fr 1fr}}
 /* confianza, galería, grupo, logos */
 .trust{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:8px 0 26px}
 .trust div{border:1px solid var(--line);border-radius:var(--r);padding:14px;display:grid;gap:4px;background:var(--surface)}
@@ -313,7 +318,18 @@ footer.kf a{color:#fff}
     </div>
   </div>
   <div class="trust" id="confianza"><div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg><b>Garantía oficial de la marca</b><span>Bicis nuevas, con factura y garantía del fabricante gestionada por Kuranko.</span></div><div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg><b>Soporte técnico en Lima</b><span>Taller propio en Magdalena: armado, ajuste de suspensión y servicio post venta.</span></div><div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.27 6.96L12 12.01l8.73-5.05M12 22.08V12"/></svg><b>Importación sin sorpresas</b><span>Precio final en soles con envío, aduana e IGV. Te avisamos cada etapa.</span></div><div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg><b>Adelanto protegido</b><span>Si la marca no puede entregar tu unidad, te devolvemos el 100%.</span></div></div>
-  <div class="asesor" id="asesor"><div class="foto" data-foto="asesor"></div><div><b id="asNom">Jean Pierre</b><span id="asCargo">Asesor de bicicletas</span><br><span>Te ayuda a elegir talla y modelo, y te acompaña hasta la entrega.</span></div><a class="btn" id="asWa" href="https://wa.me/51963358335" target="_blank" rel="noopener" data-wa>Hablar con Jean Pierre</a></div>
+  <div class="asesor" id="asesor"><div class="foto" data-foto="asesor"></div><div><b id="asNom">Jean Pierre</b><span id="asCargo">Asesor de bicicletas</span><br><span>Te ayuda a elegir talla y modelo, y te acompaña hasta la entrega.</span></div><div style="display:grid;gap:8px"><a class="btn" id="asWa" href="https://wa.me/51963358335" target="_blank" rel="noopener" data-wa>Hablar con Jean Pierre</a><button class="btn sec" id="agBtn">Agendar una llamada</button></div></div>
+  <div class="agenda" id="agenda" hidden><b>Agenda una llamada con el asesor</b>
+    <form id="agForm" class="form" novalidate>
+      <label>Nombre<input type="text" id="agNom" autocomplete="name"></label>
+      <label>Celular<input type="tel" id="agTel" autocomplete="tel" placeholder="9XX XXX XXX"></label>
+      <label>Día<input type="date" id="agFecha"></label>
+      <label>Hora<select id="agFranja"></select></label>
+      <label class="full">¿Sobre qué bici o duda?<input type="text" id="agTema" placeholder="Ej. Zendit RR talla L, financiamiento…"></label>
+      <div class="hp" aria-hidden="true"><input type="text" id="agWeb" tabindex="-1" autocomplete="off"></div>
+      <div class="full" id="agMsg"></div>
+      <button class="btn full" type="submit">Agendar llamada</button>
+    </form></div>
   <div class="taller"><div class="foto" data-foto="taller"></div><div class="foto" data-foto="taller2"></div></div>
   <div class="terms" id="terminos">
     <h2>Cómo funciona la reserva</h2>
@@ -463,6 +479,7 @@ function pintarGrid(){
     return `<button class="card" data-id="${esc(m.id)}"><div class="pic" style="color:var(--ink)">${foto(m,col)}${badge}</div>
     <div class="bd"><span class="br">${esc(m.marca)} · ${esc(m.cat)}</span><h3>${esc(m.modelo)}</h3>
       <span class="spec">${[m.aro?(m.aro==='Mullet'?'Mullet 29/27.5':'Aro '+m.aro):'',m.rec,m.mat,m.motor].filter(Boolean).map(esc).join(' · ')}</span>
+      <div class="envs">${[...new Set(m.skus.flatMap(x=>(x.op||[]).map(o=>o.k)))].map(k=>`<span>${ENVL[k]||k}</span>`).join('')}${Math.max(0,...m.skus.flatMap(x=>(x.op||[]).map(o=>o.cu||0)))?`<span class="cu">Hasta ${Math.max(...m.skus.flatMap(x=>(x.op||[]).map(o=>o.cu||0)))} cuotas sin intereses</span>`:''}</div>
       <div class="sizes">${m.tallas.map(t=>`<span class="${m.skus.some(s=>s.t===t&&s.d>0)?'':'no'}">${esc(t)}</span>`).join('')}</div>
       <div class="ft"><div class="price">${r.varios?'<span class="desde">desde </span>':''}${soles(r.min.pm)}<small>${usd(r.min.pm/D.tc_usd)} · IGV incl.</small></div>
       <div class="eta">${r.pronto.e==='Stock Lima'?'Entrega en '+dias(r.pronto.fm[0])+'–'+dias(r.pronto.fm[1])+' días':'Llega '+fD(r.pronto.fm[0])+'–'+fD(r.pronto.fm[1])}<small>${r.aereo?'aéreo: '+fD(r.aereo.fa[1]):r.pronto.e==='Stock Lima'?'Lista en tienda':'envío marítimo'}</small></div></div>
@@ -498,10 +515,10 @@ function totales(){
   const s=skuSel();if(!s)return null;
   const ops=s.op&&s.op.length?s.op:[{k:s.e==='Stock Lima'?'lima':'maritimo',p:s.pm,f:s.fm}];
   const o=ops.find(x=>x.k===S.envio)||ops[0];
-  const env=o.k, bici=o.p, f=o.f;
+  const env=o.k, bici=o.p, f=o.f, cu=o.cu||0, pp=!!o.pp;
   const ex=D.extras.filter(e=>e.incluido||S.extras[e.id]);const exT=ex.reduce((a,e)=>a+e.precio,0);
   const total=bici+exT, dep=Math.ceil(total*D.adelanto/100/10)*10;
-  return {s,env,bici,f,exT,total,dep,saldo:total-dep};
+  return {s,env,bici,f,exT,total,dep,saldo:total-dep,cu,pp};
 }
 function guardarForm(){['rNom','rDoc','rTel','rMail','rCity'].forEach(k=>{const el=document.getElementById(k);if(el)S.form[k]=el.value})}
 function pintarCfg(){
@@ -512,7 +529,7 @@ function pintarCfg(){
   const colHex=(m.colores.find(c=>c.n===S.c)||{}).h;
   const ship=s.e==='Stock Lima'
     ?`<div class="when"><b>${dias(s.fm[0])}–${dias(s.fm[1])} días</b><div>Unidad en nuestra tienda de Lima. Se entrega armada y ajustada.</div></div>`
-    :`<div class="ship">${(s.op||[]).map(o=>`<button class="o" aria-pressed="${T.env===o.k}" data-env="${o.k}"><b>${ENVL[o.k]||o.k}</b><small>Llega ${fD(o.f[0])}–${fD(o.f[1])}</small><small class="num">${soles(o.p)}</small></button>`).join('')}</div>${T.env==='grupo'?grupoHTML(m.marca):''}`;
+    :`<div class="ship">${(s.op||[]).map(o=>`<button class="o" aria-pressed="${T.env===o.k}" data-env="${o.k}"><b>${ENVL[o.k]||o.k}</b>${o.ad?'<small>Sin esperar al grupo</small>':''}<small>Llega ${fD(o.f[0])}–${fD(o.f[1])}</small><small class="num">${soles(o.p)}${o.ad&&s.op.find(x=>x.k==='grupo')?` (+${soles(o.p-s.op.find(x=>x.k==='grupo').p)})`:''}</small></button>`).join('')}</div>${T.env==='grupo'?grupoHTML(m.marca):''}`;
   $('#drawer').innerHTML=`
   <div class="dhead"><div>${(D.logos||{})[m.marca]?`<img class="blogo" src="${esc(D.logos[m.marca])}" alt="${esc(m.marca)}"><br>`:''}<span class="br">${esc(m.marca)} · ${esc(m.cat)}${m.anio?' · '+m.anio:''}</span><h2 style="font-size:30px;line-height:1">${esc(m.modelo)}</h2></div><button class="x" id="xClose" aria-label="Cerrar">×</button></div>
   <div class="dbody">
@@ -533,8 +550,13 @@ function pintarCfg(){
       ${T.exT?`<tr><td>Extras</td><td>${soles(T.exT)}</td></tr>`:''}
       <tr class="tot"><td>Precio final<br><span class="note num">${usd(T.total/D.tc_usd)}</span></td><td>${soles(T.total)}</td></tr>
     </table>
+    ${T.cu?`<div class="cuotas">o hasta <b>${T.cu} cuotas sin intereses</b> de <b class="num">${soles(T.total/T.cu)}</b> con ${esc(D.cuotas_bancos||'tarjeta de crédito')} <span>(${Object.keys(D.cuotas||{}).map(Number).filter(n=>n<=T.cu).sort((a,b)=>a-b).join(', ')} cuotas)</span></div>`:''}
+    ${T.pp?`<div class="cuotas">También en cuotas con <b>Powerpay</b> y cualquier tarjeta de crédito <span>(Powerpay aplica su propio interés)</span></div>`:''}
+    ${T.cu||T.pp?`<div class="cuotas"><span>El adelanto para reservar también puedes pagarlo en cuotas.</span></div>`:''}
     <div class="dep"><span>Adelanto para reservar (${D.adelanto}%)</span><b>${soles(T.dep)}</b></div>
     <div class="sal"><span>Saldo al recibir</span><span class="num">${soles(T.saldo)}</span></div></div>
+
+    <div class="asesor-mini"><div class="foto" data-foto="asesor"></div><span>¿Dudas con la talla? <a href="${esc(waAsesor())}" target="_blank" rel="noopener" data-wa>Escríbele a ${esc((D.pagina||{}).asesor_nombre||'Jean Pierre')}</a> o <a href="#agenda" id="agDesde">agenda una llamada</a></span></div>
     ${S.carrito?'':`<button class="btn" id="loQuiero" ${s.d>0?'':'disabled'}>${s.d>0?'Lo quiero · reservar con '+soles(T.dep):'Agotada en esta talla'}</button>`}
     <form id="resForm" class="form" novalidate ${S.carrito?'':'hidden'}>
       <label>Nombre completo<input type="text" id="rNom" autocomplete="name" value="${esc(S.form.rNom||'')}"></label>
@@ -545,7 +567,6 @@ function pintarCfg(){
       <div class="hp" aria-hidden="true"><label>Web<input type="text" id="rWeb" tabindex="-1" autocomplete="off"></label></div>
       ${S.error?`<div class="full err" role="alert">${esc(S.error)}</div>`:''}
       <button class="btn full" type="submit" ${s.d>0&&!S.enviando?'':'disabled'}>${S.enviando?'Guardando…':'Reservar con '+soles(T.dep)}</button>
-      <div class="asesor-mini full"><div class="foto" data-foto="asesor"></div><span>¿Dudas con la talla? <a href="${esc(waAsesor())}" target="_blank" rel="noopener" data-wa>Escríbele a ${esc((D.pagina||{}).asesor_nombre||'Jean Pierre')}</a></span></div>
       <p class="note full" style="margin:0">Pagas el adelanto después de que el asesor confirme la unidad con la marca. Si la marca no puede entregar, te lo devolvemos completo. <a href="#terminos" id="verTerm">Condiciones</a></p>
     </form>
   </div>`;
@@ -575,6 +596,19 @@ async function reservar(){
     S.done=j;pintarCfg();evM('reserva',{valor:j.total,codigo:j.codigo});recargar(true);
   }catch(e){S.enviando=false;S.error='No hay conexión. Revisa tu internet e intenta otra vez.';pintarCfg()}
 }
+
+/* ---- agendar llamada ---- */
+function abrirAgenda(tema){const a=$('#agenda');a.hidden=false;if(tema)$('#agTema').value=tema;
+  const f=$('#agFecha');const hoy=(D&&D.hoy)||new Date().toISOString().slice(0,10);f.min=hoy;if(!f.value){const d=new Date(hoy+'T12:00:00');d.setDate(d.getDate()+1);f.value=d.toISOString().slice(0,10)}
+  $('#agFranja').innerHTML=((D&&D.franjas)||['10:00–12:00','12:00–14:00','14:00–16:00','16:00–19:00']).map(x=>`<option>${x}</option>`).join('');
+  a.scrollIntoView({behavior:'smooth',block:'center'});setTimeout(()=>$('#agNom').focus(),300);ev('whatsapp',{origen:'agendar'})}
+document.addEventListener('click',e=>{if(e.target.id==='agBtn'){abrirAgenda()}if(e.target.id==='agDesde'){e.preventDefault();const t=S?`${S.m.marca} ${S.m.modelo} talla ${S.t}`:'';cerrar();abrirAgenda(t)}});
+async function agendar(){const tel=$('#agTel').value.replace(/\D/g,'');const b={nombre:$('#agNom').value.trim(),tel,fecha:$('#agFecha').value,franja:$('#agFranja').value,tema:$('#agTema').value.trim(),ref:REF,web:$('#agWeb').value};
+  if(b.nombre.length<3||!/^(51)?9\d{8}$/.test(tel)){$('#agMsg').innerHTML='<span class="err">Escribe tu nombre y un celular de 9 dígitos que empiece con 9.</span>';return}
+  try{const r=await fetch('/api/bikes/llamada',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});const j=await r.json();
+    if(!r.ok){$('#agMsg').innerHTML=`<span class="err">${esc(j.error||'No se pudo agendar')}</span>`;return}
+    $('#agForm').innerHTML=`<p class="full" style="margin:0;color:var(--ok);font-weight:600">Listo. ${esc((D.pagina||{}).asesor_nombre||'Jean Pierre')} te llamará el ${fD(b.fecha)} entre ${esc(b.franja)}.</p>`}
+  catch(e){$('#agMsg').innerHTML='<span class="err">No hay conexión. Intenta otra vez.</span>'}}
 
 /* ---- seguimiento ---- */
 async function consultar(cod,doc){
@@ -628,7 +662,7 @@ $('#fCat').addEventListener('change',e=>{F.cat=e.target.value;pintarGrid()});
 $('#fEta').addEventListener('change',e=>{F.eta=e.target.value;pintarGrid()});
 $('#sort').addEventListener('change',e=>{F.sort=e.target.value;pintarGrid()});
 $('#fMax').addEventListener('input',e=>{F.max=+e.target.value;$('#fMaxL').textContent=F.max>=60000?'sin límite':soles(F.max);pintarGrid()});
-document.addEventListener('submit',e=>{e.preventDefault();if(e.target.id==='resForm')reservar();else if(e.target.id==='trackForm')consultar($('#tCod').value.trim(),$('#tDoc').value.trim())});
+document.addEventListener('submit',e=>{e.preventDefault();if(e.target.id==='agForm'){agendar();return}if(e.target.id==='resForm')reservar();else if(e.target.id==='trackForm')consultar($('#tCod').value.trim(),$('#tDoc').value.trim())});
 
 async function recargar(silencioso){
   try{

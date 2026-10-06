@@ -766,7 +766,8 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
     try {
       if (!catCache || Date.now() - catCache.t > 60000) {
         const R = await leerReglas(); const tc = await tcEfectivo(R);
-        let skus = await leerSkus(true);
+        const infoMarcas = await leerMarcas();
+        let skus = (await leerSkus(true)).filter(s => (infoMarcas[s.marca] || {}).visible !== false);
         const mods = await leerModelos();
         if (R.solo_completos !== false) {
           const porMod = {}; skus.forEach(s => (porMod[s.marca + '|' + s.modelo] ||= []).push(s));
@@ -781,7 +782,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
               soporte_url: pg.soporte_url || null, soporte_texto: pg.soporte_texto || null,
               fotos: Object.fromEntries(CLAVES_FOTO.map(k => [k, f[k] ? `/api/bikes/foto/${k}?v=${f[k]}` : null])) }; })(),
           logos: Object.fromEntries(Object.entries(await leerMarcas()).filter(([, v]) => v && v.logo).map(([k, v]) => [k, v.logo])),
-          marcas: [...new Set([...MARCAS_BASE, ...skus.map(s => s.marca)])],
+          marcas: [...new Set([...MARCAS_BASE, ...skus.map(s => s.marca)])].filter(m => skus.some(s => s.marca === m)),
           adelanto: num(R.adelanto), tc_usd: tc.usd, aereo: !!R.aereo_activo, validez_horas: num(R.validez_horas),
           extras: (R.extras || []).map(e => ({ id: e.id, nombre: e.nombre, precio: num(e.precio), incluido: !!e.incluido })),
           whatsapp: process.env.BIKES_WHATSAPP || '51963358335', hoy: hoyLima(),
@@ -1218,7 +1219,9 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
     if (logo.length > 400000) return res.status(400).json({ error: 'El logo pesa mucho (máx. 300 KB)' });
     try {
       const m = await leerMarcas();
-      m[marca] = { ...(m[marca] || {}), logo: logo || null };
+      m[marca] = { ...(m[marca] || {}) };
+      if (b.logo !== undefined) m[marca].logo = logo || null;
+      if (b.visible !== undefined) m[marca].visible = !!b.visible; // false = la marca no se muestra en la tienda
       await portalPool.query(`INSERT INTO bk_config (clave, valor, actualizado_por) VALUES ('marcas', ?, ?) ON DUPLICATE KEY UPDATE valor=VALUES(valor), actualizado=NOW(), actualizado_por=VALUES(actualizado_por)`, [JSON.stringify(m), usuarioDe(req)]);
       limpiarCache(); res.json({ ok: true });
     } catch (e) { res.status(500).json({ error: e.message }); }

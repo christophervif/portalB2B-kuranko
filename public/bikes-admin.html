@@ -118,6 +118,10 @@ tr.off td{opacity:.45}
         <select id="catAct"><option value="1">Activos</option><option value="0">Ocultos</option><option value="">Todos</option></select>
         <button class="btn sec" id="exportar">⬇ Exportar Excel</button>
       </div>
+      <div class="card" style="background:var(--surface3);margin-bottom:10px;padding:12px">
+        <b>Marcas en la tienda</b> <span class="muted">· al ocultar una marca desaparecen todas sus bicis y su botón de filtro en bikes.kuranko.pe (no se borra nada)</span>
+        <div class="row" id="catMarcas" style="margin-top:8px"></div>
+      </div>
       <div class="row" style="margin-bottom:8px"><span class="muted" id="catSel">0 seleccionados</span><button class="btn sec" data-bulk="ocultar">Ocultar</button><button class="btn sec" data-bulk="mostrar">Mostrar</button></div>
       <div class="tbl" id="catTbl"></div>
       <p class="desc" style="margin-top:8px">Precio = envío marítimo, sin extras. «Disp.» = stock − reservado. Puedes editar stock y estado directo en la tabla.</p>
@@ -239,7 +243,13 @@ async function pintarMetricas(){
 $('#metDias').addEventListener('change',pintarMetricas);
 
 /* ---------- Catálogo ---------- */
+function pintarMarcasTienda(){const info=E.marcas_info||{};const cnt={};E.skus.filter(s=>s.activo).forEach(s=>cnt[s.marca]=(cnt[s.marca]||0)+1);
+  const ms=[...new Set([...E.marcas_base,...Object.keys(cnt)])];
+  $('#catMarcas').innerHTML=ms.map(m=>{const vis=(info[m]||{}).visible!==false;return `<label class="pill ${vis&&cnt[m]?'p-ok':vis?'p-b':'p-r'}" style="cursor:pointer;padding:5px 10px;font-size:12px"><input type="checkbox" data-mvis="${esc(m)}" ${vis?'checked':''} style="vertical-align:-2px"> ${esc(m)} · ${cnt[m]||0} SKUs${vis?(cnt[m]?'':' (sin bicis)'):' · oculta'}</label>`}).join('')}
+document.addEventListener('change',async e=>{const el=e.target;if(!el.dataset.mvis)return;
+  try{await api('/api/bikes/admin/marca',{method:'POST',body:JSON.stringify({marca:el.dataset.mvis,visible:el.checked})});toast(el.checked?`${el.dataset.mvis} visible en la tienda`:`${el.dataset.mvis} oculta en la tienda`);await cargar()}catch(err){toast(err.message);el.checked=!el.checked}});
 function pintarCatalogo(){
+  pintarMarcasTienda();
   const marcas=[...new Set(E.skus.map(s=>s.marca))].sort();
   const ms=$('#catMarca'),v=ms.value;ms.innerHTML='<option value="">Todas las marcas</option>'+marcas.map(m=>`<option ${m===v?'selected':''}>${esc(m)}</option>`).join('');
   const q=$('#catQ').value.toLowerCase(),mk=ms.value,act=$('#catAct').value;

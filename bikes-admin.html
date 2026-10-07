@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<script src="/tema.js"></script>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Bikes a pedido — Kuranko</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  --bg:#0a1030;--surface:#111a44;--surface2:#0e1640;--surface3:#18224e;
+  --border:#212b54;--text:#eef1f8;--text2:#c6cee2;--muted:#8a93b4;
+  --accent:#FFB30D;--accent-text:#000726;--hover:#1a2450;--white:#ffffff;
+  --bg-ok:#163a29;--fg-ok:#6ee59a;--bg-warn:#3d3315;--fg-warn:#ffcb52;--bg-r:#3f1c20;--fg-r:#f79a9a;--bg-b:#18285a;--fg-b:#9db4ff;
+  --radius:16px;--radius-sm:10px;
+}
+[data-theme="light"]{
+  --bg:#f6f8fd;--surface:#ffffff;--surface2:#fbfcff;--surface3:#f2f5fb;
+  --border:#e3e9f5;--text:#1a2140;--text2:#4a5680;--muted:#8790ad;--hover:#f2f5fb;--white:#1a2140;
+  --bg-ok:#e8f8ef;--fg-ok:#1f9c56;--bg-warn:#fdf5db;--fg-warn:#9a6b00;--bg-r:#fdeded;--fg-r:#dc4b4b;--bg-b:#eaf0ff;--fg-b:#2a4fc0;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+[hidden]{display:none!important}
+html,body{overflow-x:hidden}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px}
+.wrap{max-width:1280px;margin:0 auto;padding:1.1rem}
+.top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.top h2{font-size:18px;color:var(--white)}
+.sub{font-size:12px;color:var(--muted);margin-top:2px}
+.sub a{color:var(--accent)}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+.tabs button{border:1px solid var(--border);background:var(--surface);color:var(--text2);border-radius:999px;padding:7px 14px;font-weight:600;font-size:13px;cursor:pointer}
+.tabs button.on{background:var(--accent);color:var(--accent-text);border-color:var(--accent)}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1rem;margin-bottom:14px;min-width:0}
+.card h3{font-size:15px;color:var(--white);margin-bottom:4px}
+.desc{font-size:12.5px;color:var(--muted);line-height:1.5;max-width:90ch}
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px}
+.kpi b{display:block;font-size:22px;color:var(--white);font-variant-numeric:tabular-nums}
+.kpi span{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.kpi small{display:block;font-size:11.5px;color:var(--muted)}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+input,select,textarea{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 9px;font-size:13px;font-family:inherit}
+textarea{width:100%;min-height:54px}
+.btn{border:0;background:var(--accent);color:var(--accent-text);font-weight:700;border-radius:999px;padding:8px 16px;cursor:pointer;font-size:13px}
+.btn.sec{background:var(--surface3);color:var(--text);border:1px solid var(--border);font-weight:600}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.tbl{overflow:auto;border:1px solid var(--border);border-radius:var(--radius-sm);max-height:70vh}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th,td{padding:7px 9px;border-bottom:1px solid var(--border);text-align:left;white-space:nowrap;vertical-align:top}
+th{background:var(--surface3);color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em;position:sticky;top:0;z-index:1}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+tr.off td{opacity:.45}
+.pill{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px}
+.p-ok{background:var(--bg-ok);color:var(--fg-ok)}.p-w{background:var(--bg-warn);color:var(--fg-warn)}.p-r{background:var(--bg-r);color:var(--fg-r)}.p-b{background:var(--bg-b);color:var(--fg-b)}
+.muted{color:var(--muted)}
+.err{color:var(--fg-r)}
+.drop{border:2px dashed var(--border);border-radius:var(--radius);padding:22px;text-align:center;display:grid;gap:10px;justify-items:center}
+.drop.over{border-color:var(--accent)}
+.map{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px;margin:10px 0}
+.map label{display:grid;grid-template-columns:1fr auto;gap:6px;align-items:center;background:var(--surface3);border-radius:8px;padding:6px 8px;font-size:12.5px}
+.map small{display:block;color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;max-width:120px;white-space:nowrap}
+.map select{max-width:140px;font-size:12px}
+.conf{font-size:10px;padding:1px 6px;border-radius:999px;margin-left:4px;font-weight:700}
+.rules{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin:10px 0}
+.rules label{display:grid;gap:4px;font-size:12px;color:var(--text2)}
+.bar{height:22px;background:var(--accent);border-radius:4px;min-width:2px}
+.funnel{display:grid;gap:8px}
+.funnel .f{display:grid;grid-template-columns:150px 1fr 120px;gap:10px;align-items:center;font-size:13px}
+.funnel .f span:last-child{text-align:right;font-variant-numeric:tabular-nums;color:var(--text2)}
+.spark{display:flex;align-items:flex-end;gap:2px;height:80px;border-bottom:1px solid var(--border);padding-top:6px}
+.spark div{flex:1;max-width:36px;background:var(--fg-b);border-radius:2px 2px 0 0;min-height:1px;position:relative}
+.spark div.r{border-top:5px solid var(--accent)}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--surface3);color:var(--text);border:1px solid var(--border);padding:9px 16px;border-radius:999px;font-size:13px;z-index:50;display:none}
+.edit{width:70px}
+@media(max-width:700px){.funnel .f{grid-template-columns:100px 1fr 90px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div><h2>🚲 Bikes a pedido</h2><div class="sub">Tienda pública: <a href="https://bikes.kuranko.pe" target="_blank" rel="noopener">bikes.kuranko.pe</a> · <a href="/bikes.html" target="_blank" rel="noopener">ver aquí</a> · <span id="tcInfo"></span></div></div>
+    <div class="row"><button class="btn sec" id="recargar">↻ Actualizar</button></div>
+  </div>
+  <div class="tabs" id="tabs">
+    <button data-t="res" class="on">Reservas</button>
+    <button data-t="met">Métricas</button>
+    <button data-t="cat">Catálogo</button>
+    <button data-t="imp">Importar Excel</button>
+    <button data-t="mod">Modelos (fotos y envío)</button>
+    <button data-t="pag">Página (fotos y asesor)</button>
+    <button data-t="reg">Reglas de precio</button>
+  </div>
+  <div id="msg"></div>
+
+  <section data-p="res">
+    <div class="kpis" id="resKpis"></div>
+    <div class="card">
+      <div class="row" style="margin-bottom:10px"><input id="resQ" placeholder="Buscar cliente, código, DNI, modelo…" style="flex:1;min-width:200px">
+        <select id="resEst"><option value="abiertas">Abiertas</option><option value="">Todas</option></select></div>
+      <div class="tbl" id="resTbl"></div>
+      <h3 style="margin-top:16px">Llamadas agendadas</h3>
+      <div class="tbl" id="llTbl" style="margin-top:6px"></div>
+      <p class="desc" style="margin-top:8px">El sistema de ventas (ERP) es de solo lectura: cuando registres la venta allá, anota su número en «Venta ERP». Al cancelar, la unidad vuelve a estar disponible en la tienda.</p>
+    </div>
+  </section>
+
+  <section data-p="met" hidden>
+    <div class="row" style="margin-bottom:10px"><span class="muted">Periodo</span><select id="metDias"><option>7</option><option selected>30</option><option>90</option><option>365</option></select><span class="muted">días · cuenta personas (sesiones), no clics repetidos</span></div>
+    <div id="metOut"><p class="muted">Cargando…</p></div>
+  </section>
+
+  <section data-p="cat" hidden>
+    <div class="card">
+      <div class="row" style="margin-bottom:10px">
+        <input id="catQ" placeholder="Buscar modelo, SKU, talla…" style="flex:1;min-width:200px">
+        <select id="catMarca"><option value="">Todas las marcas</option></select>
+        <select id="catAct"><option value="1">Activos</option><option value="0">Ocultos</option><option value="">Todos</option></select>
+        <button class="btn sec" id="exportar">⬇ Exportar Excel</button>
+      </div>
+      <div class="card" style="background:var(--surface3);margin-bottom:10px;padding:12px">
+        <b>Marcas en la tienda</b> <span class="muted">· al ocultar una marca desaparecen todas sus bicis y su botón de filtro en bikes.kuranko.pe (no se borra nada)</span>
+        <div class="row" id="catMarcas" style="margin-top:8px"></div>
+      </div>
+      <div class="row" style="margin-bottom:8px"><span class="muted" id="catSel">0 seleccionados</span><button class="btn sec" data-bulk="ocultar">Ocultar</button><button class="btn sec" data-bulk="mostrar">Mostrar</button><button class="btn sec" data-bulk="sinlimite" title="Para bicis que se piden a la marca sin tope de unidades">Stock sin límite</button></div>
+      <div class="tbl" id="catTbl"></div>
+      <p class="desc" style="margin-top:8px">Precio = envío marítimo, sin extras. «Disp.» = stock − reservado. Puedes editar stock y estado directo en la tabla.</p>
+    </div>
+  </section>
+
+  <section data-p="imp" hidden>
+    <div class="card">
+      <h3>Importar lista de precios y stock de una marca</h3>
+      <p class="desc">Sube el Excel tal como lo manda la marca o el distribuidor (.xlsx, .xls o .csv). El portal reconoce las columnas por su nombre; si faltan las importantes, le pregunta a la IA. Revisa la vista previa y publica. También acepta la plantilla Kuranko o el Excel exportado desde «Catálogo».</p>
+      <div class="drop" id="drop" style="margin-top:12px"><b>Arrastra aquí el archivo</b>
+        <div class="row"><label class="btn sec" for="file" style="cursor:pointer">Elegir archivo</label><input type="file" id="file" accept=".xlsx,.xls,.csv" hidden></div>
+      </div>
+    </div>
+    <div id="impOut"></div>
+  </section>
+
+  <section data-p="mod" hidden>
+    <div class="card">
+      <p class="desc">Un modelo agrupa todas sus tallas y colores. Aquí le pones fotos y descripción (pegando el link de la web de la marca) y decides el envío aéreo. El margen es un rango, porque el flete y la aduana son aproximados: verde si el peor caso supera tu mínimo por 10 puntos, ámbar si está cerca y rojo si queda por debajo.</p>
+      <div class="card" style="background:var(--surface3);margin:10px 0">
+        <h3>Carga masiva de fichas (fotos, descripción y especificaciones)</h3>
+        <p class="desc">Pega <b>cualquier página de la marca</b> que liste sus modelos (por ejemplo, la ficha de un modelo de esa temporada). El portal busca los links de todos los modelos, los empareja con tu catálogo y trae fotos, descripción y especificaciones de cada uno, con IA si está activa. No pisa los modelos que editaste a mano.</p>
+        <div class="row" style="margin-top:8px"><select id="fmMarca"></select><input id="fmUrl" style="flex:1;min-width:260px" placeholder="https://mondraker.com/es/es/season-history/detail/19-2027/zendit-rr"><button class="btn" id="fmBuscar">Buscar modelos</button></div>
+        <div id="fmOut" style="margin-top:10px"></div>
+      </div>
+      <div class="row" style="margin:10px 0"><input id="modQ" placeholder="Buscar modelo…" style="flex:1;min-width:200px"><label class="muted"><input type="checkbox" id="modSin"> Solo incompletos</label></div>
+      <p class="desc" id="modRes" style="margin-bottom:8px"></p>
+      <div class="tbl" id="modTbl"></div>
+    </div>
+    <div id="modEd"></div>
+  </section>
+
+  <section data-p="pag" hidden><div class="card" id="pagCard"></div></section>
+
+  <section data-p="reg" hidden>
+    <div class="card" id="regCard"></div>
+  </section>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+let TOKEN='';try{TOKEN=localStorage.getItem('admtoken')||'';}catch(e){}
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const soles=n=>n==null?'—':'S/ '+Math.round(n).toLocaleString('es-PE');
+const fmt=n=>Math.round(n||0).toLocaleString('es-PE');
+const fD=iso=>iso?new Date(iso.slice(0,10)+'T12:00:00').toLocaleDateString('es-PE',{day:'numeric',month:'short'}).replace('.',''):'—';
+function toast(t){const el=$('#toast');el.textContent=t;el.style.display='block';clearTimeout(el._t);el._t=setTimeout(()=>el.style.display='none',2600)}
+async function api(ep,opt={}){
+  const r=await fetch(ep,{...opt,headers:{'Authorization':'Bearer '+TOKEN,'Content-Type':'application/json',...(opt.headers||{})}});
+  if(r.status===401){document.body.innerHTML='<div class="wrap"><p class="err">Sesión expirada. Vuelve a entrar al panel.</p></div>';throw new Error('401')}
+  const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||('Error '+r.status));return j;
+}
+let E=null; // estado del servidor
+let SEL=new Set();
+
+/* ---------- Reservas ---------- */
+const PILL={'Nueva':'p-w','Confirmada con marca':'p-b','Adelanto pagado':'p-b','En tránsito':'p-b','En Lima':'p-ok','Entregada':'p-ok','Cancelada':'p-r'};
+function pintarReservas(){
+  const R=E.reservas,ab=R.filter(r=>!['Entregada','Cancelada'].includes(r.estado));
+  const nuevas=R.filter(r=>r.estado==='Nueva').length;
+  const mes=new Date().toISOString().slice(0,7);
+  const delMes=R.filter(r=>r.creado.slice(0,7)===mes&&r.estado!=='Cancelada');
+  $('#resKpis').innerHTML=[['Nuevas por atender',nuevas,'',nuevas?'color:var(--fg-warn)':''],['Abiertas',ab.length,soles(ab.reduce((a,r)=>a+r.total,0))],['Reservas este mes',delMes.length,soles(delMes.reduce((a,r)=>a+r.total,0))],
+    ['Adelantos por cobrar',R.filter(r=>['Nueva','Confirmada con marca'].includes(r.estado)).length,soles(R.filter(r=>['Nueva','Confirmada con marca'].includes(r.estado)).reduce((a,r)=>a+r.adelanto,0))]]
+    .map(([l,v,s,st])=>`<div class="kpi"><span>${l}</span><b style="${st||''}">${v}</b><small>${s||''}</small></div>`).join('');
+  const q=$('#resQ').value.toLowerCase(),est=$('#resEst').value;
+  const L=R.filter(r=>(!est||!['Entregada','Cancelada'].includes(r.estado))&&(!q||[r.codigo,r.nombre,r.doc,r.tel,r.modelo,r.marca,r.ref,r.venta_erp].join(' ').toLowerCase().includes(q)));
+  $('#resTbl').innerHTML=L.length?`<table><thead><tr><th>Código</th><th>Fecha</th><th>Cliente</th><th>Bici</th><th>Envío / entrega</th><th class="n">Total</th><th class="n">Adelanto</th><th>Estado</th><th>Venta ERP</th><th>Nota interna</th></tr></thead><tbody>${L.map(r=>{
+    const vencida=r.vencida;
+    return `<tr><td><b>${esc(r.codigo)}</b>${r.ref?`<br><span class="muted">vend.: ${esc(r.ref)}</span>`:''}</td><td>${esc(r.creado)}${vencida?'<br><span class="pill p-r">precio vencido</span>':''}</td>
+    <td>${esc(r.nombre)}<br><span class="muted">${esc(r.doc)} · <a href="https://wa.me/51${esc(r.tel)}" target="_blank" rel="noopener" style="color:var(--accent)">${esc(r.tel)}</a>${r.email?' · '+esc(r.email):''} · ${esc(r.ciudad||'')}</span></td>
+    <td>${esc(r.marca)} ${esc(r.modelo)} ${esc(r.montaje)}<br><span class="muted">Talla ${esc(r.talla)} · ${esc(r.color)}</span></td>
+    <td>${esc(r.envio==='lima'?'Stock Lima':r.envio==='aereo'?'Aéreo':'Marítimo')}<br><span class="muted">${fD(r.fecha_min)} – ${fD(r.fecha_max)}</span></td>
+    <td class="n">${soles(r.total)}</td><td class="n">${soles(r.adelanto)}</td>
+    <td><select data-res="${r.id}" data-campo="estado">${E.estados_reserva.map(s=>`<option ${s===r.estado?'selected':''}>${s}</option>`).join('')}</select><br><span class="pill ${PILL[r.estado]||''}" style="margin-top:4px">${esc(r.estado)}</span>${r.actualizado_por?`<br><span class="muted">${esc(r.actualizado_por)} · ${esc(r.actualizado)}</span>`:''}</td>
+    <td><input data-res="${r.id}" data-campo="venta_erp" value="${esc(r.venta_erp||'')}" placeholder="N° venta" style="width:100px"></td>
+    <td><textarea data-res="${r.id}" data-campo="nota_interna" placeholder="Nota" style="width:200px">${esc(r.nota_interna||'')}</textarea></td></tr>`}).join('')}</tbody></table>`
+    :'<p class="muted" style="padding:14px">No hay reservas con este filtro.</p>';
+}
+document.addEventListener('change',async e=>{
+  const el=e.target;if(!el.dataset.res)return;
+  try{await api('/api/bikes/admin/reserva',{method:'POST',body:JSON.stringify({id:+el.dataset.res,[el.dataset.campo]:el.value})});toast('Guardado');
+    if(el.dataset.campo==='estado'){await cargar()}}catch(err){toast('No se guardó: '+err.message)}
+});
+function pintarLlamadas(){const L=E.llamadas||[];$('#llTbl').innerHTML=L.length?`<table><thead><tr><th>Día y hora</th><th>Cliente</th><th>Tema</th><th>Estado</th><th>Nota</th></tr></thead><tbody>${L.map(l=>`<tr><td><b>${fD(l.fecha)}</b> · ${esc(l.franja)}<br><span class="muted">pedida ${esc(l.creado)}</span></td><td>${esc(l.nombre)}<br><a href="https://wa.me/51${esc(l.tel)}" target="_blank" rel="noopener" style="color:var(--accent)">${esc(l.tel)}</a>${l.ref?' · '+esc(l.ref):''}</td><td style="white-space:normal;max-width:280px">${esc(l.tema||'')}</td>
+  <td><select data-ll="${l.id}">${['Pendiente','Hecha','No contestó','Cancelada'].map(x=>`<option ${x===l.estado?'selected':''}>${x}</option>`).join('')}</select></td><td><input data-llnota="${l.id}" value="${esc(l.nota||'')}" style="width:200px"></td></tr>`).join('')}</tbody></table>`:'<p class="muted" style="padding:12px">Aún no hay llamadas agendadas.</p>'}
+document.addEventListener('change',async e=>{const el=e.target;const id=el.dataset.ll||el.dataset.llnota;if(!id)return;
+  const fila=el.closest('tr');try{await api('/api/bikes/admin/llamada',{method:'POST',body:JSON.stringify({id:+id,estado:fila.querySelector('[data-ll]').value,nota:fila.querySelector('[data-llnota]').value})});toast('Guardado')}catch(err){toast(err.message)}});
+$('#resQ').addEventListener('input',pintarReservas);$('#resEst').addEventListener('change',pintarReservas);
+
+/* ---------- Métricas ---------- */
+async function pintarMetricas(){
+  const out=$('#metOut');
+  try{
+    const M=await api('/api/bikes/admin/metricas?dias='+$('#metDias').value);
+    const g=t=>{const x=M.embudo.find(e=>e.tipo===t);return x?+x.sesiones:0};
+    const pasos=[['visita','Visitaron la tienda'],['modelo','Abrieron una bici'],['carrito','Agregaron al carrito'],['reserva','Reservaron']];
+    const top=Math.max(1,g('visita'));
+    const pct=(a,b)=>b?Math.round(a/b*100)+'%':'—';
+    const dmax=Math.max(1,...M.diario.map(d=>d.visitas));
+    out.innerHTML=`
+    <div class="kpis">${[['Visitas',g('visita'),''],['Clics en bicis',(M.embudo.find(e=>e.tipo==='modelo')||{}).eventos||0,g('modelo')+' personas'],['Al carrito',g('carrito'),pct(g('carrito'),g('modelo'))+' de quienes abrieron una bici'],['Reservas',g('reserva'),pct(g('reserva'),g('carrito'))+' del carrito'],['Clic a WhatsApp',g('whatsapp'),''],['Desde celular',M.movil.total?pct(M.movil.movil,M.movil.total):'—','de las visitas']]
+      .map(([l,v,s])=>`<div class="kpi"><span>${l}</span><b>${typeof v==='number'||/^\d+$/.test(v)?fmt(+v):v}</b><small>${s}</small></div>`).join('')}</div>
+    <div class="card"><h3>Embudo</h3><p class="desc" style="margin-bottom:10px">«Agregaron al carrito» = tocaron «Lo quiero» en una bici. «Reservaron» = enviaron el formulario. Además, ${fmt(g('config'))} personas cambiaron talla, montaje, color o envío.</p>
+      <div class="funnel">${pasos.map(([t,l],i)=>`<div class="f"><span>${l}</span><div class="bar" style="width:${Math.max(.5,g(t)/top*100)}%"></div><span>${fmt(g(t))}${i?' · '+pct(g(t),g(pasos[i-1][0])):''}</span></div>`).join('')}</div></div>
+    <div class="card"><h3>Por día</h3><p class="desc">Cada barra = visitas del día. Borde ámbar = ese día hubo reservas. Pasa el mouse para ver el detalle.</p>
+      <div class="spark">${M.diario.map(d=>`<div class="${d.reservas>0?'r':''}" style="height:${d.visitas/dmax*100}%" title="${d.dia}: ${d.visitas} visitas, ${d.modelo} abrieron bici, ${d.carrito} carrito, ${d.reservas} reservas"></div>`).join('')||'<span class="muted">Sin datos aún</span>'}</div></div>
+    <div class="card"><h3>Bicis más vistas</h3><div class="tbl"><table><thead><tr><th>Marca</th><th>Modelo</th><th class="n">Clics</th><th class="n">Personas</th><th class="n">Carrito</th><th class="n">Reservas</th><th class="n">WhatsApp</th><th class="n">% carrito</th></tr></thead><tbody>${
+      M.modelos.map(m=>`<tr><td>${esc(m.marca)}</td><td>${esc(m.modelo)}</td><td class="n">${fmt(m.clics)}</td><td class="n">${fmt(m.personas)}</td><td class="n">${fmt(m.carrito)}</td><td class="n"><b>${fmt(m.reservas)}</b></td><td class="n">${fmt(m.whatsapp)}</td><td class="n">${pct(m.carrito,m.personas)}</td></tr>`).join('')||'<tr><td colspan="8" class="muted">Sin datos aún</td></tr>'}</tbody></table></div></div>
+    <div class="row" style="align-items:stretch">
+    <div class="card" style="flex:1;min-width:280px"><h3>Por vendedor (link ?ref=)</h3><div class="tbl"><table><thead><tr><th>Vendedor</th><th class="n">Visitas</th><th class="n">Carrito</th><th class="n">Reservas</th></tr></thead><tbody>${M.refs.map(r=>`<tr><td>${esc(r.ref)}</td><td class="n">${fmt(r.visitas)}</td><td class="n">${fmt(r.carrito)}</td><td class="n">${fmt(r.reservas)}</td></tr>`).join('')||'<tr><td colspan="4" class="muted">Sin datos</td></tr>'}</tbody></table></div>
+      <p class="desc" style="margin-top:6px">Link para un vendedor: <code>https://bikes.kuranko.pe/?ref=piero</code></p></div>
+    <div class="card" style="flex:1;min-width:280px"><h3>De dónde llegan</h3><div class="tbl"><table><thead><tr><th>Origen</th><th class="n">Visitas</th></tr></thead><tbody>${M.origenes.map(o=>`<tr><td>${esc(o.origen)}</td><td class="n">${fmt(o.visitas)}</td></tr>`).join('')||'<tr><td colspan="2" class="muted">Sin datos</td></tr>'}</tbody></table></div>
+      <p class="desc" style="margin-top:6px">Para campañas usa <code>?utm_source=instagram</code> en el link.</p></div></div>`;
+  }catch(e){out.innerHTML=`<p class="err">${esc(e.message)}</p>`}
+}
+$('#metDias').addEventListener('change',pintarMetricas);
+
+/* ---------- Catálogo ---------- */
+function pintarMarcasTienda(){const info=E.marcas_info||{};const cnt={};E.skus.filter(s=>s.activo).forEach(s=>cnt[s.marca]=(cnt[s.marca]||0)+1);
+  const ms=[...new Set([...E.marcas_base,...Object.keys(cnt)])];
+  $('#catMarcas').innerHTML=ms.map(m=>{const vis=(info[m]||{}).visible!==false;return `<label class="pill ${vis&&cnt[m]?'p-ok':vis?'p-b':'p-r'}" style="cursor:pointer;padding:5px 10px;font-size:12px"><input type="checkbox" data-mvis="${esc(m)}" ${vis?'checked':''} style="vertical-align:-2px"> ${esc(m)} · ${cnt[m]||0} SKUs${vis?(cnt[m]?'':' (sin bicis)'):' · oculta'}</label>`}).join('')}
+document.addEventListener('change',async e=>{const el=e.target;if(!el.dataset.mvis)return;
+  try{await api('/api/bikes/admin/marca',{method:'POST',body:JSON.stringify({marca:el.dataset.mvis,visible:el.checked})});toast(el.checked?`${el.dataset.mvis} visible en la tienda`:`${el.dataset.mvis} oculta en la tienda`);await cargar()}catch(err){toast(err.message);el.checked=!el.checked}});
+function pintarCatalogo(){
+  pintarMarcasTienda();
+  const marcas=[...new Set(E.skus.map(s=>s.marca))].sort();
+  const ms=$('#catMarca'),v=ms.value;ms.innerHTML='<option value="">Todas las marcas</option>'+marcas.map(m=>`<option ${m===v?'selected':''}>${esc(m)}</option>`).join('');
+  const q=$('#catQ').value.toLowerCase(),mk=ms.value,act=$('#catAct').value;
+  const L=E.skus.filter(s=>(!mk||s.marca===mk)&&(act===''||String(s.activo)===act)&&(!q||[s.modelo,s.montaje,s.sku,s.talla,s.color].join(' ').toLowerCase().includes(q)));
+  $('#catTbl').innerHTML=`<table><thead><tr><th><input type="checkbox" id="selAll"></th><th>Marca</th><th>Modelo</th><th>Montaje</th><th>Talla</th><th>Color</th><th>SKU</th><th class="n">Costo</th><th class="n">Puesto US$</th><th class="n">Margen</th><th class="n">Precio S/</th><th class="n">PVP marca</th><th class="n">Stock</th><th class="n">Res.</th><th>Estado</th><th>Disponible</th><th>Actualizado</th></tr></thead><tbody>${
+    L.slice(0,1500).map(s=>{const d=s.pvp_pen?Math.round((s.precio/s.pvp_pen-1)*100):null;return `<tr class="${s.activo?'':'off'}"><td><input type="checkbox" data-sel="${s.id}" ${SEL.has(s.id)?'checked':''}></td><td>${esc(s.marca)}</td><td>${esc(s.modelo)}</td><td>${esc(s.montaje)}</td><td>${esc(s.talla)}</td><td>${esc(s.color)}</td><td class="muted">${esc(s.sku||'')}</td>
+    <td class="n">${esc(s.moneda)} ${fmt(s.costo)}</td><td class="n">${fmt(s.puesto)}</td><td class="n" style="color:${s.margen_min<E.reglas.margen_minimo?'var(--fg-r)':'inherit'}">${rangoM(s.margen_min,s.margen_max)}</td><td class="n"><b>${soles(s.precio)}</b></td>
+    <td class="n">${s.pvp_pen?soles(s.pvp_pen)+` <span class="${d>0?'err':'muted'}">${d>0?'+':''}${d}%</span>`:'—'}</td>
+    <td class="n">${s.stock<0?`<span class="pill p-b" title="Se pide a la marca">sin límite</span>`:`<input class="edit" type="number" min="0" data-sku="${s.id}" data-campo="stock" value="${s.stock}">`}</td><td class="n">${s.reservado||0}</td>
+    <td><select data-sku="${s.id}" data-campo="estado">${E.estados_sku.map(x=>`<option ${x===s.estado?'selected':''}>${x}</option>`).join('')}</select></td>
+    <td><input type="date" data-sku="${s.id}" data-campo="fecha_disponible" value="${esc(s.fecha_disponible||'')}"></td><td class="muted">${esc(s.actualizado)}</td></tr>`}).join('')}</tbody></table>${L.length>1500?'<p class="muted" style="padding:8px">Mostrando 1500 de '+L.length+'. Usa los filtros.</p>':''}`;
+  $('#catSel').textContent=SEL.size+' seleccionados';
+}
+document.addEventListener('change',async e=>{
+  const el=e.target;
+  if(el.dataset.sel){el.checked?SEL.add(+el.dataset.sel):SEL.delete(+el.dataset.sel);$('#catSel').textContent=SEL.size+' seleccionados';return}
+  if(el.id==='selAll'){$$('[data-sel]').forEach(c=>{c.checked=el.checked;el.checked?SEL.add(+c.dataset.sel):SEL.delete(+c.dataset.sel)});$('#catSel').textContent=SEL.size+' seleccionados';return}
+  if(el.dataset.sku){try{await api('/api/bikes/admin/sku',{method:'POST',body:JSON.stringify({id:+el.dataset.sku,[el.dataset.campo]:el.dataset.campo==='stock'?+el.value:el.value})});toast('Guardado');
+    const s=E.skus.find(x=>x.id===+el.dataset.sku);if(s)s[el.dataset.campo]=el.dataset.campo==='stock'?+el.value:el.value}catch(err){toast('No se guardó: '+err.message)}}
+});
+['catQ','catMarca','catAct'].forEach(id=>$('#'+id).addEventListener(id==='catQ'?'input':'change',pintarCatalogo));
+document.addEventListener('click',async e=>{
+  const b=e.target.closest('[data-bulk]');if(!b)return;
+  if(!SEL.size)return toast('Selecciona filas primero');
+  try{await api('/api/bikes/admin/sku',{method:'POST',body:JSON.stringify(b.dataset.bulk==='sinlimite'?{ids:[...SEL],stock:-1}:{ids:[...SEL],activo:b.dataset.bulk==='mostrar'})});SEL.clear();toast('Listo');await cargar()}catch(err){toast(err.message)}
+});
+$('#exportar').addEventListener('click',async()=>{
+  try{const r=await fetch('/api/bikes/admin/exportar?todos=1',{headers:{'Authorization':'Bearer '+TOKEN}});if(!r.ok)throw new Error('Error '+r.status);
+    const bl=await r.blob();const a=document.createElement('a');a.href=URL.createObjectURL(bl);a.download='bikes-catalogo-'+new Date().toISOString().slice(0,10)+'.xlsx';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),5000)}catch(e){toast('No se pudo exportar: '+e.message)}
+});
+
+/* ---------- Importar ---------- */
+const FLAB={marca:'Marca',nombre:'Nombre completo (talla al final)',modelo:'Modelo *',montaje:'Montaje / versión',anio:'Año',categoria:'Categoría',aro:'Aro',recorrido:'Recorrido',material:'Material',motor:'Motor / batería',talla:'Talla *',color:'Color',color_hex:'Color hex',sku:'SKU / código',costo:'Costo (precio dealer) *',moneda:'Moneda',pvp:'PVP sugerido',stock:'Stock',estado:'Estado',fecha_disponible:'Fecha disponible / ETA',peso:'Peso',url_imagen:'Foto (link)',url_ficha:'Ficha (link)',notas:'Notas'};
+let IMP=null;
+function leerArchivo(f){
+  const rd=new FileReader();
+  rd.onload=async ev=>{
+    try{
+      const wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array',cellDates:false});
+      const hojas=wb.SheetNames.map(n=>({n,rows:XLSX.utils.sheet_to_json(wb.Sheets[n],{header:1,defval:'',raw:true})}));
+      // hoja con más filas útiles (salta "Instrucciones")
+      const hoja=hojas.filter(h=>!/instruc|reglas|listas/i.test(h.n)).sort((a,b)=>b.rows.length-a.rows.length)[0]||hojas[0];
+      let rows=hoja.rows;
+      $('#impOut').innerHTML='<div class="card"><p class="muted">Reconociendo columnas…</p></div>';
+      // El servidor elige cuál de las primeras filas es el encabezado (salta títulos como "PLEASE ONLY COMPLETE…")
+      const m=await api('/api/bikes/admin/mapear',{method:'POST',body:JSON.stringify({primeras:rows.slice(0,25).map(r=>r.map(c=>c==null?'':c))})});
+      const hi=m.fila_encabezado||0;
+      const headers=rows[hi].map(h=>String(h??'').trim());
+      const data=rows.slice(hi+1).filter(r=>r.some(c=>c!==''&&c!=null));
+      IMP={archivo:f.name,hoja:hoja.n,headers,data,map:{},tallas_cols:[],marca:(E.marcas_base.find(b=>f.name.toLowerCase().includes(b.toLowerCase()))||''),moneda:'USD',modo:'actualizar',stock:'',vista:null};
+      IMP.map=m.map;IMP.conf=m.conf||{};IMP.tallas_cols=m.tallas_cols||[];IMP.nota=m.nota;IMP.fuente=m.fuente;if(m.moneda)IMP.moneda=m.moneda;IMP.campos=m.campos;
+      await simular();
+    }catch(err){$('#impOut').innerHTML=`<div class="card"><p class="err">No pude leer «${esc(f.name)}»: ${esc(err.message)}</p></div>`}
+  };
+  rd.readAsArrayBuffer(f);
+}
+function filasMapeadas(){
+  const out=[];let seccion='';
+  const iCosto=IMP.map.costo;
+  for(const r of IMP.data){
+    // Filas de sección (ej. "DOWNHILL", "ENDURO"): sin costo y con un solo texto → categoría de las filas siguientes
+    const llenas=r.filter(c=>c!==''&&c!=null);
+    if(iCosto!=null&&(r[iCosto]===''||r[iCosto]==null)&&llenas.length<=2&&llenas.some(c=>typeof c==='string'&&/[a-z]/i.test(c))){seccion=String(llenas.find(c=>typeof c==='string')).trim();continue}
+    const o={};for(const [k,i] of Object.entries(IMP.map))if(i!=null&&i!=='')o[k]=r[i];
+    if(IMP.map.categoria==null&&seccion)o.categoria=seccion;
+    if(IMP.tallas_cols.length){for(const t of IMP.tallas_cols){const q=r[t.i];if(q===''||q==null)continue;out.push({...o,talla:t.talla,stock:q})}}
+    else out.push(o);
+  }
+  return out;
+}
+async function simular(){
+  try{
+    IMP.vista=await api('/api/bikes/admin/importar',{method:'POST',body:JSON.stringify({simular:true,filas:filasMapeadas(),marca:IMP.marca,moneda:IMP.moneda,stock_defecto:IMP.stock,modo:IMP.modo,archivo:IMP.archivo})});
+  }catch(e){IMP.vista={error:e.message}}
+  pintarImp();
+}
+function pintarImp(){
+  const V=IMP.vista||{};
+  const opt=f=>`<select data-map="${f}"><option value="">—</option>${IMP.headers.map((h,i)=>`<option value="${i}" ${IMP.map[f]===i?'selected':''}>${esc(h||'(col '+(i+1)+')')}</option>`).join('')}</select>`;
+  const cf=f=>IMP.map[f]==null?'':IMP.conf[f]>=1?'<span class="conf p-ok">seguro</span>':IMP.conf[f]>=.8?'<span class="conf p-w">probable</span>':'<span class="conf p-b">IA / revisar</span>';
+  $('#impOut').innerHTML=`<div class="card">
+    <div class="row"><b>${esc(IMP.archivo)}</b><span class="muted">hoja «${esc(IMP.hoja)}» · ${IMP.data.length} filas · columnas reconocidas por ${esc(IMP.fuente||'nombres')}</span></div>
+    ${IMP.nota?`<p class="desc" style="margin-top:6px">${esc(IMP.nota)}</p>`:''}
+    <div class="row" style="margin-top:10px">
+      <label class="muted">Marca si el Excel no la trae <select id="impMarca"><option value="">—</option>${E.marcas_base.map(b=>`<option ${IMP.marca===b?'selected':''}>${b}</option>`).join('')}</select></label>
+      <label class="muted">Moneda <select id="impMon"><option ${IMP.moneda==='USD'?'selected':''}>USD</option><option ${IMP.moneda==='EUR'?'selected':''}>EUR</option></select></label>
+      <label class="muted">Si el Excel no trae stock <select id="impStock"><option value="" ${IMP.stock===''?'selected':''}>Sin límite (se pide a la marca)</option>${[1,2,3,5,10].map(n=>`<option value="${n}" ${String(IMP.stock)===String(n)?'selected':''}>${n} unidades por SKU</option>`).join('')}</select></label>
+      <label class="muted">Modo <select id="impModo"><option value="actualizar" ${IMP.modo==='actualizar'?'selected':''}>Agregar y actualizar</option><option value="reemplazar" ${IMP.modo==='reemplazar'?'selected':''}>Reemplazar catálogo de la marca</option></select></label>
+      <button class="btn sec" id="impIA">Pedir ayuda a la IA</button>
+    </div>
+    ${IMP.tallas_cols.length?`<p class="desc" style="margin-top:8px">Tallas en columnas: ${IMP.tallas_cols.map(t=>esc(t.talla)).join(', ')} (cada celda es el stock de esa talla).</p>`:''}
+    <div class="map">${Object.keys(FLAB).map(f=>`<label><span>${FLAB[f]}${cf(f)}<small>${IMP.map[f]!=null?esc(String(IMP.data[0]?.[IMP.map[f]]??'')):'no encontrada'}</small></span>${opt(f)}</label>`).join('')}</div>
+  </div>
+  <div class="card">${V.error?`<p class="err">${esc(V.error)}</p>`:V.vista?`
+    <div class="kpis">${[['Filas válidas',V.validas],['Nuevas',V.nuevas],['Actualizadas',V.actualizadas],['Se ocultarán',V.desactivadas],['Con avisos',V.errores.length]].map(([l,v])=>`<div class="kpi"><span>${l}</span><b>${v}</b></div>`).join('')}</div>
+    ${V.marcas_nuevas.length?`<p class="desc" style="margin-bottom:8px">Marcas fuera de las 9 habituales: ${V.marcas_nuevas.map(esc).join(', ')}. Revisa la columna «Marca».</p>`:''}
+    ${V.errores.length?`<details style="margin-bottom:10px"><summary class="muted">Ver avisos (${V.errores.length})</summary><ul class="desc" style="padding-left:18px">${V.errores.slice(0,60).map(x=>`<li>Fila ${x.i+1}: ${esc(x.errores.join('; '))}${x.valida?'':' — no se importa'}</li>`).join('')}</ul></details>`:''}
+    <div class="tbl"><table><thead><tr><th></th><th>Marca</th><th>Modelo</th><th>Montaje</th><th>Cat.</th><th>Talla</th><th>Color</th><th>SKU</th><th class="n">Costo</th><th class="n">Stock</th><th>Estado</th><th>Disponible</th><th class="n">Precio S/</th><th>Llega (marítimo)</th></tr></thead><tbody>${
+      V.vista.slice(0,150).map(f=>`<tr><td>${f.nueva?'<span class="pill p-b">nueva</span>':''}</td><td>${esc(f.marca)}</td><td>${esc(f.modelo)}</td><td>${esc(f.montaje)}</td><td>${esc(f.categoria)}</td><td>${esc(f.talla)}</td><td>${esc(f.color)}</td><td class="muted">${esc(f.sku)}</td><td class="n">${f.moneda} ${fmt(f.costo)}</td><td class="n">${f.stock}</td><td>${esc(f.estado)}</td><td>${fD(f.fecha_disponible)}</td><td class="n"><b>${soles(f.precio)}</b></td><td>${fD(f.entrega[0])} – ${fD(f.entrega[1])}</td></tr>`).join('')}</tbody></table></div>
+    ${V.vista.length>150?`<p class="muted" style="margin-top:6px">… y ${V.validas-150} filas más.</p>`:''}
+    <div class="row" style="margin-top:12px"><button class="btn" id="impPub" ${V.validas?'':'disabled'}>Publicar ${V.validas} SKUs en bikes.kuranko.pe</button>
+      ${IMP.modo==='reemplazar'&&V.desactivadas?`<span class="err">Se ocultarán ${V.desactivadas} SKUs de ${esc(V.marcas.join(', '))} que no están en este archivo.</span>`:''}</div>`:'<p class="muted">Calculando vista previa…</p>'}</div>`;
+}
+document.addEventListener('change',e=>{
+  if(!IMP)return;const el=e.target;
+  if(el.dataset.map){if(el.value==='')delete IMP.map[el.dataset.map];else{IMP.map[el.dataset.map]=+el.value;IMP.conf[el.dataset.map]=1}simular()}
+  if(el.id==='impMarca'){IMP.marca=el.value;simular()}
+  if(el.id==='impMon'){IMP.moneda=el.value;simular()}
+  if(el.id==='impModo'){IMP.modo=el.value;simular()}
+  if(el.id==='impStock'){IMP.stock=el.value===''?'':+el.value;simular()}
+});
+document.addEventListener('click',async e=>{
+  if(e.target.id==='impIA'){e.target.disabled=true;e.target.textContent='Consultando a la IA…';
+    try{const m=await api('/api/bikes/admin/mapear',{method:'POST',body:JSON.stringify({headers:IMP.headers,muestra:IMP.data.slice(0,5),forzar_ia:true})});
+      for(const [k,v] of Object.entries(m.map))if(IMP.map[k]==null){IMP.map[k]=v;IMP.conf[k]=m.conf[k]}
+      if(!IMP.tallas_cols.length&&m.tallas_cols)IMP.tallas_cols=m.tallas_cols;IMP.nota=m.nota;IMP.fuente=m.fuente;await simular()}catch(err){toast(err.message);pintarImp()}}
+  if(e.target.id==='impPub'){e.target.disabled=true;e.target.textContent='Publicando…';
+    try{const r=await api('/api/bikes/admin/importar',{method:'POST',body:JSON.stringify({filas:filasMapeadas(),marca:IMP.marca,moneda:IMP.moneda,stock_defecto:IMP.stock,modo:IMP.modo,archivo:IMP.archivo})});
+      $('#impOut').innerHTML=`<div class="card"><h3>Publicado</h3><p class="desc">${r.nuevas} nuevas, ${r.actualizadas} actualizadas${r.desactivadas?', '+r.desactivadas+' ocultas':''} (${esc(r.marcas.join(', '))}). Ya se ven en bikes.kuranko.pe.</p></div>`;IMP=null;await cargar()}
+    catch(err){toast('No se publicó: '+err.message);e.target.disabled=false;e.target.textContent='Publicar'}}
+});
+$('#file').addEventListener('change',e=>e.target.files[0]&&leerArchivo(e.target.files[0]));
+const dz=$('#drop');['dragover','dragenter'].forEach(t=>dz.addEventListener(t,e=>{e.preventDefault();dz.classList.add('over')}));
+['dragleave','drop'].forEach(t=>dz.addEventListener(t,e=>{e.preventDefault();dz.classList.remove('over')}));
+dz.addEventListener('drop',e=>e.dataTransfer.files[0]&&leerArchivo(e.dataTransfer.files[0]));
+
+/* ---------- Reglas ---------- */
+const RL=[['margen_minimo','Margen mínimo aceptable (%)'],['variacion_costos','Incertidumbre de flete y aduana (± %)'],['aereo_max_usd','Aéreo solo si el precio final ≤ (US$)'],['flete_unidad','Flete marítimo individual e-bike (US$)'],['flete_grupo','Flete marítimo en grupo e-bike (US$ c/u)'],['grupo_min','Unidades para completar un grupo'],['flete_maritimo','Flete marítimo por bici (US$)'],['flete_aereo','Flete aéreo por bici (US$)'],['seguro','Seguro (% del costo)'],['arancel','Ad valorem (%)'],['aduana','Agente y aduana por bici (US$)'],['igv','IGV (%)'],
+  ['adelanto','Adelanto para reservar (%)'],['validez_horas','Precio válido (horas)'],['margen_defecto','Margen marcas nuevas (%)'],
+  ['prep','Preparación en la marca (días)'],['mar_min','Marítimo mín. (días)'],['mar_max','Marítimo máx. (días)'],['aereo_min','Aéreo mín. (días)'],['aereo_max','Aéreo máx. (días)'],['aduana_min','Aduana mín. (días)'],['aduana_max','Aduana máx. (días)'],['lima_min','Stock Lima mín. (días)'],['lima_max','Stock Lima máx. (días)']];
+function pintarReglas(){
+  const R=E.reglas,dis=E.maestro?'':'disabled';
+  const marcas=[...new Set([...E.marcas_base,...E.skus.map(s=>s.marca)])];
+  $('#regCard').innerHTML=`<h3>Reglas de precio y entrega</h3>
+  <p class="desc">Precio final = ((costo US$ × (1 + seguro) + flete) × (1 + ad valorem) + aduana) ÷ (1 − margen de la marca) × (1 + IGV) × tipo de cambio, redondeado arriba a la decena. ${E.maestro?'':'<b>Solo el administrador maestro puede cambiarlas.</b>'}</p>
+  <h3 style="margin-top:14px">Tipo de cambio</h3>
+  <div class="rules">
+    <label>Modo<select id="g-tc_modo" ${dis}><option value="auto" ${R.tc_modo==='auto'?'selected':''}>Automático (mercado + recargo)</option><option value="manual" ${R.tc_modo==='manual'?'selected':''}>Manual</option></select></label>
+    <label>Recargo USD (%)<input type="number" step="0.1" id="g-recargo_usd" value="${R.recargo_usd}" ${dis}></label>
+    <label>Recargo EUR (%)<input type="number" step="0.1" id="g-recargo_eur" value="${R.recargo_eur}" ${dis}></label>
+    <label>TC USD manual<input type="number" step="0.01" id="g-tc_usd_manual" value="${R.tc_usd_manual}" ${dis}></label>
+    <label>TC EUR manual<input type="number" step="0.01" id="g-tc_eur_manual" value="${R.tc_eur_manual}" ${dis}></label>
+  </div>
+  <p class="desc">Hoy: USD ${E.tc.usd.toFixed(3)} · EUR ${E.tc.eur.toFixed(3)} (${esc(E.tc.fuente)}${E.tc.mercado?`; mercado ${E.tc.mercado.usd.toFixed(3)} / ${E.tc.mercado.eur.toFixed(3)}`:''})</p>
+  <h3 style="margin-top:14px">Costos y tiempos</h3>
+  <div class="rules">${RL.map(([k,l])=>`<label>${l}<input type="number" step="any" id="g-${k}" value="${R[k]}" ${dis}></label>`).join('')}
+    <label>Tienda: mostrar solo modelos con ficha completa<select id="g-solo_completos" ${dis}><option value="1" ${R.solo_completos!==false?'selected':''}>Sí (foto + descripción + especificaciones)</option><option value="0" ${R.solo_completos===false?'selected':''}>No, mostrar todos</option></select></label>
+    <label>Ofrecer envío aéreo<select id="g-aereo_activo" ${dis}><option value="1" ${R.aereo_activo?'selected':''}>Sí</option><option value="0" ${R.aereo_activo?'':'selected'}>No</option></select></label></div>
+  <h3 style="margin-top:14px">Cómo se calcula el precio de cada marca</h3>
+  <p class="desc">«PVP × factor»: precio final = PVP sugerido de la marca × factor (con IGV), convertido a soles; el aéreo suma la diferencia de flete. Si un SKU no trae PVP, se usa «Costo + margen».</p>
+  <div class="tbl" style="margin-top:8px"><table><thead><tr><th>Marca</th><th>Cálculo</th><th class="n">Factor PVP</th><th class="n">Margen % (costo + margen)</th><th>Acepta aéreo</th><th>Logo</th></tr></thead><tbody>${marcas.map(m=>`<tr><td>${esc(m)}</td>
+    <td><select data-modo="${esc(m)}" ${dis}><option value="costo" ${(R.modos[m]||'costo')==='costo'?'selected':''}>Costo + margen</option><option value="pvp" ${R.modos[m]==='pvp'?'selected':''}>PVP × factor</option></select></td>
+    <td class="n"><input type="number" step="0.01" data-fac="${esc(m)}" value="${R.factores_pvp[m]??R.factor_pvp_defecto}" style="width:80px" ${dis}></td>
+    <td class="n"><input type="number" step="0.5" data-marg="${esc(m)}" value="${R.margenes[m]??R.margen_defecto}" style="width:80px" ${dis}></td>
+    <td><label class="muted"><input type="checkbox" data-aer="${esc(m)}" ${(R.aereo_marcas||{})[m]===false?'':'checked'} ${dis}> sí</label></td>
+    <td><div class="row" style="flex-wrap:nowrap">${((E.marcas_info||{})[m]||{}).logo?`<img src="${esc(E.marcas_info[m].logo)}" alt="" style="height:22px;max-width:90px;object-fit:contain;background:#fff;border-radius:4px;padding:2px">`:''}<label class="btn sec" style="padding:4px 10px;font-size:12px;cursor:pointer">Subir<input type="file" accept="image/*" data-logo="${esc(m)}" hidden></label><button class="btn sec" style="padding:4px 10px;font-size:12px" data-logolink="${esc(m)}">Link</button></div></td></tr>`).join('')}</tbody></table></div>
+  <h3 style="margin-top:14px">Cuotas sin intereses (comisión del banco, %)</h3>
+  <p class="desc">Se ofrecen solo las cuotas cuya comisión deja el margen en tu mínimo o más. Deja vacío para no ofrecer ese plazo.</p>
+  <div class="rules">${[3,6,9,12].map(n=>`<label>${n} cuotas (%)<input type="number" step="0.1" data-cuota="${n}" value="${(R.cuotas||{})[n]??''}" ${dis}></label>`).join('')}
+    <label>Bancos con cuotas sin intereses<input id="g-cuotas_bancos" value="${esc(R.cuotas_bancos||'')}" ${dis}></label>
+    <label>Powerpay: comisión fija a Kuranko (%)<input type="number" step="0.1" id="g-powerpay_pct" value="${R.powerpay_pct??5}" ${dis}></label></div>
+  <h3 style="margin-top:14px">Extras que se ofrecen</h3>
+  <div id="extras">${R.extras.map((x,i)=>`<div class="row" style="margin:6px 0"><input data-ex="${i}" data-k="nombre" value="${esc(x.nombre)}" style="flex:1;min-width:200px" ${dis}><input type="number" data-ex="${i}" data-k="precio" value="${x.precio}" style="width:100px" ${dis}><label class="muted"><input type="checkbox" data-ex="${i}" data-k="incluido" ${x.incluido?'checked':''} ${dis}> incluido</label></div>`).join('')}</div>
+  ${E.maestro?'<div class="row" style="margin-top:8px"><button class="btn sec" id="addEx">+ Agregar extra</button><button class="btn" id="saveReg">Guardar reglas</button></div>':''}`;
+}
+document.addEventListener('click',async e=>{
+  if(e.target.id==='addEx'){E.reglas.extras.push({nombre:'',precio:0});pintarReglas()}
+  if(e.target.id==='saveReg'){
+    const b={};['tc_modo','recargo_usd','recargo_eur','tc_usd_manual','tc_eur_manual',...RL.map(r=>r[0])].forEach(k=>{const el=$('#g-'+k);b[k]=k==='tc_modo'?el.value:+el.value});
+    b.aereo_activo=$('#g-aereo_activo').value==='1';
+    b.solo_completos=$('#g-solo_completos').value==='1';
+    b.cuotas_bancos=$('#g-cuotas_bancos').value;b.powerpay_pct=+$('#g-powerpay_pct').value;
+    b.cuotas={};$$('[data-cuota]').forEach(el=>{if(el.value!=='')b.cuotas[el.dataset.cuota]=+el.value});
+    b.margenes={};$$('[data-marg]').forEach(el=>b.margenes[el.dataset.marg]=+el.value);
+    b.modos={};$$('[data-modo]').forEach(el=>b.modos[el.dataset.modo]=el.value);
+    b.aereo_marcas={};$$('[data-aer]').forEach(el=>{if(!el.checked)b.aereo_marcas[el.dataset.aer]=false});
+    b.factores_pvp={};$$('[data-fac]').forEach(el=>b.factores_pvp[el.dataset.fac]=+el.value);
+    b.extras=E.reglas.extras.map((x,i)=>({id:x.id,nombre:$(`[data-ex="${i}"][data-k="nombre"]`).value,precio:+$(`[data-ex="${i}"][data-k="precio"]`).value,incluido:$(`[data-ex="${i}"][data-k="incluido"]`).checked}));
+    try{await api('/api/bikes/admin/reglas',{method:'PUT',body:JSON.stringify(b)});toast('Reglas guardadas. Precios recalculados.');await cargar()}catch(err){toast(err.message)}
+  }
+});
+
+const rangoM=(a,b)=>`(${Math.floor(a)}–${Math.ceil(b)}%)`;
+const FALTA=(md,x)=>{const f=[];if(!((md.imgs||[]).length||x.foto))f.push('foto');if(!String(md.desc||'').trim())f.push('descripción');if(!(md.specs||[]).length)f.push('especificaciones');return f};
+/* ---------- Logos de marca ---------- */
+async function guardarLogo(marca,logo){try{await api('/api/bikes/admin/marca',{method:'POST',body:JSON.stringify({marca,logo})});toast('Logo guardado');await cargar()}catch(e){toast(e.message)}}
+document.addEventListener('change',e=>{const el=e.target;if(!el.dataset.logo||!el.files[0])return;const f=el.files[0];
+  if(f.size>300000)return toast('El logo pesa mucho (máx. 300 KB). Usa un PNG o SVG más liviano.');
+  const rd=new FileReader();rd.onload=()=>guardarLogo(el.dataset.logo,rd.result);rd.readAsDataURL(f)});
+document.addEventListener('click',e=>{const b=e.target.closest('[data-logolink]');if(!b)return;const fila=b.closest('td');
+  fila.innerHTML=`<div class="row" style="flex-wrap:nowrap"><input placeholder="https://…/logo.png" style="width:170px" id="ll-${esc(b.dataset.logolink)}"><button class="btn sec" style="padding:4px 10px;font-size:12px" data-logook="${esc(b.dataset.logolink)}">OK</button></div>`});
+document.addEventListener('click',e=>{const b=e.target.closest('[data-logook]');if(!b)return;const v=b.previousElementSibling.value.trim();guardarLogo(b.dataset.logook,v)});
+
+/* ---------- Modelos: fotos, descripción y envío ---------- */
+let MOD_ED=null;
+function pintarModelos(){
+  const g=new Map();E.skus.filter(s=>s.activo).forEach(s=>{const k=s.marca+'|'+s.modelo;const x=g.get(k)||{marca:s.marca,modelo:s.modelo,cat:s.categoria,n:0,foto:false,ebike:s.categoria==='E-MTB'||!!s.motor,mmin:99,mmax:-99,envs:new Set()};x.n++;if(s.url_imagen)x.foto=true;x.mmin=Math.min(x.mmin,s.margen_min);x.mmax=Math.max(x.mmax,s.margen_max);(s.envios||[]).forEach(o=>x.envs.add(o.k));g.set(k,x)});
+  const q=($('#modQ').value||'').toLowerCase(),sin=$('#modSin').checked;
+  const todos=[...g.values()];todos.forEach(x=>x.falta=FALTA(E.modelos[x.marca+'|'+x.modelo]||{},x));
+  const inc=todos.filter(x=>x.falta.length).length;
+  $('#modRes').innerHTML=`<b>${todos.length-inc}</b> de ${todos.length} modelos con ficha completa${inc?` · <span style="color:var(--fg-warn)">${inc} incompletos ${E.reglas.solo_completos!==false?'(ocultos en la tienda)':'(se ven igual en la tienda)'}</span>`:''}`;
+  const L=todos.filter(x=>(!q||(x.marca+' '+x.modelo).toLowerCase().includes(q))&&(!sin||x.falta.length));
+  const ENV={maritimo:'Marítimo',aereo:'Aéreo',unidad:'Mar. individual',grupo:'Mar. en grupo',lima:'Stock Lima'};
+  $('#modTbl').innerHTML=`<table><thead><tr><th>Foto</th><th>Marca</th><th>Modelo</th><th class="n">SKUs</th><th>Ficha</th><th>Envíos que se ofrecen</th><th class="n">Margen</th><th>Aéreo</th>${''}<th></th></tr></thead><tbody>${L.slice(0,400).map(x=>{const md=E.modelos[x.marca+'|'+x.modelo]||{};const im=(md.imgs||[])[0];
+    const col=x.mmin<E.reglas.margen_minimo?'var(--fg-r)':x.mmin<E.reglas.margen_minimo+10?'var(--fg-warn)':'var(--fg-ok)';
+    return `<tr><td>${im?`<img src="${esc(im)}" style="width:56px;height:40px;object-fit:contain;background:#fff;border-radius:4px">`:'<span class="pill p-w">sin foto</span>'}</td><td>${esc(x.marca)}</td><td><b>${esc(x.modelo)}</b><br><span class="muted">${esc(x.cat)}${x.ebike?' · e-bike':''}</span></td><td class="n">${x.n}</td>
+    <td>${x.falta.length?`<span class="pill p-w">falta ${x.falta.join(', ')}</span>`:'<span class="pill p-ok">completa</span>'}</td>
+    <td>${[...x.envs].map(k=>`<span class="pill ${k==='grupo'?'p-w':'p-b'}">${ENV[k]||k}</span>`).join(' ')}</td>
+    <td class="n" style="color:${col}"><b>${rangoM(x.mmin,x.mmax)}</b></td>
+    <td>${x.ebike?'<span class="muted">no vuela</span>':`<select data-modaer="${esc(x.marca+'|'+x.modelo)}">${['auto','si','no'].map(v=>`<option value="${v}" ${(md.aereo||'auto')===v?'selected':''}>${{auto:'Automático',si:'Siempre',no:'Nunca'}[v]}</option>`).join('')}</select>`}</td>
+    <td><button class="btn sec" style="padding:4px 10px;font-size:12px" data-moded="${esc(x.marca+'|'+x.modelo)}">Fotos y descripción</button></td></tr>`}).join('')}</tbody></table>`;
+  const ed=$('#modEd');
+  if(!MOD_ED){ed.innerHTML='';return}
+  const md=E.modelos[MOD_ED.k]||{};const [marca,modelo]=MOD_ED.k.split('|');
+  ed.innerHTML=`<div class="card"><h3>${esc(marca)} · ${esc(modelo)}</h3>
+    <p class="desc">Pega el link del modelo en la web de la marca y toca «Traer». Elige las fotos que quieres mostrar (la primera es la principal) y revisa la descripción.</p>
+    <div class="row" style="margin:10px 0"><input id="medUrl" style="flex:1;min-width:240px" placeholder="https://mondraker.com/…/foxy-carbon-rr" value="${esc(MOD_ED.url??md.url_ficha??'')}"><button class="btn" id="medTraer">Traer fotos y descripción</button></div>
+    <div id="medMsg" class="muted"></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin:10px 0">${MOD_ED.imgs.map((u,i)=>`<label style="position:relative;border:2px solid ${MOD_ED.sel.has(u)?'var(--accent)':'var(--border)'};border-radius:8px;overflow:hidden;background:#fff;cursor:pointer"><input type="checkbox" data-medimg="${i}" ${MOD_ED.sel.has(u)?'checked':''} style="position:absolute;top:6px;left:6px"><img src="${esc(u)}" style="width:100%;height:90px;object-fit:contain" loading="lazy"></label>`).join('')||'<span class="muted">Sin fotos todavía.</span>'}</div>
+    <div class="row" style="margin-bottom:8px"><input id="medAdd" style="flex:1;min-width:240px" placeholder="O pega aquí el link de una foto"><button class="btn sec" id="medAddB">Agregar foto</button></div>
+    ${(MOD_ED.specs||md.specs||[]).length?`<details style="margin-bottom:8px"><summary class="muted">${(MOD_ED.specs||md.specs).length} especificaciones</summary><table>${(MOD_ED.specs||md.specs).map(x=>`<tr><td class="muted">${esc(x.k)}</td><td style="white-space:normal">${esc(x.v)}</td></tr>`).join('')}</table></details>`:''}
+    <label class="muted" style="display:grid;gap:4px">Descripción<textarea id="medDesc" style="min-height:110px">${esc(MOD_ED.desc??md.desc??'')}</textarea></label>
+    ${MOD_ED.ebike?`<label class="muted" style="display:block;margin-top:8px">Envío marítimo individual <select id="medUni">${['auto','si','no'].map(v=>`<option value="${v}" ${(md.unidad||'auto')===v?'selected':''}>${{auto:'Automático (si el margen alcanza)',si:'Siempre ofrecer',no:'Solo en grupo'}[v]}</option>`).join('')}</select></label>`:''}
+    <div class="row" style="margin-top:12px"><button class="btn" id="medGuardar">Guardar</button><button class="btn sec" id="medCerrar">Cerrar</button></div></div>`;
+}
+document.addEventListener('input',e=>{if(e.target.id==='modQ')pintarModelos()});
+document.addEventListener('change',async e=>{const el=e.target;
+  if(el.id==='modSin')pintarModelos();
+  if(el.dataset.modaer){const [marca,modelo]=el.dataset.modaer.split('|');const md=E.modelos[el.dataset.modaer]||{};
+    try{await api('/api/bikes/admin/modelo',{method:'POST',body:JSON.stringify({marca,modelo,descripcion:md.desc||'',imagenes:md.imgs||[],url_ficha:md.url_ficha||'',aereo:el.value,unidad:md.unidad||'auto'})});toast('Guardado');await cargar()}catch(err){toast(err.message)}}
+  if(el.dataset.medimg!==undefined&&MOD_ED){const u=MOD_ED.imgs[+el.dataset.medimg];el.checked?MOD_ED.sel.add(u):MOD_ED.sel.delete(u);MOD_ED.desc=$('#medDesc').value;pintarModelos()}
+});
+document.addEventListener('click',async e=>{const t=e.target;
+  const ed=t.closest('[data-moded]');if(ed){const md=E.modelos[ed.dataset.moded]||{};const sk=E.skus.find(s=>s.marca+'|'+s.modelo===ed.dataset.moded)||{};
+    MOD_ED={k:ed.dataset.moded,imgs:[...(md.imgs||[])],sel:new Set(md.imgs||[]),ebike:sk.categoria==='E-MTB'||!!sk.motor};pintarModelos();$('#modEd').scrollIntoView({behavior:'smooth'});return}
+  if(!MOD_ED)return;
+  if(t.id==='medCerrar'){MOD_ED=null;pintarModelos()}
+  if(t.id==='medTraer'){const url=$('#medUrl').value.trim();if(!url)return toast('Pega el link primero');t.disabled=true;t.textContent='Leyendo la página…';
+    try{const f=await api('/api/bikes/admin/ficha',{method:'POST',body:JSON.stringify({url,nombre:MOD_ED.k.replace('|',' ')})});MOD_ED.specs=f.specs||[];
+      MOD_ED.url=url;f.imagenes.forEach(u=>{if(!MOD_ED.imgs.includes(u))MOD_ED.imgs.push(u)});if(!MOD_ED.sel.size)f.imagenes.slice(0,6).forEach(u=>MOD_ED.sel.add(u));
+      MOD_ED.desc=$('#medDesc').value||f.descripcion;pintarModelos();$('#medMsg').textContent=`Encontré ${f.imagenes.length} fotos${f.descripcion?' y la descripción':''}. Desmarca las que no sirvan.`}
+    catch(err){MOD_ED.url=url;MOD_ED.desc=$('#medDesc').value;pintarModelos();$('#medMsg').innerHTML=`<span class="err">${esc(err.message)}</span>`}}
+  if(t.id==='medAddB'){const u=$('#medAdd').value.trim();if(!/^https?:\/\//.test(u))return toast('Pega un link que empiece con https://');MOD_ED.imgs.push(u);MOD_ED.sel.add(u);MOD_ED.desc=$('#medDesc').value;MOD_ED.url=$('#medUrl').value;pintarModelos()}
+  if(t.id==='medGuardar'){const [marca,modelo]=MOD_ED.k.split('|');const md=E.modelos[MOD_ED.k]||{};
+    try{await api('/api/bikes/admin/modelo',{method:'POST',body:JSON.stringify({marca,modelo,descripcion:$('#medDesc').value,imagenes:MOD_ED.imgs.filter(u=>MOD_ED.sel.has(u)),url_ficha:$('#medUrl').value.trim(),aereo:md.aereo||'auto',unidad:($('#medUni')||{}).value||md.unidad||'auto',specs:MOD_ED.specs||md.specs||null})});
+      toast('Modelo guardado. Ya se ve en la tienda.');MOD_ED=null;await cargar()}catch(err){toast(err.message)}}
+});
+
+/* ---------- Carga masiva de fichas ---------- */
+let FM=null,fmPoll=null;
+function pintarFM(){const out=$('#fmOut');if(!FM){out.innerHTML='';return}
+  if(FM.trabajo){const t=FM.trabajo;out.innerHTML=`<div class="funnel"><div class="f"><span>${t.corriendo?'Trayendo fichas…':'Terminado'}</span><div class="bar" style="width:${Math.max(1,Math.round(t.hechos/Math.max(1,t.total)*100))}%"></div><span>${t.hechos} de ${t.total} · ${t.ok} ok</span></div></div>${t.errores.length?`<details style="margin-top:6px"><summary class="err">${t.errores.length} con problemas</summary><ul class="desc" style="padding-left:18px">${t.errores.map(e=>`<li>${esc(e)}</li>`).join('')}</ul></details>`:''}`;return}
+  const pares=Object.entries(FM.pares);
+  out.innerHTML=`<p class="desc"><b>${pares.length}</b> de ${FM.total} modelos encontrados en la web de la marca${FM.sin.length?`; sin link: ${FM.sin.map(esc).join(', ')} (puedes pegarlo abajo o cargarlo a mano)`:''}.</p>
+   <div class="tbl" style="max-height:300px;margin:8px 0"><table><thead><tr><th>Modelo del catálogo</th><th>Link encontrado</th></tr></thead><tbody>${[...pares,...FM.sin.map(m=>[m,''])].map(([m,u])=>`<tr><td>${esc(m)}</td><td><input data-fmpar="${esc(m)}" value="${esc(u)}" style="width:100%;min-width:320px" placeholder="(sin link)"></td></tr>`).join('')}</tbody></table></div>
+   <div class="row"><label class="muted"><input type="checkbox" id="fmSobre"> Sobrescribir también los editados a mano</label><button class="btn" id="fmIniciar">Traer fichas</button></div>`}
+async function fmEstado(){try{const j=await api('/api/bikes/admin/fichas-masivo');if(j.trabajo){FM={trabajo:j.trabajo};pintarFM();if(!j.trabajo.corriendo){clearInterval(fmPoll);fmPoll=null;await cargar()}}}catch(e){}}
+document.addEventListener('click',async e=>{const t=e.target;
+  if(t.id==='fmBuscar'){const url=$('#fmUrl').value.trim(),marca=$('#fmMarca').value;if(!url)return toast('Pega un link de la marca');t.disabled=true;t.textContent='Buscando…';
+    try{FM=await api('/api/bikes/admin/fichas-masivo',{method:'POST',body:JSON.stringify({marca,url})});FM.marca=marca;pintarFM()}catch(err){toast(err.message)}t.disabled=false;t.textContent='Buscar modelos'}
+  if(t.id==='fmIniciar'&&FM){const pares={};$$('[data-fmpar]').forEach(i=>{if(i.value.trim())pares[i.dataset.fmpar]=i.value.trim()});
+    try{const j=await api('/api/bikes/admin/fichas-masivo',{method:'POST',body:JSON.stringify({marca:FM.marca,pares,iniciar:true,sobrescribir:$('#fmSobre').checked})});FM={trabajo:j.trabajo};pintarFM();fmPoll=setInterval(fmEstado,2500)}catch(err){toast(err.message)}}
+});
+
+/* ---------- Página: fotos reales y asesor ---------- */
+const FOTOS=[['hero','Foto de portada (bicis, taller o clientes reales)','4:3'],['asesor','Foto del asesor (cara, fondo simple)','1:1'],['taller','Foto del taller o la tienda','16:9'],['taller2','Segunda foto (equipo, entregas)','3:4']];
+function pintarPagina(){const pg=E.pagina||{},f=pg.fotos||{};
+  $('#pagCard').innerHTML=`<h3>Fotos reales y asesor</h3><p class="desc">Las fotos reales dan confianza. Sube JPG o PNG; se reducen solas antes de subir. Mientras no subas una, la página muestra un espacio neutro.</p>
+  <div class="rules" style="margin-top:12px">
+    <label>Nombre del asesor<input id="pgNom" value="${esc(pg.asesor_nombre||'Jean Pierre')}"></label>
+    <label>Cargo<input id="pgCargo" value="${esc(pg.asesor_cargo||'Asesor de bicicletas')}"></label>
+    <label>WhatsApp del asesor (51…)<input id="pgWa" value="${esc(pg.asesor_whatsapp||'')}" placeholder="51963358335"></label>
+    <label>Link de soporte técnico (Aviante)<input id="pgSop" value="${esc(pg.soporte_url||'')}" placeholder="https://…"></label>
+  </div><button class="btn" id="pgGuardar">Guardar datos</button>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-top:16px">${FOTOS.map(([k,l,r])=>`<div class="kpi" style="display:grid;gap:8px"><span>${l} · ${r}</span>
+    <div style="aspect-ratio:${r.replace(':','/')};background:#eee ${f[k]?`url('/api/bikes/foto/${k}?v=${f[k]}') center/cover`:''};border-radius:8px"></div>
+    <div class="row"><label class="btn sec" style="cursor:pointer;font-size:12px">${f[k]?'Cambiar':'Subir'}<input type="file" accept="image/*" data-pgfoto="${k}" hidden></label>${f[k]?`<button class="btn sec" style="font-size:12px" data-pgquitar="${k}">Quitar</button>`:''}</div></div>`).join('')}</div>`}
+function achicar(file,max=1600){return new Promise((ok,mal)=>{const img=new Image();img.onload=()=>{const k=Math.min(1,max/Math.max(img.width,img.height));const c=document.createElement('canvas');c.width=Math.round(img.width*k);c.height=Math.round(img.height*k);c.getContext('2d').drawImage(img,0,0,c.width,c.height);ok(c.toDataURL('image/jpeg',0.82))};img.onerror=()=>mal(new Error('No pude leer la imagen'));img.src=URL.createObjectURL(file)})}
+document.addEventListener('change',async e=>{const el=e.target;if(!el.dataset.pgfoto||!el.files[0])return;
+  try{const dato=await achicar(el.files[0]);await api('/api/bikes/admin/pagina',{method:'POST',body:JSON.stringify({foto:{clave:el.dataset.pgfoto,dato}})});toast('Foto subida');await cargar()}catch(err){toast(err.message)}});
+document.addEventListener('click',async e=>{const t=e.target;
+  if(t.dataset.pgquitar){try{await api('/api/bikes/admin/pagina',{method:'POST',body:JSON.stringify({foto:{clave:t.dataset.pgquitar,dato:''}})});await cargar()}catch(err){toast(err.message)}}
+  if(t.id==='pgGuardar'){try{await api('/api/bikes/admin/pagina',{method:'POST',body:JSON.stringify({asesor_nombre:$('#pgNom').value,asesor_cargo:$('#pgCargo').value,asesor_whatsapp:$('#pgWa').value,soporte_url:$('#pgSop').value})});toast('Guardado');await cargar()}catch(err){toast(err.message)}}
+});
+
+/* ---------- General ---------- */
+function tab(t){$$('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));$$('[data-p]').forEach(s=>s.hidden=s.dataset.p!==t);try{localStorage.setItem('bikes_tab',t)}catch(e){}
+  if(t==='met')pintarMetricas()}
+$('#tabs').addEventListener('click',e=>{const b=e.target.closest('button');if(b)tab(b.dataset.t)});
+async function cargar(){
+  try{E=await api('/api/bikes/admin/estado');$('#msg').innerHTML='';
+    $('#tcInfo').textContent=`TC USD ${E.tc.usd.toFixed(3)} · EUR ${E.tc.eur.toFixed(3)} (${E.tc.fuente})`;
+    pintarReservas();pintarLlamadas();pintarCatalogo();pintarReglas();pintarModelos();pintarPagina();
+    const fm=$('#fmMarca');if(fm&&!fm.options.length){const ms=[...new Set(E.skus.map(x=>x.marca))].sort();fm.innerHTML=ms.map(m=>`<option>${esc(m)}</option>`).join('')}
+    const tabRes=$('#tabs [data-t="res"]');const n=E.reservas.filter(r=>r.estado==='Nueva').length;tabRes.textContent=n?`Reservas (${n} nuevas)`:'Reservas';
+  }catch(e){if(e.message!=='401')$('#msg').innerHTML=`<div class="card"><p class="err">${esc(e.message)}</p></div>`}
+}
+$('#recargar').addEventListener('click',()=>{cargar();if(!$('[data-p="met"]').hidden)pintarMetricas()});
+(async()=>{await cargar();let t='res';try{t=localStorage.getItem('bikes_tab')||'res'}catch(e){}tab(t)})();
+</script>
+</body>
+</html>

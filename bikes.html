@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Kuranko Bikes · Bicicletas de fábrica a pedido</title>
+<meta name="description" content="Mondraker, Forestal, Atherton, Thömus, Crestline, Forbidden, Megamo, Steppenwolf y Revel a pedido. Precio final en soles con IGV, fecha de llegada a Lima y reserva con adelanto.">
+<meta property="og:title" content="Kuranko Bikes · Bicis de fábrica a pedido">
+<meta property="og:description" content="9 marcas de MTB y e-MTB. Configura tu bici, ve el precio final en soles y la fecha de llegada, y resérvala con adelanto.">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#000726">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Mismos colores y fuentes que kuranko.pe (tema Goya): negro #141414, barra #252525, naranja #e84e0e */
+@font-face{font-family:"URW-DIN-normal";src:url("/bikes-assets/URW-DIN-normal.woff2") format("woff2");font-display:swap}
+@font-face{font-family:"Unvidia-Bold";src:url("/bikes-assets/Unvidia-Bold.woff2") format("woff2");font-display:swap}
+:root{
+  --bg:#ffffff;--surface:#ffffff;--surface-2:#f4f4f4;--ink:#141414;--muted:#6b6b6b;--line:#e4e4e4;
+  --navy:#141414;--navy-ink:#ffffff;--amber:#FBB911;--amber-ink:#141414;--link:#141414;
+  --ok:#1b7f4b;--warn:#a86400;--bad:#b3261e;
+  --display:"Unvidia-Bold","Barlow Condensed","Arial Narrow",Arial,sans-serif;--body:"URW-DIN-normal","IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;--mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+  --r:6px;--kc:1140px;
+}
+*{box-sizing:border-box}[hidden]{display:none!important}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5;-webkit-text-size-adjust:100%}
+a{color:var(--link)}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+h1,h2,h3{font-family:var(--display);margin:0;text-wrap:balance;letter-spacing:.01em}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.wrap{max-width:1240px;margin:0 auto;padding-inline:16px}
+/* ── Cabecera copiada de kuranko.pe ── */
+.kc{max-width:var(--kc);margin:0 auto;padding-inline:15px}
+.ktop{background:#252525;color:#eee;font:14.4px/1.35 var(--body)}
+.ktop .kc{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;min-height:49px;gap:12px}
+.ktop a{color:#eee;text-decoration:none}
+.ktop .t-izq{display:flex;align-items:center;gap:5px;flex-wrap:wrap}.ktop .t-izq a{display:inline-flex;align-items:center;gap:6px}
+.ktop .t-izq img{width:24px;height:24px}
+.ktop .t-cen{text-align:center}
+.newtag{background:#e84e0e;color:#eee;border-radius:50px;padding:3px 8px 2px;margin-right:4px}
+.ktop .t-der{display:flex;justify-content:flex-end;align-items:center;gap:16px}
+.ktop .t-der img{height:21px;width:auto;display:block}
+.ktop .acc{display:inline-flex;align-items:center;gap:6px}
+.ktop .acc svg{width:18px;height:18px}
+header.kh{background:#141414;position:sticky;top:0;z-index:30;font-family:var(--body)}
+header.kh .kc{position:relative;height:90px;display:flex;align-items:center;gap:24px;max-width:1300px}
+.klogo{display:block;flex:none;line-height:0}.klogo img{width:180px;height:45px;object-fit:contain}
+.kmenu{flex:1;height:100%;display:flex;justify-content:center;min-width:0}
+.kmenu>ul{display:flex;height:100%;margin:0;padding:0;list-style:none;gap:18px}
+.kmenu>ul>li{position:relative;display:flex;align-items:center}
+.kmenu>ul>li.mega{position:static}
+.kmenu>ul>li>a{color:#fff;font-size:18px;line-height:24px;padding:5.4px 0;text-decoration:none;white-space:nowrap;transition:color .15s}
+.kmenu>ul>li:hover>a,.kmenu>ul>li.on>a{color:#e84e0e}
+.ksub{position:absolute;top:100%;left:-24px;background:#fff;min-width:250px;margin:0;padding:14px 0;list-style:none;box-shadow:0 12px 30px rgba(0,0,0,.14);opacity:0;visibility:hidden;transform:translateY(6px);transition:opacity .18s,transform .18s,visibility .18s;z-index:5}
+.kmenu li:hover>.ksub,.kmenu li:focus-within>.ksub{opacity:1;visibility:visible;transform:none}
+.ksub a{display:block;color:#141414;font-size:16px;padding:6px 24px;text-decoration:none}
+.ksub a:hover{background:rgba(0,0,0,.05)}
+.ksub a.on{color:#e84e0e;font-weight:600}
+.ksub.mega{left:15px;right:15px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:18px 24px;padding:26px 24px}
+.ksub.mega a{padding:0;background:none}
+.ksub.mega a:hover .tt{color:#e84e0e}
+.ksub.mega .im{display:block;aspect-ratio:1;background:#f4f4f4 center/cover no-repeat;margin-bottom:10px;max-width:100%}
+.ksub.mega .tt{display:block;font-family:"Unvidia-Bold",var(--display);text-transform:uppercase;font-size:14.4px;letter-spacing:.02em}
+.ksub.mega .dd{display:block;font-size:13px;line-height:1.4;color:#777;margin-top:4px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.kicons{display:flex;align-items:center;gap:20px;flex:none}
+.kicons a,.kicons button{color:#fff;background:none;border:0;padding:0;line-height:0;display:inline-flex}
+.kicons a:hover,.kicons button:hover{color:#e84e0e}
+.kicons svg{width:24px;height:24px}
+.kburger{display:none}
+/* búsqueda */
+.kbus{position:fixed;inset:0;background:rgba(20,20,20,.96);z-index:60;display:grid;place-items:start center;padding:18vh 16px 0}
+.kbus form{width:min(720px,100%);display:flex;border-bottom:2px solid #fff}
+.kbus input{flex:1;background:none;border:0;color:#fff;font:28px var(--body);padding:12px 4px;outline:none;min-width:0}
+.kbus input::placeholder{color:#999}
+.kbus button{background:none;border:0;color:#fff;line-height:0}
+.kbus .cerrar{position:absolute;top:22px;right:24px;font-size:34px;line-height:1}
+/* menú móvil */
+.kpanel{position:fixed;top:0;left:0;bottom:0;width:min(360px,86vw);background:#fff;z-index:61;overflow-y:auto;padding:16px 0 30px;box-shadow:8px 0 30px rgba(0,0,0,.25)}
+.kpanel{padding-top:0}.kpanel .cab{display:flex;justify-content:space-between;align-items:center;padding:14px 20px;background:#141414;color:#fff}
+.kpanel ul{list-style:none;margin:0;padding:0}
+.kpanel li{border-bottom:1px solid #f0f0f0}
+.kpanel .fila{display:flex;align-items:center}
+.kpanel .fila a{flex:1;color:#282828;text-decoration:none;font-size:19.2px;text-transform:uppercase;padding:12px 20px}
+.kpanel .fila button{background:none;border:0;font-size:22px;width:52px;height:48px;color:#999}
+.kpanel ul ul{display:none;background:#fafafa}
+.kpanel li.abierto>ul{display:block}
+.kpanel ul ul a{display:block;color:#444;text-decoration:none;font-size:16px;padding:10px 32px}
+.kscrim{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:60}
+/* barra de la sección Bikes */
+.kbar{background:#fff;border-bottom:1px solid var(--line)}
+.kbar .kc{display:flex;justify-content:space-between;align-items:center;gap:12px;min-height:50px;flex-wrap:wrap}
+.kbar .miga{font-size:13.5px;color:var(--muted)}.kbar .miga a{color:var(--muted);text-decoration:none}.kbar .miga b{color:var(--ink);font-weight:600}
+nav.km{display:flex;gap:4px;flex-wrap:wrap;font-size:14px;font-weight:600}
+nav.km a{padding:7px 12px;border-radius:50px;text-decoration:none;color:var(--ink)}
+nav.km a:hover{background:var(--surface-2)}
+nav.km a.on{background:#141414;color:#fff}
+@media (max-width:1320px){.kmenu>ul{gap:14px}.kmenu>ul>li>a{font-size:16px}}
+@media (max-width:1160px){.kmenu>ul{gap:11px}.kmenu>ul>li>a{font-size:14.5px}.klogo img{width:150px;height:38px}.kicons{gap:14px}}
+/* fotos reales (se suben en Panel → Página); sin foto se ve un espacio neutro */
+.hero-txt{display:grid;gap:16px}
+.foto{background:#f1f1f1 center/cover no-repeat;border-radius:10px;position:relative;overflow:hidden;max-width:100%}
+.foto:not([style*="background-image"])::after{content:"";position:absolute;inset:0;margin:auto;width:46px;height:46px;opacity:.25;background:no-repeat center/contain url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23141414' stroke-width='1.6'%3E%3Cpath d='M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z'/%3E%3Ccircle cx='12' cy='13' r='4'/%3E%3C/svg%3E")}
+.foto-hero{aspect-ratio:4/3;width:100%}
+.asesor{display:grid;grid-template-columns:auto 1fr auto;gap:16px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:14px 16px;background:var(--surface);margin-bottom:26px}
+.asesor .foto{width:72px;height:72px;border-radius:50%}
+.asesor b{font-size:17px;display:block}.asesor span{color:var(--muted);font-size:13.5px}
+.asesor-mini{display:flex;gap:10px;align-items:center;font-size:13px;color:var(--muted)}.asesor-mini .foto{width:36px;height:36px;border-radius:50%;flex:none}
+.taller{display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:26px}.taller .foto{height:clamp(200px,28vw,340px)}
+.specs{border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}.specs summary{cursor:pointer;padding:10px 12px;font-weight:600;font-size:14px}
+.specs table{width:100%;border-collapse:collapse;font-size:13px}.specs td{padding:6px 12px;border-top:1px solid var(--line);vertical-align:top}.specs td:first-child{color:var(--muted);width:34%;white-space:nowrap}
+@media (max-width:640px){.asesor{grid-template-columns:auto 1fr}.asesor .btn{grid-column:1/-1}.taller{grid-template-columns:1fr}}
+/* cuotas, envíos en tarjeta, agendar */
+.cuotas{font-size:13.5px;margin-top:8px;color:var(--ink)}.cuotas span{color:var(--muted);font-size:12px}
+.envs{display:flex;gap:4px;flex-wrap:wrap}.envs span{font-size:11px;font-weight:600;border-radius:4px;padding:2px 6px;background:var(--surface-2);color:var(--ink)}.envs .cu{background:var(--amber);color:var(--amber-ink)}
+.agenda{border:1px solid var(--line);border-radius:10px;padding:16px;background:var(--surface);margin:-14px 0 26px;display:grid;gap:10px}
+.agenda .form{grid-template-columns:repeat(4,minmax(0,1fr))}@media (max-width:760px){.agenda .form{grid-template-columns:1fr 1fr}}
+/* confianza, galería, grupo, logos */
+.trust{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:8px 0 26px}
+.trust div{border:1px solid var(--line);border-radius:var(--r);padding:14px;display:grid;gap:4px;background:var(--surface)}
+.trust b{font-size:15px}.trust span{font-size:13px;color:var(--muted)}
+.trust svg{width:38px;height:38px;padding:8px;border-radius:50%;background:var(--amber);color:#141414}
+.gal{display:flex;gap:6px;overflow-x:auto}.gal button{border:1px solid var(--line);border-radius:6px;padding:0;width:64px;height:48px;flex:none;background:#fff;overflow:hidden}
+.gal button[aria-pressed="true"]{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}.gal img{width:100%;height:100%;object-fit:contain}
+.desc{font-size:14px;color:var(--muted);line-height:1.55;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}.desc.full{display:block}
+.grp{background:var(--surface-2);border-radius:var(--r);padding:10px 12px;font-size:13.5px;display:grid;gap:6px}
+.grp .barra{height:8px;border-radius:99px;background:var(--line);overflow:hidden}.grp .barra i{display:block;height:100%;background:var(--amber)}
+.chip img{height:16px;width:auto;max-width:90px;object-fit:contain;display:block}
+.blogo{height:22px;width:auto;max-width:120px;object-fit:contain}
+.modal{position:fixed;inset:0;z-index:70;background:rgba(10,10,10,.6);display:grid;place-items:center;padding:16px}
+.modal .cj{background:#fff;color:#141414;border-radius:14px;max-width:520px;width:100%;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.35);animation:entra .35s ease}
+.modal .top{background:#141414;color:#fff;padding:22px 24px}.modal .top h2{font-size:30px;line-height:1;text-transform:uppercase}.modal .top h2 em{font-style:normal;color:var(--amber)}
+.modal ul{list-style:none;margin:0;padding:18px 24px;display:grid;gap:12px}.modal li{display:grid;grid-template-columns:28px 1fr;gap:10px;font-size:14.5px}.modal li svg{width:24px;height:24px;color:var(--amber)}
+.modal li span{color:#666;font-size:13px;display:block}.modal .pie{padding:0 24px 22px;display:flex;gap:10px;flex-wrap:wrap}
+@keyframes entra{from{opacity:0;transform:translateY(16px) scale(.98)}to{opacity:1;transform:none}}
+@media (max-width:860px){.trust{grid-template-columns:1fr 1fr}}
+@media (max-width:991px){
+  .ktop .kc{grid-template-columns:1fr}.ktop .t-izq,.ktop .t-cen{display:none}
+  header.kh .kc{height:60px;justify-content:space-between}
+  .kmenu,.kicons .wish{display:none}
+  .kburger{display:inline-flex}
+  .klogo{position:absolute;left:50%;transform:translateX(-50%)}.klogo img{width:140px;height:35px}
+}
+/* hero */
+.hero{display:grid;grid-template-columns:1.1fr 1fr;gap:32px;align-items:center;padding-block:30px 22px}
+.hero h1{font-size:clamp(40px,6vw,70px);line-height:.92;font-weight:800;text-transform:uppercase}
+.hero h1 em{font-style:normal;background:linear-gradient(transparent 58%,var(--amber) 58%);padding:0 .06em}
+.hero p{color:var(--muted);max-width:54ch;margin:12px 0 0}
+.steps{display:grid;gap:10px;margin:0;padding:0;list-style:none;counter-reset:s}
+.steps li{display:grid;grid-template-columns:34px 1fr;gap:10px;counter-increment:s}
+.steps li::before{content:counter(s);font-family:var(--display);font-weight:800;font-size:20px;width:32px;height:32px;border:2px solid var(--ink);border-radius:50%;display:grid;place-items:center;line-height:1}
+.steps b{display:block;font-size:14.5px}.steps span{color:var(--muted);font-size:13.5px}
+.brands{display:flex;gap:8px;overflow-x:auto;padding-block:4px 16px;scrollbar-width:thin}
+.chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:6px 14px;font-weight:600;font-size:14px;white-space:nowrap;display:flex;gap:6px;align-items:center}
+.chip .ct{font-family:var(--mono);font-size:12px;color:var(--muted)}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.chip[aria-pressed="true"] .ct{color:inherit;opacity:.7}
+.layout{display:grid;grid-template-columns:220px 1fr;gap:24px;align-items:start;padding-bottom:40px}
+.filters{display:grid;gap:16px;position:sticky;top:104px}
+.filters label,.flab{display:grid;gap:5px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+select,input[type=text],input[type=tel],input[type=email]{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:9px 10px;font-size:15px;min-width:0;width:100%}
+input[type=range]{width:100%;accent-color:var(--amber)}
+.seg{display:flex;flex-wrap:wrap;gap:6px}
+.seg button{border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:5px 10px;font-size:13.5px;text-transform:none;letter-spacing:0;color:var(--ink);font-weight:500}
+.seg button[aria-pressed="true"]{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink);font-weight:700}
+.resbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;color:var(--muted);font-size:14px}
+.resbar select{width:auto}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);display:flex;flex-direction:column;overflow:hidden;text-align:left;padding:0;transition:border-color .15s,transform .15s;color:var(--ink)}
+.card:hover{border-color:var(--ink);transform:translateY(-2px)}
+.pic{background:var(--surface-2);aspect-ratio:16/10;display:grid;place-items:center;position:relative;max-width:100%;overflow:hidden}
+.pic svg{width:82%;height:auto}.pic img{width:100%;height:100%;object-fit:contain;background:#fff}
+.badge{position:absolute;top:10px;left:10px;font-size:11.5px;font-weight:700;padding:3px 8px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--ink)}
+.badge.lima{background:var(--ok);color:#fff;border-color:var(--ok)}
+.badge.last{background:var(--amber);color:var(--amber-ink);border-color:var(--amber)}
+.card .bd{padding:12px 14px 14px;display:grid;gap:6px;flex:1}
+.br{font-size:11.5px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:600}
+.card h3{font-size:24px;font-weight:700;line-height:1}
+.spec{font-size:13px;color:var(--muted)}
+.sizes{display:flex;gap:4px;flex-wrap:wrap}
+.sizes span{font-family:var(--mono);font-size:11px;border:1px solid var(--line);border-radius:4px;padding:1px 5px}
+.sizes span.no{opacity:.35;text-decoration:line-through}
+.card .ft{display:flex;justify-content:space-between;align-items:end;gap:8px;margin-top:auto;padding-top:8px;border-top:1px dashed var(--line)}
+.price{font-family:var(--display);font-weight:700;font-size:24px;line-height:1}
+.price small{display:block;font-family:var(--mono);font-size:11.5px;color:var(--muted);font-weight:400;margin-top:3px}
+.price .desde{font-size:13px;font-family:var(--body);font-weight:500;color:var(--muted)}
+.eta{font-size:12.5px;text-align:right;color:var(--ok);font-weight:600}
+.eta small{display:block;color:var(--muted);font-weight:400}
+.empty{padding:40px 20px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:var(--r);grid-column:1/-1}
+.skel{background:linear-gradient(90deg,var(--surface-2),var(--surface),var(--surface-2));background-size:200% 100%;animation:sk 1.2s infinite;border-radius:var(--r);height:330px}
+@keyframes sk{to{background-position:-200% 0}}
+/* panel lateral */
+.scrim{position:fixed;inset:0;background:rgba(0,4,20,.55);z-index:40}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(1180px,100%);background:var(--bg);z-index:41;overflow-y:auto;box-shadow:-8px 0 30px rgba(0,0,0,.3);padding-bottom:env(safe-area-inset-bottom,0px)}
+.dhead{position:sticky;top:0;background:var(--bg);padding:14px 20px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:10px;z-index:2}
+.x{border:1px solid var(--line);background:var(--surface);border-radius:50%;width:36px;height:36px;font-size:19px;line-height:1;flex:none}
+.dbody{padding:20px 24px 34px;display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:28px;align-items:start}
+.dbody>.izq,.dbody>.der{display:grid;gap:18px;min-width:0}
+.dbody>.izq{position:sticky;top:84px}
+.dbody .dpic{aspect-ratio:4/3}
+@media (max-width:900px){.dbody{grid-template-columns:1fr;padding:16px 16px 30px}.dbody>.izq{position:static}.drawer{width:100%}}
+.dpic{background:var(--surface-2);border-radius:var(--r);display:grid;place-items:center;overflow:hidden;aspect-ratio:16/10}
+.dpic svg{width:78%}.dpic img{width:100%;height:100%;object-fit:contain;background:#fff}
+.opt{display:grid;gap:8px}
+.opt>.lbl{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600;display:flex;justify-content:space-between;gap:8px}
+.opts{display:flex;flex-wrap:wrap;gap:8px}
+.o{border:1px solid var(--line);background:var(--surface);border-radius:var(--r);padding:8px 12px;font-size:14px;text-align:left;display:grid;gap:1px;color:var(--ink)}
+.o small{color:var(--muted);font-size:12px}
+.o[aria-pressed="true"]{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
+.o:disabled{opacity:.4;cursor:not-allowed}
+.sw{width:16px;height:16px;border-radius:50%;display:inline-block;vertical-align:-3px;margin-right:6px;border:1px solid var(--line)}
+.ship{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.extras{display:grid;gap:6px}
+.extras label{display:flex;gap:10px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:9px 12px;font-size:14px}
+.extras label span:last-child{margin-left:auto;font-family:var(--mono);font-size:13px;color:var(--muted);white-space:nowrap}
+.when{display:flex;gap:12px;align-items:center;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--ok);border-radius:var(--r);padding:12px}
+.when b{font-family:var(--display);font-size:22px;color:var(--ok);white-space:nowrap}
+.when div{font-size:13px;color:var(--muted)}
+.sum{background:var(--surface);border:2px solid var(--ink);border-radius:var(--r);padding:16px}
+.sum table{width:100%;border-collapse:collapse;font-size:14px}
+.sum td{padding:4px 0;vertical-align:top}
+.sum td:last-child{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.sum tr.tot td{border-top:1px solid var(--line);padding-top:10px;font-weight:600}
+.sum tr.tot td:last-child{font-family:var(--display);font-size:30px;font-weight:800}
+.dep{display:flex;justify-content:space-between;gap:8px;background:var(--amber);color:var(--amber-ink);border-radius:var(--r);padding:9px 12px;margin-top:10px;font-size:14px;font-weight:600}
+.dep b{font-family:var(--mono)}
+.sal{display:flex;justify-content:space-between;font-size:13px;color:var(--muted);padding:6px 12px 0}
+.form{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.form label{display:grid;gap:4px;font-size:12.5px;color:var(--muted);font-weight:500}
+.form .full{grid-column:1/-1}
+.hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+.btn{text-decoration:none;text-align:center;border:0;background:var(--amber);color:var(--amber-ink);font-weight:800;border-radius:var(--r);padding:14px 18px;font-size:17px;font-family:var(--display);letter-spacing:.06em;text-transform:uppercase}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.sec{background:var(--surface);color:var(--ink);border:1px solid var(--line);font-family:var(--body);text-transform:none;letter-spacing:0;font-weight:600;font-size:14px;padding:9px 14px;text-decoration:none;display:inline-block}
+.note{font-size:12.5px;color:var(--muted)}
+.err{color:var(--bad);font-size:13.5px;font-weight:500}
+.okbox{background:var(--surface);border:1px solid var(--ok);border-radius:var(--r);padding:16px;display:grid;gap:10px}
+.okbox h3{color:var(--ok);font-size:28px}
+pre.msg{white-space:pre-wrap;background:var(--surface-2);border-radius:var(--r);padding:12px;font-family:var(--mono);font-size:12.5px;margin:0}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+/* seguimiento */
+.track{max-width:640px;margin:0 auto;padding-block:30px 60px;display:grid;gap:16px}
+.track h2{font-size:38px;text-transform:uppercase;font-weight:800}
+.tl{list-style:none;margin:0;padding:0;display:grid;gap:0}
+.tl li{display:grid;grid-template-columns:22px 1fr;gap:12px;align-items:start;padding-bottom:14px;position:relative;color:var(--muted)}
+.tl li::before{content:"";width:14px;height:14px;border-radius:50%;border:2px solid var(--line);background:var(--bg);margin-top:4px;position:relative;z-index:1}
+.tl li::after{content:"";position:absolute;left:8px;top:18px;bottom:0;width:2px;background:var(--line)}
+.tl li:last-child::after{display:none}
+.tl li.done{color:var(--ink)}.tl li.done::before{background:var(--ok);border-color:var(--ok)}
+.tl li.cur{color:var(--ink);font-weight:700}.tl li.cur::before{background:var(--amber);border-color:var(--amber)}
+.terms{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:18px;font-size:14px;color:var(--muted)}
+.terms h2{font-size:24px;color:var(--ink);margin-bottom:6px}
+.terms ul{margin:0;padding-left:18px;display:grid;gap:4px}
+footer.kf{background:var(--navy);color:#b8bdd6;font-size:13px;margin-top:20px}
+footer.kf .wrap{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;padding-block:20px}
+footer.kf a{color:#fff}
+@media (max-width:860px){
+  .hero{grid-template-columns:1fr;gap:18px;padding-block:20px 10px}
+  .layout{grid-template-columns:1fr}
+  .filters{position:static;grid-template-columns:1fr 1fr}
+  nav.km{margin-left:0}
+}
+@media (max-width:480px){.form,.ship,.filters{grid-template-columns:1fr}.kbar .miga{display:none}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<!-- Cabecera: copia de kuranko.pe. El menú se carga de /api/bikes/cabecera (leído de kuranko.pe cada 6 h). -->
+<div class="ktop"><div class="kc">
+  <div class="t-izq"><a href="https://maps.app.goo.gl/rn6uK36XkkfbYHQD7" target="_blank" rel="noopener"><img src="/bikes-assets/ubicacion.png" alt=""> Jr José Gálvez 476 Of 204, Magdalena</a> (10am-7pm)</div>
+  <div class="t-cen"><span class="newtag">Instalación gratuita</span> en <a href="https://kuranko.pe/documentos/">productos seleccionados</a></div>
+  <div class="t-der"><a href="https://wa.me/51963358335" id="waTop" target="_blank" rel="noopener" aria-label="WhatsApp"><img src="/bikes-assets/whatsapp.png" alt="WhatsApp"></a><span>|</span><a class="acc" href="https://kuranko.pe/mi-cuenta/">Acceder <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></a></div>
+</div></div>
+<header class="kh" id="kh"><div class="kc">
+  <div class="kicons kburger"><button id="kBurger" aria-label="Abrir menú"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button></div>
+  <a class="klogo" href="https://kuranko.pe/"><img src="/bikes-assets/logo.png" alt="KURANKO" width="180" height="45"></a>
+  <nav class="kmenu" aria-label="Menú principal"><ul id="kMenu"></ul></nav>
+  <div class="kicons">
+    <button id="kBuscar" aria-label="Buscar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></button>
+    <a class="wish" href="https://kuranko.pe/lista-de-deseos/" aria-label="Lista de deseos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg></a>
+    <a href="https://kuranko.pe/carrito/" aria-label="Carrito"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg></a>
+  </div>
+</div></header>
+<div class="kbar"><div class="kc">
+  <div class="miga"><a href="https://kuranko.pe/">Inicio</a> › <a href="https://kuranko.pe/categoria-producto/ciclismo/bicicletas/">Naves</a> › <b>De fábrica a pedido</b></div>
+  <nav class="km"><a href="#" data-view="tienda" class="on">Catálogo a pedido</a><a href="#pedido" data-view="pedido">Mi reserva</a></nav>
+</div></div>
+<div class="kbus" id="kBus" hidden><button class="cerrar" id="kBusX" aria-label="Cerrar búsqueda">×</button>
+  <form action="https://kuranko.pe/" method="get" role="search"><input type="search" name="s" id="kBusQ" placeholder="Buscar productos…" autocomplete="off"><input type="hidden" name="post_type" value="product"><button type="submit" aria-label="Buscar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></button></form></div>
+<div class="kscrim" id="kScrim" hidden></div>
+<aside class="kpanel" id="kPanel" hidden aria-label="Menú"><div class="cab"><img src="/bikes-assets/logo.png" alt="KURANKO" style="width:120px;height:30px;object-fit:contain"><button id="kPanelX" style="background:none;border:0;font-size:28px;color:#fff" aria-label="Cerrar menú">×</button></div><ul id="kMenuMovil"></ul></aside>
+
+<main>
+<section id="v-tienda" class="wrap">
+  <div class="hero">
+    <div class="hero-txt">
+      <h1>Tu nave, <em>de fábrica</em><br>a Lima.</h1>
+      <p>Nueve marcas de montaña y eléctricas configuradas a tu medida. Ves el precio final en soles, con envío, aduana, IGV y armado incluidos, y la fecha estimada de llegada antes de reservar.</p>
+    <ol class="steps">
+      <li><div><b>Elige y configura</b><span>Modelo, montaje, talla, color y envío marítimo o aéreo.</span></div></li>
+      <li><div><b>Reserva con <span class="num" id="depHero">30</span>%</b><span>Un asesor confirma la unidad con la marca y te escribe por WhatsApp.</span></div></li>
+      <li><div><b>Recíbela armada</b><span>Pagas el saldo al llegar. Incluye armado y ajuste en taller.</span></div></li>
+    </ol>
+    </div>
+    <div class="foto foto-hero" data-foto="hero" aria-hidden="true"></div>
+  </div>
+  <div class="brands" id="brands" aria-label="Marcas"></div>
+  <div class="layout">
+    <aside class="filters">
+      <label>Categoría<select id="fCat"></select></label>
+      <div class="flab">Aro<div class="seg" id="fAro"></div></div>
+      <label>Entrega<select id="fEta"><option value="all">Cualquier fecha</option><option value="lima">En stock Lima</option><option value="30">En 30 días o menos</option><option value="75">En 75 días o menos</option></select></label>
+      <label>Precio máximo <span class="num" id="fMaxL"></span><input type="range" id="fMax" min="5000" max="60000" step="1000" value="60000"></label>
+      <div class="flab">Talla<div class="seg" id="fTalla"></div></div>
+    </aside>
+    <div style="min-width:0">
+      <div class="resbar"><span id="count">Cargando…</span>
+        <select id="sort" aria-label="Ordenar"><option value="eta">Llega antes</option><option value="pa">Precio menor</option><option value="pd">Precio mayor</option><option value="br">Marca A–Z</option></select></div>
+      <div class="grid" id="grid"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>
+    </div>
+  </div>
+  <div class="trust" id="confianza"><div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg><b>Garantía oficial de la marca</b><span>Bicis nuevas, con factura y garantía del fabricante gestionada por Kuranko.</span></div><div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg><b>Soporte técnico en Lima</b><span>Taller propio en Magdalena: armado, ajuste de suspensión y servicio post venta.</span></div><div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.27 6.96L12 12.01l8.73-5.05M12 22.08V12"/></svg><b>Importación sin sorpresas</b><span>Precio final en soles con envío, aduana e IGV. Te avisamos cada etapa.</span></div><div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg><b>Adelanto protegido</b><span>Si la marca no puede entregar tu unidad, te devolvemos el 100%.</span></div></div>
+  <div class="asesor" id="asesor"><div class="foto" data-foto="asesor"></div><div><b id="asNom">Jean Pierre</b><span id="asCargo">Asesor de bicicletas</span><br><span>Te ayuda a elegir talla y modelo, y te acompaña hasta la entrega.</span></div><div style="display:grid;gap:8px"><a class="btn" id="asWa" href="https://wa.me/51963358335" target="_blank" rel="noopener" data-wa>Hablar con Jean Pierre</a><button class="btn sec" id="agBtn">Agendar una llamada</button></div></div>
+  <div class="agenda" id="agenda" hidden><b>Agenda una llamada con el asesor</b>
+    <form id="agForm" class="form" novalidate>
+      <label>Nombre<input type="text" id="agNom" autocomplete="name"></label>
+      <label>Celular<input type="tel" id="agTel" autocomplete="tel" placeholder="9XX XXX XXX"></label>
+      <label>Día<input type="date" id="agFecha"></label>
+      <label>Hora<select id="agFranja"></select></label>
+      <label class="full">¿Sobre qué bici o duda?<input type="text" id="agTema" placeholder="Ej. Zendit RR talla L, financiamiento…"></label>
+      <div class="hp" aria-hidden="true"><input type="text" id="agWeb" tabindex="-1" autocomplete="off"></div>
+      <div class="full" id="agMsg"></div>
+      <button class="btn full" type="submit">Agendar llamada</button>
+    </form></div>
+  <div class="taller"><div class="foto" data-foto="taller"></div><div class="foto" data-foto="taller2"></div></div>
+  <div class="terms" id="terminos">
+    <h2>Cómo funciona la reserva</h2>
+    <ul>
+      <li>El precio mostrado es final en soles: incluye flete, seguro, desaduanaje, IGV y armado. Se mantiene <span id="valH">48</span> horas desde tu reserva.</li>
+      <li>Un asesor confirma la disponibilidad con la marca, normalmente en menos de 24 horas hábiles, y te pide el adelanto por Yape, transferencia o tarjeta.</li>
+      <li>Si la marca no puede entregar tu unidad, te devolvemos el adelanto completo.</li>
+      <li>Las fechas son estimadas y dependen de la marca, el transporte y la aduana. Te avisamos cualquier cambio.</li>
+      <li>El saldo se paga al recibir la bici. Envíos a provincia por agencia, coordinados con el asesor.</li>
+    </ul>
+  </div>
+</section>
+
+<section id="v-pedido" class="wrap" hidden>
+  <div class="track">
+    <h2>Mi reserva</h2>
+    <p class="note" style="margin:0">Escribe el código que te dimos al reservar (KB-…) y tu DNI o RUC.</p>
+    <form id="trackForm" class="form" novalidate>
+      <label>Código<input type="text" id="tCod" placeholder="KB-XXXXXX" autocomplete="off"></label>
+      <label>DNI o RUC<input type="text" id="tDoc" inputmode="numeric"></label>
+      <button class="btn full" type="submit">Consultar</button>
+    </form>
+    <div id="trackOut"></div>
+  </div>
+</section>
+</main>
+
+<footer class="kf"><div class="wrap">
+  <span>Kuranko · Jr José Gálvez 476 Of 204, Magdalena · +51 963 358 335 · info@kuranko.pe · 9:00–19:00</span>
+  <span><a href="https://kuranko.pe/">kuranko.pe</a> · <a href="#terminos">Condiciones de la reserva</a></span>
+</div></footer>
+
+<div class="scrim" id="scrim" hidden></div>
+<aside class="drawer" id="drawer" hidden aria-modal="true" role="dialog" aria-label="Configurar bicicleta"></aside>
+
+<script>
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const TALLAS=['XXS','XS','S','S/M','M','M/L','L','L/XL','XL','XXL','S1','S2','S3','S4','S5','S6'];
+const COL={Mondraker:'#d8202a',Forestal:'#2f6f5e',Atherton:'#c9a227','Thömus':'#c8102e',Crestline:'#3b6fb6',Forbidden:'#7a4fbf',Megamo:'#e46a12',Steppenwolf:'#4a5d2a',Revel:'#1aa3a3'};
+let D=null; // catálogo
+let REF=null;
+try{const q=new URLSearchParams(location.search);REF=q.get('ref')||sessionStorage.getItem('kb_ref');if(REF)sessionStorage.setItem('kb_ref',REF);}catch(e){}
+
+/* ---- cabecera kuranko.pe: menú ---- */
+const K='https://kuranko.pe';
+const MENU0=[['TECNOLOGÍAS FIDLOCK','/fidlock/'],['NAVES','/categoria-producto/ciclismo/bicicletas/'],['COMPONENTES','/categoria-producto/ciclismo/'],['ACCESORIOS','/categoria-producto/ciclismo/accesorios/'],['TALLER','/categoria-producto/ciclismo/taller/'],['ROPA','/categoria-producto/ciclismo/ropa/'],['A PEDIDO','/categoria-producto/ciclismo/?filter_disponibilidad=a-pedido'],['MARKETPLACE','/categoria-producto/marketplace/ciclismo-marketplace/']].map(([t,h])=>({t,h:K+h,hijos:[]}));
+const esBikes=h=>/bikes\.kuranko\.pe/i.test(h||'');
+function pintarMenu(menu){
+  const activo=i=>/\/bicicletas\/?$/.test(i.h.replace(/\?.*/,''))||i.hijos.some(x=>esBikes(x.h));
+  document.getElementById('kMenu').innerHTML=menu.map(i=>`<li class="${i.mega?'mega':''} ${activo(i)?'on':''}"><a href="${esc(i.h)}">${esc(i.t)}</a>${i.hijos.length?`<ul class="ksub ${i.mega?'mega':''}">${i.hijos.map(x=>i.mega
+      ?`<li><a href="${esc(x.h)}">${x.img?`<span class="im" style="background-image:url('${esc(x.img)}')"></span>`:''}<span class="tt">${esc(x.t)}</span>${x.d?`<span class="dd">${esc(x.d)}</span>`:''}</a></li>`
+      :`<li><a href="${esc(x.h)}" class="${esBikes(x.h)?'on':''}">${esc(x.t)}</a></li>`).join('')}</ul>`:''}</li>`).join('');
+  document.getElementById('kMenuMovil').innerHTML=menu.map((i,n)=>`<li><div class="fila"><a href="${esc(i.h)}">${esc(i.t)}</a>${i.hijos.length?`<button data-acc="${n}" aria-label="Ver ${esc(i.t)}">+</button>`:''}</div>${i.hijos.length?`<ul>${i.hijos.map(x=>`<li><a href="${esc(x.h)}" style="${esBikes(x.h)?'color:#e84e0e;font-weight:600':''}">${esc(x.t)}</a></li>`).join('')}</ul>`:''}</li>`).join('');
+}
+pintarMenu(MENU0);
+fetch('/api/bikes/cabecera').then(r=>r.json()).then(j=>{if(j&&Array.isArray(j.menu)&&j.menu.length)pintarMenu(j.menu)}).catch(()=>{});
+const abrirPanel=v=>{document.getElementById('kPanel').hidden=!v;document.getElementById('kScrim').hidden=!v};
+document.getElementById('kBurger').onclick=()=>abrirPanel(true);
+document.getElementById('kPanelX').onclick=()=>abrirPanel(false);
+document.getElementById('kScrim').onclick=()=>abrirPanel(false);
+document.getElementById('kMenuMovil').addEventListener('click',e=>{const b=e.target.closest('[data-acc]');if(!b)return;const li=b.closest('li');li.classList.toggle('abierto');b.textContent=li.classList.contains('abierto')?'−':'+'});
+document.getElementById('kBuscar').onclick=()=>{document.getElementById('kBus').hidden=false;setTimeout(()=>document.getElementById('kBusQ').focus(),30)};
+document.getElementById('kBusX').onclick=()=>{document.getElementById('kBus').hidden=true};
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){document.getElementById('kBus').hidden=true;abrirPanel(false)}});
+
+/* ---- métricas: clics y embudo (propias + GA4/Meta si están configurados) ---- */
+let SES='';try{SES=sessionStorage.getItem('kb_ses')||'';if(!SES){SES=Math.random().toString(36).slice(2,12)+Date.now().toString(36);sessionStorage.setItem('kb_ses',SES)}}catch(e){SES=Math.random().toString(36).slice(2,12)+Date.now().toString(36)}
+const COLA=[];let colaT=null;
+function enviarCola(){if(!COLA.length)return;const body=JSON.stringify({ev:COLA.splice(0,20)});
+  try{if(navigator.sendBeacon&&navigator.sendBeacon('/api/bikes/evento',new Blob([body],{type:'text/plain'})))return}catch(e){}
+  fetch('/api/bikes/evento',{method:'POST',headers:{'Content-Type':'text/plain'},body,keepalive:true}).catch(()=>{})}
+const GA_EV={modelo:'view_item',carrito:'add_to_cart',reserva:'purchase',whatsapp:'contact'};
+const PX_EV={modelo:'ViewContent',carrito:'AddToCart',reserva:'Purchase',whatsapp:'Contact'};
+function ev(tipo,x={}){
+  COLA.push({tipo,sesion:SES,ref:REF,movil:matchMedia('(max-width:700px)').matches,...x});
+  clearTimeout(colaT);colaT=setTimeout(enviarCola,1500);
+  const item=x.modelo?{item_id:x.sku_id||x.modelo,item_name:x.modelo,item_brand:x.marca,price:x.valor}:null;
+  try{if(window.gtag&&GA_EV[tipo])gtag('event',GA_EV[tipo],{currency:'PEN',value:x.valor||undefined,items:item?[item]:undefined,transaction_id:x.codigo})}catch(e){}
+  try{if(window.fbq&&PX_EV[tipo])fbq('track',PX_EV[tipo],{currency:'PEN',value:x.valor||0,content_name:x.modelo,content_ids:x.sku_id?[String(x.sku_id)]:undefined,content_type:'product'})}catch(e){}
+}
+addEventListener('pagehide',enviarCola);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')enviarCola()});
+function cargarAnalitica(){
+  if(D.ga&&!window.gtag){const sc=document.createElement('script');sc.async=true;sc.src='https://www.googletagmanager.com/gtag/js?id='+D.ga;document.head.appendChild(sc);
+    window.dataLayer=window.dataLayer||[];window.gtag=function(){dataLayer.push(arguments)};gtag('js',new Date());gtag('config',D.ga)}
+  if(D.pixel&&!window.fbq){!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init',D.pixel);fbq('track','PageView')}
+}
+const origen=(()=>{try{const q=new URLSearchParams(location.search);const u=q.get('utm_source');if(u)return u.slice(0,60);if(document.referrer){const h=new URL(document.referrer).hostname;if(h!==location.hostname)return h}}catch(e){}return null})();
+const evM=(tipo,x={})=>{if(!S)return;const T=totales();ev(tipo,{marca:S.m.marca,modelo:S.m.modelo,sku_id:T&&T.s.id,valor:T&&T.total,...x})};
+
+const soles=n=>'S/ '+Math.round(n).toLocaleString('es-PE');
+const usd=n=>'US$ '+Math.round(n).toLocaleString('en-US');
+const fD=iso=>new Date(iso+'T12:00:00').toLocaleDateString('es-PE',{day:'numeric',month:'short'}).replace('.','');
+const dias=iso=>Math.round((new Date(iso+'T12:00:00')-new Date((D&&D.hoy||new Date().toISOString().slice(0,10))+'T12:00:00'))/864e5);
+
+function bike(color,cat){
+  const e=cat==='E-MTB',ht=cat==='Hardtail'||cat==='XC';
+  return `<svg viewBox="0 0 320 190" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="5"><circle cx="70" cy="128" r="50"/><circle cx="250" cy="128" r="50"/></g>
+  <g stroke="${color}" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none"><path d="M150 132 L122 52 L218 58 L150 132 Z"/><path d="M122 52 L${ht?70:96} ${ht?128:100}"/>${ht?'<path d="M70 128 L150 132"/>':'<path d="M96 100 L70 128 L150 132"/>'}</g>
+  ${ht?'':'<rect x="120" y="76" width="34" height="11" rx="5" fill="currentColor" transform="rotate(-38 137 82)"/>'}
+  ${e?'<rect x="146" y="80" width="54" height="20" rx="6" fill="currentColor" transform="rotate(-41 173 90)"/><circle cx="154" cy="128" r="15" fill="currentColor"/>':'<circle cx="150" cy="132" r="9" fill="currentColor"/>'}
+  <g stroke="currentColor" stroke-linecap="round"><path d="M218 58 L250 128" stroke-width="7"/><path d="M214 40 L222 60" stroke-width="7"/><path d="M200 38 L240 34" stroke-width="5"/><path d="M122 52 L117 30" stroke-width="6"/><path d="M100 27 L134 27" stroke-width="8"/></g></svg>`;
+}
+const foto=(m,col)=>m.img?`<img src="${esc(m.img)}" alt="${esc(m.marca+' '+m.modelo)}" loading="lazy" onerror="this.replaceWith(document.createRange().createContextualFragment(window._bk('${esc(col)}','${esc(m.cat)}')))">`:bike(col,m.cat);
+window._bk=bike;
+
+/* ---- resumen por modelo ---- */
+function resumen(m){
+  const disp=m.skus.filter(s=>s.d>0), base=disp.length?disp:m.skus;
+  const min=base.reduce((a,s)=>s.pm<a.pm?s:a,base[0]);
+  const lima=disp.some(s=>s.e==='Stock Lima');
+  const pronto=base.reduce((a,s)=>s.fm[1]<a.fm[1]?s:a,base[0]);
+  const aereo=base.filter(s=>s.fa).reduce((a,s)=>!a||s.fa[1]<a.fa[1]?s:a,null);
+  const tot=disp.reduce((a,s)=>a+s.d,0);
+  const varios=new Set(base.map(s=>s.pm)).size>1;
+  return {min,lima,pronto,aereo,tot,varios,agotado:!disp.length};
+}
+
+/* ---- filtros ---- */
+const F={marca:'all',cat:'all',aro:'all',eta:'all',max:60000,talla:'all',sort:'eta'};
+function pintarFiltros(){
+  const cnt={};D.modelos.forEach(m=>cnt[m.marca]=(cnt[m.marca]||0)+1);
+  $('#brands').innerHTML=[['all','Todas',D.modelos.length],...D.marcas.map(b=>[b,b,cnt[b]||0])].map(([k,l,n])=>`<button class="chip" aria-pressed="${F.marca===k}" data-b="${esc(k)}">${k!=='all'&&(D.logos||{})[k]?`<img src="${esc(D.logos[k])}" alt="${esc(l)}">`:esc(l)}<span class="ct">${n}</span></button>`).join('');
+  const cats=['all',...new Set(D.modelos.map(m=>m.cat))];
+  $('#fCat').innerHTML=cats.map(c=>`<option value="${esc(c)}" ${F.cat===c?'selected':''}>${c==='all'?'Todas':esc(c)}</option>`).join('');
+  const aros=['all',...new Set(D.modelos.map(m=>m.aro))];
+  $('#fAro').innerHTML=aros.map(a=>`<button type="button" aria-pressed="${F.aro===a}" data-a="${esc(a)}">${a==='all'?'Todos':esc(a)}</button>`).join('');
+  const tallas=['all',...TALLAS.filter(t=>D.modelos.some(m=>m.tallas.includes(t)))];
+  $('#fTalla').innerHTML=tallas.map(t=>`<button type="button" aria-pressed="${F.talla===t}" data-t="${esc(t)}">${t==='all'?'Todas':esc(t)}</button>`).join('');
+  $('#fMaxL').textContent=F.max>=60000?'sin límite':soles(F.max);
+}
+function pintarGrid(){
+  let L=D.modelos.map(m=>({m,r:resumen(m)}));
+  L=L.filter(({m,r})=>(F.marca==='all'||m.marca===F.marca)&&(F.cat==='all'||m.cat===F.cat)&&(F.aro==='all'||m.aro===F.aro)
+    &&(F.max>=60000||r.min.pm<=F.max)&&(F.talla==='all'||m.skus.some(s=>s.t===F.talla&&s.d>0))
+    &&(F.eta==='all'||(F.eta==='lima'?r.lima:dias((r.aereo||r.pronto).fa?.[1]||r.pronto.fm[1])<=+F.eta)));
+  const S={eta:(a,b)=>(a.r.agotado-b.r.agotado)||a.r.pronto.fm[1].localeCompare(b.r.pronto.fm[1]),pa:(a,b)=>a.r.min.pm-b.r.min.pm,pd:(a,b)=>b.r.min.pm-a.r.min.pm,br:(a,b)=>a.m.marca.localeCompare(b.m.marca)||a.m.modelo.localeCompare(b.m.modelo)}[F.sort];
+  L.sort(S);
+  $('#count').textContent=`${L.length} ${L.length===1?'modelo':'modelos'}`;
+  if(!D.modelos.length){$('#grid').innerHTML=`<div class="empty">Estamos cargando las listas de las marcas. Escríbenos por <a href="https://wa.me/${esc(D.whatsapp)}" target="_blank" rel="noopener">WhatsApp</a> y te cotizamos la bici que buscas.</div>`;return}
+  if(!L.length){$('#grid').innerHTML='<div class="empty">Ningún modelo coincide con estos filtros. Prueba quitando la talla o subiendo el precio máximo.</div>';return}
+  $('#grid').innerHTML=L.map(({m,r})=>{
+    const col=COL[m.marca]||'#5a6285';
+    const soloGrupo=m.skus.every(x=>(x.op||[]).length&&x.op.every(o=>o.k==='grupo'));
+    const badge=soloGrupo&&!r.agotado?'<span class="badge last">Envío en grupo</span>':r.agotado?'<span class="badge">Agotado</span>':r.lima?'<span class="badge lima">En stock Lima</span>':r.tot<=2?'<span class="badge last">Últimas unidades</span>':'<span class="badge">A pedido</span>';
+    return `<button class="card" data-id="${esc(m.id)}"><div class="pic" style="color:var(--ink)">${foto(m,col)}${badge}</div>
+    <div class="bd"><span class="br">${esc(m.marca)} · ${esc(m.cat)}</span><h3>${esc(m.modelo)}</h3>
+      <span class="spec">${[m.aro?(m.aro==='Mullet'?'Mullet 29/27.5':'Aro '+m.aro):'',m.rec,m.mat,m.motor].filter(Boolean).map(esc).join(' · ')}</span>
+      <div class="envs">${[...new Set(m.skus.flatMap(x=>(x.op||[]).map(o=>o.k)))].map(k=>`<span>${ENVL[k]||k}</span>`).join('')}${Math.max(0,...m.skus.flatMap(x=>(x.op||[]).map(o=>o.cu||0)))?`<span class="cu">Hasta ${Math.max(...m.skus.flatMap(x=>(x.op||[]).map(o=>o.cu||0)))} cuotas sin intereses</span>`:''}</div>
+      <div class="sizes">${m.tallas.map(t=>`<span class="${m.skus.some(s=>s.t===t&&s.d>0)?'':'no'}">${esc(t)}</span>`).join('')}</div>
+      <div class="ft"><div class="price">${r.varios?'<span class="desde">desde </span>':''}${soles(r.min.pm)}<small>${usd(r.min.pm/D.tc_usd)} · IGV incl.</small></div>
+      <div class="eta">${r.pronto.e==='Stock Lima'?'Entrega en '+dias(r.pronto.fm[0])+'–'+dias(r.pronto.fm[1])+' días':'Llega '+fD(r.pronto.fm[0])+'–'+fD(r.pronto.fm[1])}<small>${r.aereo?'aéreo: '+fD(r.aereo.fa[1]):r.pronto.e==='Stock Lima'?'Lista en tienda':'envío marítimo'}</small></div></div>
+    </div></button>`}).join('');
+}
+
+/* ---- configurador ---- */
+let S=null;
+function abrir(id,push=true){
+  const m=D.modelos.find(x=>x.id===id);if(!m)return;
+  const s0=m.skus.filter(s=>s.d>0).sort((a,b)=>a.pm-b.pm)[0]||m.skus[0];
+  S={m,mo:s0.mo,t:s0.t,c:s0.c,envio:'maritimo',extras:{},done:null,error:'',enviando:false,form:{},carrito:false};
+  pintarCfg();evM('modelo');$('#drawer').hidden=false;$('#scrim').hidden=false;document.body.style.overflow='hidden';
+  if(push)try{history.replaceState(null,'','#'+id)}catch(e){}
+}
+function cerrar(){$('#drawer').hidden=true;$('#scrim').hidden=true;document.body.style.overflow='';try{if(location.hash&&location.hash!=='#pedido')history.replaceState(null,'',location.pathname+location.search)}catch(e){}}
+const skuSel=()=>S.m.skus.find(s=>s.mo===S.mo&&s.t===S.t&&s.c===S.c);
+function ajustar(){ // si la combinación no existe o está agotada, elige la más cercana disponible
+  const m=S.m;let s=skuSel();
+  if(s&&s.d>0)return;
+  s=m.skus.find(x=>x.mo===S.mo&&x.t===S.t&&x.d>0)||m.skus.find(x=>x.mo===S.mo&&x.d>0)||m.skus.find(x=>x.mo===S.mo);
+  if(s){S.t=s.t;S.c=s.c}
+}
+const ENVL={maritimo:'Marítimo',aereo:'Aéreo',unidad:'Marítimo individual',grupo:'Marítimo en grupo',lima:'Stock Lima'};
+function grupoHTML(marca){const g=(D.grupos||{})[marca]||{actual:0,min:D.grupo_min||3};const n=g.actual,mn=g.min||D.grupo_min||3;
+  return `<div class="grp"><b>Envío en grupo: ${n} de ${mn} reservas</b><div class="barra"><i style="width:${Math.round(n/mn*100)}%"></i></div><span>Las e-bikes viajan por mar como carga especial. Al juntar ${mn} reservas de ${esc(marca)} el envío sale a cuenta para todos. ${n?`Faltan ${mn-n}. Comparte el link con amigos que también quieran una.`:'Sé el primero: te avisamos cuando se complete.'}</span></div>`}
+const waAsesor=()=>'https://wa.me/'+(((D&&D.pagina)||{}).asesor_whatsapp||(D&&D.whatsapp)||'51963358335');
+function aplicarPagina(){const pg=D.pagina||{},f=pg.fotos||{};
+  $$('[data-foto]').forEach(el=>{const u=f[el.dataset.foto];el.style.backgroundImage=u?`url('${u}')`:''});
+  const n=pg.asesor_nombre||'Jean Pierre';$('#asNom').textContent=n;$('#asCargo').textContent=pg.asesor_cargo||'Asesor de bicicletas';
+  $('#asWa').textContent='Hablar con '+n;$('#asWa').href=waAsesor();}
+function totales(){
+  const s=skuSel();if(!s)return null;
+  const ops=s.op&&s.op.length?s.op:[{k:s.e==='Stock Lima'?'lima':'maritimo',p:s.pm,f:s.fm}];
+  const o=ops.find(x=>x.k===S.envio)||ops[0];
+  const env=o.k, bici=o.p, f=o.f, cu=o.cu||0, pp=!!o.pp;
+  const ex=D.extras.filter(e=>e.incluido||S.extras[e.id]);const exT=ex.reduce((a,e)=>a+e.precio,0);
+  const total=bici+exT, dep=Math.ceil(total*D.adelanto/100/10)*10;
+  return {s,env,bici,f,exT,total,dep,saldo:total-dep,cu,pp};
+}
+function guardarForm(){['rNom','rDoc','rTel','rMail','rCity'].forEach(k=>{const el=document.getElementById(k);if(el)S.form[k]=el.value})}
+function pintarCfg(){
+  if(S.done){$('#drawer').innerHTML=okHTML(S.done);return}
+  guardarForm();
+  const m=S.m,T=totales(),s=T.s,col=COL[m.marca]||'#5a6285';
+  const disp=(fn)=>m.skus.some(x=>fn(x)&&x.d>0);
+  const colHex=(m.colores.find(c=>c.n===S.c)||{}).h;
+  const ship=s.e==='Stock Lima'
+    ?`<div class="when"><b>${dias(s.fm[0])}–${dias(s.fm[1])} días</b><div>Unidad en nuestra tienda de Lima. Se entrega armada y ajustada.</div></div>`
+    :`<div class="ship">${(s.op||[]).map(o=>`<button class="o" aria-pressed="${T.env===o.k}" data-env="${o.k}"><b>${ENVL[o.k]||o.k}</b>${o.ad?'<small>Sin esperar al grupo</small>':''}<small>Llega ${fD(o.f[0])}–${fD(o.f[1])}</small><small class="num">${soles(o.p)}${o.ad&&s.op.find(x=>x.k==='grupo')?` (+${soles(o.p-s.op.find(x=>x.k==='grupo').p)})`:''}</small></button>`).join('')}</div>${T.env==='grupo'?grupoHTML(m.marca):''}`;
+  $('#drawer').innerHTML=`
+  <div class="dhead"><div>${(D.logos||{})[m.marca]?`<img class="blogo" src="${esc(D.logos[m.marca])}" alt="${esc(m.marca)}"><br>`:''}<span class="br">${esc(m.marca)} · ${esc(m.cat)}${m.anio?' · '+m.anio:''}</span><h2 style="font-size:30px;line-height:1">${esc(m.modelo)}</h2></div><button class="x" id="xClose" aria-label="Cerrar">×</button></div>
+  <div class="dbody"><div class="izq">
+    <div class="dpic" style="color:var(--ink)">${m.gal&&m.gal.length?`<img src="${esc(m.gal[S.img||0])}" alt="${esc(m.marca+' '+m.modelo)}">`:m.img?foto(m,col):bike(colHex||col,m.cat)}</div>
+    ${m.gal&&m.gal.length>1?`<div class="gal">${m.gal.map((u,i)=>`<button data-img="${i}" aria-pressed="${(S.img||0)===i}" aria-label="Foto ${i+1}"><img src="${esc(u)}" alt="" loading="lazy"></button>`).join('')}</div>`:''}
+    <div class="spec">${[m.aro?(m.aro==='Mullet'?'Mullet 29/27.5':'Aro '+m.aro):'',m.rec&&'Recorrido '+m.rec,m.mat,m.peso&&m.peso+(/kg/i.test(m.peso)?'':' kg'),m.motor].filter(Boolean).map(esc).join(' · ')}${m.ficha?` · <a href="${esc(m.ficha)}" target="_blank" rel="noopener">Ficha técnica</a>`:''}</div>
+    ${m.specs&&m.specs.length?`<details class="specs"><summary>Especificaciones técnicas</summary><table>${m.specs.map(x=>`<tr><td>${esc(x.k)}</td><td>${esc(x.v)}</td></tr>`).join('')}</table></details>`:''}
+    ${m.desc?`<div class="desc ${S.descFull?'full':''}" id="dDesc">${esc(m.desc)}</div>${S.descFull?'':'<button class="btn sec" id="dMas" style="justify-self:start;padding:4px 10px;font-size:13px">Leer más</button>'}`:''}
+    </div><div class="der">
+    ${m.montajes.length>1||m.montajes[0]!=='Base'?`<div class="opt"><div class="lbl">Montaje</div><div class="opts">${m.montajes.map(mo=>{const p=Math.min(...m.skus.filter(x=>x.mo===mo).map(x=>x.pm));return `<button class="o" aria-pressed="${S.mo===mo}" data-mo="${esc(mo)}" ${disp(x=>x.mo===mo)?'':'disabled'}><b>${esc(mo)}</b><small class="num">${soles(p)}</small></button>`}).join('')}</div></div>`:''}
+    <div class="opt"><div class="lbl">Talla</div><div class="opts">${m.tallas.map(t=>{const n=m.skus.filter(x=>x.mo===S.mo&&x.t===t).reduce((a,x)=>a+x.d,0);return `<button class="o" aria-pressed="${S.t===t}" data-t="${esc(t)}" ${n>0?'':'disabled'}><b>${esc(t)}</b><small>${n>=90?'a pedido':n>0?n+' disp.':'agotada'}</small></button>`}).join('')}</div></div>
+    <div class="opt"><div class="lbl">Color</div><div class="opts">${m.colores.map(c=>`<button class="o" aria-pressed="${S.c===c.n}" data-c="${esc(c.n)}" ${disp(x=>x.mo===S.mo&&x.t===S.t&&x.c===c.n)?'':'disabled'}><span>${c.h?`<span class="sw" style="background:${esc(c.h)}"></span>`:''}${esc(c.n)}</span></button>`).join('')}</div></div>
+    <div class="opt"><div class="lbl">Envío a Lima</div>${ship}</div>
+    ${D.extras.length?`<div class="opt"><div class="lbl">Extras</div><div class="extras">${D.extras.map(e=>`<label><input type="checkbox" data-x="${esc(e.id)}" ${e.incluido?'checked disabled':S.extras[e.id]?'checked':''}><span>${esc(e.nombre)}</span><span>${e.incluido||!e.precio?'incluido':'+ '+soles(e.precio)}</span></label>`).join('')}</div></div>`:''}
+    <div class="when"><b>${T.env==='lima'?'En '+dias(T.f[0])+'–'+dias(T.f[1])+' días':fD(T.f[0])+' – '+fD(T.f[1])}</b><div>Fecha estimada de entrega en Lima${T.env==='lima'?'':'. Incluye preparación en la marca, '+(T.env==='aereo'?'flete aéreo':'flete marítimo')+' y aduana'}.</div></div>
+    <div class="sum"><table>
+      <tr><td>${esc(m.modelo)} ${esc(S.mo!=='Base'?S.mo:'')} · talla ${esc(S.t)}<br><span class="note">Incluye ${T.env==='lima'?'':'flete, seguro, desaduanaje, '}IGV y armado</span></td><td>${soles(T.bici)}</td></tr>
+      ${s.ref&&s.ref>T.bici?`<tr><td class="note">Precio sugerido por la marca</td><td class="note" style="text-decoration:line-through">${soles(s.ref)}</td></tr>`:''}
+      ${T.exT?`<tr><td>Extras</td><td>${soles(T.exT)}</td></tr>`:''}
+      <tr class="tot"><td>Precio final<br><span class="note num">${usd(T.total/D.tc_usd)}</span></td><td>${soles(T.total)}</td></tr>
+    </table>
+    ${T.cu?`<div class="cuotas">o hasta <b>${T.cu} cuotas sin intereses</b> de <b class="num">${soles(T.total/T.cu)}</b> con ${esc(D.cuotas_bancos||'tarjeta de crédito')} <span>(${Object.keys(D.cuotas||{}).map(Number).filter(n=>n<=T.cu).sort((a,b)=>a-b).join(', ')} cuotas)</span></div>`:''}
+    ${T.pp?`<div class="cuotas">También en cuotas con <b>Powerpay</b> y cualquier tarjeta de crédito <span>(Powerpay aplica su propio interés)</span></div>`:''}
+    ${T.cu||T.pp?`<div class="cuotas"><span>El adelanto para reservar también puedes pagarlo en cuotas.</span></div>`:''}
+    <div class="dep"><span>Adelanto para reservar (${D.adelanto}%)</span><b>${soles(T.dep)}</b></div>
+    <div class="sal"><span>Saldo al recibir</span><span class="num">${soles(T.saldo)}</span></div></div>
+
+    <div class="asesor-mini"><div class="foto" data-foto="asesor"></div><span>¿Dudas con la talla? <a href="${esc(waAsesor())}" target="_blank" rel="noopener" data-wa>Escríbele a ${esc((D.pagina||{}).asesor_nombre||'Jean Pierre')}</a> o <a href="#agenda" id="agDesde">agenda una llamada</a></span></div>
+    ${S.carrito?'':`<button class="btn" id="loQuiero" ${s.d>0?'':'disabled'}>${s.d>0?'Lo quiero · reservar con '+soles(T.dep):'Agotada en esta talla'}</button>`}
+    <form id="resForm" class="form" novalidate ${S.carrito?'':'hidden'}>
+      <label>Nombre completo<input type="text" id="rNom" autocomplete="name" value="${esc(S.form.rNom||'')}"></label>
+      <label>DNI o RUC<input type="text" id="rDoc" inputmode="numeric" value="${esc(S.form.rDoc||'')}"></label>
+      <label>WhatsApp<input type="tel" id="rTel" autocomplete="tel" placeholder="9XX XXX XXX" value="${esc(S.form.rTel||'')}"></label>
+      <label>Correo (opcional)<input type="email" id="rMail" autocomplete="email" value="${esc(S.form.rMail||'')}"></label>
+      <label class="full">Ciudad de entrega<select id="rCity">${['Lima','Arequipa','Cusco','Trujillo','Piura','Chiclayo','Huaraz','Otra (envío por agencia)'].map(c=>`<option ${S.form.rCity===c?'selected':''}>${c}</option>`).join('')}</select></label>
+      <div class="hp" aria-hidden="true"><label>Web<input type="text" id="rWeb" tabindex="-1" autocomplete="off"></label></div>
+      ${S.error?`<div class="full err" role="alert">${esc(S.error)}</div>`:''}
+      <button class="btn full" type="submit" ${s.d>0&&!S.enviando?'':'disabled'}>${S.enviando?'Guardando…':'Reservar con '+soles(T.dep)}</button>
+      <p class="note full" style="margin:0">Pagas el adelanto después de que el asesor confirme la unidad con la marca. Si la marca no puede entregar, te lo devolvemos completo. <a href="#terminos" id="verTerm">Condiciones</a></p>
+    </form>
+  </div></div>`;
+}
+const _pintarCfg=pintarCfg;pintarCfg=function(){_pintarCfg();if(D)$$('#drawer [data-foto]').forEach(el=>{const u=((D.pagina||{}).fotos||{})[el.dataset.foto];el.style.backgroundImage=u?`url('${u}')`:''})};
+function okHTML(r){
+  return `<div class="dhead"><h2 style="font-size:26px">Reserva recibida</h2><button class="x" id="xClose" aria-label="Cerrar">×</button></div>
+  <div class="dbody"><div class="okbox"><h3 class="num">${esc(r.codigo)}</h3>
+   <p style="margin:0">Guarda este código. Un asesor confirmará la unidad con la marca y te escribirá por WhatsApp para el adelanto de <b>${soles(r.adelanto)}</b>. El precio de <b>${soles(r.total)}</b> se mantiene ${D.validez_horas} horas.</p>
+   <pre class="msg" id="waMsg">${esc(r.mensaje)}</pre>
+   <div class="row"><a class="btn sec" data-wa href="https://wa.me/${esc(r.whatsapp)}?text=${encodeURIComponent(r.mensaje)}" target="_blank" rel="noopener">Enviar por WhatsApp</a><button class="btn sec" id="copyMsg">Copiar mensaje</button><a class="btn sec" href="#pedido" data-view="pedido" data-cod="${esc(r.codigo)}">Ver estado</a></div></div></div>`;
+}
+async function reservar(){
+  guardarForm();
+  const T=totales(),f=S.form;
+  const nom=(f.rNom||'').trim(),doc=(f.rDoc||'').replace(/\D/g,'');let tel=(f.rTel||'').replace(/\D/g,'');if(tel.length===11&&tel.startsWith('51'))tel=tel.slice(2);
+  const err=[];if(nom.length<3)err.push('escribe tu nombre completo');if(!/^(\d{8}|\d{11})$/.test(doc))err.push('el DNI tiene 8 dígitos y el RUC 11');if(!/^9\d{8}$/.test(tel))err.push('el WhatsApp debe ser un celular de 9 dígitos que empiece con 9');
+  if(f.rMail&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.rMail))err.push('el correo no es válido');
+  if(err.length){S.error='Revisa: '+err.join('; ')+'.';pintarCfg();return}
+  S.error='';S.enviando=true;pintarCfg();
+  try{
+    const r=await fetch('/api/bikes/reservar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sku_id:T.s.id,envio:T.env==='aereo'?'aereo':'maritimo',extras:Object.keys(S.extras).filter(k=>S.extras[k]),
+      nombre:nom,doc,tel,email:(f.rMail||'').trim(),ciudad:f.rCity,ref:REF,web:(document.getElementById('rWeb')||{}).value||'',total_visto:T.total,acepto_nuevo:!!S.aceptoNuevo})});
+    const j=await r.json().catch(()=>({error:'Respuesta inválida del servidor'}));
+    S.enviando=false;
+    if(!r.ok){S.error=j.error||'No se pudo reservar';if(j.cambio_precio){S.aceptoNuevo=true;await recargar(true)}pintarCfg();return}
+    S.done=j;pintarCfg();evM('reserva',{valor:j.total,codigo:j.codigo});recargar(true);
+  }catch(e){S.enviando=false;S.error='No hay conexión. Revisa tu internet e intenta otra vez.';pintarCfg()}
+}
+
+/* ---- agendar llamada ---- */
+function abrirAgenda(tema){const a=$('#agenda');a.hidden=false;if(tema)$('#agTema').value=tema;
+  const f=$('#agFecha');const hoy=(D&&D.hoy)||new Date().toISOString().slice(0,10);f.min=hoy;if(!f.value){const d=new Date(hoy+'T12:00:00');d.setDate(d.getDate()+1);f.value=d.toISOString().slice(0,10)}
+  $('#agFranja').innerHTML=((D&&D.franjas)||['10:00–12:00','12:00–14:00','14:00–16:00','16:00–19:00']).map(x=>`<option>${x}</option>`).join('');
+  a.scrollIntoView({behavior:'smooth',block:'center'});setTimeout(()=>$('#agNom').focus(),300);ev('whatsapp',{origen:'agendar'})}
+document.addEventListener('click',e=>{if(e.target.id==='agBtn'){abrirAgenda()}if(e.target.id==='agDesde'){e.preventDefault();const t=S?`${S.m.marca} ${S.m.modelo} talla ${S.t}`:'';cerrar();abrirAgenda(t)}});
+async function agendar(){const tel=$('#agTel').value.replace(/\D/g,'');const b={nombre:$('#agNom').value.trim(),tel,fecha:$('#agFecha').value,franja:$('#agFranja').value,tema:$('#agTema').value.trim(),ref:REF,web:$('#agWeb').value};
+  if(b.nombre.length<3||!/^(51)?9\d{8}$/.test(tel)){$('#agMsg').innerHTML='<span class="err">Escribe tu nombre y un celular de 9 dígitos que empiece con 9.</span>';return}
+  try{const r=await fetch('/api/bikes/llamada',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});const j=await r.json();
+    if(!r.ok){$('#agMsg').innerHTML=`<span class="err">${esc(j.error||'No se pudo agendar')}</span>`;return}
+    $('#agForm').innerHTML=`<p class="full" style="margin:0;color:var(--ok);font-weight:600">Listo. ${esc((D.pagina||{}).asesor_nombre||'Jean Pierre')} te llamará el ${fD(b.fecha)} entre ${esc(b.franja)}.</p>`}
+  catch(e){$('#agMsg').innerHTML='<span class="err">No hay conexión. Intenta otra vez.</span>'}}
+
+/* ---- seguimiento ---- */
+async function consultar(cod,doc){
+  const out=$('#trackOut');out.innerHTML='<p class="note">Consultando…</p>';
+  try{
+    const r=await fetch('/api/bikes/pedido?codigo='+encodeURIComponent(cod)+'&doc='+encodeURIComponent(doc));const j=await r.json();
+    if(!r.ok){out.innerHTML=`<p class="err">${esc(j.error||'No encontrada')}</p>`;return}
+    const pasos=j.estados.filter(e=>e!=='Cancelada'),i=pasos.indexOf(j.estado);
+    out.innerHTML=`<div class="okbox" style="border-color:var(--line)"><span class="br">${esc(j.codigo)} · reservada el ${fD(j.creado)}</span><h3 style="color:var(--ink);font-size:26px">${esc(j.marca)} ${esc(j.modelo)} ${esc(j.montaje!=='Base'?j.montaje:'')}</h3>
+      <span class="spec">Talla ${esc(j.talla)} · ${esc(j.color)} · envío ${j.envio==='lima'?'stock Lima':esc(j.envio==='aereo'?'aéreo':'marítimo')} · entrega estimada ${fD(j.fecha_min)} – ${fD(j.fecha_max)}</span>
+      <span class="spec">Precio final ${soles(j.total)} · adelanto ${soles(j.adelanto)}</span>
+      ${j.estado==='Cancelada'?'<p class="err">Esta reserva fue cancelada. Escríbenos si tienes dudas.</p>':`<ol class="tl">${pasos.map((p,k)=>`<li class="${k<i?'done':k===i?'cur':''}"><span>${esc(p)}</span></li>`).join('')}</ol>`}
+      <span class="note">Última actualización: ${fD(j.actualizado)}</span></div>`;
+  }catch(e){out.innerHTML='<p class="err">No hay conexión. Intenta otra vez.</p>'}
+}
+function vista(v,cod){
+  $('#v-tienda').hidden=v!=='tienda';$('#v-pedido').hidden=v!=='pedido';
+  $$('nav.km a[data-view]').forEach(a=>a.classList.toggle('on',a.dataset.view===v));
+  if(v==='pedido'){cerrar();if(cod){$('#tCod').value=cod}window.scrollTo(0,0)}
+}
+
+/* ---- eventos ---- */
+document.addEventListener('click',e=>{
+  const t=e.target.closest('button,a,[data-x]');
+  if(!t)return;
+  if(t.dataset.view){e.preventDefault();vista(t.dataset.view,t.dataset.cod);try{history.replaceState(null,'',t.dataset.view==='pedido'?'#pedido':location.pathname+location.search)}catch(_){};return}
+  if(t.id==='verTerm'){cerrar();return}
+  if(t.id==='waTop'){ev('whatsapp',{origen:'cabecera'})}
+  if(t.dataset.b!==undefined&&t.closest('#brands')){F.marca=t.dataset.b;pintarFiltros();pintarGrid();ev('filtro',{marca:F.marca==='all'?null:F.marca})}
+  else if(t.dataset.a!==undefined&&t.closest('#fAro')){F.aro=t.dataset.a;pintarFiltros();pintarGrid()}
+  else if(t.dataset.t!==undefined&&t.closest('#fTalla')){F.talla=t.dataset.t;pintarFiltros();pintarGrid()}
+  else if(t.classList.contains('card'))abrir(t.dataset.id);
+  else if(t.id==='xClose')cerrar();
+  else if(S&&t.closest('#drawer')){
+    if(t.dataset.mo!==undefined){S.mo=t.dataset.mo;ajustar();S.aceptoNuevo=false;pintarCfg();evM('config')}
+    else if(t.dataset.t!==undefined){S.t=t.dataset.t;ajustar();S.aceptoNuevo=false;pintarCfg();evM('config')}
+    else if(t.dataset.c!==undefined){S.c=t.dataset.c;ajustar();pintarCfg();evM('config')}
+    else if(t.dataset.img!==undefined){S.img=+t.dataset.img;pintarCfg()}
+    else if(t.id==='dMas'){S.descFull=true;pintarCfg()}
+    else if(t.dataset.env){S.envio=t.dataset.env;S.aceptoNuevo=false;pintarCfg();evM('config')}
+    else if(t.id==='loQuiero'){S.carrito=true;pintarCfg();evM('carrito');const n=document.getElementById('rNom');if(n){n.focus();n.scrollIntoView({block:'center',behavior:'smooth'})}}
+    else if(t.dataset.wa!==undefined){ev('whatsapp',{marca:S.m.marca,modelo:S.m.modelo,valor:S.done&&S.done.total})}
+    else if(t.id==='copyMsg'){const txt=$('#waMsg').textContent;
+      (navigator.clipboard?navigator.clipboard.writeText(txt):Promise.reject()).then(()=>t.textContent='Copiado').catch(()=>{const r=document.createRange();r.selectNodeContents($('#waMsg'));getSelection().removeAllRanges();getSelection().addRange(r);t.textContent='Texto seleccionado'})}
+  }
+});
+document.addEventListener('change',e=>{if(e.target.dataset.x&&S){S.extras[e.target.dataset.x]=e.target.checked;pintarCfg()}});
+$('#scrim').addEventListener('click',cerrar);
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#drawer').hidden)cerrar()});
+$('#fCat').addEventListener('change',e=>{F.cat=e.target.value;pintarGrid()});
+$('#fEta').addEventListener('change',e=>{F.eta=e.target.value;pintarGrid()});
+$('#sort').addEventListener('change',e=>{F.sort=e.target.value;pintarGrid()});
+$('#fMax').addEventListener('input',e=>{F.max=+e.target.value;$('#fMaxL').textContent=F.max>=60000?'sin límite':soles(F.max);pintarGrid()});
+document.addEventListener('submit',e=>{e.preventDefault();if(e.target.id==='agForm'){agendar();return}if(e.target.id==='resForm')reservar();else if(e.target.id==='trackForm')consultar($('#tCod').value.trim(),$('#tDoc').value.trim())});
+
+async function recargar(silencioso){
+  try{
+    const r=await fetch('/api/bikes/catalogo',{cache:'no-store'});const j=await r.json();if(!r.ok)throw new Error(j.error);
+    D=j;
+    aplicarPagina();
+    D.modelos.forEach(m=>m.skus.forEach(x=>{const a=(x.op||[]).find(o=>o.k==='aereo');if(a){x.pa=a.p;x.fa=a.f}else{delete x.pa;delete x.fa}}));
+    $('#depHero').textContent=D.adelanto;$('#valH').textContent=D.validez_horas;
+    $('#waTop').href='https://wa.me/'+D.whatsapp;
+    pintarFiltros();pintarGrid();
+    if(S&&!S.done){const m=D.modelos.find(x=>x.id===S.m.id);if(m){S.m=m;ajustar();if(!silencioso)pintarCfg()}}
+  }catch(e){if(!silencioso){$('#grid').innerHTML=`<div class="empty">No pudimos cargar el catálogo. Revisa tu conexión y <a href="" onclick="location.reload();return false">vuelve a intentar</a>.</div>`;$('#count').textContent=''}}
+}
+(async()=>{
+  await recargar(false);
+  if(D){cargarAnalitica();ev('visita',{origen})}
+  const h=decodeURIComponent((location.hash||'').slice(1));
+  if(h==='pedido')vista('pedido');else if(h&&D)abrir(h,false);
+})();
+</script>
+</body>
+</html>

@@ -122,7 +122,7 @@ tr.off td{opacity:.45}
         <b>Marcas en la tienda</b> <span class="muted">· al ocultar una marca desaparecen todas sus bicis y su botón de filtro en bikes.kuranko.pe (no se borra nada)</span>
         <div class="row" id="catMarcas" style="margin-top:8px"></div>
       </div>
-      <div class="row" style="margin-bottom:8px"><span class="muted" id="catSel">0 seleccionados</span><button class="btn sec" data-bulk="ocultar">Ocultar</button><button class="btn sec" data-bulk="mostrar">Mostrar</button></div>
+      <div class="row" style="margin-bottom:8px"><span class="muted" id="catSel">0 seleccionados</span><button class="btn sec" data-bulk="ocultar">Ocultar</button><button class="btn sec" data-bulk="mostrar">Mostrar</button><button class="btn sec" data-bulk="sinlimite" title="Para bicis que se piden a la marca sin tope de unidades">Stock sin límite</button></div>
       <div class="tbl" id="catTbl"></div>
       <p class="desc" style="margin-top:8px">Precio = envío marítimo, sin extras. «Disp.» = stock − reservado. Puedes editar stock y estado directo en la tabla.</p>
     </div>
@@ -258,7 +258,7 @@ function pintarCatalogo(){
     L.slice(0,1500).map(s=>{const d=s.pvp_pen?Math.round((s.precio/s.pvp_pen-1)*100):null;return `<tr class="${s.activo?'':'off'}"><td><input type="checkbox" data-sel="${s.id}" ${SEL.has(s.id)?'checked':''}></td><td>${esc(s.marca)}</td><td>${esc(s.modelo)}</td><td>${esc(s.montaje)}</td><td>${esc(s.talla)}</td><td>${esc(s.color)}</td><td class="muted">${esc(s.sku||'')}</td>
     <td class="n">${esc(s.moneda)} ${fmt(s.costo)}</td><td class="n">${fmt(s.puesto)}</td><td class="n" style="color:${s.margen_min<E.reglas.margen_minimo?'var(--fg-r)':'inherit'}">${rangoM(s.margen_min,s.margen_max)}</td><td class="n"><b>${soles(s.precio)}</b></td>
     <td class="n">${s.pvp_pen?soles(s.pvp_pen)+` <span class="${d>0?'err':'muted'}">${d>0?'+':''}${d}%</span>`:'—'}</td>
-    <td class="n"><input class="edit" type="number" min="0" data-sku="${s.id}" data-campo="stock" value="${s.stock}"></td><td class="n">${s.reservado||0}</td>
+    <td class="n">${s.stock<0?`<span class="pill p-b" title="Se pide a la marca">sin límite</span>`:`<input class="edit" type="number" min="0" data-sku="${s.id}" data-campo="stock" value="${s.stock}">`}</td><td class="n">${s.reservado||0}</td>
     <td><select data-sku="${s.id}" data-campo="estado">${E.estados_sku.map(x=>`<option ${x===s.estado?'selected':''}>${x}</option>`).join('')}</select></td>
     <td><input type="date" data-sku="${s.id}" data-campo="fecha_disponible" value="${esc(s.fecha_disponible||'')}"></td><td class="muted">${esc(s.actualizado)}</td></tr>`}).join('')}</tbody></table>${L.length>1500?'<p class="muted" style="padding:8px">Mostrando 1500 de '+L.length+'. Usa los filtros.</p>':''}`;
   $('#catSel').textContent=SEL.size+' seleccionados';
@@ -274,7 +274,7 @@ document.addEventListener('change',async e=>{
 document.addEventListener('click',async e=>{
   const b=e.target.closest('[data-bulk]');if(!b)return;
   if(!SEL.size)return toast('Selecciona filas primero');
-  try{await api('/api/bikes/admin/sku',{method:'POST',body:JSON.stringify({ids:[...SEL],activo:b.dataset.bulk==='mostrar'})});SEL.clear();toast('Listo');await cargar()}catch(err){toast(err.message)}
+  try{await api('/api/bikes/admin/sku',{method:'POST',body:JSON.stringify(b.dataset.bulk==='sinlimite'?{ids:[...SEL],stock:-1}:{ids:[...SEL],activo:b.dataset.bulk==='mostrar'})});SEL.clear();toast('Listo');await cargar()}catch(err){toast(err.message)}
 });
 $('#exportar').addEventListener('click',async()=>{
   try{const r=await fetch('/api/bikes/admin/exportar?todos=1',{headers:{'Authorization':'Bearer '+TOKEN}});if(!r.ok)throw new Error('Error '+r.status);
@@ -299,7 +299,7 @@ function leerArchivo(f){
       const hi=m.fila_encabezado||0;
       const headers=rows[hi].map(h=>String(h??'').trim());
       const data=rows.slice(hi+1).filter(r=>r.some(c=>c!==''&&c!=null));
-      IMP={archivo:f.name,hoja:hoja.n,headers,data,map:{},tallas_cols:[],marca:(E.marcas_base.find(b=>f.name.toLowerCase().includes(b.toLowerCase()))||''),moneda:'USD',modo:'actualizar',stock:3,vista:null};
+      IMP={archivo:f.name,hoja:hoja.n,headers,data,map:{},tallas_cols:[],marca:(E.marcas_base.find(b=>f.name.toLowerCase().includes(b.toLowerCase()))||''),moneda:'USD',modo:'actualizar',stock:'',vista:null};
       IMP.map=m.map;IMP.conf=m.conf||{};IMP.tallas_cols=m.tallas_cols||[];IMP.nota=m.nota;IMP.fuente=m.fuente;if(m.moneda)IMP.moneda=m.moneda;IMP.campos=m.campos;
       await simular();
     }catch(err){$('#impOut').innerHTML=`<div class="card"><p class="err">No pude leer «${esc(f.name)}»: ${esc(err.message)}</p></div>`}
@@ -336,7 +336,7 @@ function pintarImp(){
     <div class="row" style="margin-top:10px">
       <label class="muted">Marca si el Excel no la trae <select id="impMarca"><option value="">—</option>${E.marcas_base.map(b=>`<option ${IMP.marca===b?'selected':''}>${b}</option>`).join('')}</select></label>
       <label class="muted">Moneda <select id="impMon"><option ${IMP.moneda==='USD'?'selected':''}>USD</option><option ${IMP.moneda==='EUR'?'selected':''}>EUR</option></select></label>
-      <label class="muted">Stock si el Excel no trae <input type="number" id="impStock" min="0" value="${IMP.stock}" style="width:60px"></label>
+      <label class="muted">Si el Excel no trae stock <select id="impStock"><option value="" ${IMP.stock===''?'selected':''}>Sin límite (se pide a la marca)</option>${[1,2,3,5,10].map(n=>`<option value="${n}" ${String(IMP.stock)===String(n)?'selected':''}>${n} unidades por SKU</option>`).join('')}</select></label>
       <label class="muted">Modo <select id="impModo"><option value="actualizar" ${IMP.modo==='actualizar'?'selected':''}>Agregar y actualizar</option><option value="reemplazar" ${IMP.modo==='reemplazar'?'selected':''}>Reemplazar catálogo de la marca</option></select></label>
       <button class="btn sec" id="impIA">Pedir ayuda a la IA</button>
     </div>
@@ -359,7 +359,7 @@ document.addEventListener('change',e=>{
   if(el.id==='impMarca'){IMP.marca=el.value;simular()}
   if(el.id==='impMon'){IMP.moneda=el.value;simular()}
   if(el.id==='impModo'){IMP.modo=el.value;simular()}
-  if(el.id==='impStock'){IMP.stock=Math.max(0,+el.value||0);simular()}
+  if(el.id==='impStock'){IMP.stock=el.value===''?'':+el.value;simular()}
 });
 document.addEventListener('click',async e=>{
   if(e.target.id==='impIA'){e.target.disabled=true;e.target.textContent='Consultando a la IA…';

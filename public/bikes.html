@@ -193,10 +193,14 @@ input[type=range]{width:100%;accent-color:var(--amber)}
 @keyframes sk{to{background-position:-200% 0}}
 /* panel lateral */
 .scrim{position:fixed;inset:0;background:rgba(0,4,20,.55);z-index:40}
-.drawer{position:fixed;top:0;right:0;bottom:0;width:min(560px,100%);background:var(--bg);z-index:41;overflow-y:auto;box-shadow:-8px 0 30px rgba(0,0,0,.3);padding-bottom:env(safe-area-inset-bottom,0px)}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(1180px,100%);background:var(--bg);z-index:41;overflow-y:auto;box-shadow:-8px 0 30px rgba(0,0,0,.3);padding-bottom:env(safe-area-inset-bottom,0px)}
 .dhead{position:sticky;top:0;background:var(--bg);padding:14px 20px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:10px;z-index:2}
 .x{border:1px solid var(--line);background:var(--surface);border-radius:50%;width:36px;height:36px;font-size:19px;line-height:1;flex:none}
-.dbody{padding:16px 20px 30px;display:grid;gap:18px}
+.dbody{padding:20px 24px 34px;display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:28px;align-items:start}
+.dbody>.izq,.dbody>.der{display:grid;gap:18px;min-width:0}
+.dbody>.izq{position:sticky;top:84px}
+.dbody .dpic{aspect-ratio:4/3}
+@media (max-width:900px){.dbody{grid-template-columns:1fr;padding:16px 16px 30px}.dbody>.izq{position:static}.drawer{width:100%}}
 .dpic{background:var(--surface-2);border-radius:var(--r);display:grid;place-items:center;overflow:hidden;aspect-ratio:16/10}
 .dpic svg{width:78%}.dpic img{width:100%;height:100%;object-fit:contain;background:#fff}
 .opt{display:grid;gap:8px}
@@ -532,14 +536,15 @@ function pintarCfg(){
     :`<div class="ship">${(s.op||[]).map(o=>`<button class="o" aria-pressed="${T.env===o.k}" data-env="${o.k}"><b>${ENVL[o.k]||o.k}</b>${o.ad?'<small>Sin esperar al grupo</small>':''}<small>Llega ${fD(o.f[0])}–${fD(o.f[1])}</small><small class="num">${soles(o.p)}${o.ad&&s.op.find(x=>x.k==='grupo')?` (+${soles(o.p-s.op.find(x=>x.k==='grupo').p)})`:''}</small></button>`).join('')}</div>${T.env==='grupo'?grupoHTML(m.marca):''}`;
   $('#drawer').innerHTML=`
   <div class="dhead"><div>${(D.logos||{})[m.marca]?`<img class="blogo" src="${esc(D.logos[m.marca])}" alt="${esc(m.marca)}"><br>`:''}<span class="br">${esc(m.marca)} · ${esc(m.cat)}${m.anio?' · '+m.anio:''}</span><h2 style="font-size:30px;line-height:1">${esc(m.modelo)}</h2></div><button class="x" id="xClose" aria-label="Cerrar">×</button></div>
-  <div class="dbody">
+  <div class="dbody"><div class="izq">
     <div class="dpic" style="color:var(--ink)">${m.gal&&m.gal.length?`<img src="${esc(m.gal[S.img||0])}" alt="${esc(m.marca+' '+m.modelo)}">`:m.img?foto(m,col):bike(colHex||col,m.cat)}</div>
     ${m.gal&&m.gal.length>1?`<div class="gal">${m.gal.map((u,i)=>`<button data-img="${i}" aria-pressed="${(S.img||0)===i}" aria-label="Foto ${i+1}"><img src="${esc(u)}" alt="" loading="lazy"></button>`).join('')}</div>`:''}
     <div class="spec">${[m.aro?(m.aro==='Mullet'?'Mullet 29/27.5':'Aro '+m.aro):'',m.rec&&'Recorrido '+m.rec,m.mat,m.peso&&m.peso+(/kg/i.test(m.peso)?'':' kg'),m.motor].filter(Boolean).map(esc).join(' · ')}${m.ficha?` · <a href="${esc(m.ficha)}" target="_blank" rel="noopener">Ficha técnica</a>`:''}</div>
     ${m.specs&&m.specs.length?`<details class="specs"><summary>Especificaciones técnicas</summary><table>${m.specs.map(x=>`<tr><td>${esc(x.k)}</td><td>${esc(x.v)}</td></tr>`).join('')}</table></details>`:''}
     ${m.desc?`<div class="desc ${S.descFull?'full':''}" id="dDesc">${esc(m.desc)}</div>${S.descFull?'':'<button class="btn sec" id="dMas" style="justify-self:start;padding:4px 10px;font-size:13px">Leer más</button>'}`:''}
+    </div><div class="der">
     ${m.montajes.length>1||m.montajes[0]!=='Base'?`<div class="opt"><div class="lbl">Montaje</div><div class="opts">${m.montajes.map(mo=>{const p=Math.min(...m.skus.filter(x=>x.mo===mo).map(x=>x.pm));return `<button class="o" aria-pressed="${S.mo===mo}" data-mo="${esc(mo)}" ${disp(x=>x.mo===mo)?'':'disabled'}><b>${esc(mo)}</b><small class="num">${soles(p)}</small></button>`}).join('')}</div></div>`:''}
-    <div class="opt"><div class="lbl">Talla <span style="text-transform:none;letter-spacing:0">Unidades disponibles</span></div><div class="opts">${m.tallas.map(t=>{const n=m.skus.filter(x=>x.mo===S.mo&&x.t===t).reduce((a,x)=>a+x.d,0);return `<button class="o" aria-pressed="${S.t===t}" data-t="${esc(t)}" ${n>0?'':'disabled'}><b>${esc(t)}</b><small>${n>0?n+' disp.':'agotada'}</small></button>`}).join('')}</div></div>
+    <div class="opt"><div class="lbl">Talla</div><div class="opts">${m.tallas.map(t=>{const n=m.skus.filter(x=>x.mo===S.mo&&x.t===t).reduce((a,x)=>a+x.d,0);return `<button class="o" aria-pressed="${S.t===t}" data-t="${esc(t)}" ${n>0?'':'disabled'}><b>${esc(t)}</b><small>${n>=90?'a pedido':n>0?n+' disp.':'agotada'}</small></button>`}).join('')}</div></div>
     <div class="opt"><div class="lbl">Color</div><div class="opts">${m.colores.map(c=>`<button class="o" aria-pressed="${S.c===c.n}" data-c="${esc(c.n)}" ${disp(x=>x.mo===S.mo&&x.t===S.t&&x.c===c.n)?'':'disabled'}><span>${c.h?`<span class="sw" style="background:${esc(c.h)}"></span>`:''}${esc(c.n)}</span></button>`).join('')}</div></div>
     <div class="opt"><div class="lbl">Envío a Lima</div>${ship}</div>
     ${D.extras.length?`<div class="opt"><div class="lbl">Extras</div><div class="extras">${D.extras.map(e=>`<label><input type="checkbox" data-x="${esc(e.id)}" ${e.incluido?'checked disabled':S.extras[e.id]?'checked':''}><span>${esc(e.nombre)}</span><span>${e.incluido||!e.precio?'incluido':'+ '+soles(e.precio)}</span></label>`).join('')}</div></div>`:''}
@@ -569,7 +574,7 @@ function pintarCfg(){
       <button class="btn full" type="submit" ${s.d>0&&!S.enviando?'':'disabled'}>${S.enviando?'Guardando…':'Reservar con '+soles(T.dep)}</button>
       <p class="note full" style="margin:0">Pagas el adelanto después de que el asesor confirme la unidad con la marca. Si la marca no puede entregar, te lo devolvemos completo. <a href="#terminos" id="verTerm">Condiciones</a></p>
     </form>
-  </div>`;
+  </div></div>`;
 }
 const _pintarCfg=pintarCfg;pintarCfg=function(){_pintarCfg();if(D)$$('#drawer [data-foto]').forEach(el=>{const u=((D.pagina||{}).fotos||{})[el.dataset.foto];el.style.backgroundImage=u?`url('${u}')`:''})};
 function okHTML(r){

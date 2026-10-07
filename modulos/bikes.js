@@ -305,13 +305,14 @@ function normalizarFila(r, def = {}, hoy = hoyLima()) {
     talla: aTalla(r.talla) || 'Única', color: String(r.color || '').trim().slice(0, 80) || 'Único',
     color_hex: /^#?[0-9a-f]{6}$/i.test(String(r.color_hex || '').trim()) ? '#' + String(r.color_hex).trim().replace('#', '') : null,
     sku: String(r.sku || '').trim().slice(0, 80), costo: Math.round(aNumero(r.costo) * 100) / 100, moneda,
-    pvp: Math.round(aNumero(r.pvp) * 100) / 100 || null, stock: Math.max(0, Math.round(aNumero(r.stock))),
+    pvp: Math.round(aNumero(r.pvp) * 100) / 100 || null, stock: Math.max(0, Math.round(aNumero(r.stock))),  // -1 = sin límite (a pedido)
     estado, fecha_disponible: fecha, peso: String(r.peso || '').trim().slice(0, 20),
     url_imagen: /^https?:\/\//i.test(String(r.url_imagen || '')) ? String(r.url_imagen).trim().slice(0, 500) : null,
     url_ficha: /^https?:\/\//i.test(String(r.url_ficha || '')) ? String(r.url_ficha).trim().slice(0, 500) : null,
     notas: String(r.notas || '').trim().slice(0, 500)
   };
-  if (r.stock === undefined || r.stock === '') f.stock = def.stock_defecto != null ? def.stock_defecto : 1;
+  // Sin columna de stock (ej. order forms de marcas): la bici se pide a la marca, sin límite de unidades
+  if (r.stock === undefined || r.stock === '' || r.stock === null) f.stock = def.stock_defecto != null && def.stock_defecto !== '' ? num(def.stock_defecto) : -1;
   if (!f.marca) errores.push('falta la marca');
   if (!f.modelo) errores.push('falta el modelo');
   if (!(f.costo > 0)) errores.push('falta el costo');
@@ -346,7 +347,7 @@ function armarCatalogo(skus, R, tc, hoy = hoyLima(), mods = {}) {
     if (!m.tallas.includes(s.talla)) m.tallas.push(s.talla);
     const ops = opcionesEnvio(s, R, tc, md, hoy);
     const base = ops.reduce((a, o) => o.p < a.p ? o : a, ops[0]);
-    const it = { id: s.id, mo: s.montaje, t: s.talla, c: s.color, d: Math.max(0, num(s.stock) - num(s.reservado)), e: s.estado,
+    const it = { id: s.id, mo: s.montaje, t: s.talla, c: s.color, d: num(s.stock) < 0 ? 99 : Math.max(0, num(s.stock) - num(s.reservado)), e: s.estado,
       pm: base.p, fm: base.f, op: ops.map(o => ({ k: o.k, p: o.p, f: o.f, cu: o.cu, ...(o.pp ? { pp: 1 } : {}), ...(o.adicional ? { ad: 1 } : {}) })) };
     if (s.pvp > 0) it.ref = Math.ceil(s.pvp * (s.moneda === 'EUR' ? tc.eur : tc.usd) / 10) * 10; // PVP de la marca en soles, referencia
     m.skus.push(it);
@@ -856,7 +857,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       const [[s]] = await conn.query(`SELECT ${COLS} FROM bk_skus WHERE id=? AND activo=1 FOR UPDATE`, [num(b.sku_id)]);
       if (!s) { await conn.rollback(); return res.status(404).json({ error: 'Esa combinación ya no está disponible. Actualiza la página.' }); }
       s.costo = num(s.costo);
-      if (num(s.stock) - num(s.reservado) <= 0) { await conn.rollback(); return res.status(409).json({ error: `La talla ${s.talla} en ${s.color} se acaba de agotar. Elige otra o escríbenos por WhatsApp.` }); }
+      if (num(s.stock) >= 0 && num(s.stock) - num(s.reservado) <= 0) { await conn.rollback(); return res.status(409).json({ error: `La talla ${s.talla} en ${s.color} se acaba de agotar. Elige otra o escríbenos por WhatsApp.` }); }
       const mods = await leerModelos();
       const ops = opcionesEnvio(s, R, tc, mods[s.marca + '|' + s.modelo] || {});
       const op = ops.find(o => o.k === String(b.envio || '')) || ops[0];
@@ -1104,7 +1105,7 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
     const b = req.body || {};
     const crudas = Array.isArray(b.filas) ? b.filas.slice(0, 5000) : [];
     if (!crudas.length) return res.status(400).json({ error: 'No hay filas para importar' });
-    const def = { marca: String(b.marca || '').trim(), moneda: b.moneda === 'EUR' ? 'EUR' : 'USD', stock_defecto: b.stock_defecto != null ? num(b.stock_defecto) : 1 };
+    const def = { marca: String(b.marca || '').trim(), moneda: b.moneda === 'EUR' ? 'EUR' : 'USD', stock_defecto: b.stock_defecto != null && b.stock_defecto !== '' ? num(b.stock_defecto) : null };
     const modo = b.modo === 'reemplazar' ? 'reemplazar' : 'actualizar';
     const hoy = hoyLima();
     const norms = crudas.map(r => normalizarFila(r || {}, def, hoy));
@@ -1112,7 +1113,7 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
     const conErrores = norms.map((n, i) => ({ i, errores: n.errores, valida: n.valida })).filter(x => x.errores.length);
     // Duplicados dentro del archivo: se suma el stock
     const porClave = new Map();
-    for (const f of validas) { const k = claveSku(f); const prev = porClave.get(k); if (prev) prev.stock += f.stock; else porClave.set(k, { ...f }); }
+    for (const f of validas) { const k = claveSku(f); const prev = porClave.get(k); if (prev) prev.stock = (prev.stock < 0 || f.stock < 0) ? -1 : prev.stock + f.stock; else porClave.set(k, { ...f }); }
     const filas = [...porClave.values()];
     const marcas = [...new Set(filas.map(f => f.marca))];
     try {
@@ -1156,7 +1157,7 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
     if (!ids.length) return res.status(400).json({ error: 'Falta el SKU' });
     const sets = [], vals = [];
     if (b.activo !== undefined) { sets.push('activo=?'); vals.push(b.activo ? 1 : 0); }
-    if (b.stock !== undefined && isFinite(+b.stock) && +b.stock >= 0) { sets.push('stock=?'); vals.push(Math.round(+b.stock)); }
+    if (b.stock !== undefined && isFinite(+b.stock) && +b.stock >= -1) { sets.push('stock=?'); vals.push(Math.round(+b.stock)); }
     if (b.estado !== undefined && ESTADOS_SKU.includes(b.estado)) { sets.push('estado=?'); vals.push(b.estado); }
     if (b.fecha_disponible !== undefined && /^\d{4}-\d{2}-\d{2}$/.test(b.fecha_disponible)) { sets.push('fecha_disponible=?'); vals.push(b.fecha_disponible); }
     if (b.costo !== undefined && +b.costo > 0) { sets.push('costo=?'); vals.push(+b.costo); }
@@ -1193,8 +1194,8 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
         if (b.estado === 'Cancelada' && r.estado !== 'Cancelada') await conn.query('UPDATE bk_skus SET reservado=GREATEST(reservado-1,0) WHERE id=?', [r.sku_id]);
         if (b.estado !== 'Cancelada' && r.estado === 'Cancelada') await conn.query('UPDATE bk_skus SET reservado=reservado+1 WHERE id=?', [r.sku_id]);
         // Al entregar, la unidad deja de contar como stock de la marca
-        if (b.estado === 'Entregada' && r.estado !== 'Entregada') await conn.query('UPDATE bk_skus SET reservado=GREATEST(reservado-1,0), stock=GREATEST(stock-1,0) WHERE id=?', [r.sku_id]);
-        if (r.estado === 'Entregada' && b.estado !== 'Entregada') await conn.query('UPDATE bk_skus SET reservado=reservado+(?), stock=stock+1 WHERE id=?', [b.estado === 'Cancelada' ? 0 : 1, r.sku_id]);
+        if (b.estado === 'Entregada' && r.estado !== 'Entregada') await conn.query('UPDATE bk_skus SET reservado=GREATEST(reservado-1,0), stock=IF(stock<0, stock, GREATEST(stock-1,0)) WHERE id=?', [r.sku_id]);
+        if (r.estado === 'Entregada' && b.estado !== 'Entregada') await conn.query('UPDATE bk_skus SET reservado=reservado+(?), stock=IF(stock<0, stock, stock+1) WHERE id=?', [b.estado === 'Cancelada' ? 0 : 1, r.sku_id]);
       }
       if (b.nota_interna !== undefined) { sets.push('nota_interna=?'); vals.push(String(b.nota_interna).slice(0, 2000)); }
       if (b.venta_erp !== undefined) { sets.push('venta_erp=?'); vals.push(String(b.venta_erp).trim().slice(0, 40) || null); }

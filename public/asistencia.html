@@ -91,6 +91,41 @@ tr:hover td{background:var(--hover)}
 .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--surface3);border:1px solid var(--border);color:var(--text);padding:10px 16px;border-radius:12px;font-size:13px;z-index:300;display:none;max-width:90vw}
 .toast.err{background:var(--bg-r);color:var(--fg-r)}
 @media(max-width:600px){.wrap{padding:.8rem}.reloj{font-size:46px}td,th{padding:6px}}
+/* Día por día */
+.leyenda{display:flex;flex-wrap:wrap;gap:12px;font-size:11.5px;color:var(--muted2);margin:6px 0 12px}
+.leyenda i{display:inline-block;width:14px;height:9px;border-radius:3px;margin-right:5px;vertical-align:middle}
+.c-local{background:#2fbf71}.c-fuera{background:#e5484d}.c-incierto{background:repeating-linear-gradient(45deg,#e5a50a 0 4px,#e5a50a55 4px 8px)}
+.c-sin{background:repeating-linear-gradient(45deg,#8a93b4 0 4px,#8a93b433 4px 8px)}.c-jornada{background:#4c6ef5}.c-sis{background:#a78bfa}.c-desc{background:#4c6ef599}
+.dia{border:1px solid var(--border);border-radius:14px;padding:12px 14px;margin-bottom:10px;background:var(--surface2)}
+.dia-cab{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+.dia-cab .t{font-size:14px;color:var(--white)}
+.frases{list-style:none;margin-top:8px;font-size:13px;line-height:1.55;color:var(--text2)}
+.frases li{padding-left:16px;position:relative}
+.frases li:before{content:'·';position:absolute;left:4px;color:var(--muted)}
+.frases .mal{color:var(--fg-r)}.frases .aviso-t{color:var(--fg-warn)}.frases .bien{color:var(--fg-ok)}
+.obs{margin-top:6px;font-size:12px;color:var(--muted2)}
+.obs.pend{color:var(--fg-warn)}
+.barra-wrap{margin-top:10px}
+.barra{position:relative;height:18px;border-radius:6px;background:var(--surface3);overflow:hidden}
+.barra .h{position:absolute;top:0;bottom:0;border:1.5px dashed var(--muted);border-radius:6px;pointer-events:none}
+.barra .s{position:absolute;top:3px;bottom:3px;border-radius:4px}
+.barra-sis{position:relative;height:6px;margin-top:3px}
+.barra-sis .s{position:absolute;top:0;bottom:0;border-radius:3px}
+.marcas-b{position:relative;height:14px;font-size:10px;color:var(--text2)}
+.marcas-b span{position:absolute;transform:translateX(-50%);white-space:nowrap;top:0}
+.horas-b{position:relative;height:14px;font-size:10px;color:var(--muted)}
+.horas-b span{position:absolute;transform:translateX(-50%)}
+.modal .caja.ancha{max-width:860px}
+.hist{list-style:none;margin-top:10px}
+.hist li{display:grid;grid-template-columns:96px 22px 1fr;gap:6px;padding:7px 0;border-top:1px solid var(--border);font-size:13px}
+.hist .hr{color:var(--muted2);font-variant-numeric:tabular-nums;font-size:12px}
+.hist .ic{text-align:center;color:var(--muted2)}
+.hist .det{font-size:11.5px;color:var(--muted2);margin-top:2px}
+.hist li.t-fuera .tx,.hist li.t-geocerca .tx{color:var(--fg-r)}
+.hist li.t-incierto .tx,.hist li.t-sin_senal .tx{color:var(--fg-warn)}
+.hist li.t-marca .tx{font-weight:600;color:var(--white)}
+.hist a,.obs a,#mapa-nota a{color:var(--accent)}
+#mapa-dia{height:300px;border-radius:12px;margin-top:10px;border:1px solid var(--border);display:none}
 </style>
 </head>
 <body>
@@ -152,9 +187,10 @@ tr:hover td{background:var(--hover)}
       <div class="tabla-wrap"><table><thead><tr><th>Trabajador</th><th class="num">Asistió</th><th class="num">Faltas</th><th class="num">Tardanzas</th><th class="num">Min. tarde</th><th class="num">Sin salida</th><th class="num">Horas</th><th class="num">Observadas</th><th class="num">Fuera del local</th><th class="num">Saldo</th></tr></thead><tbody id="rep-tot"></tbody></table></div>
     </div>
     <div class="card">
-      <h3>Detalle por día</h3>
-      <div class="desc" style="margin-bottom:8px">"Sistema" = primera y última acción del trabajador en el sistema principal (ventas, movimientos de stock…). <b>+min</b> = cuánto tardó en empezar a trabajar después de marcar. "Fuera del local" = salidas detectadas por el celular de empresa durante la jornada.</div>
-      <div class="tabla-wrap"><table><thead><tr><th>Fecha</th><th>Trabajador</th><th>Entrada</th><th>Salida</th><th class="num">Horas</th><th class="num">Saldo</th><th>Estado</th><th>Sistema</th><th>Fuera del local</th><th>Observaciones</th><th></th></tr></thead><tbody id="rep-det"></tbody></table></div>
+      <h3>Día por día</h3>
+      <div class="desc">Cada barra es la jornada de ese día. Pulsa <b>Ver historial</b> para ver, hora por hora, qué hizo y dónde estuvo.</div>
+      <div class="leyenda"><span><i class="c-local"></i>En el local</span><span><i class="c-fuera"></i>Fuera del local</span><span><i class="c-incierto"></i>Salió y no avisó el regreso</span><span><i class="c-sin"></i>Celular sin señal</span><span><i class="c-desc"></i>En jornada (sin datos de ubicación)</span><span><i class="c-sis"></i>Trabajando en el sistema</span><span><i style="border:1.5px dashed var(--muted);background:none"></i>Su horario</span></div>
+      <div id="rep-det"></div>
     </div>
   </div>
 
@@ -249,6 +285,19 @@ tr:hover td{background:var(--hover)}
       <button class="btn btn-sec" onclick="cerrarManual()">Cancelar</button>
       <button class="btn" onclick="guardarManual()">Guardar</button>
     </div>
+  </div>
+</div>
+<!-- Modal: historial del día -->
+<div class="modal" id="modal-dia" onclick="if(event.target===this)cerrarDia()">
+  <div class="caja ancha">
+    <div class="fila" style="justify-content:space-between;align-items:center">
+      <h3 id="dia-titulo">Historial del día</h3>
+      <button class="btn btn-sec btn-sm" onclick="cerrarDia()">Cerrar</button>
+    </div>
+    <div id="dia-cuerpo"></div>
+    <div id="mapa-dia"></div>
+    <div class="sub" id="mapa-nota" style="margin-top:6px"></div>
+    <ul class="hist" id="dia-hist"></ul>
   </div>
 </div>
 <div class="toast" id="toast"></div>
@@ -430,7 +479,7 @@ async function asegurarPersonal(forzar){
 }
 function qsRango(){return 'desde='+$('rep-desde').value+'&hasta='+$('rep-hasta').value;}
 async function cargarReporte(){
-  $('rep-det').innerHTML='<tr><td colspan="11" class="vacio">Cargando…</td></tr>';
+  $('rep-det').innerHTML='<div class="vacio">Cargando…</div>';
   try{
     const d=await api('/api/asistencia/admin/reporte?'+qsRango()+'&usuario='+encodeURIComponent($('rep-usuario').value));
     $('rep-aviso').innerHTML=d.hay_sedes?'':'<div class="aviso warn">⚠ Aún no hay sedes configuradas: las marcas no se validan por ubicación. Ve a <b>Sedes</b> para registrar el local.</div>';
@@ -440,25 +489,147 @@ async function cargarReporte(){
       (x.sabado?'<div class="lin"><span>Sábado '+x.sabado.fecha.slice(8)+'/'+x.sabado.fecha.slice(5,7)+'</span><span>sale <b>'+x.sabado.salida_sugerida+'</b>'+(x.sabado.salida_sugerida!==x.sabado.salida_base?' <span class="sub">(normal '+x.sabado.salida_base+')</span>':'')+'</span></div>':'')+
       '</div>').join('')||'<div class="vacio">Sin datos</div>';
     $('rep-tot').innerHTML=d.totales.map(t=>'<tr><td><b>'+esc(t.nombre)+'</b></td><td class="num">'+t.asistidos+' / '+t.dias_lab+'</td><td class="num">'+(t.faltas?'<span class="chip bad">'+t.faltas+'</span>':'0')+'</td><td class="num">'+(t.tardanzas?'<span class="chip warn">'+t.tardanzas+'</span>':'0')+(t.compensadas?'<div class="sub">'+t.compensadas+' compensada'+(t.compensadas>1?'s':'')+'</div>':'')+'</td><td class="num">'+t.min_tardanza+'</td><td class="num">'+t.sin_salida+'</td><td class="num">'+hhmm(t.min_trabajados)+'</td><td class="num">'+t.observadas+'</td><td class="num">'+(t.salidas?'<span class="chip warn">'+t.salidas+' · '+hhmm(t.min_fuera)+'</span>':'<span class="sub">—</span>')+'</td><td class="num">'+sgn(t.saldo)+'</td></tr>').join('')||'<tr><td colspan="10" class="vacio">No hay personal controlado</td></tr>';
-    $('rep-det').innerHTML=d.filas.map(f=>{
-      let sis='<span class="sub">—</span>';
-      if(f.act_primera){
-        const g=f.min_hasta_actividad;
-        const cls=g==null?'neu':g>30?'bad':g>15?'warn':'ok';
-        sis=f.act_primera+'–'+f.act_ultima+(g!=null?' <span class="chip '+cls+'">'+(g>=0?'+':'')+g+' min</span>':'')+'<div class="sub">'+f.act_acciones+' acciones</div>';
-      }
-      const accion=(f.estado==='falta'||f.estado==='sin_salida'||f.estado==='sin_entrada')
-        ?'<button class="btn btn-sec btn-sm" onclick="abrirManual(\''+esc(f.usuario)+'\',\''+f.fecha+'\',\''+(f.estado==='sin_salida'?'salida':'entrada')+'\')">Corregir</button>':'';
-      return '<tr><td>'+DIAS[f.dia]+' '+f.fecha.slice(8)+'/'+f.fecha.slice(5,7)+(f.laborable?'':'<div class="sub">no laborable</div>')+'</td>'+
-        '<td>'+esc(f.nombre)+'<div class="sub">'+f.horario+'</div></td>'+
-        '<td>'+(f.entrada||'—')+(f.min_tardanza?(f.tardanza_compensada?' <span class="chip neu" title="Llegó tarde pero completó sus horas">+'+f.min_tardanza+' compensada</span>':' <span class="chip warn">+'+f.min_tardanza+'</span>'):'')+'<div>'+chipMarca(f.entrada_estado)+'</div></td>'+
-        '<td>'+(f.salida||'—')+(f.min_salida_antes?' <span class="chip warn">-'+f.min_salida_antes+'</span>':'')+'<div>'+chipMarca(f.salida_estado)+'</div></td>'+
-        '<td class="num">'+hhmm(f.min_trabajados)+'</td><td class="num">'+sgn(f.saldo)+'</td><td>'+chipEstado(f.estado)+'</td><td>'+sis+'</td>'+
-        '<td>'+(f.fuera?f.fuera.map(x=>'<div><span class="chip '+(x.min>=30?'bad':'warn')+'">'+x.desde+'–'+(x.hasta||'sigue fuera')+'</span> <span class="sub">'+x.min+' min</span></div>').join(''):'<span class="sub">—</span>')+'</td>'+
-        '<td class="sub" style="max-width:260px">'+esc(f.motivos)+(f.notas?'<div>💬 '+esc(f.notas)+'</div>':'')+'</td><td>'+accion+'</td></tr>';
-    }).join('')||'<tr><td colspan="11" class="vacio">Sin datos en el rango</td></tr>';
-  }catch(e){$('rep-det').innerHTML='<tr><td colspan="11" class="vacio">'+esc(e.message)+'</td></tr>';}
+    FILAS=d.filas;
+    $('rep-det').innerHTML=d.filas.map((f,i)=>tarjetaDia(f,i)).join('')||'<div class="vacio">Sin datos en el rango</div>';
+  }catch(e){$('rep-det').innerHTML='<div class="vacio">'+esc(e.message)+'</div>';}
 }
+// ── Día por día: frases claras + barra de la jornada ──
+let FILAS=[];
+const aM=h=>{if(!h)return null;const[a,b]=h.split(':').map(Number);return a*60+b;};
+const durTxt=m=>m<60?m+' min':Math.floor(m/60)+' h'+(m%60?' '+(m%60)+' min':'');
+const fechaTxt=f=>DIAS[f.dia]+' '+f.fecha.slice(8)+'/'+f.fecha.slice(5,7);
+function frasesDia(f){
+  const L=[];
+  const hz=f.horario&&f.horario!=='—'?f.horario.split('–'):null;
+  if(f.entrada){
+    let t='Llegó a las <b>'+f.entrada+'</b>';
+    if(f.min_tardanza)t+=f.tardanza_compensada?' — '+durTxt(f.min_tardanza)+' tarde, pero lo recuperó quedándose más':' — <span class="aviso-t">'+durTxt(f.min_tardanza)+' tarde</span> (le tocaba '+hz[0]+')';
+    L.push(t);
+  }else if(f.estado==='falta')L.push('<span class="mal">No vino: no marcó entrada</span>'+(hz?' (le tocaba de '+hz[0]+' a '+hz[1]+')':''));
+  else if(f.estado==='pendiente')L.push('Aún no marca su entrada (le toca a las '+hz[0]+')');
+  if(f.salida){
+    let t='Se fue a las <b>'+f.salida+'</b>';
+    if(f.min_salida_antes)t+=' — '+durTxt(f.min_salida_antes)+' antes de su hora ('+hz[1]+')';
+    L.push(t);
+  }else if(f.estado==='en_curso')L.push('Sigue en su jornada (todavía no marca salida)');
+  else if(f.estado==='sin_salida')L.push('<span class="aviso-t">No marcó su salida</span> — usa <b>Corregir</b> para poner la hora');
+  if(f.min_trabajados!=null){
+    let t='Estuvo <b>'+durTxt(f.min_trabajados)+'</b>';
+    if(f.saldo>0)t+=' — <span class="bien">'+durTxt(f.saldo)+' más</span> de lo que le tocaba';
+    else if(f.saldo<0)t+=' — <span class="mal">le faltaron '+durTxt(-f.saldo)+'</span>';
+    else t+=' — justo lo que le tocaba';
+    L.push(t);
+  }
+  (f.tramos||[]).forEach(x=>{
+    if(x.estado==='fuera')L.push('<span class="mal">Fuera del local de '+x.desde+' a '+x.hasta+'</span> ('+durTxt(x.min)+(x.dist?', hasta '+(x.dist>=1000?(x.dist/1000).toFixed(1)+' km':x.dist+' m')+' de la tienda':'')+')');
+    else if(x.estado==='incierto')L.push('<span class="aviso-t">Salió del local a las '+x.desde+' y el celular no avisó cuándo volvió</span>; a las '+x.hasta+' ya estaba en el local');
+  });
+  const sinS=(f.tramos||[]).filter(x=>x.estado==='sin_senal').reduce((a,x)=>a+x.min,0);
+  if(sinS)L.push('<span class="aviso-t">Celular sin señal '+durTxt(sinS)+'</span> (apagado, sin datos o sin ubicación)');
+  if(f.tramos&&f.tramos.length&&!f.tramos.some(x=>x.estado==='fuera'||x.estado==='incierto'))L.push('<span class="bien">No salió del local</span>'+(f.con_ubicacion?'':' (según la geocerca del celular)'));
+  if(f.act_primera){
+    if(f.act_acciones===1)L.push('En el sistema: solo 1 acción, a las '+f.act_primera);
+    else{
+      let t='En el sistema: de '+f.act_primera+' a '+f.act_ultima+' ('+f.act_acciones+' acciones)';
+      if(f.min_hasta_actividad>15)t+=' — <span class="aviso-t">empezó '+durTxt(f.min_hasta_actividad)+' después de marcar</span>';
+      L.push(t);
+    }
+  }else if(f.entrada)L.push('<span class="sub">Sin acciones en el sistema ese día'+(f.act_primera===undefined?'':'')+'</span>');
+  if(f.notas)L.push('💬 Explicó: “'+esc(f.notas)+'”');
+  return L;
+}
+function barraDia(f){
+  const hz=f.horario&&f.horario!=='—'?f.horario.split('–').map(aM):null;
+  const tr=(f.tramos||[]).map(x=>({a:aM(x.desde),b:aM(x.hasta),e:x.estado}));
+  const ent=aM(f.entrada),sal=aM(f.salida);
+  const ahora=(()=>{const d=new Date(Date.now()+OFFSET-5*3600e3);return d.getUTCHours()*60+d.getUTCMinutes();})();
+  const finJ=sal!=null?sal:(f.estado==='en_curso'?ahora:null);
+  const cand=[hz&&hz[0],hz&&hz[1],ent,finJ,aM(f.act_primera),aM(f.act_ultima),...tr.map(x=>x.a),...tr.map(x=>x.b)].filter(x=>x!=null);
+  if(!cand.length)return '';
+  let a=Math.max(0,Math.floor((Math.min(...cand)-30)/60)*60),b=Math.min(1440,Math.ceil((Math.max(...cand)+30)/60)*60);
+  if(b-a<240)b=Math.min(1440,a+240);
+  const pc=m=>((m-a)/(b-a)*100).toFixed(2)+'%';
+  const w=(x,y)=>((Math.max(0,y-x))/(b-a)*100).toFixed(2)+'%';
+  const COL={local:'c-local',fuera:'c-fuera',incierto:'c-incierto',sin_senal:'c-sin',desconocido:'c-desc'};
+  let main='';
+  if(hz)main+='<div class="h" style="left:'+pc(hz[0])+';width:'+w(hz[0],hz[1])+'" title="Horario '+f.horario+'"></div>';
+  if(tr.length)main+=tr.map(x=>'<div class="s '+COL[x.e]+'" style="left:'+pc(x.a)+';width:'+w(x.a,x.b)+'" title="'+x.e+'"></div>').join('');
+  else if(ent!=null&&finJ!=null)main+='<div class="s c-desc" style="left:'+pc(ent)+';width:'+w(ent,finJ)+'"></div>';
+  let sis='';
+  if(f.act_primera)sis='<div class="s c-sis" style="left:'+pc(aM(f.act_primera))+';width:'+w(aM(f.act_primera),Math.max(aM(f.act_ultima),aM(f.act_primera)+3))+'" title="Actividad en el sistema"></div>';
+  let mk='';
+  if(ent!=null)mk+='<span style="left:'+pc(ent)+'">▲ '+f.entrada+'</span>';
+  if(sal!=null)mk+='<span style="left:'+pc(sal)+'">▲ '+f.salida+'</span>';
+  let hs='';
+  const paso=(b-a)>720?180:(b-a)>420?120:60;
+  for(let m=Math.ceil(a/paso)*paso;m<=b;m+=paso)hs+='<span style="left:'+pc(m)+'">'+String(m/60|0).padStart(2,'0')+':00</span>';
+  return '<div class="barra-wrap"><div class="barra">'+main+'</div><div class="barra-sis">'+sis+'</div><div class="marcas-b">'+mk+'</div><div class="horas-b">'+hs+'</div></div>';
+}
+// Une observaciones repetidas: "X (entrada y salida)"
+function agruparObs(l){const m=new Map();l.forEach(o=>{if(!m.has(o.texto))m.set(o.texto,new Set());m.get(o.texto).add(o.marca);});
+  return [...m.entries()].map(([t,ms])=>esc(t)+(ms.size>1?' (entrada y salida)':'')).join(' · ');}
+function resumenRevisadas(l){
+  const man=l.filter(o=>o.estado==='manual'),apr=l.filter(o=>o.estado==='aprobada');
+  const out=[];
+  if(man.length)out.push('✎ '+[...new Set(man.map(o=>o.marca))].join(' y ')+' puesta a mano');
+  if(apr.length){const por=[...new Set(apr.map(o=>o.por).filter(Boolean))].join(', ');
+    out.push('✓ '+[...new Set(apr.map(o=>o.marca))].join(' y ')+' revisada'+(apr.length>1?'s':'')+' y aprobada'+(apr.length>1?'s':'')+(por?' por '+esc(por):'')+' <span title="'+esc(agruparObs(apr).replace(/<[^>]+>/g,''))+'" style="cursor:help;text-decoration:underline dotted">(motivo)</span>');}
+  return out.join(' · ');
+}
+function tarjetaDia(f,i){
+  const acc=(f.estado==='falta'||f.estado==='sin_salida'||f.estado==='sin_entrada')
+    ?'<button class="btn btn-sec btn-sm" onclick="abrirManual(\''+esc(f.usuario)+'\',\''+f.fecha+'\',\''+(f.estado==='sin_salida'?'salida':'entrada')+'\')">Corregir</button>':'';
+  const obs=(f.observaciones||[]);
+  const pend=obs.filter(o=>o.estado==='observada'),rev=obs.filter(o=>o.estado!=='observada');
+  return '<div class="dia"><div class="dia-cab"><div><span class="t"><b>'+fechaTxt(f)+'</b> · '+esc(f.nombre)+'</span> <span class="sub">'+(f.laborable?'horario '+f.horario:'día no laborable')+'</span> '+chipEstado(f.estado)+'</div>'+
+    '<div style="display:flex;gap:6px">'+acc+'<button class="btn btn-sec btn-sm" onclick="verDia('+i+')">Ver historial</button></div></div>'+
+    barraDia(f)+'<ul class="frases">'+frasesDia(f).map(x=>'<li>'+x+'</li>').join('')+'</ul>'+
+    (pend.length?'<div class="obs pend">⚠ Por revisar ('+[...new Set(pend.map(o=>o.marca))].join(' y ')+'): '+agruparObs(pend)+'</div>':'')+
+    (rev.length?'<div class="obs">'+resumenRevisadas(rev)+'</div>':'')+
+    '</div>';
+}
+
+// ── Historial del día (modal) ──
+let MAPA=null;
+function cargarLeaflet(){
+  if(window.L)return Promise.resolve(true);
+  return new Promise(res=>{
+    const css=document.createElement('link');css.rel='stylesheet';css.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';document.head.appendChild(css);
+    const js=document.createElement('script');js.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';js.onload=()=>res(true);js.onerror=()=>res(false);document.head.appendChild(js);
+  });
+}
+function cerrarDia(){$('modal-dia').style.display='none';}
+async function verDia(i){
+  const f=FILAS[i];
+  $('dia-titulo').textContent=fechaTxt(f)+' · '+f.nombre;
+  $('dia-cuerpo').innerHTML=barraDia(f)+'<ul class="frases">'+frasesDia(f).map(x=>'<li>'+x+'</li>').join('')+'</ul>';
+  $('dia-hist').innerHTML='<li><span></span><span></span><span class="sub">Cargando…</span></li>';
+  $('mapa-dia').style.display='none';$('mapa-nota').textContent='';
+  $('modal-dia').style.display='flex';
+  try{
+    const d=await api('/api/asistencia/admin/dia?usuario='+encodeURIComponent(f.usuario)+'&fecha='+f.fecha);
+    $('dia-hist').innerHTML=d.items.map(x=>'<li class="t-'+x.tipo+(x.fuera?' t-fuera':'')+'"><span class="hr">'+x.hora+'</span><span class="ic">'+x.icono+'</span><span><span class="tx">'+esc(x.texto)+'</span>'+
+      (x.simulada?' <span class="chip bad">ubicación simulada</span>':'')+
+      (x.lat!=null&&(x.fuera||x.tipo==='marca')?' <a href="https://www.google.com/maps?q='+x.lat+','+x.lng+'" target="_blank" rel="noopener">ver en mapa</a>':'')+
+      ((x.detalle||[]).length?'<div class="det">'+x.detalle.map(esc).join('<br>')+'</div>':'')+'</span></li>').join('')||'<li><span></span><span></span><span class="sub">No hay registros ese día.</span></li>';
+    if(!d.tiene_geo)$('mapa-nota').innerHTML='Este trabajador no tiene activado el celular de empresa, por eso solo se ven sus marcas y su actividad en el sistema.';
+    else if(!d.puntos.length)$('mapa-nota').innerHTML='Ese día no hubo <b>ubicación periódica</b>: solo avisos de salida/regreso. Para ver el recorrido completo, activa la ubicación cada 10 min en el celular (Personal → instrucciones).';
+    if(d.puntos.length&&await cargarLeaflet())try{
+      $('mapa-dia').style.display='block';
+      if(MAPA){MAPA.remove();MAPA=null;}
+      const c0=d.sedes[0]||d.puntos[0];
+      MAPA=L.map('mapa-dia').setView([c0.lat,c0.lng],15);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(MAPA);
+      const capas=[];
+      d.sedes.forEach(s=>capas.push(L.circle([s.lat,s.lng],{radius:s.radio,color:'#2fbf71',weight:2,fillOpacity:.12}).addTo(MAPA).bindTooltip(s.nombre)));
+      const ll=d.puntos.map(p=>[p.lat,p.lng]);
+      if(ll.length>1)capas.push(L.polyline(ll,{color:'#4c6ef5',weight:2,opacity:.6}).addTo(MAPA));
+      d.puntos.forEach(p=>capas.push(L.circleMarker([p.lat,p.lng],{radius:5,color:p.dentro===false?'#e5484d':'#2fbf71',fillOpacity:.9}).addTo(MAPA).bindTooltip(p.hora+(p.dentro===false?' · fuera':' · en el local'))));
+      MAPA.fitBounds(L.featureGroup(capas).getBounds().pad(0.2));
+    }catch(err){$('mapa-dia').style.display='none';$('mapa-nota').textContent='No se pudo mostrar el mapa; el historial de abajo está completo.';}
+  }catch(e){$('dia-hist').innerHTML='<li><span></span><span></span><span class="sub">'+esc(e.message)+'</span></li>';}
+}
+
 async function descargarExcel(){
   try{
     const r=await fetch('/api/asistencia/admin/excel?'+qsRango(),{headers:{'Authorization':'Bearer '+TOKEN}});
@@ -502,17 +673,19 @@ async function cargarRevisar(){
     $('rev-lista').innerHTML=r.map(m=>{
       const mapa=m.lat!=null?'<a href="https://www.google.com/maps?q='+m.lat+','+m.lng+'" target="_blank" rel="noopener">ver en mapa</a>':'';
       const ubic=m.metodo==='ip'?'Internet del local'+(m.sede?' ('+esc(m.sede)+')':''):m.lat!=null?('GPS ±'+(m.precision_m??'?')+' m'+(m.distancia_m!=null?' · a '+m.distancia_m+' m de '+esc(m.sede||'la sede'):'')+' · '+mapa):'Sin ubicación';
-      const botones=estado==='observada'?'<div class="fila" style="margin-top:8px"><input id="rn-'+m.id+'" placeholder="Nota (opcional)" style="flex:1;min-width:160px"><button class="btn btn-ok btn-sm" onclick="revisar('+m.id+',\'aprobada\')">✓ Aprobar</button><button class="btn btn-bad btn-sm" onclick="revisar('+m.id+',\'rechazada\')">✕ Rechazar</button></div>'
+      const extra=(m.puede_registrar_equipo&&/equipo/i.test(m.motivos||'')?'<button class="btn btn-ok btn-sm" onclick="revisar('+m.id+',\'aprobada\',{registrar_equipo:true})" title="Para que no vuelva a salir observada por el equipo">✓ Aprobar y recordar este equipo</button>':'')+
+        (m.puede_agregar_ip&&/ubicaci/i.test(m.motivos||'')?'<button class="btn btn-ok btn-sm" onclick="revisar('+m.id+',\'aprobada\',{agregar_ip_sede:'+m.sede_ip.id+'})" title="Si estaba en la tienda, el internet de la tienda cambió de IP">✓ Aprobar y agregar esta IP a '+esc(m.sede_ip.nombre)+'</button>':'');
+      const botones=estado==='observada'?'<div class="fila" style="margin-top:8px"><input id="rn-'+m.id+'" placeholder="Nota (opcional)" style="flex:1;min-width:160px"><button class="btn btn-ok btn-sm" onclick="revisar('+m.id+',\'aprobada\')">✓ Aprobar</button>'+extra+'<button class="btn btn-bad btn-sm" onclick="revisar('+m.id+',\'rechazada\')">✕ Rechazar</button></div>'
         :(m.revisado_por?'<div class="sub" style="margin-top:6px">Por '+esc(m.revisado_por)+(m.nota_revision?': '+esc(m.nota_revision):'')+'</div>':'');
       return '<div class="rev"><div class="cab"><div><span class="nom">'+esc(m.nombre||m.usuario)+'</span> · '+(m.tipo==='entrada'?'Entrada':'Salida')+' '+m.fecha.slice(8)+'/'+m.fecha.slice(5,7)+' a las <b>'+m.hora+'</b></div>'+chipMarca(m.estado)+'</div>'+
-        (m.motivos?'<div style="margin-top:6px;color:var(--fg-warn)">'+esc(m.motivos)+'</div>':'')+
+        ((m.observaciones||[]).length?'<ul class="frases">'+m.observaciones.map(o=>'<li class="aviso-t">'+esc(o)+'</li>').join('')+'</ul>':'')+
         (m.nota_trabajador?'<div style="margin-top:4px">💬 '+esc(m.nota_trabajador)+'</div>':'')+
         '<div class="sub" style="margin-top:6px">'+ubic+(m.ip?' · IP <span class="mono">'+esc(m.ip)+'</span>':'')+'</div>'+botones+'</div>';
     }).join('')||'<div class="card vacio">Nada por aquí 👌</div>';
   }catch(e){$('rev-lista').innerHTML='<div class="vacio">'+esc(e.message)+'</div>';}
 }
-async function revisar(id,estado){
-  try{await api('/api/asistencia/admin/revisar',{id,estado,nota:($('rn-'+id)||{}).value||''});toast(estado==='aprobada'?'Aprobada':'Rechazada');cargarRevisar();}
+async function revisar(id,estado,extra){
+  try{await api('/api/asistencia/admin/revisar',Object.assign({id,estado,nota:($('rn-'+id)||{}).value||''},extra||{}));toast(estado==='aprobada'?'Aprobada':'Rechazada');cargarRevisar();}
   catch(e){toast(e.message,true);}
 }
 
@@ -563,6 +736,7 @@ async function geoToken(i,quitar){
     p.tiene_geo=true;
     $('geo-'+i).innerHTML='<div class="aviso neu" style="margin-top:8px">Configura estas dos direcciones en la app de geocerca del celular (Automate o Tasker). <b>Guárdalas ahora</b>: la clave no se vuelve a mostrar.'+
       ['salida','entrada'].map(e=>'<div style="margin-top:8px"><b>'+(e==='salida'?'Al SALIR del local':'Al VOLVER al local')+':</b><div class="fila" style="margin-top:4px"><input readonly value="'+esc(base+e)+'" style="flex:1;min-width:200px" class="mono" onclick="this.select()"><button class="btn btn-sec btn-sm" onclick="copiar(\''+esc(base+e)+'\')">Copiar</button></div></div>').join('')+
+      '<div style="margin-top:12px"><b>Opcional — ubicación cada 10 min (para ver el recorrido del día):</b><div class="sub">En Automate, bloque HTTP request con el campo en modo fórmula (fx). Pega esto tal cual:</div><div class="fila" style="margin-top:4px"><input readonly value="'+esc('"'+base+'pos&lat=" ++ lat ++ "&lng=" ++ lng ++ "&acc=" ++ acc ++ "&mock=" ++ flags')+'" style="flex:1;min-width:200px" class="mono" onclick="this.select()"><button class="btn btn-sec btn-sm" onclick="copiar(this.previousElementSibling.value)">Copiar</button></div><div class="sub">Solo se guarda dentro de su jornada; fuera de horario el portal la descarta.</div></div>'+
       '<div class="sub" style="margin-top:8px">Centro de la geocerca: las coordenadas de la sede (pestaña Sedes), radio recomendado 150 m.</div></div>';
   }catch(e){toast(e.message,true);}
 }

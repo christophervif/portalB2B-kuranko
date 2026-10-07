@@ -25,6 +25,11 @@
 //  que falte o sobre en la semana se cuadra normalmente el sábado (el reporte
 //  sugiere a qué hora salir). El saldo se cuenta por mes.
 //
+//  Ubicación periódica (opcional, celular de empresa): la app envía su posición
+//  cada ~10 min SOLO dentro de la jornada (el servidor descarta lo de fuera de
+//  horario). Con eso el reporte arma la línea de tiempo del día: en el local /
+//  fuera / sin señal, y un mapa con el recorrido.
+//
 //  Control cruzado (pasivo): lee del sistema principal (solo lectura) la primera
 //  y la última acción de cada usuario en el día (ventas, movimientos de stock…)
 //  para comparar "marcó a las 8:55" con "empezó a trabajar a las 9:30".
@@ -36,9 +41,11 @@ const { nombreTrazable, cabeceraExcel } = require('./comunes');
 
 // Lima no tiene horario de verano: UTC-5 fijo.
 const OFFSET_LIMA_MS = 5 * 3600 * 1000;
-const MAX_EQUIPOS = 2;
+const MAX_EQUIPOS = 3;
 const MAX_DIAS_REPORTE = 93;
-const MIN_FUERA = 5;          // salidas más cortas se ignoran (rebote del GPS en el borde)
+const MIN_FUERA = 5;
+const GAP_SENAL_MIN = 30;     // con ubicación periódica: más de 30 min sin datos = "sin señal"
+const MARGEN_UBIC_MIN = 60;   // la ubicación periódica solo se guarda dentro de la jornada (± margen)          // salidas más cortas se ignoran (rebote del GPS en el borde)
 
 // ── Fechas / horas ─────────────────────────────────────────────────────────
 const p2 = n => String(n).padStart(2, '0');
@@ -73,6 +80,24 @@ function ipCliente(req) {
 
 const listaIps = s => String(s || '').split(/[\s,;]+/).map(x => x.trim()).filter(Boolean);
 const listaDias = s => String(s || '').split(',').map(Number).filter(n => n >= 1 && n <= 7);
+// Observaciones técnicas → frase entendible (también para marcas antiguas ya guardadas)
+function explicarMotivo(m) {
+  const t = String(m || '').trim(); let x;
+  if (!t) return null;
+  if (/corregida manualmente|marca manual/i.test(t)) return 'Hora puesta o corregida a mano por el administrador';
+  if (t === 'Equipo no registrado') return 'Marcó desde un equipo que no es su celular ni su PC habituales';
+  if (t === 'Equipo sin identificar') return 'No se pudo reconocer el equipo desde el que marcó';
+  if ((x = t.match(/^Sin ubicación: (.*)$/i)) || t === 'Sin ubicación') {
+    const c = x ? x[1] : '';
+    const por = /denegado/i.test(c) ? 'no permitió compartir su ubicación' : /tiempo/i.test(c) ? 'el GPS no respondió a tiempo' : 'no se pudo obtener su ubicación';
+    return 'No se pudo comprobar que estaba en el local: no estaba conectado al internet de la tienda y ' + por;
+  }
+  if ((x = t.match(/^Fuera del local: a (\d+) m de (.*)$/i))) return `Marcó a ${x[1]} m de ${x[2]} (fuera del local)`;
+  if ((x = t.match(/^GPS impreciso \(±(\d+) m\)$/i))) return `Su ubicación era poco precisa (±${x[1]} m)`;
+  return t;
+}
+const explicarMotivos = s => [...new Set(String(s || '').split(' · ').map(explicarMotivo).filter(Boolean))];
+
 const recortar = (s, n) => String(s == null ? '' : s).trim().slice(0, n);
 
 module.exports = function registrarAsistencia({
@@ -139,6 +164,12 @@ module.exports = function registrarAsistencia({
         ip VARCHAR(64) NULL,
         KEY ix_usu_ts (usuario, ts)
       )`);
+    // Ubicación periódica: coordenadas en cada aviso
+    try {
+      await portalPool.query(`ALTER TABLE asist_geo ADD COLUMN lat DECIMAL(10,7) NULL, ADD COLUMN lng DECIMAL(10,7) NULL,
+        ADD COLUMN precision_m INT NULL, ADD COLUMN distancia_m INT NULL, ADD COLUMN sede_id INT NULL,
+        ADD COLUMN dentro TINYINT NULL, ADD COLUMN simulada TINYINT NULL`);
+    } catch (e) { /* ya existen */ }
     await portalPool.query(`
       CREATE TABLE IF NOT EXISTS asist_marcas (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -398,16 +429,58 @@ module.exports = function registrarAsistencia({
       const k = String(q.k || '').toLowerCase().replace(/[^a-f0-9]/g, '');
       const eTxt = String(q.e || q['amp;e'] || '').toLowerCase().replace(/[^a-z]/g, '');
       const e = { salida: 'salida', sale: 'salida', out: 'salida', exit: 'salida',
-        entrada: 'entrada', vuelve: 'entrada', in: 'entrada', enter: 'entrada', latido: 'latido', ping: 'latido' }[eTxt];
+        entrada: 'entrada', vuelve: 'entrada', in: 'entrada', enter: 'entrada', latido: 'latido', ping: 'latido',
+        pos: 'pos', ubicacion: 'pos', ubic: 'pos', location: 'pos' }[eTxt];
       if (!k) return res.status(400).send('Falta la clave (k=...) en el link');
       if (k.length < 32) return res.status(400).send(`Clave incompleta: tiene ${k.length} caracteres y debe tener 40. Copia el link completo.`);
-      if (!e) return res.status(400).send('El link debe terminar en &e=salida o &e=entrada');
-      const [[p]] = await portalPool.query(`SELECT usuario FROM asist_personal WHERE geo_token=?`, [k]);
+      if (!e) return res.status(400).send('El link debe terminar en &e=salida, &e=entrada o &e=pos');
+      const [[p]] = await portalPool.query(`SELECT * FROM asist_personal WHERE geo_token=?`, [k]);
       if (!p) return res.status(403).send('Clave no válida');
-      // Evita duplicados si la app reintenta (mismo evento en los últimos 2 min)
-      const [[dup]] = await portalPool.query(
-        `SELECT id FROM asist_geo WHERE usuario=? AND evento=? AND ts > UTC_TIMESTAMP() - INTERVAL 2 MINUTE LIMIT 1`, [p.usuario, e]);
-      if (!dup) await portalPool.query(`INSERT INTO asist_geo (usuario, ts, evento, ip) VALUES (?, UTC_TIMESTAMP(), ?, ?)`, [p.usuario, e, ipCliente(req)]);
+
+      // Coordenadas (obligatorias en "pos", opcionales en salida/entrada)
+      const num = v => { const n = Number(String(v == null ? '' : v).replace(',', '.')); return isFinite(n) ? n : null; };
+      const lat = num(q.lat), lng = num(q.lng != null ? q.lng : (q.lon != null ? q.lon : q.long));
+      const prec = num(q.acc != null ? q.acc : q.accuracy);
+      const conCoord = lat != null && lng != null && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && !(lat === 0 && lng === 0);
+      if (e === 'pos' && !conCoord) return res.status(400).send('Faltan lat y lng en el link de ubicación');
+
+      const ahora = new Date();
+      if (e === 'pos') {
+        // Solo se guarda dentro de la jornada (protección de datos: nada fuera de horario)
+        const c = await leerConfig();
+        const hoy = fechaLimaDe(ahora), hd = horarioDe(p, c)[diaSemana(hoy)] || null;
+        const marcas = await marcasDelDia(p.usuario, hoy);
+        const mAhora = minDelDia(ahora);
+        let ini = hd ? aMin(hd.entrada) - MARGEN_UBIC_MIN : null, fin = hd ? aMin(hd.salida) + MARGEN_UBIC_MIN : null;
+        if (marcas.entrada) { const me = aMin(marcas.entrada.hora) - 30; ini = ini == null ? me : Math.min(ini, me); if (fin == null) fin = 24 * 60; }
+        if (marcas.salida) fin = aMin(marcas.salida.hora) + 10;
+        if (ini == null || mAhora < ini || mAhora > fin) return res.send('ok (fuera de la jornada: no se guarda)');
+        const [[ult]] = await portalPool.query(
+          `SELECT id FROM asist_geo WHERE usuario=? AND evento='pos' AND ts > UTC_TIMESTAMP() - INTERVAL 60 SECOND LIMIT 1`, [p.usuario]);
+        if (ult) return res.send('ok');
+      } else {
+        // Evita duplicados si la app reintenta (mismo evento en los últimos 2 min)
+        const [[dup]] = await portalPool.query(
+          `SELECT id FROM asist_geo WHERE usuario=? AND evento=? AND ts > UTC_TIMESTAMP() - INTERVAL 2 MINUTE LIMIT 1`, [p.usuario, e]);
+        if (dup) return res.send('ok');
+      }
+      let dist = null, sedeId = null, dentro = null;
+      if (conCoord) {
+        const sedes = (await leerSedes()).filter(x => x.lat != null && x.lng != null);
+        let cerca = null;
+        sedes.forEach(x => { const d = distanciaM(lat, lng, x.lat, x.lng); if (!cerca || d < cerca.d) cerca = { x, d }; });
+        if (cerca) {
+          dist = cerca.d; sedeId = cerca.x.id;
+          // Se le da el beneficio de la duda por la imprecisión del GPS (máx. 100 m)
+          dentro = (cerca.d - Math.min(prec || 0, 100)) <= cerca.x.radio_m ? 1 : 0;
+        }
+      }
+      const simulada = (Number(q.mock || q.flags || 0) & 1) ? 1 : 0;
+      await portalPool.query(
+        `INSERT INTO asist_geo (usuario, ts, evento, ip, lat, lng, precision_m, distancia_m, sede_id, dentro, simulada)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+        [p.usuario, utcSql(ahora), e, ipCliente(req), conCoord ? lat : null, conCoord ? lng : null,
+          prec == null ? null : Math.round(prec), dist, sedeId, dentro, simulada]);
       res.send('ok');
     } catch (err) { res.status(500).send('error'); }
   });
@@ -490,22 +563,88 @@ module.exports = function registrarAsistencia({
   // ═════════════════════════════════════════════════════════════════════════
   //  RESUMEN (lo usan el reporte, el Excel y "mis marcas")
   // ═════════════════════════════════════════════════════════════════════════
-  // Intervalos fuera del local dentro de [desdeT, hastaT] según los eventos
-  // empiezaDentro: la marca de entrada ya prueba que estaba en el local (así un
-  // aviso de "volví" perdido en la mañana no deja todo el día como "fuera").
-  function salidasEn(eventos, desdeT, hastaT, empiezaDentro = false) {
-    if (!(hastaT > desdeT)) return [];
-    let fuera = false, ini = null;
-    const out = [];
-    for (const ev of eventos) {
-      const t = ev.t.getTime();
-      if (t <= desdeT) { if (!empiezaDentro) fuera = ev.e === 'salida'; continue; }
-      if (t >= hastaT) break;
-      if (ev.e === 'salida' && !fuera) { fuera = true; ini = t; }
-      else if (ev.e === 'entrada' && fuera) { out.push({ a: ini == null ? desdeT : ini, b: t }); fuera = false; ini = null; }
+  // ¿La marca prueba que estaba en el local? (internet de la tienda, GPS dentro, o puesta a mano)
+  // (una marca aprobada por el administrador también cuenta: él confirmó que era válida)
+  const marcaEnLocal = m => !!m && m.estado !== 'rechazada' &&
+    (m.metodo === 'ip' || m.metodo === 'manual' || m.estado === 'aprobada' || (m.metodo === 'gps' && !/Fuera del local/i.test(m.motivos || '')));
+
+  // Línea de tiempo de un día: tramos "local" / "fuera" / "incierto" / "sin_senal" / "desconocido"
+  //   eventos: geo del trabajador (ordenados) {e:'salida'|'entrada'|'pos', t:Date, dentro, dist}
+  //   evidencias de marcas: [{t:Date}] cuando la marca prueba que estaba en el local
+  function lineaDia(eventos, marcasLocal, desdeT, hastaT) {
+    if (!(hastaT > desdeT)) return { tramos: [], conUbicacion: false };
+    const conUbicacion = eventos.some(x => x.e === 'pos' && x.t.getTime() >= desdeT && x.t.getTime() <= hastaT);
+    const lugarDe = x => x.e === 'salida' ? 'fuera' : x.e === 'entrada' ? 'local' : (x.dentro == null ? null : (x.dentro ? 'local' : 'fuera'));
+    // Estado al inicio: último evento anterior (de geocerca o ubicación)
+    let estado = 'desconocido', fuente = null;
+    for (const x of eventos) { if (x.t.getTime() > desdeT) break; const l = lugarDe(x); if (l) { estado = l; fuente = x.e === 'pos' ? 'gps' : 'geocerca'; } }
+    const ev = [];
+    eventos.forEach(x => { const t = x.t.getTime(); const l = lugarDe(x); if (l && t > desdeT && t <= hastaT) ev.push({ t, lugar: l, fuente: x.e === 'pos' ? 'gps' : 'geocerca', dist: x.dist }); });
+    marcasLocal.forEach(t => { const tt = t.getTime(); if (tt >= desdeT && tt <= hastaT) ev.push({ t: tt, lugar: 'local', fuente: 'marca' }); });
+    ev.sort((a, b) => a.t - b.t);
+    if (ev.length && ev[0].t === desdeT) { estado = ev[0].lugar; fuente = ev[0].fuente; }
+
+    const tramos = [];
+    const push = (a, b, e, extra) => { if (b > a) tramos.push({ a, b, estado: e, ...(extra || {}) }); };
+    let cur = desdeT, ultimaSenal = desdeT, distMax = null;
+    const gap = GAP_SENAL_MIN * 60000;
+    const cerrarHasta = (t, siguiente) => {
+      // Con ubicación periódica, un hueco largo sin datos es "sin señal"
+      if (conUbicacion && t - ultimaSenal > gap) {
+        const corte = Math.max(cur, ultimaSenal + 10 * 60000);
+        push(cur, corte, estado, estado === 'fuera' ? { dist: distMax } : null);
+        push(corte, t, 'sin_senal');
+      } else if (estado === 'fuera' && siguiente && siguiente.fuente === 'marca') {
+        // Salió y no hubo aviso de regreso: a esta hora ya estaba en el local, pero no se sabe desde cuándo
+        push(cur, t, 'incierto', { dist: distMax });
+      } else push(cur, t, estado, estado === 'fuera' ? { dist: distMax } : null);
+      cur = t;
+    };
+    for (const x of ev) {
+      if (x.lugar !== estado || (conUbicacion && x.t - ultimaSenal > gap)) {
+        cerrarHasta(x.t, x);
+        if (x.lugar !== estado) distMax = null;
+        estado = x.lugar;
+      }
+      if (x.lugar === 'fuera' && x.dist != null) distMax = Math.max(distMax || 0, x.dist);
+      ultimaSenal = x.t;
     }
-    if (fuera) out.push({ a: ini == null ? desdeT : ini, b: hastaT, abierta: true });
-    return out.filter(x => (x.b - x.a) >= MIN_FUERA * 60000);
+    cerrarHasta(hastaT, null);
+    // Unir tramos iguales y descartar salidas muy cortas (rebote del GPS)
+    const out = [];
+    for (const t of tramos) {
+      if (t.estado === 'fuera' && (t.b - t.a) < MIN_FUERA * 60000) t.estado = out.length ? out[out.length - 1].estado : 'local';
+      const u = out[out.length - 1];
+      if (u && u.estado === t.estado && u.b === t.a) { u.b = t.b; if (t.dist != null) u.dist = Math.max(u.dist || 0, t.dist); }
+      else out.push({ ...t });
+    }
+    return { tramos: out, conUbicacion };
+  }
+  const tramoJson = t => ({ desde: horaLimaDe(new Date(t.a)), hasta: horaLimaDe(new Date(t.b)), min: Math.round((t.b - t.a) / 60000), estado: t.estado, dist: t.dist == null ? null : t.dist });
+
+  // Eventos de geocerca/ubicación de varios trabajadores en un rango de días (Lima)
+  async function geoDe(usuarios, desde, hasta) {
+    const geo = {};
+    if (!usuarios.length) return geo;
+    const [g] = await portalPool.query(
+      `SELECT usuario, evento, DATE_FORMAT(ts,'%Y-%m-%d %H:%i:%s') AS ts, lat, lng, precision_m, distancia_m, dentro, simulada, sede_id
+       FROM asist_geo WHERE usuario IN (?) AND evento IN ('salida','entrada','pos') AND ts >= ? AND ts < ? ORDER BY ts`,
+      [usuarios, utcSql(new Date(Date.parse(sumarDias(desde, -1) + 'T00:00:00Z') + OFFSET_LIMA_MS)),
+        utcSql(new Date(Date.parse(sumarDias(hasta, 1) + 'T00:00:00Z') + OFFSET_LIMA_MS))]);
+    g.forEach(x => (geo[x.usuario] = geo[x.usuario] || []).push({
+      e: x.evento, t: deUtcSql(x.ts), lat: x.lat == null ? null : Number(x.lat), lng: x.lng == null ? null : Number(x.lng),
+      prec: x.precision_m, dist: x.distancia_m, dentro: x.dentro == null ? null : !!x.dentro, simulada: !!x.simulada
+    }));
+    return geo;
+  }
+
+  // Ventana del día para la línea de tiempo
+  function ventanaDia(f, hd, de, ds, hoy, ahora) {
+    const iniDia = Date.parse(f + 'T00:00:00Z') + OFFSET_LIMA_MS;
+    const desdeT = de ? de.getTime() : (hd ? iniDia + aMin(hd.entrada) * 60000 : null);
+    let hastaT = ds ? ds.getTime() : (f === hoy ? ahora.getTime() : (hd ? iniDia + aMin(hd.salida) * 60000 : (de ? de.getTime() + 12 * 3600000 : null)));
+    if (f === hoy && hastaT != null) hastaT = Math.min(hastaT, ahora.getTime());
+    return { desdeT, hastaT };
   }
 
   async function construirResumen(desde, hasta, { usuario = null, conActividad = true } = {}) {
@@ -521,17 +660,8 @@ module.exports = function registrarAsistencia({
     const idx = {};
     mar.forEach(m => { idx[m.usuario + '|' + m.fecha + '|' + m.tipo] = m; });
 
-    // Eventos de geocerca (desde un día antes, para saber si ya estaba fuera)
-    const geo = {};
-    const conGeo = pers.filter(p => p.geo_token).map(p => p.usuario);
-    if (conGeo.length) {
-      const [g] = await portalPool.query(
-        `SELECT usuario, evento, DATE_FORMAT(ts,'%Y-%m-%d %H:%i:%s') AS ts FROM asist_geo
-         WHERE usuario IN (?) AND evento IN ('salida','entrada') AND ts >= ? AND ts < ? ORDER BY ts`,
-        [conGeo, utcSql(new Date(Date.parse(sumarDias(desde, -1) + 'T00:00:00Z') + OFFSET_LIMA_MS)),
-          utcSql(new Date(Date.parse(sumarDias(hasta, 1) + 'T00:00:00Z') + OFFSET_LIMA_MS))]);
-      g.forEach(x => (geo[x.usuario] = geo[x.usuario] || []).push({ e: x.evento, t: deUtcSql(x.ts) }));
-    }
+    // Eventos de geocerca / ubicación (desde un día antes, para saber si ya estaba fuera)
+    const geo = await geoDe(pers.filter(p => p.geo_token).map(p => p.usuario), desde, hasta);
 
     const prodIds = [...new Set(pers.map(p => p.prod_user_id).filter(Boolean))];
     const act = conActividad ? await actividad(desde, hasta, prodIds, c.prod_tz) : {};
@@ -558,6 +688,8 @@ module.exports = function registrarAsistencia({
           entrada_estado: en ? en.estado : null, salida_estado: sa ? sa.estado : null,
           entrada_id: en ? en.id : null, salida_id: sa ? sa.id : null,
           motivos: [en && en.motivos, sa && sa.motivos].filter(Boolean).join(' · '),
+          observaciones: [...explicarMotivos(en && en.motivos).map(x => ({ marca: 'entrada', texto: x, estado: en.estado, por: en.revisado_por })),
+            ...explicarMotivos(sa && sa.motivos).map(x => ({ marca: 'salida', texto: x, estado: sa.estado, por: sa.revisado_por }))],
           notas: [en && en.nota_trabajador, sa && sa.nota_trabajador].filter(Boolean).join(' · '),
           min_trabajados: de && ds ? Math.max(0, Math.round((ds - de) / 60000)) : null,
           min_tardanza: 0, min_salida_antes: 0, estado: ''
@@ -577,17 +709,20 @@ module.exports = function registrarAsistencia({
         else if (!e && lab) fila.estado = (f === hoy && minAhora < aMin(hd.salida)) ? 'pendiente' : 'falta';
         else fila.estado = 'sin_entrada';
         if ([en, sa].some(m => m && m.estado === 'observada')) fila.observada = true;
-        // Salidas del local durante la jornada (solo celulares con geocerca)
-        if (geo[p.usuario]) {
-          const iniDia = Date.parse(f + 'T00:00:00Z') + OFFSET_LIMA_MS;
-          const desdeT = de ? de.getTime() : iniDia + aMin(hd ? hd.entrada : '00:00') * 60000;
-          let hastaT = ds ? ds.getTime() : (f === hoy ? ahora.getTime() : (hd ? iniDia + aMin(hd.salida) * 60000 : desdeT + 12 * 3600000));
-          if (f === hoy) hastaT = Math.min(hastaT, ahora.getTime());
-          const ints = salidasEn(geo[p.usuario], desdeT, hastaT, !!(e && ['ok', 'aprobada', 'manual'].includes(e.estado)));
-          if (ints.length) {
-            fila.fuera = ints.map(x => ({ desde: horaLimaDe(new Date(x.a)), hasta: x.abierta ? null : horaLimaDe(new Date(x.b)), min: Math.round((x.b - x.a) / 60000) }));
-            fila.min_fuera = fila.fuera.reduce((s, x) => s + x.min, 0);
-            t.salidas += ints.length; t.min_fuera += fila.min_fuera;
+        // Dónde estuvo durante la jornada (celular de empresa: geocerca y/o ubicación periódica)
+        if (geo[p.usuario] && (e || lab)) {
+          const { desdeT, hastaT } = ventanaDia(f, hd, de, ds, hoy, ahora);
+          if (desdeT != null && hastaT != null) {
+            const ev = [];
+            if (marcaEnLocal(e)) ev.push(de);
+            if (marcaEnLocal(s)) ev.push(ds);
+            const { tramos, conUbicacion } = lineaDia(geo[p.usuario], ev, desdeT, hastaT);
+            fila.tramos = tramos.map(tramoJson);
+            fila.con_ubicacion = conUbicacion;
+            fila.fuera = fila.tramos.filter(x => x.estado === 'fuera' || x.estado === 'incierto');
+            fila.min_fuera = fila.tramos.filter(x => x.estado === 'fuera').reduce((a, x) => a + x.min, 0);
+            fila.min_sin_senal = fila.tramos.filter(x => x.estado === 'sin_senal').reduce((a, x) => a + x.min, 0);
+            t.salidas += fila.fuera.length; t.min_fuera += fila.min_fuera;
           }
         }
         if (p.prod_user_id) {
@@ -642,6 +777,120 @@ module.exports = function registrarAsistencia({
     } catch (e) { res.status(500).json({ error: 'Error al armar el reporte: ' + e.message }); }
   });
 
+  // ── Historial de un día: todo lo que pasó, en orden, + recorrido para el mapa ──
+  const NOMBRE_TABLA = { sales: 'venta', stock_movements: 'movimiento de stock', stock_entries: 'ingreso de mercadería',
+    stock_transfers: 'transferencia', sale_payments: 'pago', payments: 'pago', cash_closures: 'cierre de caja', quotations: 'cotización' };
+  app.get('/api/asistencia/admin/dia', authAdmin, mAsis, async (req, res) => {
+    try {
+      await asegurarTablas();
+      const usuario = recortar(req.query.usuario, 80), f = req.query.fecha;
+      if (!usuario || !fechaValida(f)) return res.status(400).json({ error: 'Falta trabajador o fecha' });
+      const r = await construirResumen(f, f, { usuario });
+      const fila = r.filas[0] || null;
+      const [[p]] = await portalPool.query(`SELECT * FROM asist_personal WHERE usuario=?`, [usuario]);
+      if (!p) return res.status(404).json({ error: 'Trabajador no encontrado' });
+      const sedes = await leerSedes();
+      const items = [];
+      const hora = d => horaLimaDe(d);
+
+      // Marcas
+      const [mar] = await portalPool.query(
+        `SELECT m.*, DATE_FORMAT(m.ts,'%Y-%m-%d %H:%i:%s') AS ts_s, s.nombre AS sede FROM asist_marcas m
+         LEFT JOIN asist_sedes s ON s.id=m.sede_id WHERE m.usuario=? AND m.fecha=? ORDER BY m.ts`, [usuario, f]);
+      mar.forEach(m => {
+        const d = deUtcSql(m.ts_s);
+        const como = m.metodo === 'ip' ? 'desde el internet de ' + (m.sede || 'la tienda')
+          : m.metodo === 'gps' ? (m.distancia_m != null ? `con GPS, a ${m.distancia_m} m de ${m.sede || 'la tienda'}` : 'con GPS')
+          : m.metodo === 'manual' ? 'puesta a mano por ' + (m.revisado_por || m.creado_por || 'el administrador')
+          : 'sin poder comprobar dónde estaba';
+        items.push({ t: d.getTime(), hora: hora(d), tipo: 'marca', icono: m.tipo === 'entrada' ? '▶' : '■',
+          texto: (m.tipo === 'entrada' ? 'Marcó entrada ' : 'Marcó salida ') + como,
+          detalle: [...explicarMotivos(m.motivos), m.nota_trabajador ? 'Explicación del trabajador: ' + m.nota_trabajador : null,
+            m.estado === 'aprobada' ? 'Aprobada por ' + (m.revisado_por || 'admin') : m.estado === 'rechazada' ? 'Rechazada por ' + (m.revisado_por || 'admin') : null].filter(Boolean),
+          estado: m.estado, lat: m.lat == null ? null : Number(m.lat), lng: m.lng == null ? null : Number(m.lng) });
+      });
+
+      // Geocerca y ubicaciones (solo del día)
+      const geo = (await geoDe([usuario], f, f))[usuario] || [];
+      const iniDia = Date.parse(f + 'T00:00:00Z') + OFFSET_LIMA_MS, finDia = iniDia + 86400000;
+      const delDia = geo.filter(x => x.t.getTime() >= iniDia && x.t.getTime() < finDia);
+      const sedeNom = sedes[0] ? sedes[0].nombre : 'la tienda';
+      let grupo = null;
+      const cerrarGrupo = () => {
+        if (!grupo) return;
+        const n = grupo.n, rango = grupo.a === grupo.b ? grupo.a : grupo.a + '–' + grupo.b;
+        items.push({ t: grupo.t, hora: rango, tipo: 'ubic', icono: grupo.dentro ? '●' : '○',
+          texto: grupo.dentro ? `En el local (${n > 1 ? n + ' ubicaciones' : '1 ubicación'} del celular)`
+            : `Fuera del local: hasta ${grupo.dist >= 1000 ? (grupo.dist / 1000).toFixed(1) + ' km' : grupo.dist + ' m'} de ${sedeNom} (${n > 1 ? n + ' ubicaciones' : '1 ubicación'})`,
+          lat: grupo.lat, lng: grupo.lng, fuera: !grupo.dentro, simulada: grupo.simulada });
+        grupo = null;
+      };
+      delDia.forEach(x => {
+        const h = hora(x.t);
+        if (x.e === 'pos') {
+          const dentro = x.dentro !== false;
+          if (grupo && grupo.dentro === dentro && x.t.getTime() - grupo.ult < (GAP_SENAL_MIN * 60000)) {
+            grupo.b = h; grupo.n++; grupo.ult = x.t.getTime(); grupo.dist = Math.max(grupo.dist, x.dist || 0);
+            if (!dentro) { grupo.lat = x.lat; grupo.lng = x.lng; } grupo.simulada = grupo.simulada || x.simulada;
+          } else {
+            cerrarGrupo();
+            grupo = { t: x.t.getTime(), a: h, b: h, n: 1, ult: x.t.getTime(), dentro, dist: x.dist || 0, lat: x.lat, lng: x.lng, simulada: x.simulada };
+          }
+        } else {
+          cerrarGrupo();
+          items.push({ t: x.t.getTime(), hora: h, tipo: 'geocerca', icono: x.e === 'salida' ? '↗' : '↙',
+            texto: x.e === 'salida' ? 'Salió del local (aviso automático del celular)' : 'Volvió al local (aviso automático del celular)' });
+        }
+      });
+      cerrarGrupo();
+      // Huecos sin señal (solo si ese día hubo ubicación periódica)
+      (fila && fila.tramos || []).filter(x => x.estado === 'sin_senal').forEach(x => items.push({
+        t: Date.parse(f + 'T' + x.desde + ':00Z') + OFFSET_LIMA_MS, hora: x.desde + '–' + x.hasta, tipo: 'sin_senal', icono: '⋯',
+        texto: `Sin señal del celular durante ${x.min} min (apagado, sin datos o sin ubicación)` }));
+      (fila && fila.tramos || []).filter(x => x.estado === 'incierto').forEach(x => items.push({
+        t: Date.parse(f + 'T' + x.desde + ':00Z') + OFFSET_LIMA_MS + 1, hora: x.desde + '–' + x.hasta, tipo: 'incierto', icono: '?',
+        texto: `Salió del local a las ${x.desde} y no llegó el aviso de regreso. A las ${x.hasta} ya estaba en el local.` }));
+
+      // Actividad en el sistema, agrupada en bloques
+      if (p.prod_user_id) {
+        const c = r.config, off = /^[+-]\d{2}:\d{2}$/.test(c.prod_tz || '') ? c.prod_tz : '+00:00';
+        const offMin = (off[0] === '-' ? -1 : 1) * (Number(off.slice(1, 3)) * 60 + Number(off.slice(4, 6)));
+        const ini = new Date(iniDia + offMin * 60000), fin = new Date(finDia + offMin * 60000);
+        const acc = [];
+        for (const fu of await fuentesActividad()) {
+          try {
+            const [rows] = await prodPool.query(
+              `SELECT DATE_FORMAT(CONVERT_TZ(\`${fu.tc}\`, ?, '-05:00'), '%Y-%m-%d %H:%i:%s') AS t FROM \`${fu.tabla}\`
+               WHERE \`${fu.u}\`=? AND \`${fu.tc}\` >= ? AND \`${fu.tc}\` < ? ORDER BY \`${fu.tc}\` LIMIT 500`,
+              [off, p.prod_user_id, utcSql(ini), utcSql(fin)]);
+            rows.forEach(x => acc.push({ t: Date.parse(x.t.replace(' ', 'T') + 'Z') + OFFSET_LIMA_MS, que: NOMBRE_TABLA[fu.tabla] || fu.tabla }));
+          } catch (e) { /* tabla sin acceso */ }
+        }
+        acc.sort((a, b) => a.t - b.t);
+        let b = null;
+        const cerrar = () => {
+          if (!b) return;
+          const cuenta = Object.entries(b.que).map(([k, n]) => n + ' ' + k + (n > 1 ? (k.endsWith('n') ? 'es' : 's') : '')).join(', ');
+          items.push({ t: b.a, hora: b.a === b.b ? hora(new Date(b.a)) : hora(new Date(b.a)) + '–' + hora(new Date(b.b)), tipo: 'sistema', icono: '⌨',
+            texto: 'Trabajó en el sistema: ' + cuenta });
+          b = null;
+        };
+        acc.forEach(x => {
+          if (b && x.t - b.b <= 45 * 60000) { b.b = x.t; b.que[x.que] = (b.que[x.que] || 0) + 1; }
+          else { cerrar(); b = { a: x.t, b: x.t, que: { [x.que]: 1 } }; }
+        });
+        cerrar();
+      }
+      items.sort((a, b) => a.t - b.t);
+      res.json({
+        fila, items,
+        puntos: delDia.filter(x => x.lat != null).map(x => ({ hora: hora(x.t), lat: x.lat, lng: x.lng, dentro: x.dentro, e: x.e, prec: x.prec })),
+        sedes: sedes.filter(x => x.lat != null).map(x => ({ nombre: x.nombre, lat: x.lat, lng: x.lng, radio: x.radio_m })),
+        tiene_geo: !!p.geo_token
+      });
+    } catch (e) { res.status(500).json({ error: 'Error al armar el historial: ' + e.message }); }
+  });
+
   // Marcas por revisar (observadas) o historial de revisadas
   app.get('/api/asistencia/admin/marcas', authAdmin, mAsis, async (req, res) => {
     try {
@@ -654,7 +903,15 @@ module.exports = function registrarAsistencia({
            m.creado_por, s.nombre AS sede
          FROM asist_marcas m LEFT JOIN asist_personal p ON p.usuario=m.usuario LEFT JOIN asist_sedes s ON s.id=m.sede_id
          WHERE m.estado=? ORDER BY m.fecha DESC, m.ts DESC LIMIT 300`, [estado]);
-      res.json(r.map(m => ({ ...m, hora: horaLimaDe(deUtcSql(m.ts)), lat: m.lat == null ? null : Number(m.lat), lng: m.lng == null ? null : Number(m.lng) })));
+      // Para ofrecer "registrar equipo" / "agregar IP a la sede" al aprobar
+      const [pers] = await portalPool.query(`SELECT usuario, equipos FROM asist_personal`);
+      const eqDe = {}; pers.forEach(x => { eqDe[x.usuario] = parsearEquipos(x.equipos).map(q => q.id); });
+      const sedes = await leerSedes();
+      res.json(r.map(m => ({ ...m, hora: horaLimaDe(deUtcSql(m.ts)), lat: m.lat == null ? null : Number(m.lat), lng: m.lng == null ? null : Number(m.lng),
+        observaciones: explicarMotivos(m.motivos),
+        puede_registrar_equipo: !!(m.equipo && !(eqDe[m.usuario] || []).includes(m.equipo)),
+        puede_agregar_ip: !!(m.ip && m.metodo !== 'ip' && sedes.length && !sedes.some(x => x.ips.includes(m.ip))),
+        sede_ip: sedes.length ? { id: sedes[0].id, nombre: sedes[0].nombre } : null })));
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
@@ -662,8 +919,27 @@ module.exports = function registrarAsistencia({
   app.post('/api/asistencia/admin/revisar', authAdmin, mAsis, async (req, res) => {
     try {
       await asegurarTablas();
-      const { id, estado, nota } = req.body || {};
+      const { id, estado, nota, registrar_equipo, agregar_ip_sede } = req.body || {};
       if (!['aprobada', 'rechazada'].includes(estado)) return res.status(400).json({ error: 'Estado inválido' });
+      if (estado === 'aprobada' && (registrar_equipo || agregar_ip_sede)) {
+        const [[m]] = await portalPool.query(`SELECT usuario, equipo, ip, agente, DATE_FORMAT(fecha,'%Y-%m-%d') AS fecha FROM asist_marcas WHERE id=?`, [Number(id) || 0]);
+        if (m && registrar_equipo && m.equipo) {
+          const p = await fichaDe(m.usuario);
+          const lista = parsearEquipos(p.equipos).filter(q => q.id !== m.equipo);
+          const ag = String(m.agente || '');
+          const etq = /iPhone/.test(ag) ? 'iPhone' : /Android/.test(ag) ? (/Mobile/.test(ag) ? 'Celular Android' : 'Tablet Android') : /Windows/.test(ag) ? 'PC Windows' : /Mac OS X/.test(ag) ? 'Mac' : 'Equipo';
+          lista.push({ id: m.equipo, etiqueta: etq, desde: m.fecha });
+          while (lista.length > MAX_EQUIPOS) lista.shift(); // se reemplaza el más antiguo
+          await portalPool.query(`UPDATE asist_personal SET equipos=? WHERE usuario=?`, [JSON.stringify(lista), m.usuario]);
+        }
+        if (m && agregar_ip_sede && m.ip) {
+          const [[sd]] = await portalPool.query(`SELECT ips FROM asist_sedes WHERE id=?`, [Number(agregar_ip_sede) || 0]);
+          if (sd) {
+            const ips = listaIps(sd.ips); if (!ips.includes(m.ip)) ips.push(m.ip);
+            await portalPool.query(`UPDATE asist_sedes SET ips=? WHERE id=?`, [ips.join(', ').slice(0, 500), Number(agregar_ip_sede)]);
+          }
+        }
+      }
       const [r] = await portalPool.query(
         `UPDATE asist_marcas SET estado=?, revisado_por=?, revisado_ts=UTC_TIMESTAMP(), nota_revision=? WHERE id=?`,
         [estado, quien(req), recortar(nota, 300) || null, Number(id) || 0]);
@@ -686,7 +962,7 @@ module.exports = function registrarAsistencia({
       await portalPool.query(
         `INSERT INTO asist_marcas (usuario, fecha, tipo, ts, metodo, estado, motivos, nota_revision, revisado_por, revisado_ts, creado_por)
          VALUES (?,?,?,?,'manual','manual','Marca manual',?,?,UTC_TIMESTAMP(),?)
-         ON DUPLICATE KEY UPDATE ts=VALUES(ts), metodo='manual', estado='manual', motivos=CONCAT('Corregida manualmente', IF(motivos IS NULL,'',CONCAT(' (antes: ', motivos, ')'))),
+         ON DUPLICATE KEY UPDATE ts=VALUES(ts), metodo='manual', estado='manual', motivos='Corregida manualmente',
            nota_revision=VALUES(nota_revision), revisado_por=VALUES(revisado_por), revisado_ts=UTC_TIMESTAMP()`,
         [usuario, fecha, tipo, utcSql(ts), recortar(nota, 300), quien(req), quien(req)]);
       res.json({ ok: true });
@@ -853,8 +1129,8 @@ module.exports = function registrarAsistencia({
       r.filas.forEach(f => ws2.addRow([f.fecha, DIAS[f.dia], f.nombre, f.horario, f.entrada || '', f.salida || '',
         hhmm(f.min_trabajados), sgn(f.saldo), f.min_tardanza ? f.min_tardanza + (f.tardanza_compensada ? ' (compensada)' : '') : '', f.min_salida_antes || '', ESTADO[f.estado] || f.estado,
         f.act_primera || '', f.act_ultima || '', f.min_hasta_actividad == null ? '' : f.min_hasta_actividad, f.act_acciones || '',
-        (f.fuera || []).map(x => `${x.desde}–${x.hasta || '…'} (${x.min} min)`).join(', '),
-        f.motivos, f.notas]));
+        (f.fuera || []).map(x => x.estado === 'incierto' ? `${x.desde}–? (sin aviso de regreso; en el local a las ${x.hasta})` : `${x.desde}–${x.hasta} (${x.min} min)`).join(', '),
+        (f.observaciones || []).map(o => o.texto).join(' · '), f.notas]));
       ws2.views = [{ state: 'frozen', ySplit: h2 }];
       ws2.autoFilter = { from: { row: h2, column: 1 }, to: { row: h2, column: 18 } };
 
@@ -865,5 +1141,5 @@ module.exports = function registrarAsistencia({
     } catch (e) { res.status(500).json({ error: 'Error al generar el Excel: ' + e.message }); }
   });
 
-  return { prepararTablas: asegurarTablas, _test: { salidasEn, distanciaM, ipCliente, fechaLimaDe, horaLimaDe, diaSemana } };
+  return { prepararTablas: asegurarTablas, _test: { lineaDia, distanciaM, ipCliente, fechaLimaDe, horaLimaDe, diaSemana } };
 };

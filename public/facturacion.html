@@ -177,7 +177,7 @@ a.lnk:hover{text-decoration:underline}
     <div class="card">
       <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:flex-start">
         <div><h3>Transferencias sin guía</h3>
-        <div class="desc">Entregas y devoluciones de <b>consignación</b> sin N° de documento: son las que llevan guía. Los movimientos internos (almacén principal ↔ Kuranko, exhibición, cuarentena) no aparecen porque son el mismo local. Al emitir, el N° se anota solo en la transferencia.</div></div>
+        <div class="desc">Entregas y devoluciones de <b>consignación</b> sin N° de documento (o sin RUC en las notas): son las que llevan guía. Los movimientos internos (almacén principal ↔ Kuranko, exhibición, cuarentena) no aparecen porque son el mismo local. Al emitir, el N° se anota solo en la transferencia.</div></div>
         <div class="acciones"><button class="btn btn-sec" onclick="abrirVentasGuia()">🚚 Guía desde una venta…</button></div>
       </div>
       <div class="fila"><label class="campo">Periodo<select id="mt-dias" onchange="cargarTransferencias()"><option value="15">15 días</option><option value="60" selected>60 días</option><option value="180">6 meses</option></select></label>
@@ -365,6 +365,7 @@ a.lnk:hover{text-decoration:underline}
     <label class="campo">Documento<select id="mg-tdoc" onchange="previaGuiaLenta()"><option value="6">RUC</option><option value="1">DNI</option><option value="4">Carné ext.</option><option value="7">Pasaporte</option></select></label>
     <label class="campo">Número<input id="mg-doc" oninput="previaGuiaLenta()"></label>
     <label class="campo" style="grid-column:span 2">Nombre o razón social<input id="mg-nombre" oninput="previaGuiaLenta()"></label>
+    <div class="desc" id="mg-dest-fijo" style="grid-column:span 2;display:none;color:var(--fg-ok)">✓ Datos de la ubicación de consignación en el sistema (RUC y razón social no se pueden cambiar aquí)</div>
     <label class="campo" style="grid-column:span 2">Correo<input id="mg-email" type="email"></label>
   </div>
   <div class="desc" style="margin-top:12px"><b>Recorrido</b></div>
@@ -1015,6 +1016,13 @@ async function cargarUbigeos() {
   $('dl-ubigeos').innerHTML = UBIGEOS.map(([c, n]) => `<option value="${c} · ${esc(n)}"></option>`).join('');
 }
 const ubiTxt = c => { const u = (UBIGEOS || []).find(x => x[0] === c); return c ? (u ? `${c} · ${u[1]}` : c) : ''; };
+// Ubigeo a partir de "distrito, provincia/departamento" de la ubicación del sistema (solo si es único)
+function ubigeoDe(lugar) {
+  const sinT = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+  const partes = String(lugar || '').split(',').map(sinT).filter(Boolean); if (!partes.length || !UBIGEOS) return '';
+  const c = UBIGEOS.filter(([, n]) => { const d = sinT(n).split(',').map(x => x.trim()); return d[0] === partes[0] && partes.slice(1).every(p => d.includes(p)); });
+  return c.length === 1 ? c[0][0] : '';
+}
 const ubiCod = v => (String(v || '').match(/^\s*(\d{6})/) || [])[1] || '';
 async function cargarTransferencias() {
   $('mt-body').innerHTML = '<tr><td colspan="6" class="vacio">Cargando…</td></tr>';
@@ -1025,10 +1033,14 @@ async function cargarTransferencias() {
       <td>${fechaTxt(String(t.fecha).slice(0, 10))}</td>
       <td><div class="nom">${esc(t.origen || '—')} → ${esc(t.destino || '—')}</div><div class="sub">Transferencia #${t.id}</div></td>
       <td><span class="sub">${esc(t.tipo || '')}</span></td><td class="n">${N(t.unidades, 0)}</td>
-      <td>${t.referencia ? `<span class="chip c-g">${esc(t.referencia)}</span>` : t.guia ? `<span class="chip c-w">${esc(t.guia)} (por anotar)</span>` : '<span class="sub">—</span>'}</td>
-      <td>${t.guia || t.referencia ? '' : t.interna ? `<span class="chip c-g" title="Mismo local: no necesita guía">Interno</span> <button class="btn btn-sec btn-sm" onclick="if(confirm('Es un movimiento interno (mismo local): normalmente NO lleva guía. Emitir una guía genera un documento real ante SUNAT. ¿Emitirla igual?'))abrirGuia({transfer_id:${t.id}})">Emitir igual</button>` : `<button class="btn btn-sm" onclick="abrirGuia({transfer_id:${t.id}})">Emitir guía</button>`}</td></tr>`).join('')
+      <td>${t.referencia ? `<span class="chip c-g">${esc(t.referencia)}</span>` : t.guia ? `<span class="chip c-w">${esc(t.guia)} (por anotar)</span>` : '<span class="sub">—</span>'}${t.referencia && !t.con_ruc && !t.interna ? '<div class="sub" style="color:var(--fg-w)">sin RUC en notas</div>' : ''}</td>
+      <td>${t.referencia && !t.con_ruc && !t.interna ? `<button class="btn btn-sec btn-sm" onclick="anotarRUCTransf(${t.id})">Agregar RUC a notas</button>` : t.guia || t.referencia ? '' : t.interna ? `<span class="chip c-g" title="Mismo local: no necesita guía">Interno</span> <button class="btn btn-sec btn-sm" onclick="if(confirm('Es un movimiento interno (mismo local): normalmente NO lleva guía. Emitir una guía genera un documento real ante SUNAT. ¿Emitirla igual?'))abrirGuia({transfer_id:${t.id}})">Emitir igual</button>` : `<button class="btn btn-sm" onclick="abrirGuia({transfer_id:${t.id}})">Emitir guía</button>`}</td></tr>`).join('')
       || '<tr><td colspan="6" class="vacio">No hay consignaciones sin guía en este periodo</td></tr>';
   } catch (e) { $('mt-body').innerHTML = `<tr><td colspan="6" class="vacio">${esc(e.message)}</td></tr>`; }
+}
+async function anotarRUCTransf(id) {
+  try { const r = await api(`/api/fe/guia/transferencia/${id}/ruc`, 'POST'); showToast(r.ya ? 'Ya tenía el RUC en las notas' : 'RUC agregado al final de las notas'); cargarTransferencias(); }
+  catch (e) { showToast(e.message, true); }
 }
 // Guía desde una venta: se elige de una lista con búsqueda
 function abrirVentasGuia() { $('m-ventas').classList.add('on'); cargarVentasGuia(); setTimeout(() => $('mv-q').focus(), 50); }
@@ -1084,8 +1096,14 @@ async function abrirGuia(origen) {
   const d = MG.destinatario || {};
   $('mg-tdoc').value = d.tipo_doc && d.tipo_doc !== '-' ? d.tipo_doc : (String(d.doc || '').length === 11 ? '6' : '1');
   $('mg-doc').value = d.doc && d.doc !== '-' ? d.doc : ''; $('mg-nombre').value = d.nombre || ''; $('mg-email').value = d.email || '';
-  $('mg-pdir').value = MG.partida.direccion || ''; $('mg-pubi').value = ubiTxt(MG.partida.ubigeo);
-  $('mg-ldir').value = MG.llegada.direccion || ''; $('mg-lubi').value = ubiTxt(MG.llegada.ubigeo || '');
+  ['mg-tdoc', 'mg-doc', 'mg-nombre'].forEach(k => { $(k).disabled = !!MG.destinatario_fijo; });
+  $('mg-dest-fijo').style.display = MG.destinatario_fijo || d.fuente === 'SUNAT' ? '' : 'none';
+  $('mg-dest-fijo').textContent = d.fuente === 'SUNAT'
+    ? `✓ Razón social según SUNAT${d.estado_sunat ? ' · ' + d.estado_sunat : ''}${d.condicion_sunat ? ' / ' + d.condicion_sunat : ''}${MG.destinatario_fijo ? ' · RUC de la ubicación de consignación (no se puede cambiar)' : ''}`
+    : '✓ Datos de la ubicación de consignación en el sistema (RUC no se puede cambiar aquí)';
+  if (d.fuente === 'SUNAT') $('mg-nombre').disabled = true;
+  $('mg-pdir').value = MG.partida.direccion || ''; $('mg-pubi').value = ubiTxt(MG.partida.ubigeo || ubigeoDe(MG.partida.lugar));
+  $('mg-ldir').value = MG.llegada.direccion || ''; $('mg-lubi').value = ubiTxt(MG.llegada.ubigeo || ubigeoDe(MG.llegada.lugar));
   $('mg-peso').value = ''; $('mg-bultos').value = 1;
   $('mg-obs').value = MG.venta ? 'Venta ' + MG.venta.code : MG.transferencia ? `Transferencia ${MG.transferencia.origen} → ${MG.transferencia.destino}` : ''; $('mg-mail').checked = !!MG.enviar_email;
   $('mg-rel').innerHTML = (MG.relacionados.length ? `Documento relacionado: <b>${MG.relacionados.map(r => `${NOMBRE_TIPO[r.tipo] || r.tipo} ${esc(numTxt(r.serie, r.numero))}`).join(', ')}</b>` : 'Sin comprobante relacionado.')

@@ -21,6 +21,8 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 const ESTADOS_SKU = ['A pedido', 'Pre-orden', 'Stock Lima'];
+// Sin límite: stock -1, o 0 en una bici a pedido/pre-orden (se pide a la marca). Solo «Stock Lima» o un cupo > 0 limita.
+const sinLimite = s => num(s.stock) < 0 || (num(s.stock) === 0 && s.estado !== 'Stock Lima');
 const ESTADOS_RESERVA = ['Nueva', 'Confirmada con marca', 'Adelanto pagado', 'En tránsito', 'En Lima', 'Entregada', 'Cancelada'];
 const MARCAS_BASE = ['Mondraker', 'Forestal', 'Atherton', 'Thömus', 'Crestline', 'Forbidden', 'Megamo', 'Steppenwolf', 'Revel'];
 const TALLAS_ORDEN = ['XXS', 'XS', 'S', 'S/M', 'M', 'M/L', 'L', 'L/XL', 'XL', 'XXL', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6'];
@@ -127,12 +129,13 @@ function opcionesEnvio(sku, R, tc, mod = {}, hoy = hoyLima()) {
     let cu = 0; for (const [n, pct] of Object.entries(R.cuotas || {})) { const sin = p.pen / (1 + num(R.igv) / 100) / tc.usd; if (sin > 0 && ((sin * (1 - num(pct) / 100) - p.puesto) / sin * 100) >= min && +n > cu) cu = +n; }
     const sinI = p.pen / (1 + num(R.igv) / 100) / tc.usd;
     const pp = num(R.powerpay_pct) > 0 && sinI > 0 && ((sinI * (1 - num(R.powerpay_pct) / 100) - p.puesto) / sinI * 100) >= min;
-    return { k, p: p.pen, f: calcularEntrega(sku, k, R, hoy), margen: Math.round(p.margen * 10) / 10, mb: p.margen_bajo, ma: p.margen_alto, cu, pp }; };
+    // bajo = no llega al margen mínimo → no se ofrece en la tienda (el panel sí lo muestra)
+    return { k, p: p.pen, f: calcularEntrega(sku, k, R, hoy), margen: Math.round(p.margen * 10) / 10, mb: p.margen_bajo, ma: p.margen_alto, cu, pp, ...(forzado == null && k !== 'lima' && p.margen < min ? { bajo: true } : {}) }; };
   if (sku.estado === 'Stock Lima') return [op('lima')];
   const out = [];
   if (esEbike(sku)) {
     const u = op('unidad');
-    if (mod.unidad === 'si' || (mod.unidad !== 'no' && u.margen >= min)) out.push(u);
+    if (mod.unidad === 'si' || (mod.unidad !== 'no' && u.margen >= min)) { delete u.bajo; out.push(u); }
     else {
       out.push(op('grupo'));
       // Quien no quiere esperar al grupo: envío individual pagando un adicional, con el margen en el mínimo
@@ -142,7 +145,8 @@ function opcionesEnvio(sku, R, tc, mod = {}, hoy = hoyLima()) {
     const m = op('maritimo'); out.push(m);
     const marcaOk = !R.aereo_activo ? false : (R.aereo_marcas || {})[sku.marca] !== false;
     const permitido = mod.aereo === 'si' || (mod.aereo !== 'no' && marcaOk && m.p / tc.usd <= num(R.aereo_max_usd));
-    if (permitido) out.push(op('aereo'));
+    if (mod.aereo === 'si' || mod.aereo === 'no') delete m.bajo; // decisión manual del modelo
+    if (permitido) { const a = op('aereo'); if (mod.aereo === 'si') delete a.bajo; out.push(a); }
   }
   return out;
 }
@@ -321,6 +325,21 @@ function normalizarFila(r, def = {}, hoy = hoyLima()) {
 
 const claveSku = f => f.sku ? `${norm(f.marca)}|sku|${norm(f.sku)}` : `${norm(f.marca)}|${norm(f.modelo)}|${norm(f.montaje)}|${norm(f.talla)}|${norm(f.color)}`;
 
+// Adivina el color de una foto por su nombre de archivo (p. ej. …arid-carbon-r-atmos-blue_2000.jpg → «Atmos»).
+const sinTildes = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+function colorDeFoto(url, colores) {
+  if (colores.length < 2) return '';
+  const arch = sinTildes(decodeURIComponent(String(url).split('?')[0].split('/').slice(-2).join(' '))).replace(/[^a-z0-9]+/g, ' ');
+  const pal = new Set(arch.split(' '));
+  let mejor = '', pts = 0;
+  for (const c of colores) {
+    const tk = sinTildes(c).split(/[^a-z0-9]+/).filter(t => t.length >= 3);
+    const n = tk.filter(t => pal.has(t) || (t.length >= 5 && arch.includes(t))).length;
+    if (n > pts) { pts = n; mejor = c; } else if (n && n === pts) mejor = ''; // empate: no adivina
+  }
+  return mejor;
+}
+
 // Agrupa SKUs (ya con precios) en modelos para la tienda pública.
 function armarCatalogo(skus, R, tc, hoy = hoyLima(), mods = {}) {
   const g = new Map();
@@ -339,21 +358,38 @@ function armarCatalogo(skus, R, tc, hoy = hoyLima(), mods = {}) {
     const dt = md.datos || {};
     if (dt.recorrido && !m.rec) m.rec = dt.recorrido; if (dt.material && !m.mat) m.mat = dt.material; if (dt.peso && !m.peso) m.peso = dt.peso; if (dt.motor && !m.motor) m.motor = dt.motor;
     if (md.url_ficha && !m.ficha) m.ficha = md.url_ficha;
+    if (md.confirmado) m.conf = 1;
     if (!m.img && s.url_imagen) m.img = s.url_imagen;
+    if (s.url_imagen) { m._ci = m._ci || {}; m._ci[s.url_imagen] = m._ci[s.url_imagen] || s.color; }
+    m._md = md;
     if (!m.ficha && s.url_ficha) m.ficha = s.url_ficha;
     if (!m.motor && s.motor) m.motor = s.motor;
     if (!m.montajes.includes(s.montaje)) m.montajes.push(s.montaje);
     if (!m.colores.find(c => c.n === s.color)) m.colores.push({ n: s.color, h: s.color_hex || null });
     if (!m.tallas.includes(s.talla)) m.tallas.push(s.talla);
-    const ops = opcionesEnvio(s, R, tc, md, hoy);
+    const ops = opcionesEnvio(s, R, tc, md, hoy).filter(o => !o.bajo);
+    if (!ops.length) continue; // no llega al margen mínimo: no se publica
     const base = ops.reduce((a, o) => o.p < a.p ? o : a, ops[0]);
-    const it = { id: s.id, mo: s.montaje, t: s.talla, c: s.color, d: num(s.stock) < 0 ? 99 : Math.max(0, num(s.stock) - num(s.reservado)), e: s.estado,
+    const it = { id: s.id, mo: s.montaje, t: s.talla, c: s.color, d: sinLimite(s) ? 99 : Math.max(0, num(s.stock) - num(s.reservado)), e: s.estado,
       pm: base.p, fm: base.f, op: ops.map(o => ({ k: o.k, p: o.p, f: o.f, cu: o.cu, ...(o.pp ? { pp: 1 } : {}), ...(o.adicional ? { ad: 1 } : {}) })) };
     if (s.pvp > 0) it.ref = Math.ceil(s.pvp * (s.moneda === 'EUR' ? tc.eur : tc.usd) / 10) * 10; // PVP de la marca en soles, referencia
     m.skus.push(it);
   }
   const ordT = t => { const i = TALLAS_ORDEN.indexOf(t); return i < 0 ? 99 : i; };
-  return [...g.values()].map(m => { m.tallas.sort((a, b) => ordT(a) - ordT(b)); return m; });
+  return [...g.values()].filter(m => m.skus.length).map(m => {
+    m.tallas = m.tallas.filter(t => m.skus.some(x => x.t === t)); m.colores = m.colores.filter(c => m.skus.some(x => x.c === c.n)); m.montajes = m.montajes.filter(mo => m.skus.some(x => x.mo === mo));
+    m.tallas.sort((a, b) => ordT(a) - ordT(b));
+    // Fotos por color: lo asignado a mano en «Modelos», si no el nombre del color en el archivo de la foto, si no la foto del Excel de ese color.
+    const gal = (m.gal || []).slice(), man = (m._md && m._md.imgc) || {}, ci = m._ci || {};
+    for (const u of Object.keys(ci)) if (!gal.includes(u)) gal.push(u);
+    if (gal.length) {
+      const gc = gal.map(u => man[u] !== undefined ? man[u] : ci[u] || colorDeFoto(u, m.colores.map(c => c.n)));
+      if (gc.some(Boolean)) m.gc = gc;
+      m.gal = gal; m.img = m.img || gal[0];
+    }
+    delete m._ci; delete m._md;
+    return m;
+  });
 }
 
 // ── Tipo de cambio (misma fuente que Precio importado, caché propia) ──────────
@@ -689,7 +725,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
           descripcion TEXT NULL, imagenes MEDIUMTEXT NULL, url_ficha VARCHAR(500) NULL, aereo VARCHAR(5) NOT NULL DEFAULT 'auto', unidad VARCHAR(5) NOT NULL DEFAULT 'auto',
           specs MEDIUMTEXT NULL, datos TEXT NULL, manual TINYINT(1) NOT NULL DEFAULT 0,
           actualizado DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (marca, modelo)) DEFAULT CHARSET=utf8mb4`);
-      for (const col of ['specs MEDIUMTEXT NULL', 'datos TEXT NULL', 'manual TINYINT(1) NOT NULL DEFAULT 0'])
+      for (const col of ['specs MEDIUMTEXT NULL', 'datos TEXT NULL', 'manual TINYINT(1) NOT NULL DEFAULT 0', 'img_colores MEDIUMTEXT NULL', 'confirmado TINYINT(1) NOT NULL DEFAULT 0'])
         await portalPool.query(`ALTER TABLE bk_modelos ADD COLUMN ${col}`).catch(() => {}); // ya existe
       await portalPool.query(`CREATE TABLE IF NOT EXISTS bk_llamadas (id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY, creado DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
           nombre VARCHAR(120) NOT NULL, tel VARCHAR(15) NOT NULL, fecha DATE NULL, franja VARCHAR(30) NULL, tema VARCHAR(300) NULL, ref VARCHAR(60) NULL,
@@ -721,10 +757,10 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
 
   async function leerModelos() {
     await prepararTablas();
-    const [rows] = await portalPool.query('SELECT marca, modelo, descripcion, imagenes, url_ficha, aereo, unidad, specs, datos, manual FROM bk_modelos');
+    const [rows] = await portalPool.query('SELECT marca, modelo, descripcion, imagenes, img_colores, confirmado, url_ficha, aereo, unidad, specs, datos, manual FROM bk_modelos');
     const out = {}, js = (t, d) => { try { return JSON.parse(t || '') ?? d; } catch (e) { return d; } };
     for (const r of rows) out[r.marca + '|' + r.modelo] = { desc: r.descripcion || '', imgs: js(r.imagenes, []), url_ficha: r.url_ficha || null, aereo: r.aereo, unidad: r.unidad,
-      specs: js(r.specs, []), datos: js(r.datos, {}), manual: !!r.manual };
+      specs: js(r.specs, []), datos: js(r.datos, {}), manual: !!r.manual, imgc: js(r.img_colores, {}), confirmado: !!r.confirmado };
     return out;
   }
   // Envíos en grupo (e-bikes): reservas activas con envío "grupo", por marca
@@ -857,9 +893,10 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       const [[s]] = await conn.query(`SELECT ${COLS} FROM bk_skus WHERE id=? AND activo=1 FOR UPDATE`, [num(b.sku_id)]);
       if (!s) { await conn.rollback(); return res.status(404).json({ error: 'Esa combinación ya no está disponible. Actualiza la página.' }); }
       s.costo = num(s.costo);
-      if (num(s.stock) >= 0 && num(s.stock) - num(s.reservado) <= 0) { await conn.rollback(); return res.status(409).json({ error: `La talla ${s.talla} en ${s.color} se acaba de agotar. Elige otra o escríbenos por WhatsApp.` }); }
+      if (!sinLimite(s) && num(s.stock) - num(s.reservado) <= 0) { await conn.rollback(); return res.status(409).json({ error: `La talla ${s.talla} en ${s.color} se acaba de agotar. Elige otra o escríbenos por WhatsApp.` }); }
       const mods = await leerModelos();
-      const ops = opcionesEnvio(s, R, tc, mods[s.marca + '|' + s.modelo] || {});
+      const ops = opcionesEnvio(s, R, tc, mods[s.marca + '|' + s.modelo] || {}).filter(o => !o.bajo);
+      if (!ops.length) { await conn.rollback(); return res.status(409).json({ error: 'Esta bici ya no está disponible a pedido. Escríbenos por WhatsApp y te ayudamos.' }); }
       const op = ops.find(o => o.k === String(b.envio || '')) || ops[0];
       const env = op.k;
       const p = calcularPrecio(s, env, R, tc, op.adicional ? num(R.margen_minimo) : null);
@@ -893,19 +930,20 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
         envTxt += g.actual === 0 ? ` (¡grupo completo de ${g.min}!)` : ` (${g.actual} de ${g.min}; faltan ${g.min - g.actual})`;
       }
       const fechasTxt = `${fechaCorta(fechas[0])} – ${fechaCorta(fechas[1])}`;
-      const msg = `Hola Kuranko, hice la reserva ${codigo}: ${s.marca} ${s.modelo} ${s.montaje}, talla ${s.talla}, color ${s.color}, envío ${envTxt}.\n` +
-        `Precio final: ${soles(total)} · Adelanto: ${soles(adelanto)}\nEntrega estimada: ${fechasTxt}\nNombre: ${nombre} · DNI/RUC: ${doc}`;
+      const msg = `Hola Kuranko, envié la solicitud de reserva ${codigo}: ${s.marca} ${s.modelo}${s.montaje && s.montaje !== 'Base' ? ' ' + s.montaje : ''}, talla ${s.talla}, color ${s.color}, envío ${envTxt}.\n` +
+        `Precio final: ${soles(total)} · Adelanto al confirmar: ${soles(adelanto)}\nEntrega estimada: ${fechasTxt}\nNombre: ${nombre} · DNI/RUC: ${doc}\n¿Me confirman la disponibilidad?`;
       const fila = (a, v) => `<tr><td style="padding:6px 10px;border-bottom:1px solid #eee;color:#666;font-size:14px">${escH(a)}</td><td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:14px;color:#111"><b>${escH(v)}</b></td></tr>`;
       const tabla = [['Bici', `${s.marca} ${s.modelo} ${s.montaje}`], ['Talla / color', `${s.talla} · ${s.color}`], ['Envío', envTxt], ['Entrega estimada', fechasTxt],
         ['Extras', extras.map(e => e.nombre).join(', ') || '—'], ['Precio final', soles(total)], [`Adelanto (${R.adelanto}%)`, soles(adelanto)], ['Saldo al recibir', soles(total - adelanto)]].map(x => fila(...x)).join('');
       const caja = (titulo, extra) => `<div style="background:#f3f4f6;padding:16px;font-family:Arial,Helvetica,sans-serif"><div style="max-width:600px;margin:auto;background:#fff;border-radius:10px;padding:20px">
         <div style="font-size:20px;font-weight:bold;color:#111">${titulo}</div>${extra}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-top:12px">${tabla}</table></div></div>`;
       const wa = process.env.BIKES_WHATSAPP || '51963358335';
-      const interno = caja(`Nueva reserva ${escH(codigo)}`, `<p style="color:#444;font-size:14px">${escH(nombre)} · DNI/RUC ${escH(doc)} · WhatsApp ${escH(tel)}${email ? ' · ' + escH(email) : ''} · ${escH(ciudad)}${ref ? ' · vendedor: ' + escH(ref) : ''}</p>
+      const interno = caja(`Nueva solicitud de reserva ${escH(codigo)}`, `<p style="color:#444;font-size:14px">${escH(nombre)} · DNI/RUC ${escH(doc)} · WhatsApp ${escH(tel)}${email ? ' · ' + escH(email) : ''} · ${escH(ciudad)}${ref ? ' · vendedor: ' + escH(ref) : ''}</p>
         <p><a href="https://wa.me/51${escH(tel)}" style="background:#25d366;color:#fff;text-decoration:none;padding:10px 16px;border-radius:6px;font-weight:bold;font-size:14px">Escribir al cliente</a></p>`);
-      enviarCorreo((process.env.BIKES_EMAIL || 'info@kuranko.pe,ventas@kuranko.pe').split(',').map(x => x.trim()).filter(Boolean), `Reserva ${codigo}: ${s.marca} ${s.modelo} ${s.talla} · ${soles(total)}`, interno, msg);
-      if (email) enviarCorreo([email], `Tu reserva ${codigo} en Kuranko Bikes`, caja(`Recibimos tu reserva ${escH(codigo)}`,
-        `<p style="color:#444;font-size:14px">Hola ${escH(nombre.split(' ')[0])}, un asesor confirmará la unidad con ${escH(s.marca)} y te escribirá al ${escH(tel)} para coordinar el adelanto. El precio se mantiene ${escH(R.validez_horas)} horas. Si la marca no puede entregar, te devolvemos el adelanto completo.</p>
+      enviarCorreo((process.env.BIKES_EMAIL || 'info@kuranko.pe,ventas@kuranko.pe').split(',').map(x => x.trim()).filter(Boolean), `Solicitud ${codigo}: ${s.marca} ${s.modelo} ${s.talla} · ${soles(total)} · confirmar con la marca`, interno, msg);
+      if (email) enviarCorreo([email], `Tu solicitud de reserva ${codigo} en Kuranko Bikes`, caja(`Recibimos tu solicitud ${escH(codigo)}`,
+        `<p style="color:#444;font-size:14px">Hola ${escH(nombre.split(' ')[0])}, no tienes que pagar nada todavía. Vamos a confirmar la disponibilidad con ${escH(s.marca)} y te escribiremos por WhatsApp al ${escH(tel)}, normalmente en menos de 24 horas hábiles.</p>
+         <p style="color:#444;font-size:14px">Cuando esté confirmada, separas tu bici con el adelanto de ${escH(soles(adelanto))} (link de pago, Yape, transferencia o en tienda; también en cuotas). El saldo lo pagas al recibirla. El precio se mantiene ${escH(R.validez_horas)} horas.</p>
          <p style="color:#444;font-size:14px">Consulta el estado en bikes.kuranko.pe con tu código y DNI. WhatsApp: +${escH(wa)}</p>`), msg);
 
       res.json({ ok: true, codigo, total, adelanto, saldo: total - adelanto, fechas, envio: env, mensaje: msg, whatsapp: wa });
@@ -1006,7 +1044,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
         const p = calcularPrecio(s, ops[0].k, R, tc);
         const ms = ops.flatMap(o => [o.mb, o.ma]);
         return { ...s, precio: p.pen, puesto: Math.round(p.puesto), ganancia: Math.round(p.ganancia), margen: p.margen,
-          envios: ops.map(o => ({ k: o.k, p: o.p, margen: o.margen, mb: Math.floor(o.mb), ma: Math.ceil(o.ma) })), margen_min: Math.min(...ms), margen_max: Math.max(...ms),
+          envios: ops.map(o => ({ k: o.k, p: o.p, margen: o.margen, mb: Math.floor(o.mb), ma: Math.ceil(o.ma), ...(o.bajo ? { bajo: 1 } : {}) })), margen_min: Math.min(...ms), margen_max: Math.max(...ms),
           pvp_pen: s.pvp > 0 ? ceil10(s.pvp * (s.moneda === 'EUR' ? tc.eur : tc.usd)) : null };
       });
       const [reservas] = await portalPool.query(`SELECT id, codigo, UNIX_TIMESTAMP(creado) creado, sku_id, marca, modelo, montaje, talla, color, envio, extras,
@@ -1242,11 +1280,24 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
     try {
       await prepararTablas();
       const specs = (Array.isArray(b.specs) ? b.specs : null);
-      await portalPool.query(`INSERT INTO bk_modelos (marca, modelo, descripcion, imagenes, url_ficha, aereo, unidad, specs, manual) VALUES (?,?,?,?,?,?,?,?,1)
+      await portalPool.query(`INSERT INTO bk_modelos (marca, modelo, descripcion, imagenes, url_ficha, aereo, unidad, specs, img_colores, manual) VALUES (?,?,?,?,?,?,?,?,?,1)
         ON DUPLICATE KEY UPDATE descripcion=VALUES(descripcion), imagenes=VALUES(imagenes), url_ficha=VALUES(url_ficha), aereo=VALUES(aereo), unidad=VALUES(unidad),
-          specs=IFNULL(VALUES(specs), specs), manual=1, actualizado=NOW()`,
+          specs=IFNULL(VALUES(specs), specs), img_colores=VALUES(img_colores), manual=1, actualizado=NOW()`,
         [marca, modelo, String(b.descripcion || '').slice(0, 4000), JSON.stringify(imgs), /^https?:\/\//i.test(b.url_ficha || '') ? String(b.url_ficha).slice(0, 500) : null, ok(b.aereo), ok(b.unidad),
-          specs ? JSON.stringify(specs.slice(0, 25).map(x => ({ k: String(x.k || '').slice(0, 40), v: String(x.v || '').slice(0, 200) })).filter(x => x.k && x.v)) : null]);
+          specs ? JSON.stringify(specs.slice(0, 25).map(x => ({ k: String(x.k || '').slice(0, 40), v: String(x.v || '').slice(0, 200) })).filter(x => x.k && x.v)) : null,
+          JSON.stringify(Object.fromEntries(Object.entries(b.img_colores && typeof b.img_colores === 'object' ? b.img_colores : {}).filter(([u]) => imgs.includes(u)).map(([u, c]) => [u, String(c || '').slice(0, 80)])))]);
+      limpiarCache(); res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Disponibilidad confirmada por la marca (sello en la tienda)
+  app.post('/api/bikes/admin/modelo-confirmado', authAdmin, mBikes, async (req, res) => {
+    const b = req.body || {};
+    const marca = String(b.marca || '').slice(0, 60), modelo = String(b.modelo || '').slice(0, 120);
+    if (!marca || !modelo) return res.status(400).json({ error: 'Falta el modelo' });
+    try {
+      await prepararTablas();
+      await portalPool.query(`INSERT INTO bk_modelos (marca, modelo, confirmado) VALUES (?,?,?) ON DUPLICATE KEY UPDATE confirmado=VALUES(confirmado)`, [marca, modelo, b.confirmado ? 1 : 0]);
       limpiarCache(); res.json({ ok: true });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });

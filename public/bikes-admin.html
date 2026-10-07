@@ -180,6 +180,16 @@ let E=null; // estado del servidor
 let SEL=new Set();
 
 /* ---------- Reservas ---------- */
+// Mensajes de WhatsApp al cliente según la etapa de la reserva
+const ETAPA_MSG={'Nueva':'confirmar y pedir adelanto','Confirmada con marca':'recordar adelanto','Adelanto pagado':'adelanto recibido','En tránsito':'aviso en camino','En Lima':'coordinar entrega','Entregada':'pedir reseña'};
+function msgCliente(r){const n=(r.nombre||'').split(' ')[0],bici=`${r.marca} ${r.modelo}${r.montaje&&r.montaje!=='Base'?' '+r.montaje:''} talla ${r.talla} ${r.color}`,cod=r.codigo,f=`${fD(r.fecha_min)} – ${fD(r.fecha_max)}`;
+  const pagos=`Puedes pagarlo por link de pago con tarjeta (también en cuotas), Yape, transferencia o en nuestra tienda de Magdalena.`;
+  return ({'Nueva':`Hola ${n}, soy de Kuranko. ¡Buenas noticias! ${bici} está disponible (reserva ${cod}). Para separarla, el adelanto es ${soles(r.adelanto)}. ${pagos} ¿Por cuál prefieres que te lo envíe?`,
+    'Confirmada con marca':`Hola ${n}, te recuerdo que tu ${bici} (reserva ${cod}) ya está confirmada con la marca. Para asegurarla y mantener el precio de ${soles(r.total)}, falta el adelanto de ${soles(r.adelanto)}. ${pagos}`,
+    'Adelanto pagado':`Hola ${n}, recibimos tu adelanto de ${soles(r.adelanto)}. ¡Gracias! Ya pedimos tu ${bici} a la marca. Entrega estimada: ${f}. Te avisamos en cada etapa. Tu código para ver el estado en bikes.kuranko.pe es ${cod}.`,
+    'En tránsito':`Hola ${n}, tu ${bici} ya está en camino a Lima. Entrega estimada: ${f}. Te avisamos apenas pase aduana.`,
+    'En Lima':`Hola ${n}, ¡tu ${bici} ya llegó a Lima! La estamos armando y ajustando. El saldo es ${soles(r.total-r.adelanto)}. ¿Qué día te queda bien para recogerla o enviarla?`,
+    'Entregada':`Hola ${n}, esperamos que estés disfrutando tu ${r.marca} ${r.modelo}. Si tienes un minuto, ¿nos dejarías una reseña? Nos ayuda muchísimo. Cualquier ajuste, aquí estamos.`}[r.estado])||`Hola ${n}, te escribo de Kuranko por tu reserva ${cod}.`}
 const PILL={'Nueva':'p-w','Confirmada con marca':'p-b','Adelanto pagado':'p-b','En tránsito':'p-b','En Lima':'p-ok','Entregada':'p-ok','Cancelada':'p-r'};
 function pintarReservas(){
   const R=E.reservas,ab=R.filter(r=>!['Entregada','Cancelada'].includes(r.estado));
@@ -196,9 +206,9 @@ function pintarReservas(){
     return `<tr><td><b>${esc(r.codigo)}</b>${r.ref?`<br><span class="muted">vend.: ${esc(r.ref)}</span>`:''}</td><td>${esc(r.creado)}${vencida?'<br><span class="pill p-r">precio vencido</span>':''}</td>
     <td>${esc(r.nombre)}<br><span class="muted">${esc(r.doc)} · <a href="https://wa.me/51${esc(r.tel)}" target="_blank" rel="noopener" style="color:var(--accent)">${esc(r.tel)}</a>${r.email?' · '+esc(r.email):''} · ${esc(r.ciudad||'')}</span></td>
     <td>${esc(r.marca)} ${esc(r.modelo)} ${esc(r.montaje)}<br><span class="muted">Talla ${esc(r.talla)} · ${esc(r.color)}</span></td>
-    <td>${esc(r.envio==='lima'?'Stock Lima':r.envio==='aereo'?'Aéreo':'Marítimo')}<br><span class="muted">${fD(r.fecha_min)} – ${fD(r.fecha_max)}</span></td>
+    <td>${esc({lima:'Stock Lima',aereo:'Aéreo',maritimo:'Marítimo',unidad:'Marítimo individual',grupo:'Marítimo en grupo'}[r.envio]||r.envio)}<br><span class="muted">${fD(r.fecha_min)} – ${fD(r.fecha_max)}</span></td>
     <td class="n">${soles(r.total)}</td><td class="n">${soles(r.adelanto)}</td>
-    <td><select data-res="${r.id}" data-campo="estado">${E.estados_reserva.map(s=>`<option ${s===r.estado?'selected':''}>${s}</option>`).join('')}</select><br><span class="pill ${PILL[r.estado]||''}" style="margin-top:4px">${esc(r.estado)}</span>${r.actualizado_por?`<br><span class="muted">${esc(r.actualizado_por)} · ${esc(r.actualizado)}</span>`:''}</td>
+    <td><a class="btn sec" style="padding:3px 8px;font-size:12px;margin-bottom:4px;display:inline-block" href="https://wa.me/51${esc(r.tel)}?text=${encodeURIComponent(msgCliente(r))}" target="_blank" rel="noopener" title="Abre WhatsApp con el mensaje de esta etapa ya escrito">WhatsApp: ${esc(ETAPA_MSG[r.estado]||'escribir')}</a><br><select data-res="${r.id}" data-campo="estado">${E.estados_reserva.map(s=>`<option ${s===r.estado?'selected':''}>${s}</option>`).join('')}</select><br><span class="pill ${PILL[r.estado]||''}" style="margin-top:4px">${esc(r.estado)}</span>${r.actualizado_por?`<br><span class="muted">${esc(r.actualizado_por)} · ${esc(r.actualizado)}</span>`:''}</td>
     <td><input data-res="${r.id}" data-campo="venta_erp" value="${esc(r.venta_erp||'')}" placeholder="N° venta" style="width:100px"></td>
     <td><textarea data-res="${r.id}" data-campo="nota_interna" placeholder="Nota" style="width:200px">${esc(r.nota_interna||'')}</textarea></td></tr>`}).join('')}</tbody></table>`
     :'<p class="muted" style="padding:14px">No hay reservas con este filtro.</p>';
@@ -258,7 +268,7 @@ function pintarCatalogo(){
     L.slice(0,1500).map(s=>{const d=s.pvp_pen?Math.round((s.precio/s.pvp_pen-1)*100):null;return `<tr class="${s.activo?'':'off'}"><td><input type="checkbox" data-sel="${s.id}" ${SEL.has(s.id)?'checked':''}></td><td>${esc(s.marca)}</td><td>${esc(s.modelo)}</td><td>${esc(s.montaje)}</td><td>${esc(s.talla)}</td><td>${esc(s.color)}</td><td class="muted">${esc(s.sku||'')}</td>
     <td class="n">${esc(s.moneda)} ${fmt(s.costo)}</td><td class="n">${fmt(s.puesto)}</td><td class="n" style="color:${s.margen_min<E.reglas.margen_minimo?'var(--fg-r)':'inherit'}">${rangoM(s.margen_min,s.margen_max)}</td><td class="n"><b>${soles(s.precio)}</b></td>
     <td class="n">${s.pvp_pen?soles(s.pvp_pen)+` <span class="${d>0?'err':'muted'}">${d>0?'+':''}${d}%</span>`:'—'}</td>
-    <td class="n">${s.stock<0?`<span class="pill p-b" title="Se pide a la marca">sin límite</span>`:`<input class="edit" type="number" min="0" data-sku="${s.id}" data-campo="stock" value="${s.stock}">`}</td><td class="n">${s.reservado||0}</td>
+    <td class="n">${s.stock<0?`<span class="pill p-b" title="Se pide a la marca">sin límite</span>`:`<input class="edit" type="number" min="0" data-sku="${s.id}" data-campo="stock" value="${s.stock||s.estado==='Stock Lima'?s.stock:''}" placeholder="sin límite" title="Vacío o 0 = sin límite (a pedido). Pon un número solo si la marca te da un cupo o es Stock Lima.">`}</td><td class="n">${s.reservado||0}</td>
     <td><select data-sku="${s.id}" data-campo="estado">${E.estados_sku.map(x=>`<option ${x===s.estado?'selected':''}>${x}</option>`).join('')}</select></td>
     <td><input type="date" data-sku="${s.id}" data-campo="fecha_disponible" value="${esc(s.fecha_disponible||'')}"></td><td class="muted">${esc(s.actualizado)}</td></tr>`}).join('')}</tbody></table>${L.length>1500?'<p class="muted" style="padding:8px">Mostrando 1500 de '+L.length+'. Usa los filtros.</p>':''}`;
   $('#catSel').textContent=SEL.size+' seleccionados';
@@ -446,20 +456,21 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-logook]');
 /* ---------- Modelos: fotos, descripción y envío ---------- */
 let MOD_ED=null;
 function pintarModelos(){
-  const g=new Map();E.skus.filter(s=>s.activo).forEach(s=>{const k=s.marca+'|'+s.modelo;const x=g.get(k)||{marca:s.marca,modelo:s.modelo,cat:s.categoria,n:0,foto:false,ebike:s.categoria==='E-MTB'||!!s.motor,mmin:99,mmax:-99,envs:new Set()};x.n++;if(s.url_imagen)x.foto=true;x.mmin=Math.min(x.mmin,s.margen_min);x.mmax=Math.max(x.mmax,s.margen_max);(s.envios||[]).forEach(o=>x.envs.add(o.k));g.set(k,x)});
+  const g=new Map();E.skus.filter(s=>s.activo).forEach(s=>{const k=s.marca+'|'+s.modelo;const x=g.get(k)||{marca:s.marca,modelo:s.modelo,cat:s.categoria,n:0,foto:false,ebike:s.categoria==='E-MTB'||!!s.motor,mmin:99,mmax:-99,envs:new Set()};x.n++;if(s.url_imagen)x.foto=true;x.mmin=Math.min(x.mmin,s.margen_min);x.mmax=Math.max(x.mmax,s.margen_max);(s.envios||[]).forEach(o=>{x.envs.add(o.k);if(!o.bajo)x.pub=true;else(x.bajos=x.bajos||new Set()).add(o.k)});g.set(k,x)});
   const q=($('#modQ').value||'').toLowerCase(),sin=$('#modSin').checked;
   const todos=[...g.values()];todos.forEach(x=>x.falta=FALTA(E.modelos[x.marca+'|'+x.modelo]||{},x));
   const inc=todos.filter(x=>x.falta.length).length;
   $('#modRes').innerHTML=`<b>${todos.length-inc}</b> de ${todos.length} modelos con ficha completa${inc?` · <span style="color:var(--fg-warn)">${inc} incompletos ${E.reglas.solo_completos!==false?'(ocultos en la tienda)':'(se ven igual en la tienda)'}</span>`:''}`;
   const L=todos.filter(x=>(!q||(x.marca+' '+x.modelo).toLowerCase().includes(q))&&(!sin||x.falta.length));
   const ENV={maritimo:'Marítimo',aereo:'Aéreo',unidad:'Mar. individual',grupo:'Mar. en grupo',lima:'Stock Lima'};
-  $('#modTbl').innerHTML=`<table><thead><tr><th>Foto</th><th>Marca</th><th>Modelo</th><th class="n">SKUs</th><th>Ficha</th><th>Envíos que se ofrecen</th><th class="n">Margen</th><th>Aéreo</th>${''}<th></th></tr></thead><tbody>${L.slice(0,400).map(x=>{const md=E.modelos[x.marca+'|'+x.modelo]||{};const im=(md.imgs||[])[0];
+  $('#modTbl').innerHTML=`<table><thead><tr><th>Foto</th><th>Marca</th><th>Modelo</th><th class="n">SKUs</th><th>Ficha</th><th>Envíos que se ofrecen</th><th class="n">Margen</th><th>Aéreo</th><th title="Marca un modelo cuando la marca te confirmó que tiene unidades. En la tienda sale el sello «Stock confirmado».">Stock confirmado</th><th></th></tr></thead><tbody>${L.slice(0,400).map(x=>{const md=E.modelos[x.marca+'|'+x.modelo]||{};const im=(md.imgs||[])[0];
     const col=x.mmin<E.reglas.margen_minimo?'var(--fg-r)':x.mmin<E.reglas.margen_minimo+10?'var(--fg-warn)':'var(--fg-ok)';
     return `<tr><td>${im?`<img src="${esc(im)}" style="width:56px;height:40px;object-fit:contain;background:#fff;border-radius:4px">`:'<span class="pill p-w">sin foto</span>'}</td><td>${esc(x.marca)}</td><td><b>${esc(x.modelo)}</b><br><span class="muted">${esc(x.cat)}${x.ebike?' · e-bike':''}</span></td><td class="n">${x.n}</td>
     <td>${x.falta.length?`<span class="pill p-w">falta ${x.falta.join(', ')}</span>`:'<span class="pill p-ok">completa</span>'}</td>
-    <td>${[...x.envs].map(k=>`<span class="pill ${k==='grupo'?'p-w':'p-b'}">${ENV[k]||k}</span>`).join(' ')}</td>
+    <td>${x.pub?'':'<span class="pill p-r" title="Ninguna opción de envío llega al margen mínimo">no se publica · margen bajo</span> '}${[...x.envs].map(k=>{const b=x.bajos&&x.bajos.has(k)&&!(E.skus.some(s=>s.marca===x.marca&&s.modelo===x.modelo&&(s.envios||[]).some(o=>o.k===k&&!o.bajo)));return `<span class="pill ${b?'p-r':k==='grupo'?'p-w':'p-b'}" ${b?'style="text-decoration:line-through" title="No llega al margen mínimo: no se ofrece"':''}>${ENV[k]||k}</span>`}).join(' ')}</td>
     <td class="n" style="color:${col}"><b>${rangoM(x.mmin,x.mmax)}</b></td>
     <td>${x.ebike?'<span class="muted">no vuela</span>':`<select data-modaer="${esc(x.marca+'|'+x.modelo)}">${['auto','si','no'].map(v=>`<option value="${v}" ${(md.aereo||'auto')===v?'selected':''}>${{auto:'Automático',si:'Siempre',no:'Nunca'}[v]}</option>`).join('')}</select>`}</td>
+    <td style="text-align:center"><input type="checkbox" data-modconf="${esc(x.marca+'|'+x.modelo)}" ${md.confirmado?'checked':''}></td>
     <td><button class="btn sec" style="padding:4px 10px;font-size:12px" data-moded="${esc(x.marca+'|'+x.modelo)}">Fotos y descripción</button></td></tr>`}).join('')}</tbody></table>`;
   const ed=$('#modEd');
   if(!MOD_ED){ed.innerHTML='';return}
@@ -468,7 +479,7 @@ function pintarModelos(){
     <p class="desc">Pega el link del modelo en la web de la marca y toca «Traer». Elige las fotos que quieres mostrar (la primera es la principal) y revisa la descripción.</p>
     <div class="row" style="margin:10px 0"><input id="medUrl" style="flex:1;min-width:240px" placeholder="https://mondraker.com/…/foxy-carbon-rr" value="${esc(MOD_ED.url??md.url_ficha??'')}"><button class="btn" id="medTraer">Traer fotos y descripción</button></div>
     <div id="medMsg" class="muted"></div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin:10px 0">${MOD_ED.imgs.map((u,i)=>`<label style="position:relative;border:2px solid ${MOD_ED.sel.has(u)?'var(--accent)':'var(--border)'};border-radius:8px;overflow:hidden;background:#fff;cursor:pointer"><input type="checkbox" data-medimg="${i}" ${MOD_ED.sel.has(u)?'checked':''} style="position:absolute;top:6px;left:6px"><img src="${esc(u)}" style="width:100%;height:90px;object-fit:contain" loading="lazy"></label>`).join('')||'<span class="muted">Sin fotos todavía.</span>'}</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin:10px 0">${MOD_ED.imgs.map((u,i)=>`<div><label style="display:block;position:relative;border:2px solid ${MOD_ED.sel.has(u)?'var(--accent)':'var(--border)'};border-radius:8px;overflow:hidden;background:#fff;cursor:pointer"><input type="checkbox" data-medimg="${i}" ${MOD_ED.sel.has(u)?'checked':''} style="position:absolute;top:6px;left:6px"><img src="${esc(u)}" style="width:100%;height:90px;object-fit:contain" loading="lazy"></label>${MOD_ED.cols.length>1?`<select data-medcol="${i}" title="Color de esta foto" style="width:100%;margin-top:4px;font-size:12px;padding:4px"><option value="__auto" ${MOD_ED.imgc[u]===undefined?'selected':''}>Color: automático</option><option value="" ${MOD_ED.imgc[u]===''?'selected':''}>Todos los colores</option>${MOD_ED.cols.map(c=>`<option ${MOD_ED.imgc[u]===c?'selected':''}>${esc(c)}</option>`).join('')}</select>`:''}</div>`).join('')||'<span class="muted">Sin fotos todavía.</span>'}</div>
     <div class="row" style="margin-bottom:8px"><input id="medAdd" style="flex:1;min-width:240px" placeholder="O pega aquí el link de una foto"><button class="btn sec" id="medAddB">Agregar foto</button></div>
     ${(MOD_ED.specs||md.specs||[]).length?`<details style="margin-bottom:8px"><summary class="muted">${(MOD_ED.specs||md.specs).length} especificaciones</summary><table>${(MOD_ED.specs||md.specs).map(x=>`<tr><td class="muted">${esc(x.k)}</td><td style="white-space:normal">${esc(x.v)}</td></tr>`).join('')}</table></details>`:''}
     <label class="muted" style="display:grid;gap:4px">Descripción<textarea id="medDesc" style="min-height:110px">${esc(MOD_ED.desc??md.desc??'')}</textarea></label>
@@ -479,12 +490,14 @@ document.addEventListener('input',e=>{if(e.target.id==='modQ')pintarModelos()});
 document.addEventListener('change',async e=>{const el=e.target;
   if(el.id==='modSin')pintarModelos();
   if(el.dataset.modaer){const [marca,modelo]=el.dataset.modaer.split('|');const md=E.modelos[el.dataset.modaer]||{};
-    try{await api('/api/bikes/admin/modelo',{method:'POST',body:JSON.stringify({marca,modelo,descripcion:md.desc||'',imagenes:md.imgs||[],url_ficha:md.url_ficha||'',aereo:el.value,unidad:md.unidad||'auto'})});toast('Guardado');await cargar()}catch(err){toast(err.message)}}
+    try{await api('/api/bikes/admin/modelo',{method:'POST',body:JSON.stringify({marca,modelo,descripcion:md.desc||'',imagenes:md.imgs||[],url_ficha:md.url_ficha||'',aereo:el.value,unidad:md.unidad||'auto',img_colores:md.imgc||{}})});toast('Guardado');await cargar()}catch(err){toast(err.message)}}
+  if(el.dataset.modconf){const [marca,modelo]=el.dataset.modconf.split('|');try{await api('/api/bikes/admin/modelo-confirmado',{method:'POST',body:JSON.stringify({marca,modelo,confirmado:el.checked})});toast(el.checked?'Sale con el sello «Stock confirmado»':'Sello quitado');await cargar()}catch(err){toast(err.message)}return}
+  if(el.dataset.medcol!==undefined&&MOD_ED){const u=MOD_ED.imgs[+el.dataset.medcol];if(el.value==='__auto')delete MOD_ED.imgc[u];else MOD_ED.imgc[u]=el.value;return}
   if(el.dataset.medimg!==undefined&&MOD_ED){const u=MOD_ED.imgs[+el.dataset.medimg];el.checked?MOD_ED.sel.add(u):MOD_ED.sel.delete(u);MOD_ED.desc=$('#medDesc').value;pintarModelos()}
 });
 document.addEventListener('click',async e=>{const t=e.target;
   const ed=t.closest('[data-moded]');if(ed){const md=E.modelos[ed.dataset.moded]||{};const sk=E.skus.find(s=>s.marca+'|'+s.modelo===ed.dataset.moded)||{};
-    MOD_ED={k:ed.dataset.moded,imgs:[...(md.imgs||[])],sel:new Set(md.imgs||[]),ebike:sk.categoria==='E-MTB'||!!sk.motor};pintarModelos();$('#modEd').scrollIntoView({behavior:'smooth'});return}
+    MOD_ED={k:ed.dataset.moded,imgs:[...(md.imgs||[])],sel:new Set(md.imgs||[]),imgc:{...(md.imgc||{})},cols:[...new Set(E.skus.filter(x=>x.marca+'|'+x.modelo===ed.dataset.moded).map(x=>x.color))],ebike:sk.categoria==='E-MTB'||!!sk.motor};pintarModelos();$('#modEd').scrollIntoView({behavior:'smooth'});return}
   if(!MOD_ED)return;
   if(t.id==='medCerrar'){MOD_ED=null;pintarModelos()}
   if(t.id==='medTraer'){const url=$('#medUrl').value.trim();if(!url)return toast('Pega el link primero');t.disabled=true;t.textContent='Leyendo la página…';
@@ -494,7 +507,7 @@ document.addEventListener('click',async e=>{const t=e.target;
     catch(err){MOD_ED.url=url;MOD_ED.desc=$('#medDesc').value;pintarModelos();$('#medMsg').innerHTML=`<span class="err">${esc(err.message)}</span>`}}
   if(t.id==='medAddB'){const u=$('#medAdd').value.trim();if(!/^https?:\/\//.test(u))return toast('Pega un link que empiece con https://');MOD_ED.imgs.push(u);MOD_ED.sel.add(u);MOD_ED.desc=$('#medDesc').value;MOD_ED.url=$('#medUrl').value;pintarModelos()}
   if(t.id==='medGuardar'){const [marca,modelo]=MOD_ED.k.split('|');const md=E.modelos[MOD_ED.k]||{};
-    try{await api('/api/bikes/admin/modelo',{method:'POST',body:JSON.stringify({marca,modelo,descripcion:$('#medDesc').value,imagenes:MOD_ED.imgs.filter(u=>MOD_ED.sel.has(u)),url_ficha:$('#medUrl').value.trim(),aereo:md.aereo||'auto',unidad:($('#medUni')||{}).value||md.unidad||'auto',specs:MOD_ED.specs||md.specs||null})});
+    try{await api('/api/bikes/admin/modelo',{method:'POST',body:JSON.stringify({marca,modelo,descripcion:$('#medDesc').value,imagenes:MOD_ED.imgs.filter(u=>MOD_ED.sel.has(u)),url_ficha:$('#medUrl').value.trim(),aereo:md.aereo||'auto',unidad:($('#medUni')||{}).value||md.unidad||'auto',specs:MOD_ED.specs||md.specs||null,img_colores:MOD_ED.imgc})});
       toast('Modelo guardado. Ya se ve en la tienda.');MOD_ED=null;await cargar()}catch(err){toast(err.message)}}
 });
 

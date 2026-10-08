@@ -31,6 +31,11 @@ body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min
 .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
 .tabs button{border:1px solid var(--border);background:var(--surface);color:var(--text2);border-radius:999px;padding:7px 14px;font-weight:600;font-size:13px;cursor:pointer}
 .tabs button.on{background:var(--accent);color:var(--accent-text);border-color:var(--accent)}
+.tabs .tg{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);align-self:center;margin:0 2px 0 10px}.tabs .tg:first-child{margin-left:0}
+.pasos{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}.pasos>div{display:flex;gap:10px;align-items:flex-start;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;font-size:13px}
+.pasos>div>b{flex:none;width:26px;height:26px;border-radius:50%;background:var(--accent);color:#141414;display:grid;place-items:center;font-size:14px}
+.dos{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:900px){.dos,.pasos{grid-template-columns:1fr}}
+.pend{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 12px}.pend a{background:var(--bg-warn);color:var(--fg-warn);border-radius:999px;padding:5px 12px;font-size:12.5px;text-decoration:none;cursor:pointer}.pend a.ok{background:var(--bg-ok);color:var(--fg-ok)}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1rem;margin-bottom:14px;min-width:0}
 .card h3{font-size:15px;color:var(--white);margin-bottom:4px}
 .desc{font-size:12.5px;color:var(--muted);line-height:1.5;max-width:90ch}
@@ -79,19 +84,23 @@ tr.off td{opacity:.45}
 <body>
 <div class="wrap">
   <div class="top">
-    <div><h2>🚲 Bikes a pedido</h2><div class="sub">Tienda pública: <a href="https://bikes.kuranko.pe" target="_blank" rel="noopener">bikes.kuranko.pe</a> · <a href="/bikes.html" target="_blank" rel="noopener">ver aquí</a> · <span id="tcInfo"></span></div></div>
+    <div><h2>🚲 Bikes a pedido</h2><div class="sub">Tienda pública: <a href="https://bikes.kuranko.pe" target="_blank" rel="noopener">bikes.kuranko.pe</a> · <a href="/bikes.html?interno=1" target="_blank" rel="noopener">ver aquí</a> · <span id="tcInfo"></span></div></div>
     <div class="row"><button class="btn sec" id="recargar">↻ Actualizar</button></div>
   </div>
   <div class="tabs" id="tabs">
+    <span class="tg">Ventas</span>
     <button data-t="res" class="on">Reservas</button>
     <button data-t="met">Métricas</button>
-    <button data-t="cat">Catálogo</button>
-    <button data-t="imp">Importar Excel</button>
-    <button data-t="mod">Modelos (fotos y envío)</button>
-    <button data-t="pag">Página (fotos y asesor)</button>
+    <span class="tg">Productos</span>
+    <button data-t="imp">1 · Importar Excel</button>
+    <button data-t="mod">2 · Fichas y vitrina</button>
+    <button data-t="cat">Catálogo (tallas y stock)</button>
+    <span class="tg">Ajustes</span>
+    <button data-t="pag">Página</button>
     <button data-t="reg">Reglas de precio</button>
   </div>
   <div id="msg"></div>
+  <div id="pend" class="pend"></div>
 
   <section data-p="res">
     <div class="kpis" id="resKpis"></div>
@@ -106,7 +115,8 @@ tr.off td{opacity:.45}
   </section>
 
   <section data-p="met" hidden>
-    <div class="row" style="margin-bottom:10px"><span class="muted">Periodo</span><select id="metDias"><option>7</option><option selected>30</option><option>90</option><option>365</option></select><span class="muted">días · cuenta personas (sesiones), no clics repetidos</span></div>
+    <div class="row" style="margin-bottom:10px"><span class="muted">Periodo</span><select id="metDias"><option>7</option><option selected>30</option><option>90</option><option>365</option></select><span class="muted">días · cuenta personas (sesiones), no clics repetidos</span><span style="flex:1"></span><button class="btn sec" id="metReset">Reiniciar métricas</button></div>
+    <p class="desc" style="margin:-4px 0 10px">Para que tus propias pruebas no cuenten, abre la tienda desde este link una vez en cada navegador o celular tuyo: <a href="https://bikes.kuranko.pe/?interno=1" target="_blank" rel="noopener">bikes.kuranko.pe/?interno=1</a>. Desde ahí, ese navegador queda marcado como interno y no suma en las métricas.</p>
     <div id="metOut"><p class="muted">Cargando…</p></div>
   </section>
 
@@ -140,26 +150,41 @@ tr.off td{opacity:.45}
   </section>
 
   <section data-p="mod" hidden>
+    <div class="pasos">
+      <div><b>1</b><span><b>Importa la lista</b> de la marca (pestaña «Importar Excel»): precios, tallas, colores.</span></div>
+      <div><b>2</b><span><b>Trae las fichas</b>: fotos, especificaciones y descripción desde la web de la marca, con IA.</span></div>
+      <div><b>3</b><span><b>Revisa y arma la vitrina</b>: destacadas, novedades, envío aéreo. Solo se publican las fichas completas.</span></div>
+    </div>
+
     <div class="card">
-      <p class="desc">Un modelo agrupa todas sus tallas y colores. Aquí le pones fotos y descripción (pegando el link de la web de la marca) y decides el envío aéreo. El margen es un rango, porque el flete y la aduana son aproximados: verde si el peor caso supera tu mínimo por 10 puntos, ámbar si está cerca y rojo si queda por debajo.</p>
-      <div class="card" style="background:var(--surface3);margin:10px 0">
-        <h3>Carga masiva de fichas (fotos, descripción y especificaciones)</h3>
-        <p class="desc">Pega <b>cualquier página de la marca</b> que liste sus modelos (por ejemplo, la ficha de un modelo de esa temporada). El portal busca los links de todos los modelos, los empareja con tu catálogo y trae fotos, descripción y especificaciones de cada uno, con IA si está activa. No pisa los modelos que editaste a mano.</p>
-        <div class="row" style="margin-top:8px;align-items:center"><button class="btn" id="fmTodas">Completar todo con IA</button><span class="desc" style="margin:0">Recorre todas las marcas que tienen guardado su «link de modelos» y completa solo las fichas que faltan.</span></div>
-        <details style="margin-top:10px"><summary class="muted">Datos por marca: link de modelos y garantía</summary><div id="fmMarcas" class="tbl" style="margin-top:8px"></div></details>
-        <details style="margin-top:10px" open><summary><b>Lector desde tu navegador</b> (para marcas que bloquean al portal, como Mondraker)</summary>
+      <div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:0">Traer fichas desde la web de la marca</h3>
+        <div class="row" style="align-items:center"><span class="muted">Modelo de IA</span><select id="iaModelo"><option value="">Automático (el que funcione)</option></select><button class="btn sec" id="iaProbar">Probar</button><span id="iaMsg" class="muted"></span></div></div>
+      <div class="dos" style="margin-top:12px">
+        <div class="card" style="background:var(--surface3);margin:0">
+          <h3>Opción A · Desde tu navegador <span class="pill p-ok">recomendado</span></h3>
+          <p class="desc">Funciona con todas las marcas, incluso las que bloquean al portal (como Mondraker).</p>
           <ol class="desc" style="padding-left:18px;margin:8px 0">
-            <li>Arrastra este botón a tu barra de marcadores (una sola vez): <a id="lectorBtn" class="btn" style="padding:4px 12px;font-size:13px;cursor:grab" href="#" title="Arrástralo a la barra de marcadores">Lector Kuranko</a></li>
-            <li>Abre en este mismo navegador la página de la marca que lista sus modelos (ej. <code>mondraker.com/es/es/season-history/19-2027</code>).</li>
-            <li>Toca el marcador «Lector Kuranko». Se abre una ventana que encuentra los modelos, lee cada ficha desde tu navegador y la guarda aquí con IA.</li>
-          </ol></details>
-        <p class="desc" style="margin-top:10px">O una marca a la vez (el link queda guardado para la próxima):</p>
-        <div class="row" style="margin-top:8px"><select id="fmMarca"></select><input id="fmUrl" style="flex:1;min-width:260px" placeholder="https://mondraker.com/es/es/season-history/19-2027 (puedes poner varios links separados por espacio)"><button class="btn" id="fmBuscar">Buscar modelos</button></div>
-        <div id="fmOut" style="margin-top:10px"></div>
+            <li>Muestra la barra de marcadores con <b>Ctrl + Shift + B</b> y arrastra ahí este botón (una sola vez): <a id="lectorBtn" class="btn" style="padding:4px 12px;font-size:13px;cursor:grab" href="#" title="Arrástralo a la barra de marcadores">Lector Kuranko</a></li>
+            <li>Abre la página de la marca que lista sus modelos (ej. <code>mondraker.com/es/es/season-history/19-2027</code>).</li>
+            <li>Toca el marcador «Lector Kuranko» → «Traer fichas».</li>
+          </ol>
+        </div>
+        <div class="card" style="background:var(--surface3);margin:0">
+          <h3>Opción B · Desde el portal</h3>
+          <p class="desc">Para marcas que no bloquean. El link queda guardado por marca.</p>
+          <div class="row" style="margin-top:8px"><select id="fmMarca"></select><input id="fmUrl" style="flex:1;min-width:200px" placeholder="Link de la página de modelos (varios separados por espacio)"><button class="btn" id="fmBuscar">Buscar modelos</button></div>
+          <div class="row" style="margin-top:8px;align-items:center"><button class="btn sec" id="fmTodas">Completar todas las marcas</button><span class="desc" style="margin:0">solo las fichas que faltan</span></div>
+        </div>
       </div>
+      <div id="fmOut" style="margin-top:10px"></div>
+      <details style="margin-top:10px"><summary class="muted">Datos por marca: link de modelos y garantía</summary><div id="fmMarcas" class="tbl" style="margin-top:8px"></div></details>
+    </div>
+
+    <div class="card">
+      <div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:0">Tus modelos</h3><p class="desc" id="modRes" style="margin:0"></p></div>
       <div class="row" style="margin:10px 0"><input id="modQ" placeholder="Buscar modelo…" style="flex:1;min-width:200px"><label class="muted"><input type="checkbox" id="modSin"> Solo incompletos</label></div>
-      <p class="desc" id="modRes" style="margin-bottom:8px"></p>
       <div class="tbl" id="modTbl"></div>
+      <p class="desc" style="margin-top:8px"><b>Vitrina:</b> «Destacada» sale arriba en la tienda · «Novedad» y «Lanzamiento» ponen una etiqueta · «Próximamente» muestra solo la silueta, sin nombre ni precio, con un botón «Avísame». <b>Margen:</b> rango entre el peor y el mejor caso de costos; si un envío o un número de cuotas no llega a tu mínimo, el precio sube lo justo (lo verás como «precio ajustado»).</p>
     </div>
     <div id="modEd"></div>
   </section>
@@ -261,6 +286,8 @@ async function pintarMetricas(){
   }catch(e){out.innerHTML=`<p class="err">${esc(e.message)}</p>`}
 }
 $('#metDias').addEventListener('change',pintarMetricas);
+$('#metReset').addEventListener('click',async()=>{if(!confirm('¿Borrar todas las métricas (visitas, clics y carritos)? Las reservas y llamadas no se tocan.'))return;
+  try{const j=await api('/api/bikes/admin/metricas/reiniciar',{method:'POST',body:'{}'});toast(`Métricas reiniciadas (${j.borrados} eventos borrados)`);pintarMetricas()}catch(err){toast(err.message)}});
 
 /* ---------- Catálogo ---------- */
 function pintarMarcasTienda(){const info=E.marcas_info||{};const cnt={};E.skus.filter(s=>s.activo).forEach(s=>cnt[s.marca]=(cnt[s.marca]||0)+1);
@@ -397,7 +424,7 @@ const dz=$('#drop');['dragover','dragenter'].forEach(t=>dz.addEventListener(t,e=
 dz.addEventListener('drop',e=>e.dataTransfer.files[0]&&leerArchivo(e.dataTransfer.files[0]));
 
 /* ---------- Reglas ---------- */
-const RL=[['margen_minimo','Margen mínimo aceptable (%)'],['variacion_costos','Incertidumbre de flete y aduana (± %)'],['aereo_max_usd','Aéreo solo si el precio final ≤ (US$)'],['flete_unidad','Flete marítimo individual e-bike (US$)'],['flete_grupo','Flete marítimo en grupo e-bike (US$ c/u)'],['grupo_min','Unidades para completar un grupo'],['flete_maritimo','Flete marítimo por bici (US$)'],['flete_aereo','Flete aéreo por bici (US$)'],['seguro','Seguro (% del costo)'],['arancel','Ad valorem (%)'],['aduana','Agente y aduana por bici (US$)'],['igv','IGV (%)'],
+const RL=[['margen_minimo','Margen mínimo en el peor caso (%) · si no llega, el precio sube'],['variacion_costos','Incertidumbre de flete y aduana (± %)'],['flete_unidad','Flete marítimo individual e-bike (US$)'],['flete_grupo','Flete marítimo en grupo e-bike (US$ c/u)'],['grupo_min','Unidades para completar un grupo'],['flete_maritimo','Flete marítimo por bici (US$)'],['flete_aereo','Flete aéreo por bici (US$)'],['seguro','Seguro (% del costo)'],['arancel','Ad valorem (%)'],['aduana','Agente y aduana por bici (US$)'],['igv','IGV (%)'],
   ['adelanto','Adelanto para reservar (%)'],['validez_horas','Precio válido (horas)'],['margen_defecto','Margen marcas nuevas (%)'],
   ['prep','Preparación en la marca (días)'],['mar_min','Marítimo mín. (días)'],['mar_max','Marítimo máx. (días)'],['aereo_min','Aéreo mín. (días)'],['aereo_max','Aéreo máx. (días)'],['aduana_min','Aduana mín. (días)'],['aduana_max','Aduana máx. (días)'],['lima_min','Stock Lima mín. (días)'],['lima_max','Stock Lima máx. (días)']];
 function pintarReglas(){
@@ -467,22 +494,24 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-logook]');
 /* ---------- Modelos: fotos, descripción y envío ---------- */
 let MOD_ED=null;
 function pintarModelos(){
-  const g=new Map();E.skus.filter(s=>s.activo).forEach(s=>{const k=s.marca+'|'+s.modelo;const x=g.get(k)||{marca:s.marca,modelo:s.modelo,cat:s.categoria,n:0,foto:false,ebike:s.categoria==='E-MTB'||!!s.motor,mmin:99,mmax:-99,envs:new Set()};x.n++;if(s.url_imagen)x.foto=true;x.mmin=Math.min(x.mmin,s.margen_min);x.mmax=Math.max(x.mmax,s.margen_max);(s.envios||[]).forEach(o=>{x.envs.add(o.k);if(!o.bajo)x.pub=true;else(x.bajos=x.bajos||new Set()).add(o.k)});g.set(k,x)});
+  const g=new Map();E.skus.filter(s=>s.activo).forEach(s=>{const k=s.marca+'|'+s.modelo;const x=g.get(k)||{marca:s.marca,modelo:s.modelo,cat:s.categoria,n:0,foto:false,ebike:s.categoria==='E-MTB'||!!s.motor,mmin:99,mmax:-99,envs:new Set()};x.n++;if(s.url_imagen)x.foto=true;x.mmin=Math.min(x.mmin,s.margen_min);x.mmax=Math.max(x.mmax,s.margen_max);(s.envios||[]).forEach(o=>{x.envs.add(o.k);if(o.sub)(x.subs=x.subs||new Set()).add(o.k)});g.set(k,x)});
   const q=($('#modQ').value||'').toLowerCase(),sin=$('#modSin').checked;
   const todos=[...g.values()];todos.forEach(x=>x.falta=FALTA(E.modelos[x.marca+'|'+x.modelo]||{},x));
   const inc=todos.filter(x=>x.falta.length).length;
   $('#modRes').innerHTML=`<b>${todos.length-inc}</b> de ${todos.length} modelos con ficha completa${inc?` · <span style="color:var(--fg-warn)">${inc} incompletos ${E.reglas.solo_completos!==false?'(ocultos en la tienda)':'(se ven igual en la tienda)'}</span>`:''}`;
   const L=todos.filter(x=>(!q||(x.marca+' '+x.modelo).toLowerCase().includes(q))&&(!sin||x.falta.length));
   const ENV={maritimo:'Marítimo',aereo:'Aéreo',unidad:'Mar. individual',grupo:'Mar. en grupo',lima:'Stock Lima'};
-  $('#modTbl').innerHTML=`<table><thead><tr><th>Foto</th><th>Marca</th><th>Modelo</th><th class="n">SKUs</th><th>Ficha</th><th>Envíos que se ofrecen</th><th class="n">Margen</th><th>Aéreo</th><th title="Marca un modelo cuando la marca te confirmó que tiene unidades. En la tienda sale el sello «Stock confirmado».">Stock confirmado</th><th></th></tr></thead><tbody>${L.slice(0,400).map(x=>{const md=E.modelos[x.marca+'|'+x.modelo]||{};const im=(md.imgs||[])[0];
+  $('#modTbl').innerHTML=`<table><thead><tr><th>Foto</th><th>Modelo</th><th class="n">SKUs</th><th>Ficha</th><th>Envíos</th><th class="n">Margen</th><th>Aéreo</th><th>Vitrina</th><th></th></tr></thead><tbody>${L.slice(0,400).map(x=>{const md=E.modelos[x.marca+'|'+x.modelo]||{};const im=(md.imgs||[])[0];
     const col=x.mmin<E.reglas.margen_minimo?'var(--fg-r)':x.mmin<E.reglas.margen_minimo+10?'var(--fg-warn)':'var(--fg-ok)';
-    return `<tr><td>${im?`<img src="${esc(im)}" style="width:56px;height:40px;object-fit:contain;background:#fff;border-radius:4px">`:'<span class="pill p-w">sin foto</span>'}</td><td>${esc(x.marca)}</td><td><b>${esc(x.modelo)}</b><br><span class="muted">${esc(x.cat)}${x.ebike?' · e-bike':''}</span></td><td class="n">${x.n}</td>
-    <td>${x.falta.length?`<span class="pill p-w">falta ${x.falta.join(', ')}</span>`:'<span class="pill p-ok">completa</span>'}</td>
-    <td>${x.pub?'':'<span class="pill p-r" title="Ninguna opción de envío llega al margen mínimo">no se publica · margen bajo</span> '}${[...x.envs].map(k=>{const b=x.bajos&&x.bajos.has(k)&&!(E.skus.some(s=>s.marca===x.marca&&s.modelo===x.modelo&&(s.envios||[]).some(o=>o.k===k&&!o.bajo)));return `<span class="pill ${b?'p-r':k==='grupo'?'p-w':'p-b'}" ${b?'style="text-decoration:line-through" title="No llega al margen mínimo: no se ofrece"':''}>${ENV[k]||k}</span>`}).join(' ')}</td>
+    return `<tr><td>${im?`<img src="${esc(im)}" style="width:56px;height:40px;object-fit:contain;background:#fff;border-radius:4px">`:'<span class="pill p-w">sin foto</span>'}</td><td><b>${esc(x.modelo)}</b><br><span class="muted">${esc(x.marca)} · ${esc(x.cat)}${x.ebike?' · e-bike':''}</span></td><td class="n">${x.n}</td>
+    <td style="white-space:normal;max-width:150px">${x.falta.length?`<span class="pill p-w" title="Falta: ${esc(x.falta.join(', '))}">incompleta</span><br><span class="muted" style="font-size:11.5px">falta ${esc(x.falta.join(', '))}</span>`:'<span class="pill p-ok">completa</span>'}</td>
+    <td style="white-space:normal;max-width:170px">${[...x.envs].map(k=>{const sb=x.subs&&x.subs.has(k);return `<span class="pill ${k==='grupo'?'p-w':'p-b'}" ${sb?'title="Con el precio de la marca no llegaba a tu margen mínimo: se ajustó al mínimo"':''}>${ENV[k]||k}${sb?' · precio ajustado':''}</span>`}).join(' ')}</td>
     <td class="n" style="color:${col}"><b>${rangoM(x.mmin,x.mmax)}</b></td>
     <td>${x.ebike?'<span class="muted">no vuela</span>':`<select data-modaer="${esc(x.marca+'|'+x.modelo)}">${['auto','si','no'].map(v=>`<option value="${v}" ${(md.aereo||'auto')===v?'selected':''}>${{auto:'Automático',si:'Siempre',no:'Nunca'}[v]}</option>`).join('')}</select>`}</td>
-    <td style="text-align:center"><input type="checkbox" data-modconf="${esc(x.marca+'|'+x.modelo)}" ${md.confirmado?'checked':''}></td>
-    <td><button class="btn sec" style="padding:4px 10px;font-size:12px" data-moded="${esc(x.marca+'|'+x.modelo)}">Fotos y descripción</button></td></tr>`}).join('')}</tbody></table>`;
+    <td style="white-space:nowrap"><label class="muted" style="display:block"><input type="checkbox" data-modflag="destacado" data-mod="${esc(x.marca+'|'+x.modelo)}" ${md.destacado?'checked':''}> Destacada</label>
+      <label class="muted" style="display:block" title="La marca te confirmó que tiene unidades"><input type="checkbox" data-modflag="confirmado" data-mod="${esc(x.marca+'|'+x.modelo)}" ${md.confirmado?'checked':''}> Stock confirmado</label>
+      <select data-modflag="etiqueta" data-mod="${esc(x.marca+'|'+x.modelo)}" style="margin-top:4px">${[['','Sin etiqueta'],['novedad','Novedad'],['lanzamiento','Lanzamiento'],['proximamente','Próximamente (silueta)']].map(([v,l])=>`<option value="${v}" ${(md.etiqueta||'')===v?'selected':''}>${l}</option>`).join('')}</select></td>
+    <td><button class="btn sec" style="padding:4px 10px;font-size:12px" data-moded="${esc(x.marca+'|'+x.modelo)}">Editar ficha</button></td></tr>`}).join('')}</tbody></table>`;
   const ed=$('#modEd');
   if(!MOD_ED){ed.innerHTML='';return}
   const md=E.modelos[MOD_ED.k]||{};const [marca,modelo]=MOD_ED.k.split('|');
@@ -502,7 +531,8 @@ document.addEventListener('change',async e=>{const el=e.target;
   if(el.id==='modSin')pintarModelos();
   if(el.dataset.modaer){const [marca,modelo]=el.dataset.modaer.split('|');const md=E.modelos[el.dataset.modaer]||{};
     try{await api('/api/bikes/admin/modelo',{method:'POST',body:JSON.stringify({marca,modelo,descripcion:md.desc||'',imagenes:md.imgs||[],url_ficha:md.url_ficha||'',aereo:el.value,unidad:md.unidad||'auto',img_colores:md.imgc||{}})});toast('Guardado');await cargar()}catch(err){toast(err.message)}}
-  if(el.dataset.modconf){const [marca,modelo]=el.dataset.modconf.split('|');try{await api('/api/bikes/admin/modelo-confirmado',{method:'POST',body:JSON.stringify({marca,modelo,confirmado:el.checked})});toast(el.checked?'Sale con el sello «Stock confirmado»':'Sello quitado');await cargar()}catch(err){toast(err.message)}return}
+  if(el.dataset.modflag){const [marca,modelo]=el.dataset.mod.split('|'),f=el.dataset.modflag,v=el.type==='checkbox'?el.checked:el.value;
+    try{await api('/api/bikes/admin/modelo-vitrina',{method:'POST',body:JSON.stringify({marca,modelo,[f]:v})});toast({destacado:v?'Destacada en la tienda':'Ya no está destacada',confirmado:v?'Sale con el sello «Stock confirmado»':'Sello quitado',etiqueta:v?'Etiqueta: '+el.selectedOptions[0].text:'Sin etiqueta'}[f]);await cargar()}catch(err){toast(err.message)}return}
   if(el.dataset.medcol!==undefined&&MOD_ED){const u=MOD_ED.imgs[+el.dataset.medcol];if(el.value==='__auto')delete MOD_ED.imgc[u];else MOD_ED.imgc[u]=el.value;return}
   if(el.dataset.medimg!==undefined&&MOD_ED){const u=MOD_ED.imgs[+el.dataset.medimg];el.checked?MOD_ED.sel.add(u):MOD_ED.sel.delete(u);MOD_ED.desc=$('#medDesc').value;pintarModelos()}
 });
@@ -521,6 +551,16 @@ document.addEventListener('click',async e=>{const t=e.target;
     try{await api('/api/bikes/admin/modelo',{method:'POST',body:JSON.stringify({marca,modelo,descripcion:$('#medDesc').value,imagenes:MOD_ED.imgs.filter(u=>MOD_ED.sel.has(u)),url_ficha:$('#medUrl').value.trim(),aereo:md.aereo||'auto',unidad:($('#medUni')||{}).value||md.unidad||'auto',specs:MOD_ED.specs||md.specs||null,img_colores:MOD_ED.imgc})});
       toast('Modelo guardado. Ya se ve en la tienda.');MOD_ED=null;await cargar()}catch(err){toast(err.message)}}
 });
+
+/* ---------- Modelo de IA (se elige aquí, no en Railway) ---------- */
+let IA=null;
+async function cargarIA(){try{IA=await api('/api/bikes/admin/ia');const sel=$('#iaModelo');if(!sel)return;
+  const ids=[...new Set([IA.elegido,...IA.lista.map(m=>m.id)].filter(Boolean))];
+  sel.innerHTML='<option value="">Automático (el que funcione)</option>'+ids.map(id=>`<option value="${esc(id)}" ${id===IA.elegido?'selected':''}>${esc((IA.lista.find(m=>m.id===id)||{}).nombre||id)}</option>`).join('');
+  $('#iaMsg').textContent=!IA.clave?'Falta la clave de Gemini en el servidor':IA.ultimo_ok?'Último que funcionó: '+IA.ultimo_ok:''}catch(e){}}
+document.addEventListener('change',async e=>{if(e.target.id!=='iaModelo')return;try{await api('/api/bikes/admin/ia',{method:'POST',body:JSON.stringify({modelo:e.target.value})});toast(e.target.value?'Se usará '+e.target.value+' (si está saturado, prueba otros)':'Modo automático')}catch(err){toast(err.message)}});
+document.addEventListener('click',async e=>{if(e.target.id!=='iaProbar')return;const b=e.target;b.disabled=true;$('#iaMsg').textContent='Probando…';
+  try{const j=await api('/api/bikes/admin/ia',{method:'POST',body:JSON.stringify({probar:true})});$('#iaMsg').innerHTML=j.ok?`<span style="color:var(--fg-ok)">Funciona: ${esc(j.modelo)} (${(j.ms/1000).toFixed(1)} s)</span>`:`<span class="err">${esc(j.error||'No respondió')}</span>`}catch(err){$('#iaMsg').textContent=err.message}b.disabled=false});
 
 /* ---------- Carga masiva de fichas ---------- */
 const LECTOR_SRC="(function(){\nvar P='__ORIGEN__';\nvar w=window.open(P+'/bikes-lector.html?marca='+encodeURIComponent('__MARCA__'),'kurankoLector','width=780,height=880');\nif(!w){var d=document.createElement('div');d.textContent='Kuranko: permite las ventanas emergentes de este sitio y vuelve a tocar el marcador.';d.style.cssText='position:fixed;top:10px;left:10px;right:10px;z-index:2147483647;background:#FBB911;color:#141414;padding:12px;font:15px sans-serif;border-radius:8px';document.body.appendChild(d);return}\nvar links=[].slice.call(document.querySelectorAll('[href],[data-url],[data-href]')).map(function(e){return e.getAttribute('data-url')||e.getAttribute('data-href')||e.getAttribute('href')}).filter(Boolean).map(function(u){try{return new URL(u,location.href).href}catch(x){return null}}).filter(function(u){return u&&u.indexOf(location.origin)===0});\nlinks=links.filter(function(u,i){return links.indexOf(u)===i}).slice(0,3000);\nfunction texto(h){return h.replace(/<(script|style|noscript|svg)[\\s\\S]*?<\\/\\1>/gi,' ').replace(/<\\/(p|div|li|tr|h\\d|dt|dd|section|table)>|<br\\s*\\/?>/gi,'\\n').replace(/<\\/t[dh]>/gi,'\\t').replace(/<[^>]+>/g,' ').replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/&quot;/g,'\"').replace(/&#39;/g,\"'\").replace(/[ \\t]+/g,' ').replace(/\\n\\s*\\n+/g,'\\n').trim()}\nfunction fotos(h,base){var out=[];var add=function(u){if(!u)return;try{var a=new URL(u.replace(/&amp;/g,'&'),base).href;if(out.indexOf(a)<0)out.push(a)}catch(x){}};\n(h.match(/<img\\b[^>]*>/gi)||[]).forEach(function(t){var ss=(t.match(/\\b(?:data-)?srcset=[\"']([^\"']+)[\"']/i)||[])[1];if(ss){var b=ss.split(',').map(function(x){return x.trim().split(/\\s+/)}).sort(function(a,c){return(parseInt(c[1])||0)-(parseInt(a[1])||0)})[0];if(b)add(b[0])}\nadd((t.match(/\\b(?:data-src|data-lazy-src|data-original|src)=[\"']([^\"']+\\.(?:jpe?g|png|webp)[^\"']*)[\"']/i)||[])[1])});\n(h.match(/<meta[^>]+og:image[^>]*>/gi)||[]).forEach(function(t){add((t.match(/content=[\"']([^\"']+)[\"']/i)||[])[1])});return out.slice(0,400)}\nwindow.addEventListener('message',function(e){if(e.source!==w||e.origin!==P)return;var d=e.data||{};\nif(d.tipo==='listo')w.postMessage({tipo:'links',origen:location.href,links:links},P);\nif(d.tipo==='leer'){fetch(d.url,{credentials:'include'}).then(function(r){return r.text()}).then(function(h){w.postMessage({tipo:'pagina',id:d.id,imgs:fotos(h,d.url),texto:texto(h).slice(0,200000)},P)}).catch(function(err){w.postMessage({tipo:'pagina',id:d.id,error:'No se pudo leer: '+err.message},P)})}});\n})();\n";
@@ -572,6 +612,14 @@ document.addEventListener('click',async e=>{const t=e.target;
 });
 
 /* ---------- General ---------- */
+// Lo que falta hacer, arriba de todo (cada aviso lleva a su pestaña)
+function pintarPendientes(){const P=[];const nv=E.reservas.filter(r=>r.estado==='Nueva').length,ll=(E.llamadas||[]).filter(l=>l.estado==='Pendiente').length;
+  if(nv)P.push(['res',`${nv} reserva${nv>1?'s':''} nueva${nv>1?'s':''} por confirmar con la marca`]);if(ll)P.push(['res',`${ll} llamada${ll>1?'s':''} por hacer`]);
+  const g=new Set();E.skus.filter(s=>s.activo).forEach(s=>g.add(s.marca+'|'+s.modelo));const inc=[...g].filter(k=>FALTA(E.modelos[k]||{},{foto:E.skus.some(s=>s.marca+'|'+s.modelo===k&&s.url_imagen)}).length).length;
+  if(inc)P.push(['mod',`${inc} modelo${inc>1?'s':''} sin ficha completa${E.reglas.solo_completos!==false?' (no se ven en la tienda)':''}`]);
+  if(!E.skus.length)P.push(['imp','Aún no hay bicis: importa la lista de una marca']);
+  $('#pend').innerHTML=P.length?P.map(([t,x])=>`<a data-ir="${t}">${esc(x)} →</a>`).join(''):'<a class="ok">Todo al día</a>'}
+document.addEventListener('click',e=>{const a=e.target.closest('[data-ir]');if(a)tab(a.dataset.ir)});
 function tab(t){$$('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));$$('[data-p]').forEach(s=>s.hidden=s.dataset.p!==t);try{localStorage.setItem('bikes_tab',t)}catch(e){}
   if(t==='met')pintarMetricas()}
 $('#tabs').addEventListener('click',e=>{const b=e.target.closest('button');if(b)tab(b.dataset.t)});
@@ -580,6 +628,7 @@ async function cargar(){
     $('#tcInfo').textContent=`TC USD ${E.tc.usd.toFixed(3)} · EUR ${E.tc.eur.toFixed(3)} (${E.tc.fuente})`;
     pintarReservas();pintarLlamadas();pintarCatalogo();pintarReglas();pintarModelos();pintarPagina();
     const fm=$('#fmMarca');if(fm&&!fm.options.length){const ms=[...new Set(E.skus.map(x=>x.marca))].sort();fm.innerHTML=ms.map(m=>`<option>${esc(m)}</option>`).join('');fm.onchange=()=>{$('#fmUrl').value=((E.marcas_info||{})[fm.value]||{}).url_modelos||''}}pintarFmMarcas();prepararLector();
+    pintarPendientes();if(!IA)cargarIA();
     const tabRes=$('#tabs [data-t="res"]');const n=E.reservas.filter(r=>r.estado==='Nueva').length;tabRes.textContent=n?`Reservas (${n} nuevas)`:'Reservas';
   }catch(e){if(e.message!=='401')$('#msg').innerHTML=`<div class="card"><p class="err">${esc(e.message)}</p></div>`}
 }

@@ -48,7 +48,8 @@ h1,h2,h3{font-family:var(--display);margin:0;text-wrap:balance;letter-spacing:.0
 header.kh{background:#141414;position:sticky;top:0;z-index:30;font-family:var(--body)}
 header.kh .kc{position:relative;height:90px;display:flex;align-items:center;gap:24px;max-width:1300px}
 .klogo{display:block;flex:none;line-height:0}.klogo img{width:180px;height:45px;object-fit:contain}
-.kmenu{flex:1;height:100%;display:flex;justify-content:center;min-width:0}
+.kmenu{flex:1;height:100%;display:flex;justify-content:safe center;min-width:0}
+html.kcompacto .kmenu{display:none}html.kcompacto .kburger{display:inline-flex}html.kcompacto header.kh .kc{justify-content:space-between}
 .kmenu>ul{display:flex;height:100%;margin:0;padding:0;list-style:none;gap:18px}
 .kmenu>ul>li{position:relative;display:flex;align-items:center}
 .kmenu>ul>li.mega{position:static}
@@ -119,6 +120,10 @@ nav.km a.on{background:#141414;color:#fff}
 .agenda .form{grid-template-columns:repeat(4,minmax(0,1fr))}@media (max-width:760px){.agenda .form{grid-template-columns:1fr 1fr}}
 /* confianza, galería, grupo, logos */
 [data-foto][hidden]{display:none!important}
+.dtit{font-size:22px;margin:4px 0 12px;text-transform:uppercase}.dgrid{margin-bottom:26px}
+.card.pronto .pic{background:linear-gradient(180deg,#f3f3f3,#e4e4e4)}.silueta{filter:brightness(0);opacity:.88}
+.geo img{width:100%;background:#fff;border-radius:6px;margin-top:8px}
+.pago .o small{display:block}
 .tfind{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:10px;font-size:13.5px}.tfind label{display:flex;gap:8px;align-items:center;font-weight:600}
 .tfind input{width:130px;padding:8px 10px;border:1px solid var(--line);border-radius:6px;font:inherit}.o.rec{box-shadow:inset 0 0 0 2px var(--ok)}
 .gar{font-size:13px;color:var(--muted);border-left:3px solid var(--ok);padding:4px 10px}.btn.comp{padding:8px 12px;font-size:12px}.hero.sinfoto{grid-template-columns:1fr}.hero.sinfoto .hero-txt{max-width:820px}
@@ -327,6 +332,7 @@ footer.kf a{color:#fff}
       <div class="flab">Talla<div class="seg" id="fTalla"></div></div>
     </aside>
     <div style="min-width:0">
+      <div id="destacadas"></div>
       <div class="resbar"><span id="count">Cargando…</span>
         <select id="sort" aria-label="Ordenar"><option value="eta">Llega antes</option><option value="pa">Precio menor</option><option value="pd">Precio mayor</option><option value="br">Marca A–Z</option></select></div>
       <div class="grid" id="grid"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>
@@ -394,13 +400,21 @@ try{const q=new URLSearchParams(location.search);REF=q.get('ref')||sessionStorag
 const K='https://kuranko.pe';
 const MENU0=[['TECNOLOGÍAS FIDLOCK','/fidlock/'],['NAVES','/categoria-producto/ciclismo/bicicletas/'],['COMPONENTES','/categoria-producto/ciclismo/'],['ACCESORIOS','/categoria-producto/ciclismo/accesorios/'],['TALLER','/categoria-producto/ciclismo/taller/'],['ROPA','/categoria-producto/ciclismo/ropa/'],['A PEDIDO','/categoria-producto/ciclismo/?filter_disponibilidad=a-pedido'],['MARKETPLACE','/categoria-producto/marketplace/ciclismo-marketplace/']].map(([t,h])=>({t,h:K+h,hijos:[]}));
 const esBikes=h=>/bikes\.kuranko\.pe/i.test(h||'');
-function pintarMenu(menu){
+function pintarMenu(menu){setTimeout(ajustarMenu,0);
   const activo=i=>/\/bicicletas\/?$/.test(i.h.replace(/\?.*/,''))||i.hijos.some(x=>esBikes(x.h));
   document.getElementById('kMenu').innerHTML=menu.map(i=>`<li class="${i.mega?'mega':''} ${activo(i)?'on':''}"><a href="${esc(i.h)}">${esc(i.t)}</a>${i.hijos.length?`<ul class="ksub ${i.mega?'mega':''}">${i.hijos.map(x=>i.mega
       ?`<li><a href="${esc(x.h)}">${x.img?`<span class="im" style="background-image:url('${esc(x.img)}')"></span>`:''}<span class="tt">${esc(x.t)}</span>${x.d?`<span class="dd">${esc(x.d)}</span>`:''}</a></li>`
       :`<li><a href="${esc(x.h)}" class="${esBikes(x.h)?'on':''}">${esc(x.t)}</a></li>`).join('')}</ul>`:''}</li>`).join('');
   document.getElementById('kMenuMovil').innerHTML=menu.map((i,n)=>`<li><div class="fila"><a href="${esc(i.h)}">${esc(i.t)}</a>${i.hijos.length?`<button data-acc="${n}" aria-label="Ver ${esc(i.t)}">+</button>`:''}</div>${i.hijos.length?`<ul>${i.hijos.map(x=>`<li><a href="${esc(x.h)}" style="${esBikes(x.h)?'color:#e84e0e;font-weight:600':''}">${esc(x.t)}</a></li>`).join('')}</ul>`:''}</li>`).join('');
 }
+// Si el menú de kuranko.pe tiene muchos ítems, se achica la letra; si aun así no entra, se usa el menú hamburguesa
+function ajustarMenu(){const nav=document.querySelector('.kmenu'),ul=document.getElementById('kMenu');if(!nav||!ul)return;
+  document.documentElement.classList.remove('kcompacto');if(getComputedStyle(nav).display==='none')return;
+  const as=[...ul.querySelectorAll(':scope>li>a')];
+  for(const [f,g] of [[18,18],[17,16],[16,14],[15,12],[14,10],[13,9]]){ul.style.gap=g+'px';as.forEach(a=>a.style.fontSize=f+'px');if(ul.scrollWidth<=nav.clientWidth)return}
+  document.documentElement.classList.add('kcompacto')}
+addEventListener('resize',()=>{clearTimeout(window._am);window._am=setTimeout(ajustarMenu,120)});
+try{document.fonts.ready.then(ajustarMenu)}catch(e){}
 pintarMenu(MENU0);
 fetch('/api/bikes/cabecera').then(r=>r.json()).then(j=>{if(j&&Array.isArray(j.menu)&&j.menu.length)pintarMenu(j.menu)}).catch(()=>{});
 const abrirPanel=v=>{document.getElementById('kPanel').hidden=!v;document.getElementById('kScrim').hidden=!v};
@@ -420,7 +434,9 @@ function enviarCola(){if(!COLA.length)return;const body=JSON.stringify({ev:COLA.
   fetch('/api/bikes/evento',{method:'POST',headers:{'Content-Type':'text/plain'},body,keepalive:true}).catch(()=>{})}
 const GA_EV={modelo:'view_item',carrito:'add_to_cart',reserva:'purchase',whatsapp:'contact'};
 const PX_EV={modelo:'ViewContent',carrito:'AddToCart',reserva:'Purchase',whatsapp:'Contact'};
-function ev(tipo,x={}){
+// Navegadores del equipo (abiertos una vez con ?interno=1) no suman en las métricas
+const INTERNO=(()=>{try{if(/[?&]interno=1\b/.test(location.search))localStorage.setItem('bk_interno','1');if(/[?&]interno=0\b/.test(location.search))localStorage.removeItem('bk_interno');return localStorage.getItem('bk_interno')==='1'}catch(e){return false}})();
+function ev(tipo,x={}){if(INTERNO)return;
   COLA.push({tipo,sesion:SES,ref:REF,movil:matchMedia('(max-width:700px)').matches,...x});
   clearTimeout(colaT);colaT=setTimeout(enviarCola,1500);
   const item=x.modelo?{item_id:x.sku_id||x.modelo,item_name:x.modelo,item_brand:x.marca,price:x.valor}:null;
@@ -481,28 +497,42 @@ function pintarFiltros(){
   $('#fTalla').innerHTML=tallas.map(t=>`<button type="button" aria-pressed="${F.talla===t}" data-t="${esc(t)}">${t==='all'?'Todas':esc(t)}</button>`).join('');
   $('#fMaxL').textContent=F.max>=60000?'sin límite':M(F.max);
 }
+// Línea de datos: aro, recorrido delantero/trasero y material
+const specLinea=m=>[m.aro?(m.aro==='Mullet'?'Mullet 29/27.5':'Aro '+m.aro):'',m.rd?(m.rt?m.rd+'/'+m.rt+' mm':m.rd+' mm'):m.rec,m.matx||m.mat,m.motor].filter(Boolean).map(esc).join(' · ');
+const maxCuotas=m=>Math.max(0,...m.skus.flatMap(x=>(x.op||[]).flatMap(o=>Object.keys(o.cq||{}).map(Number))));
+const TAGS={novedad:'Novedad',lanzamiento:'Lanzamiento'};
+function cardHTML({m,r}){
+  if(m.tag==='proximamente')return `<button class="card pronto" data-pronto="${esc(m.marca)}"><div class="pic" style="color:var(--ink)">${m.img?`<img class="silueta" src="${esc(m.img)}" alt="Próximo lanzamiento de ${esc(m.marca)}" loading="lazy">`:''}<span class="badge last">Próximamente</span></div>
+    <div class="bd"><span class="br">${esc(m.marca)} · ${esc(m.cat||'')}</span><h3>Muy pronto</h3><span class="spec">Un nuevo modelo de ${esc(m.marca)} está por llegar.</span>
+    <div class="ft"><div class="price" style="font-size:16px">Precio al lanzamiento</div><div class="eta">Avísame<small>por WhatsApp</small></div></div></div></button>`;
+  const col=COL[m.marca]||'#5a6285';
+  const soloGrupo=m.skus.every(x=>(x.op||[]).length&&x.op.every(o=>o.k==='grupo'));
+  const badge=r.agotado?'<span class="badge">Agotado</span>':TAGS[m.tag]?`<span class="badge last">${TAGS[m.tag]}</span>`:r.lima?'<span class="badge lima">En tienda Kuranko</span>':soloGrupo?'<span class="badge last">Envío en grupo</span>':m.conf?'<span class="badge lima">Stock confirmado</span>':r.tot<=2?'<span class="badge last">Últimas unidades</span>':'<span class="badge">A pedido</span>';
+  const mc=maxCuotas(m);
+  return `<button class="card" data-id="${esc(m.id)}"><div class="pic" style="color:var(--ink)">${foto(m,col)}${badge}</div>
+    <div class="bd"><span class="br">${esc(m.marca)} · ${esc(m.cat)}</span><h3>${esc(m.modelo)}</h3>
+      <span class="spec">${specLinea(m)}</span>
+      <div class="envs">${[...new Set(m.skus.flatMap(x=>(x.op||[]).map(o=>o.k)))].map(k=>`<span>${ENVL[k]||k}</span>`).join('')}${mc?`<span class="cu">Hasta ${mc} cuotas sin intereses</span>`:''}</div>
+      <div class="sizes">${m.tallas.map(t=>`<span class="${m.skus.some(s=>s.t===t&&s.d>0)?'':'no'}">${esc(t)}</span>`).join('')}</div>
+      <div class="ft"><div class="price">${r.varios?'<span class="desde">desde </span>':''}${M(r.min.pm)}<small>${M2(r.min.pm)} · IGV incl.</small></div>
+      <div class="eta">${r.pronto.e==='Stock Lima'?'Entrega en '+dias(r.pronto.fm[0])+'–'+dias(r.pronto.fm[1])+' días':'Llega '+fD(r.pronto.fm[0])+'–'+fD(r.pronto.fm[1])}<small>${r.pronto.e==='Stock Lima'?'Lista en tienda':'envío marítimo'}</small></div></div>
+    </div></button>`}
 function pintarGrid(){
   let L=D.modelos.map(m=>({m,r:resumen(m)}));
+  const pronto=L.filter(x=>x.m.tag==='proximamente'&&(F.marca==='all'||x.m.marca===F.marca));L=L.filter(x=>x.m.tag!=='proximamente');
   L=L.filter(({m,r})=>(F.marca==='all'||m.marca===F.marca)&&(F.cat==='all'||m.cat===F.cat)&&(F.aro==='all'||m.aro===F.aro)
     &&(F.max>=60000||r.min.pm<=F.max)&&(F.talla==='all'||m.skus.some(s=>s.t===F.talla&&s.d>0))
-    &&(F.eta==='all'||(F.eta==='lima'?r.lima:dias((r.aereo||r.pronto).fa?.[1]||r.pronto.fm[1])<=+F.eta)));
+    &&(F.eta==='all'||(F.eta==='lima'?r.lima:dias(r.pronto.fm[1])<=+F.eta)));
   const S={eta:(a,b)=>(a.r.agotado-b.r.agotado)||a.r.pronto.fm[1].localeCompare(b.r.pronto.fm[1]),pa:(a,b)=>a.r.min.pm-b.r.min.pm,pd:(a,b)=>b.r.min.pm-a.r.min.pm,br:(a,b)=>a.m.marca.localeCompare(b.m.marca)||a.m.modelo.localeCompare(b.m.modelo)}[F.sort];
   L.sort(S);
+  // Destacadas (y lo que viene), solo en la vista inicial sin filtros
+  const inicial=F.cat==='all'&&F.aro==='all'&&F.eta==='all'&&F.max>=60000&&F.talla==='all';
+  const dest=inicial?L.filter(x=>x.m.dest):[];
+  $('#destacadas').innerHTML=dest.length||(inicial&&pronto.length)?`<h2 class="dtit">Destacadas</h2><div class="grid dgrid">${[...dest,...(inicial?pronto:[])].map(cardHTML).join('')}</div><h2 class="dtit">Todo el catálogo</h2>`:'';
   $('#count').textContent=`${L.length} ${L.length===1?'modelo':'modelos'}`;
   if(!D.modelos.length){$('#grid').innerHTML=`<div class="empty">Estamos cargando las listas de las marcas. Escríbenos por <a href="https://wa.me/${esc(D.whatsapp)}" target="_blank" rel="noopener">WhatsApp</a> y te cotizamos la bici que buscas.</div>`;return}
   if(!L.length){$('#grid').innerHTML='<div class="empty">Ningún modelo coincide con estos filtros. Prueba quitando la talla o subiendo el precio máximo.</div>';return}
-  $('#grid').innerHTML=L.map(({m,r})=>{
-    const col=COL[m.marca]||'#5a6285';
-    const soloGrupo=m.skus.every(x=>(x.op||[]).length&&x.op.every(o=>o.k==='grupo'));
-    const badge=r.agotado?'<span class="badge">Agotado</span>':r.lima?'<span class="badge lima">En tienda Kuranko</span>':soloGrupo?'<span class="badge last">Envío en grupo</span>':m.conf?'<span class="badge lima">Stock confirmado</span>':r.tot<=2?'<span class="badge last">Últimas unidades</span>':'<span class="badge">A pedido</span>';
-    return `<button class="card" data-id="${esc(m.id)}"><div class="pic" style="color:var(--ink)">${foto(m,col)}${badge}</div>
-    <div class="bd"><span class="br">${esc(m.marca)} · ${esc(m.cat)}</span><h3>${esc(m.modelo)}</h3>
-      <span class="spec">${[m.aro?(m.aro==='Mullet'?'Mullet 29/27.5':'Aro '+m.aro):'',m.rec,m.mat,m.motor].filter(Boolean).map(esc).join(' · ')}</span>
-      <div class="envs">${[...new Set(m.skus.flatMap(x=>(x.op||[]).map(o=>o.k)))].map(k=>`<span>${ENVL[k]||k}</span>`).join('')}${Math.max(0,...m.skus.flatMap(x=>(x.op||[]).map(o=>o.cu||0)))?`<span class="cu">Hasta ${Math.max(...m.skus.flatMap(x=>(x.op||[]).map(o=>o.cu||0)))} cuotas sin intereses</span>`:''}</div>
-      <div class="sizes">${m.tallas.map(t=>`<span class="${m.skus.some(s=>s.t===t&&s.d>0)?'':'no'}">${esc(t)}</span>`).join('')}</div>
-      <div class="ft"><div class="price">${r.varios?'<span class="desde">desde </span>':''}${M(r.min.pm)}<small>${M2(r.min.pm)} · IGV incl.</small></div>
-      <div class="eta">${r.pronto.e==='Stock Lima'?'Entrega en '+dias(r.pronto.fm[0])+'–'+dias(r.pronto.fm[1])+' días':'Llega '+fD(r.pronto.fm[0])+'–'+fD(r.pronto.fm[1])}<small>${r.aereo?'aéreo: '+fD(r.aereo.fa[1]):r.pronto.e==='Stock Lima'?'Lista en tienda':'envío marítimo'}</small></div></div>
-    </div></button>`}).join('');
+  $('#grid').innerHTML=L.map(cardHTML).join('');
 }
 
 /* ---- configurador ---- */
@@ -510,7 +540,7 @@ let S=null;
 function abrir(id,push=true){
   const m=D.modelos.find(x=>x.id===id);if(!m)return;
   const s0=m.skus.filter(s=>s.d>0).sort((a,b)=>a.pm-b.pm)[0]||m.skus[0];
-  S={m,mo:s0.mo,t:s0.t,c:s0.c,envio:'maritimo',extras:{},done:null,error:'',enviando:false,form:{},carrito:false};
+  S={m,mo:s0.mo,t:s0.t,c:s0.c,envio:'maritimo',pago:'0',extras:{},done:null,error:'',enviando:false,form:{},carrito:false};
   pintarCfg();evM('modelo');$('#drawer').hidden=false;$('#scrim').hidden=false;document.body.style.overflow='hidden';
   if(push)try{history.replaceState(null,'','#'+id)}catch(e){}
 }
@@ -538,10 +568,12 @@ function totales(){
   const s=skuSel();if(!s)return null;
   const ops=s.op&&s.op.length?s.op:[{k:s.e==='Stock Lima'?'lima':'maritimo',p:s.pm,f:s.fm}];
   const o=ops.find(x=>x.k===S.envio)||ops[0];
-  const env=o.k, bici=o.p, f=o.f, cu=o.cu||0, pp=!!o.pp;
+  // Forma de pago: contado, N cuotas (el precio sube solo si la comisión no deja el margen mínimo) o Powerpay
+  const cq=o.cq||{};if(S.pago!=='0'&&S.pago!=='pp'&&!cq[S.pago])S.pago='0';if(S.pago==='pp'&&!o.pp)S.pago='0';
+  const env=o.k, bici=S.pago==='pp'?o.pp:S.pago!=='0'?cq[S.pago]:o.p, f=o.f, cu=+S.pago||0, pp=!!o.pp;
   const ex=D.extras.filter(e=>e.incluido||S.extras[e.id]);const exT=ex.reduce((a,e)=>a+e.precio,0);
   const total=bici+exT, dep=enUSD()?Math.round(Math.ceil(total/D.tc_usd*D.adelanto/100/10)*10*D.tc_usd):Math.ceil(total*D.adelanto/100/10)*10;
-  return {s,env,bici,f,exT,total,dep,saldo:total-dep,cu,pp};
+  return {s,o,env,bici,f,exT,total,dep,saldo:total-dep,cu,pp,cq,base:o.p};
 }
 function guardarForm(){['rNom','rDoc','rTel','rMail','rCity'].forEach(k=>{const el=document.getElementById(k);if(el)S.form[k]=el.value})}
 // Talla recomendada según la altura (tabla de la marca, o referencial)
@@ -567,7 +599,8 @@ function pintarCfg(){
   <div class="dbody"><div class="izq">
     <div class="dpic" style="color:var(--ink)">${gal.length?`<img src="${esc(gal[S.img||0])}" alt="${esc(m.marca+' '+m.modelo+' '+(S.c||''))}">`:m.img?foto(m,col):bike(colHex||col,m.cat)}</div>
     ${gal.length>1?`<div class="gal">${gal.map((u,i)=>`<button data-img="${i}" aria-pressed="${(S.img||0)===i}" aria-label="Foto ${i+1}"><img src="${esc(u)}" alt="" loading="lazy"></button>`).join('')}</div>`:''}
-    <div class="spec">${[m.aro?(m.aro==='Mullet'?'Mullet 29/27.5':'Aro '+m.aro):'',m.rec&&'Recorrido '+m.rec,m.mat,m.peso&&m.peso+(/kg/i.test(m.peso)?'':' kg'),m.motor].filter(Boolean).map(esc).join(' · ')}${m.ficha?` · <a href="${esc(m.ficha)}" target="_blank" rel="noopener">Ficha técnica</a>`:''}</div>
+    <div class="spec">${specLinea(m)}${m.peso?' · '+esc(m.peso+(/kg/i.test(m.peso)?'':' kg')):''}${m.ficha?` · <a href="${esc(m.ficha)}" target="_blank" rel="noopener">Ficha técnica</a>`:''}</div>
+    ${m.geo?`<details class="specs geo"><summary>Geometría</summary><a href="${esc(m.geo)}" target="_blank" rel="noopener"><img src="${esc(m.geo)}" alt="Geometría ${esc(m.marca+' '+m.modelo)}" loading="lazy"></a></details>`:''}
     <div class="gar"><b>Garantía:</b> ${esc(m.gar||(D.garantias||{})[m.marca]||'oficial del fabricante, gestionada por Kuranko en Lima')}. Armado y ajuste en nuestro taller.</div>
     ${m.specs&&m.specs.length?`<details class="specs"><summary>Especificaciones técnicas</summary><table>${m.specs.map(x=>`<tr><td>${esc(x.k)}</td><td>${esc(x.v)}</td></tr>`).join('')}</table></details>`:''}
     ${m.desc?`<div class="desc ${S.descFull?'full':''}" id="dDesc">${esc(m.desc)}</div>${S.descFull?'':'<button class="btn sec" id="dMas" style="justify-self:start;padding:4px 10px;font-size:13px">Leer más</button>'}`:''}
@@ -578,6 +611,11 @@ function pintarCfg(){
       <div class="note" style="margin-top:6px"><a href="#" id="tPrueba">Pruébate la talla en tienda o pide asesoría por videollamada</a></div></div>
     <div class="opt"><div class="lbl">Color</div><div class="opts">${m.colores.map(c=>`<button class="o" aria-pressed="${S.c===c.n}" data-c="${esc(c.n)}" ${disp(x=>x.mo===S.mo&&x.t===S.t&&x.c===c.n)?'':'disabled'}><span>${m.gc&&m.gc.includes(c.n)?`<img class="swf" src="${esc(m.gal[m.gc.indexOf(c.n)])}" alt="">`:c.h?`<span class="sw" style="background:${esc(c.h)}"></span>`:''}${esc(c.n)}</span></button>`).join('')}</div></div>
     <div class="opt"><div class="lbl">Envío a Lima</div>${m.conf&&T.env!=='lima'?'<div class="note" style="margin:-2px 0 8px;color:var(--ok)">✓ La marca confirmó que tiene unidades de este modelo.</div>':''}${ship}</div>
+    <div class="opt pago"><div class="lbl">Forma de pago</div><div class="opts">
+      <button class="o" aria-pressed="${S.pago==='0'}" data-pago="0"><b>Contado</b><small>tarjeta, Yape o transferencia</small><small class="num">${M(T.base)}</small></button>
+      ${Object.keys(T.cq).map(Number).sort((a,b)=>a-b).map(n=>`<button class="o" aria-pressed="${S.pago===String(n)}" data-pago="${n}"><b>${n} cuotas</b><small>sin intereses</small><small class="num">${soles(T.cq[n]/n)}/mes${T.cq[n]>T.base?' · +'+M(T.cq[n]-T.base):''}</small></button>`).join('')}
+      ${T.pp?`<button class="o" aria-pressed="${S.pago==='pp'}" data-pago="pp"><b>Powerpay</b><small>cualquier tarjeta, en cuotas</small><small class="num">${M(T.o.pp)}${T.o.pp>T.base?' · +'+M(T.o.pp-T.base):''}</small></button>`:''}
+    </div>${T.cu?`<div class="note" style="margin-top:6px">${T.cu} cuotas sin intereses con ${esc(D.cuotas_bancos||'tarjeta de crédito')}. El adelanto también puede ir en cuotas.</div>`:S.pago==='pp'?'<div class="note" style="margin-top:6px">Powerpay aplica su propio interés al cliente.</div>':''}</div>
     ${D.extras.length?`<div class="opt"><div class="lbl">Extras</div><div class="extras">${D.extras.map(e=>`<label><input type="checkbox" data-x="${esc(e.id)}" ${e.incluido?'checked disabled':S.extras[e.id]?'checked':''}><span>${esc(e.nombre)}</span><span>${e.incluido||!e.precio?'incluido':'+ '+M(e.precio)}</span></label>`).join('')}</div></div>`:''}
     <div class="sum"><table>
       <tr><td>${esc(m.modelo)} ${esc(S.mo!=='Base'?S.mo:'')} · talla ${esc(S.t)}<br><span class="note">Incluye ${T.env==='lima'?'':'flete, seguro, desaduanaje, '}IGV y armado</span></td><td>${M(T.bici)}</td></tr>
@@ -586,7 +624,7 @@ function pintarCfg(){
       <tr><td>Llega a Lima<br><span class="note">${T.env==='lima'?'Unidad en nuestra tienda':'Fecha estimada · '+(T.env==='aereo'?'aéreo':'marítimo')+' + aduana'}</span></td><td style="color:var(--ok);font-weight:700">${T.env==='lima'?dias(T.f[0])+'–'+dias(T.f[1])+' días':fD(T.f[0])+' – '+fD(T.f[1])}</td></tr>
       <tr class="tot"><td>Precio final<br><span class="note num">${M2(T.total)}${enUSD()?' al tipo de cambio de hoy':''}</span></td><td>${M(T.total)}</td></tr>
     </table>
-    ${T.cu?`<div class="cuotas">o hasta <b>${T.cu} cuotas sin intereses</b> de <b class="num">${soles(T.total/T.cu)}</b> <span>con ${esc(D.cuotas_bancos||'tarjeta de crédito')}${T.pp?' · otras tarjetas con Powerpay':''}</span></div>`:T.pp?`<div class="cuotas">También en cuotas con <b>Powerpay</b> <span>(cualquier tarjeta de crédito; Powerpay aplica su interés)</span></div>`:''}
+    ${T.cu?`<div class="cuotas"><b>${T.cu} cuotas sin intereses</b> de <b class="num">${soles(T.total/T.cu)}</b></div>`:S.pago==='pp'?`<div class="cuotas">Pago en cuotas con <b>Powerpay</b></div>`:''}
     <ol class="pagos">
       <li><span><b>Hoy</b> · solicitas la reserva</span><b class="num">S/ 0</b></li>
       <li><span><b>Al confirmar con la marca</b> · adelanto ${D.adelanto}%</span><b class="num">${M(T.dep)}</b></li>
@@ -632,7 +670,7 @@ async function reservar(){
   if(err.length){S.error='Revisa: '+err.join('; ')+'.';pintarCfg();return}
   S.error='';S.enviando=true;pintarCfg();
   try{
-    const r=await fetch('/api/bikes/reservar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sku_id:T.s.id,envio:T.env,extras:Object.keys(S.extras).filter(k=>S.extras[k]),
+    const r=await fetch('/api/bikes/reservar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sku_id:T.s.id,envio:T.env,pago:S.pago,extras:Object.keys(S.extras).filter(k=>S.extras[k]),
       nombre:nom,doc,tel,email:(f.rMail||'').trim(),ciudad:f.rCity,ref:REF,web:(document.getElementById('rWeb')||{}).value||'',total_visto:T.total,acepto_nuevo:!!S.aceptoNuevo})});
     const j=await r.json().catch(()=>({error:'Respuesta inválida del servidor'}));
     S.enviando=false;
@@ -687,6 +725,7 @@ document.addEventListener('click',e=>{
   if(t.dataset.b!==undefined&&t.closest('#brands')){F.marca=t.dataset.b;pintarFiltros();pintarGrid();ev('filtro',{marca:F.marca==='all'?null:F.marca})}
   else if(t.dataset.a!==undefined&&t.closest('#fAro')){F.aro=t.dataset.a;pintarFiltros();pintarGrid()}
   else if(t.dataset.t!==undefined&&t.closest('#fTalla')){F.talla=t.dataset.t;pintarFiltros();pintarGrid()}
+  else if(t.dataset.pronto){window.open(waAsesor()+'?text='+encodeURIComponent('Hola, quiero que me avisen del próximo lanzamiento de '+t.dataset.pronto+'.'),'_blank','noopener');ev('whatsapp',{origen:'proximamente',marca:t.dataset.pronto})}
   else if(t.classList.contains('card'))abrir(t.dataset.id);
   else if(t.id==='xClose')cerrar();
   else if(S&&t.closest('#drawer')){
@@ -695,6 +734,7 @@ document.addEventListener('click',e=>{
     else if(t.dataset.c!==undefined){S.c=t.dataset.c;S.img=0;ajustar();pintarCfg();evM('config')}
     else if(t.dataset.img!==undefined){S.img=+t.dataset.img;pintarCfg()}
     else if(t.id==='dMas'){S.descFull=true;pintarCfg()}
+    else if(t.dataset.pago!==undefined){S.pago=t.dataset.pago;S.aceptoNuevo=false;pintarCfg();evM('config')}
     else if(t.dataset.env){S.envio=t.dataset.env;S.aceptoNuevo=false;pintarCfg();evM('config')}
     else if(t.id==='loQuiero'){S.carrito=true;pintarCfg();evM('carrito');const n=document.getElementById('rNom');if(n){n.focus();n.scrollIntoView({block:'center',behavior:'smooth'})}}
     else if(t.dataset.wa!==undefined){ev('whatsapp',{marca:S.m.marca,modelo:S.m.modelo,valor:S.done&&S.done.total})}

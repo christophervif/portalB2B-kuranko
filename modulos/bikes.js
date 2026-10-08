@@ -15,7 +15,7 @@
 //
 //  Variables (opcionales): BIKES_EMAIL (aviso interno, def. info@kuranko.pe,ventas@kuranko.pe),
 //  BIKES_GA_ID (Google Analytics 4, ej. G-XXXX), BIKES_META_PIXEL (ID del píxel de Meta),
-//  BIKES_WHATSAPP (def. 51963358335), BIKES_GEMINI_MODEL (def. gemini-3.6-flash),
+//  BIKES_WHATSAPP (def. 51963358335), BIKES_GEMINI_MODEL (opcional; si falla se prueban otros y el que sugiera Google),
 //  RESEND_API_KEY / RESEND_FROM (mismo correo que el resto del portal),
 //  GEMINI_API_KEY (la misma de Importaciones; solo para leer Excel raros).
 // ═══════════════════════════════════════════════════════════════════════════
@@ -112,7 +112,8 @@ function calcularPrecio(sku, envio, R, tc, margenForzado = null) {
   const v = num(R.variacion_costos ?? 25) / 100, logist = puesto - costoUSD;
   const mg = pu => sinIGV > 0 ? (sinIGV - pu) / sinIGV * 100 : 0;
   const margen_bajo = mg(costoUSD * 1.02 + logist * (1 + v)), margen_alto = mg(costoUSD * 0.98 + logist * Math.max(0, 1 - v));
-  return { pen, usd: pen / tc.usd, costoUSD, flete, puesto, margen: sinIGV > 0 ? ganancia / sinIGV * 100 : 0, ganancia, margen_bajo, margen_alto, modo: margenForzado != null ? 'minimo' : modo === 'pvp' && num(sku.pvp) > 0 ? 'pvp' : 'costo' };
+  const cw = costoUSD * 1.02 + logist * (1 + v); // costo en el peor caso (para el precio mínimo)
+  return { pen, cw, usd: pen / tc.usd, costoUSD, flete, puesto, margen: sinIGV > 0 ? ganancia / sinIGV * 100 : 0, ganancia, margen_bajo, margen_alto, modo: margenForzado != null ? 'minimo' : modo === 'pvp' && num(sku.pvp) > 0 ? 'pvp' : 'costo' };
 }
 
 // Ficha completa = al menos una foto, descripción y especificaciones
@@ -126,31 +127,39 @@ function fichaCompleta(md = {}, skus = []) {
 
 // Opciones de envío de un SKU (lo que ve el cliente). mod = ajustes del modelo { aereo: 'auto'|'si'|'no' }.
 const esEbike = s => s.categoria === 'E-MTB' || !!(s.motor && String(s.motor).trim());
+// Precio final redondeado igual que calcularPrecio (US$ 5 o S/ 10), a partir de un valor en US$ con IGV
+const finPrecio = (usdx, R, tc) => R.moneda_principal === 'PEN' ? ceil10(usdx * tc.usd) : Math.round(Math.ceil(usdx / 5) * 5 * tc.usd);
 function opcionesEnvio(sku, R, tc, mod = {}, hoy = hoyLima()) {
-  const min = num(R.margen_minimo);
-  const op = (k, forzado = null) => { const p = calcularPrecio(sku, k, R, tc, forzado);
-    // Cuotas sin intereses: el mayor número de cuotas cuya comisión deja el margen ≥ mínimo
-    let cu = 0; for (const [n, pct] of Object.entries(R.cuotas || {})) { const sin = p.pen / (1 + num(R.igv) / 100) / tc.usd; if (sin > 0 && ((sin * (1 - num(pct) / 100) - p.puesto) / sin * 100) >= min && +n > cu) cu = +n; }
-    const sinI = p.pen / (1 + num(R.igv) / 100) / tc.usd;
-    const pp = num(R.powerpay_pct) > 0 && sinI > 0 && ((sinI * (1 - num(R.powerpay_pct) / 100) - p.puesto) / sinI * 100) >= min;
-    // bajo = no llega al margen mínimo → no se ofrece en la tienda (el panel sí lo muestra)
-    return { k, p: p.pen, f: calcularEntrega(sku, k, R, hoy), margen: Math.round(p.margen * 10) / 10, mb: p.margen_bajo, ma: p.margen_alto, cu, pp, ...(forzado == null && k !== 'lima' && p.margen < min ? { bajo: true } : {}) }; };
+  const min = num(R.margen_minimo) / 100, igv = 1 + num(R.igv) / 100;
+  // Precio mínimo para que, en el peor caso de costos y pagando la comisión f del medio de pago, quede el margen mínimo
+  const piso = (p, f) => { const d = 1 - f - min; return d > 0.05 ? finPrecio(p.cw / d * igv, R, tc) : Infinity; };
+  const op = (k, forzado = null) => {
+    const p = calcularPrecio(sku, k, R, tc, forzado);
+    const base = Math.max(p.pen, piso(p, 0));
+    // Precio según cuántas cuotas elija: si la comisión del banco baja el margen del mínimo, el precio sube lo justo
+    const cq = {}; let cu = 0;
+    for (const [n, pct] of Object.entries(R.cuotas || {})) { const pn = Math.max(base, piso(p, num(pct) / 100)); if (isFinite(pn)) { cq[n] = pn; if (pn === base && +n > cu) cu = +n; } }
+    const ppPct = num(R.powerpay_pct) / 100, ppP = ppPct > 0 ? Math.max(base, piso(p, ppPct)) : 0;
+    const sinI = base / igv / tc.usd;
+    return { k, p: base, f: calcularEntrega(sku, k, R, hoy), margen: sinI > 0 ? Math.round((sinI - p.puesto) / sinI * 1000) / 10 : 0, m0: p.margen,
+      mb: sinI > 0 ? (sinI - p.cw) / sinI * 100 : 0, ma: p.margen_alto + (base > p.pen ? (base - p.pen) / base * 100 : 0),
+      cu, cq, pp: !!ppP, ...(ppP ? { ppp: ppP } : {}), ...(base > p.pen ? { sub: 1 } : {}) };
+  };
   if (sku.estado === 'Stock Lima') return [op('lima')];
   const out = [];
-  if (esEbike(sku)) {
+  if (esEbike(sku)) { // las e-bikes no viajan en avión
     const u = op('unidad');
-    if (mod.unidad === 'si' || (mod.unidad !== 'no' && u.margen >= min)) { delete u.bajo; out.push(u); }
+    if (mod.unidad === 'si' || (mod.unidad !== 'no' && u.m0 >= num(R.margen_minimo))) out.push(u);
     else {
       out.push(op('grupo'));
       // Quien no quiere esperar al grupo: envío individual pagando un adicional, con el margen en el mínimo
-      if (mod.unidad !== 'no') { const x = op('unidad', min); x.k = 'unidad'; x.adicional = true; out.push(x); }
+      if (mod.unidad !== 'no') { const x = op('unidad', num(R.margen_minimo)); x.adicional = true; out.push(x); }
     }
   } else {
-    const m = op('maritimo'); out.push(m);
-    const marcaOk = !R.aereo_activo ? false : (R.aereo_marcas || {})[sku.marca] !== false;
-    const permitido = mod.aereo === 'si' || (mod.aereo !== 'no' && marcaOk && m.p / tc.usd <= num(R.aereo_max_usd));
-    if (mod.aereo === 'si' || mod.aereo === 'no') delete m.bajo; // decisión manual del modelo
-    if (permitido) { const a = op('aereo'); if (mod.aereo === 'si') delete a.bajo; out.push(a); }
+    out.push(op('maritimo'));
+    // Aéreo para toda bici que no sea eléctrica, salvo que se apague para la marca o el modelo; el precio nunca baja del mínimo
+    const marcaOk = !!R.aereo_activo && (R.aereo_marcas || {})[sku.marca] !== false;
+    if (mod.aereo === 'si' || (mod.aereo !== 'no' && marcaOk)) out.push(op('aereo'));
   }
   return out;
 }
@@ -343,6 +352,19 @@ function tablaTallas(tallas, datos = {}) {
   return out.length ? out : null;
 }
 
+// Datos clave a partir de las especificaciones de la marca: recorrido delantero/trasero, material, aro (Mullet) y peso
+function datosDeSpecs(specs = []) {
+  const v = re => (specs.find(x => re.test(x.k)) || {}).v || '';
+  const mm = t => { for (const m of String(t).matchAll(/(?<![x×\d,.])(\d{2,3})\s?mm\b(?!\s?[x×])/gi)) { const n = +m[1]; if (n >= 60 && n <= 230) return n; } return 0; };
+  const cuadro = v(/^(cuadro|frame)/i), horq = v(/^(horquilla|fork)/i);
+  const del = mm(horq), tras = (String(cuadro).match(/(\d{2,3})\s?mm\s*(?:de\s*)?(?:recorrido|travel)|(?:recorrido|travel)[^0-9]{0,12}(\d{2,3})\s?mm/i) || []).slice(1).find(Boolean);
+  const c = /carbon|carbono/i.test(cuadro), a = /alloy|alumin|\balu\b|6061|6066|7005|7050/i.test(cuadro);
+  const nd = v(/^(neum[aá]tico delantero|front tire|cubierta delantera)/i), nt = v(/^(neum[aá]tico trasero|rear tire|cubierta trasera)/i);
+  const mullet = /mullet/i.test(cuadro) || (/\b29\b/.test(nd) && /27[.,]5/.test(nt));
+  const peso = (v(/^(peso|weight)/i).match(/\d+[.,]?\d*\s?kg/i) || [])[0] || '';
+  return { ...(del ? { rec_del: del } : {}), ...(tras ? { rec_tras: +tras } : {}), ...(c || a ? { material: c && a ? 'Carbono/Aluminio' : c ? 'Carbono' : 'Aluminio' } : {}), ...(mullet ? { aro: 'Mullet' } : {}), ...(peso ? { peso: peso.replace(',', '.') } : {}) };
+}
+
 // Adivina el color de una foto por su nombre de archivo (p. ej. …arid-carbon-r-atmos-blue_2000.jpg → «Atmos»).
 const sinTildes = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 function colorDeFoto(url, colores) {
@@ -373,10 +395,17 @@ function armarCatalogo(skus, R, tc, hoy = hoyLima(), mods = {}) {
     if (md.imgs && md.imgs.length && !m.gal) { m.gal = md.imgs; m.img = md.imgs[0]; }
     if (md.desc && !m.desc) m.desc = md.desc;
     if (md.specs && md.specs.length && !m.specs) m.specs = md.specs;
-    const dt = md.datos || {};
+    const dSp = datosDeSpecs(md.specs || []);
+    const dt = { ...dSp, ...Object.fromEntries(Object.entries(md.datos || {}).filter(([, x]) => x)) };
+    if (dSp.aro || (dt.aro && /mullet/i.test(dt.aro))) m.aro = 'Mullet'; // la ficha de la marca manda sobre el Excel
+    if (dt.rec_del && !m.rd) { m.rd = dt.rec_del; if (dt.rec_tras) m.rt = dt.rec_tras; }
+    if (dt.material && !m.matx) m.matx = dt.material;
+    if (dt.geo && !m.geo) m.geo = dt.geo;
     if (dt.recorrido && !m.rec) m.rec = dt.recorrido; if (dt.material && !m.mat) m.mat = dt.material; if (dt.peso && !m.peso) m.peso = dt.peso; if (dt.motor && !m.motor) m.motor = dt.motor;
     if (md.url_ficha && !m.ficha) m.ficha = md.url_ficha;
     if (md.confirmado) m.conf = 1;
+    if (md.destacado) m.dest = 1;
+    if (md.etiqueta) m.tag = md.etiqueta;
     if (!m.img && s.url_imagen) m.img = s.url_imagen;
     if (s.url_imagen) { m._ci = m._ci || {}; m._ci[s.url_imagen] = m._ci[s.url_imagen] || s.color; }
     m._md = md;
@@ -389,7 +418,7 @@ function armarCatalogo(skus, R, tc, hoy = hoyLima(), mods = {}) {
     if (!ops.length) continue; // no llega al margen mínimo: no se publica
     const base = ops.reduce((a, o) => o.p < a.p ? o : a, ops[0]);
     const it = { id: s.id, mo: s.montaje, t: s.talla, c: s.color, d: sinLimite(s) ? 99 : Math.max(0, num(s.stock) - num(s.reservado)), e: s.estado,
-      pm: base.p, fm: base.f, op: ops.map(o => ({ k: o.k, p: o.p, f: o.f, cu: o.cu, ...(o.pp ? { pp: 1 } : {}), ...(o.adicional ? { ad: 1 } : {}) })) };
+      pm: base.p, fm: base.f, op: ops.map(o => ({ k: o.k, p: o.p, f: o.f, cu: o.cu, cq: o.cq, ...(o.pp ? { pp: o.ppp } : {}), ...(o.adicional ? { ad: 1 } : {}) })) };
     if (s.pvp > 0) it.ref = Math.ceil(s.pvp * (s.moneda === 'EUR' ? tc.eur : tc.usd) / 10) * 10; // PVP de la marca en soles, referencia
     m.skus.push(it);
   }
@@ -408,6 +437,9 @@ function armarCatalogo(skus, R, tc, hoy = hoyLima(), mods = {}) {
     const tt = tablaTallas(m.tallas, (m._md && m._md.datos) || {}); if (tt) m.tt = tt;
     if (m._md && m._md.datos && m._md.datos.garantia) m.gar = String(m._md.datos.garantia).slice(0, 200);
     delete m._ci; delete m._md;
+    // «Próximamente»: solo la silueta de la foto principal, sin nombre, precio ni ficha (no se puede reservar)
+    if (m.tag === 'proximamente') return { id: 'pronto-' + slug(m.marca) + '-' + m.id.length + m.skus.length, marca: m.marca, cat: m.cat, aro: m.aro, tag: m.tag, img: (m.gal || [])[0] || m.img || null,
+      modelo: 'Próximamente', montajes: [], colores: [], tallas: [], skus: [{ id: 0, mo: '', t: '', c: '', d: 0, pm: 0, fm: [hoy, hoy], op: [] }] };
     return m;
   });
 }
@@ -571,7 +603,8 @@ function leerFichaHtml(html, base) {
   desc = desc.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 1500);
   let imagenes = elegirImagenes(imgs, base);
   if (!imagenes.length) imagenes = elegirImagenes(og, base);
-  return { titulo: titulo.slice(0, 200), descripcion: desc, imagenes: imagenes.slice(0, 16) };
+  const todas = [...html.matchAll(/\b(?:data-src|data-lazy-src|src)=["']([^"']+\.(?:jpe?g|png|webp)[^"']*)["']/gi)].map(m => abs(m[1])).filter(Boolean);
+  return { titulo: titulo.slice(0, 200), descripcion: desc, imagenes: imagenes.slice(0, 16), geo: fotoGeometria(todas) };
 }
 // De todas las fotos de la página: si varias llevan el nombre del modelo en el archivo, solo esas;
 // y de cada foto repetida en varios tamaños, la más grande (ej. Mondraker: 366x250_ vs 2000_).
@@ -630,7 +663,41 @@ function inicioSpecs(texto) {
   for (const m of texto.matchAll(/Horquilla|Fork\b|Gabel/g)) { const w = texto.slice(Math.max(0, m.index - 2500), m.index + 2500); if (/Freno|Brake|Bremse/.test(w) && /Cuadro|Frame|Rahmen/.test(w)) return Math.max(0, w.search(/Cuadro|Frame|Rahmen/) + Math.max(0, m.index - 2500) - 50); }
   return -1;
 }
-let ultimoErrorIA = '';
+let ultimoErrorIA = '', modeloIAok = '', modeloIAelegido = '';
+// Llama a Gemini probando modelos: el que funcionó la última vez, el configurado, los conocidos y el que sugiera Google
+// en su mensaje de error («use models/gemini-x.y-flash»). Devuelve el texto, o '' y deja el motivo en ultimoErrorIA.
+async function llamarGemini(prompt, temperatura = 0.2, espera = 40000) {
+  const key = process.env.GEMINI_API_KEY; if (!key) { ultimoErrorIA = 'Falta GEMINI_API_KEY'; return ''; }
+  const limpio = m => String(m || '').replace(/^models\//, '').replace(/[^a-zA-Z0-9.\-]/g, '');
+  // Primero el elegido en el panel; si está saturado o no existe, los demás (para no dejar la carga a medias)
+  const cola = [modeloIAelegido, modeloIAok, process.env.BIKES_GEMINI_MODEL, 'gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-2.5-flash'].map(limpio).filter(Boolean);
+  const probados = new Set(), reintentos = {};
+  ultimoErrorIA = '';
+  while (cola.length && probados.size < 6) {
+    const mdl = cola.shift(); if (probados.has(mdl)) continue; probados.add(mdl);
+    try {
+      const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), espera);
+      const g = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${mdl}:generateContent?key=${encodeURIComponent(key)}`, { method: 'POST', signal: ctrl.signal,
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: temperatura, response_mime_type: 'application/json' } }) });
+      clearTimeout(to);
+      const j = await g.json().catch(() => ({}));
+      if (!g.ok || j.error) {
+        const msg = (j.error && j.error.message) || 'HTTP ' + g.status;
+        ultimoErrorIA = `IA (${mdl}): ${msg}`.slice(0, 200);
+        // Saturado (429/503/«overloaded»): espera y reintenta el mismo modelo hasta 2 veces antes de pasar a otro
+        if ((g.status === 429 || g.status === 503 || /overload|unavailable|exhausted|try again/i.test(msg)) && (reintentos[mdl] || 0) < 2) {
+          reintentos[mdl] = (reintentos[mdl] || 0) + 1; probados.delete(mdl); cola.unshift(mdl);
+          await new Promise(r => setTimeout(r, reintentos[mdl] * 3000)); continue;
+        }
+        for (const m of String(msg).matchAll(/models\/([a-z0-9.\-]+)/gi)) if (!probados.has(limpio(m[1]))) cola.unshift(limpio(m[1])); // el que recomienda Google
+        continue;
+      }
+      const txt = (((j.candidates || [])[0] || {}).content || {}).parts?.map(x => x.text).join('') || '';
+      if (txt) { modeloIAok = mdl; ultimoErrorIA = ''; return txt; }
+    } catch (e) { ultimoErrorIA = `IA (${mdl}): ${e.message}`.slice(0, 200); }
+  }
+  return '';
+}
 async function fichaIA(texto, nombre) {
   const key = process.env.GEMINI_API_KEY; if (!key) return null;
   const i = inicioSpecs(texto);
@@ -638,7 +705,7 @@ async function fichaIA(texto, nombre) {
   const prompt = `Eres redactor de una tienda de bicicletas en Perú. Con el texto de la página oficial de la bicicleta «${nombre}», responde SOLO JSON:
 {"descripcion": "2 a 3 frases en español neutro, para vender, sin inventar nada que no esté en el texto",
  "categoria": "Downhill|Bike Park|Enduro|Trail|XC|Gravel|E-MTB|Dirt|Kids|Ruta u otra breve",
- "recorrido": "ej. 165/170 mm o vacío", "material": "ej. Carbono, Aluminio", "aro": "29, 27.5 o Mullet",
+ "recorrido": "ej. 165/170 mm o vacío", "rec_del": 170, "rec_tras": 165, "material": "Carbono, Aluminio o Carbono/Aluminio", "aro": "29, 27.5 o Mullet (si usa 29 adelante y 27.5 atrás)",
  "motor": "solo e-bikes, ej. Bosch CX Gen5 · 800 Wh", "peso": "ej. 23.5 kg o vacío",
  "specs": [{"k": "Cuadro", "v": "valor resumido (máx. 120 caracteres)"}],
  "tallas": [{"t": "M", "min": 170, "max": 180}],
@@ -648,27 +715,14 @@ En "specs" pon hasta 18 filas en español (Cuadro, Horquilla, Amortiguador, Moto
 TEXTO:
 ${trozo}`;
   ultimoErrorIA = '';
-  // Prueba el modelo configurado y, si falla, modelos alternativos (por si el nombre cambió)
-  const modelos = [...new Set([(process.env.BIKES_GEMINI_MODEL || 'gemini-3.6-flash'), 'gemini-2.5-flash', 'gemini-2.0-flash'].map(m => m.replace(/[^a-zA-Z0-9.\-]/g, '')))];
-  let txt = '';
-  for (const mdl of modelos) {
-    try {
-      const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 40000);
-      const g = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${mdl}:generateContent?key=${encodeURIComponent(key)}`, { method: 'POST', signal: ctrl.signal,
-        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2, response_mime_type: 'application/json' } }) });
-      clearTimeout(to);
-      const j = await g.json().catch(() => ({}));
-      if (!g.ok || j.error) { ultimoErrorIA = `IA (${mdl}): ${(j.error && j.error.message) || 'HTTP ' + g.status}`.slice(0, 200); continue; }
-      txt = (((j.candidates || [])[0] || {}).content || {}).parts?.map(x => x.text).join('') || '';
-      if (txt) break;
-    } catch (e) { ultimoErrorIA = `IA (${mdl}): ${e.message}`.slice(0, 200); }
-  }
+  const txt = await llamarGemini(prompt, 0.2, 40000);
   if (!txt) { console.warn('[bikes] ficha IA', ultimoErrorIA); return null; }
   try {
     const o = JSON.parse(txt);
     const corto = (v, n) => String(v || '').trim().slice(0, n);
     return { descripcion: corto(o.descripcion, 900), categoria: corto(o.categoria, 40), recorrido: corto(o.recorrido, 40), material: corto(o.material, 60), aro: corto(o.aro, 20),
       motor: corto(o.motor, 120), peso: corto(o.peso, 20), specs: (Array.isArray(o.specs) ? o.specs : []).slice(0, 20).map(x => ({ k: corto(x.k, 40), v: corto(x.v, 160) })).filter(x => x.k && x.v),
+      rec_del: Math.round(num(o.rec_del)) || 0, rec_tras: Math.round(num(o.rec_tras)) || 0,
       tallas: (Array.isArray(o.tallas) ? o.tallas : []).slice(0, 10).map(x => ({ t: corto(x.t, 10), min: Math.round(num(x.min)), max: Math.round(num(x.max)) })).filter(x => x.t && x.min > 100 && x.max > x.min && x.max < 230),
       garantia: corto(o.garantia, 200) };
   } catch (e) { console.warn('[bikes] ficha IA', e.message); return null; }
@@ -752,16 +806,24 @@ async function leerFicha(url, opciones = {}) {
 // Ficha leída en el navegador del usuario (lector): fotos y texto ya extraídos allá
 const EXCLUIR_IMG = /\.svg(\?|$)|logo|share|icon|sprite|favicon|placeholder|blank|pixel|badge|flag|payment|[-_]geo[-_.]|geometr|size-?guide|sizing/i;
 async function fichaDesdeNavegador(url, imgs, texto, nombre) {
-  const lista = [...new Set((Array.isArray(imgs) ? imgs : []).map(String).filter(u => /^https?:\/\//i.test(u) && !EXCLUIR_IMG.test(u)))].slice(0, 400);
-  const f = { titulo: nombre, descripcion: '', imagenes: elegirImagenes(lista, url).slice(0, 16) };
+  const todas = (Array.isArray(imgs) ? imgs : []).map(String).filter(u => /^https?:\/\//i.test(u));
+  const lista = [...new Set(todas.filter(u => !EXCLUIR_IMG.test(u)))].slice(0, 400);
+  const f = { titulo: nombre, descripcion: '', imagenes: elegirImagenes(lista, url).slice(0, 16), geo: fotoGeometria(todas) };
   return { ...(await completarFicha(f, String(texto || '').slice(0, 200000), { nombre })), url };
+}
+// Dibujo de geometría de la marca (la foto con «geo»/«geometry» en el nombre, la más grande)
+function fotoGeometria(imgs) {
+  const g = imgs.filter(u => /[-_]geo[-_.]|geometr/i.test(u) && !/\.svg/i.test(u));
+  const t = u => +((u.match(/[-_/](\d{3,4})_/) || [])[1] || 800);
+  return g.sort((a, b) => t(b) - t(a))[0] || null;
 }
 async function completarFicha(f, texto, opciones = {}) {
   const ia = opciones.ia === false ? null : await fichaIA(texto, opciones.nombre || f.titulo);
-  if (ia) { f.ia = true; if (ia.descripcion) f.descripcion = ia.descripcion; f.specs = ia.specs; f.datos = { categoria: ia.categoria, recorrido: ia.recorrido, material: ia.material, aro: ia.aro, motor: ia.motor, peso: ia.peso, tallas: ia.tallas, garantia: ia.garantia }; }
+  if (ia) { f.ia = true; if (ia.descripcion) f.descripcion = ia.descripcion; f.specs = ia.specs; f.datos = { categoria: ia.categoria, recorrido: ia.recorrido, material: ia.material, aro: ia.aro, motor: ia.motor, peso: ia.peso, tallas: ia.tallas, garantia: ia.garantia, rec_del: ia.rec_del, rec_tras: ia.rec_tras }; }
   else { f.specs = specsSimples(texto); if (ultimoErrorIA) f.ia_error = ultimoErrorIA;
     const peso = (f.specs.find(x => /^peso|weight/i.test(x.k)) || {}).v; if (peso) f.datos = { peso: peso.slice(0, 20) }; }
   if (!f.descripcion && f.specs && f.specs.length) f.descripcion = descDeSpecs(opciones.nombre || f.titulo, f.specs);
+  f.datos = { ...datosDeSpecs(f.specs || []), ...Object.fromEntries(Object.entries(f.datos || {}).filter(([, x]) => x)), ...(f.geo ? { geo: f.geo } : {}) };
   if (!f.imagenes.length && !f.descripcion) throw new Error('No encontré fotos ni descripción en esa página. Si la marca bloquea al servidor, usa el «Lector desde tu navegador».');
   return f;
 }
@@ -815,8 +877,10 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
           descripcion TEXT NULL, imagenes MEDIUMTEXT NULL, url_ficha VARCHAR(500) NULL, aereo VARCHAR(5) NOT NULL DEFAULT 'auto', unidad VARCHAR(5) NOT NULL DEFAULT 'auto',
           specs MEDIUMTEXT NULL, datos TEXT NULL, manual TINYINT(1) NOT NULL DEFAULT 0,
           actualizado DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (marca, modelo)) DEFAULT CHARSET=utf8mb4`);
-      for (const col of ['specs MEDIUMTEXT NULL', 'datos TEXT NULL', 'manual TINYINT(1) NOT NULL DEFAULT 0', 'img_colores MEDIUMTEXT NULL', 'confirmado TINYINT(1) NOT NULL DEFAULT 0'])
+      for (const col of ['specs MEDIUMTEXT NULL', 'datos TEXT NULL', 'manual TINYINT(1) NOT NULL DEFAULT 0', 'img_colores MEDIUMTEXT NULL', 'confirmado TINYINT(1) NOT NULL DEFAULT 0', 'destacado TINYINT(1) NOT NULL DEFAULT 0', "etiqueta VARCHAR(15) NOT NULL DEFAULT ''"])
         await portalPool.query(`ALTER TABLE bk_modelos ADD COLUMN ${col}`).catch(() => {}); // ya existe
+      await portalPool.query(`ALTER TABLE bk_reservas ADD COLUMN pago VARCHAR(4) NULL`).catch(() => {});
+      try { const [[ia]] = await portalPool.query(`SELECT valor FROM bk_config WHERE clave='ia'`); if (ia) modeloIAelegido = (JSON.parse(ia.valor) || {}).modelo || ''; } catch (e) {}
       await portalPool.query(`CREATE TABLE IF NOT EXISTS bk_llamadas (id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY, creado DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
           nombre VARCHAR(120) NOT NULL, tel VARCHAR(15) NOT NULL, fecha DATE NULL, franja VARCHAR(30) NULL, tema VARCHAR(300) NULL, ref VARCHAR(60) NULL,
           estado VARCHAR(20) NOT NULL DEFAULT 'Pendiente', nota TEXT NULL, ip VARCHAR(45) NULL) DEFAULT CHARSET=utf8mb4`);
@@ -847,10 +911,10 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
 
   async function leerModelos() {
     await prepararTablas();
-    const [rows] = await portalPool.query('SELECT marca, modelo, descripcion, imagenes, img_colores, confirmado, url_ficha, aereo, unidad, specs, datos, manual FROM bk_modelos');
+    const [rows] = await portalPool.query('SELECT marca, modelo, descripcion, imagenes, img_colores, confirmado, destacado, etiqueta, url_ficha, aereo, unidad, specs, datos, manual FROM bk_modelos');
     const out = {}, js = (t, d) => { try { return JSON.parse(t || '') ?? d; } catch (e) { return d; } };
     for (const r of rows) out[r.marca + '|' + r.modelo] = { desc: r.descripcion || '', imgs: js(r.imagenes, []), url_ficha: r.url_ficha || null, aereo: r.aereo, unidad: r.unidad,
-      specs: js(r.specs, []), datos: js(r.datos, {}), manual: !!r.manual, imgc: js(r.img_colores, {}), confirmado: !!r.confirmado };
+      specs: js(r.specs, []), datos: js(r.datos, {}), manual: !!r.manual, imgc: js(r.img_colores, {}), confirmado: !!r.confirmado, destacado: !!r.destacado, etiqueta: r.etiqueta || '' };
     return out;
   }
   // Envíos en grupo (e-bikes): reservas activas con envío "grupo", por marca
@@ -994,7 +1058,9 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       if (!ops.length) { await conn.rollback(); return res.status(409).json({ error: 'Esta bici ya no está disponible a pedido. Escríbenos por WhatsApp y te ayudamos.' }); }
       const op = ops.find(o => o.k === String(b.envio || '')) || ops[0];
       const env = op.k;
-      const p = calcularPrecio(s, env, R, tc, op.adicional ? num(R.margen_minimo) : null);
+      const pago = String(b.pago || '0'); // '0' contado, '3'/'6'/… cuotas, 'pp' Powerpay
+      const precioBici = pago === 'pp' && op.ppp ? op.ppp : (op.cq && op.cq[pago]) || op.p;
+      const p = { ...calcularPrecio(s, env, R, tc, op.adicional ? num(R.margen_minimo) : null), pen: precioBici };
       const fechas = op.f;
       const pedidos = Array.isArray(b.extras) ? b.extras.map(String) : [];
       const extras = (R.extras || []).filter(e => e.incluido || pedidos.includes(e.id)).map(e => ({ id: e.id, nombre: e.nombre, precio: num(e.precio) }));
@@ -1011,10 +1077,10 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       const codigo = await nuevoCodigo(conn);
       const validoHasta = new Date(Date.now() + num(R.validez_horas || 48) * 3600e3);
       await conn.query(`INSERT INTO bk_reservas (codigo, sku_id, marca, modelo, montaje, talla, color, sku, envio, extras, precio_bici, extras_total, total, adelanto,
-          tc_usd, costo_usd, valido_hasta, fecha_min, fecha_max, nombre, doc, tel, email, ciudad, ref, ip)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          tc_usd, costo_usd, valido_hasta, fecha_min, fecha_max, nombre, doc, tel, email, ciudad, ref, ip, pago)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [codigo, s.id, s.marca, s.modelo, s.montaje, s.talla, s.color, s.sku || null, env, JSON.stringify(extras), p.pen, extrasTotal, total, adelanto,
-          tc.usd, Math.round(p.costoUSD * 100) / 100, validoHasta, fechas[0], fechas[1], nombre, doc, tel, email || null, ciudad, ref, ip]);
+          tc.usd, Math.round(p.costoUSD * 100) / 100, validoHasta, fechas[0], fechas[1], nombre, doc, tel, email || null, ciudad, ref, ip, pago.slice(0, 4)]);
       await conn.query('UPDATE bk_skus SET reservado = reservado + 1 WHERE id=?', [s.id]);
       await conn.commit();
       limpiarCache();
@@ -1027,6 +1093,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
         envTxt += g.actual === 0 ? ` (¡grupo completo de ${g.min}!)` : ` (${g.actual} de ${g.min}; faltan ${g.min - g.actual})`;
       }
       const fechasTxt = `${fechaCorta(fechas[0])} – ${fechaCorta(fechas[1])}`;
+      envTxt += pago === 'pp' ? ' · pago con Powerpay' : +pago > 1 ? ` · ${pago} cuotas sin intereses` : '';
       const msg = `Hola Kuranko, envié la solicitud de reserva ${codigo}: ${s.marca} ${s.modelo}${s.montaje && s.montaje !== 'Base' ? ' ' + s.montaje : ''}, talla ${s.talla}, color ${s.color}, envío ${envTxt}.\n` +
         `Precio final: ${$(total)} · Adelanto al confirmar: ${$(adelanto)}\nEntrega estimada: ${fechasTxt}\nNombre: ${nombre} · DNI/RUC: ${doc}\n¿Me confirman la disponibilidad?`;
       const fila = (a, v) => `<tr><td style="padding:6px 10px;border-bottom:1px solid #eee;color:#666;font-size:14px">${escH(a)}</td><td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:14px;color:#111"><b>${escH(v)}</b></td></tr>`;
@@ -1186,6 +1253,10 @@ ${fila(`Saldo al recibir la bicicleta${usdM ? ' (fijo en dólares)' : ''}`, $(nu
   });
 
   // ── ADMIN ───────────────────────────────────────────────────────────────────
+  app.post('/api/bikes/admin/metricas/reiniciar', authAdmin, mBikes, async (req, res) => {
+    try { await prepararTablas(); const [r] = await portalPool.query('DELETE FROM bk_eventos'); res.json({ ok: true, borrados: r.affectedRows }); }
+    catch (e) { res.status(500).json({ error: e.message }); }
+  });
   app.get('/api/bikes/admin/metricas', authAdmin, mBikes, async (req, res) => {
     try {
       await prepararTablas();
@@ -1220,8 +1291,9 @@ ${fila(`Saldo al recibir la bicicleta${usdM ? ' (fijo en dólares)' : ''}`, $(nu
         const ops = opcionesEnvio(s, R, tc, mods[s.marca + '|' + s.modelo] || {});
         const p = calcularPrecio(s, ops[0].k, R, tc);
         const ms = ops.flatMap(o => [o.mb, o.ma]);
-        return { ...s, precio: p.pen, puesto: Math.round(p.puesto), ganancia: Math.round(p.ganancia), margen: p.margen,
-          envios: ops.map(o => ({ k: o.k, p: o.p, margen: o.margen, mb: Math.floor(o.mb), ma: Math.ceil(o.ma), ...(o.bajo ? { bajo: 1 } : {}) })), margen_min: Math.min(...ms), margen_max: Math.max(...ms),
+        const pf = ops[0].p, gan = pf / (1 + num(R.igv) / 100) / tc.usd - p.puesto;
+        return { ...s, precio: pf, puesto: Math.round(p.puesto), ganancia: Math.round(gan), margen: ops[0].margen,
+          envios: ops.map(o => ({ k: o.k, p: o.p, margen: o.margen, mb: Math.floor(o.mb), ma: Math.ceil(o.ma), ...(o.sub ? { sub: 1 } : {}) })), margen_min: Math.min(...ms), margen_max: Math.max(...ms),
           pvp_pen: s.pvp > 0 ? ceil10(s.pvp * (s.moneda === 'EUR' ? tc.eur : tc.usd)) : null };
       });
       const [reservas] = await portalPool.query(`SELECT id, codigo, UNIX_TIMESTAMP(creado) creado, sku_id, marca, modelo, montaje, talla, color, envio, extras,
@@ -1295,14 +1367,8 @@ Asigna a cada campo el índice de la columna que corresponde, o null si no exist
 "costo" es el precio que paga la tienda/distribuidor (dealer, net, EK, FOB), NO el precio sugerido al público (que es "pvp").
 Si las tallas están como columnas separadas con cantidades (S, M, L…), devuélvelas en "tallas_cols" como [{"i": índice, "talla": "M"}].
 Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda": "USD"|"EUR"|null, "nota": "breve"}`;
-        const mdl = (process.env.BIKES_GEMINI_MODEL || 'gemini-3.6-flash').replace(/[^a-zA-Z0-9.\-]/g, '');
-        const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 25000);
-        const g = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${mdl}:generateContent?key=${encodeURIComponent(key)}`, {
-          method: 'POST', signal: ctrl.signal, headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0, response_mime_type: 'application/json' } }) });
-        clearTimeout(to);
-        const j = await g.json();
-        const txt = (((j.candidates || [])[0] || {}).content || {}).parts?.map(p => p.text).join('') || '';
+        const txt = await llamarGemini(prompt, 0, 25000);
+        if (!txt) throw new Error(ultimoErrorIA || 'sin respuesta');
         const ia = JSON.parse(txt);
         for (const [k, v] of Object.entries(ia.map || {})) {
           if (CAMPOS[k] && Number.isInteger(v) && v >= 0 && v < headers.length && r.map[k] == null) { r.map[k] = v; r.conf[k] = 0.7; }
@@ -1467,6 +1533,49 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
           specs ? JSON.stringify(specs.slice(0, 25).map(x => ({ k: String(x.k || '').slice(0, 40), v: String(x.v || '').slice(0, 200) })).filter(x => x.k && x.v)) : null,
           JSON.stringify(Object.fromEntries(Object.entries(b.img_colores && typeof b.img_colores === 'object' ? b.img_colores : {}).filter(([u]) => imgs.includes(u)).map(([u, c]) => [u, String(c || '').slice(0, 80)])))]);
       limpiarCache(); res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Vitrina del modelo: destacado, etiqueta (novedad / lanzamiento / próximamente) y stock confirmado
+  app.post('/api/bikes/admin/modelo-vitrina', authAdmin, mBikes, async (req, res) => {
+    const b = req.body || {};
+    const marca = String(b.marca || '').slice(0, 60), modelo = String(b.modelo || '').slice(0, 120);
+    if (!marca || !modelo) return res.status(400).json({ error: 'Falta el modelo' });
+    const sets = [], vals = [];
+    if (b.destacado !== undefined) { sets.push('destacado'); vals.push(b.destacado ? 1 : 0); }
+    if (b.confirmado !== undefined) { sets.push('confirmado'); vals.push(b.confirmado ? 1 : 0); }
+    if (b.etiqueta !== undefined) { sets.push('etiqueta'); vals.push(['novedad', 'lanzamiento', 'proximamente'].includes(b.etiqueta) ? b.etiqueta : ''); }
+    if (!sets.length) return res.status(400).json({ error: 'Nada que cambiar' });
+    try {
+      await prepararTablas();
+      await portalPool.query(`INSERT INTO bk_modelos (marca, modelo, ${sets.join(', ')}) VALUES (?,?,${sets.map(() => '?').join(',')}) ON DUPLICATE KEY UPDATE ${sets.map(c => `${c}=VALUES(${c})`).join(', ')}`, [marca, modelo, ...vals]);
+      limpiarCache(); res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Modelo de IA elegido desde el panel (sin tocar Railway) y lista de modelos disponibles en Google
+  app.get('/api/bikes/admin/ia', authAdmin, mBikes, async (req, res) => {
+    let lista = [];
+    try {
+      const key = process.env.GEMINI_API_KEY;
+      if (key) { const j = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=200&key=${encodeURIComponent(key)}`).then(r => r.json());
+        lista = (j.models || []).filter(m => (m.supportedGenerationMethods || []).includes('generateContent') && /gemini/i.test(m.name) && !/embedding|tts|image|audio|live|vision/i.test(m.name))
+          .map(m => ({ id: m.name.replace(/^models\//, ''), nombre: m.displayName || m.name })).slice(0, 40); }
+    } catch (e) {}
+    res.json({ elegido: modeloIAelegido, ultimo_ok: modeloIAok, lista, clave: !!process.env.GEMINI_API_KEY });
+  });
+  app.post('/api/bikes/admin/ia', authAdmin, mBikes, async (req, res) => {
+    const b = req.body || {};
+    try {
+      if (b.modelo !== undefined) {
+        modeloIAelegido = String(b.modelo || '').replace(/^models\//, '').replace(/[^a-zA-Z0-9.\-]/g, '').slice(0, 60);
+        await portalPool.query(`INSERT INTO bk_config (clave, valor, actualizado_por) VALUES ('ia', ?, ?) ON DUPLICATE KEY UPDATE valor=VALUES(valor), actualizado=NOW(), actualizado_por=VALUES(actualizado_por)`, [JSON.stringify({ modelo: modeloIAelegido }), usuarioDe(req)]);
+      }
+      if (b.probar) {
+        const t0 = Date.now(); const txt = await llamarGemini('Responde solo este JSON: {"ok": true}', 0, 20000);
+        return res.json({ ok: !!txt, modelo: txt ? modeloIAok : null, ms: Date.now() - t0, error: txt ? null : ultimoErrorIA });
+      }
+      res.json({ ok: true, elegido: modeloIAelegido });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 

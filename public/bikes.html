@@ -4,9 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Kuranko Bikes · Bicicletas de fábrica a pedido</title>
-<meta name="description" content="Mondraker, Forestal, Atherton, Thömus, Crestline, Forbidden, Megamo, Steppenwolf y Revel a pedido. Precio final en soles con IGV, fecha de llegada a Lima y reserva con adelanto.">
+<meta name="description" content="Mondraker, Forestal, Atherton, Thömus, Crestline, Forbidden, Megamo, Steppenwolf y Revel a pedido. Precio final en Lima con IGV, fecha de llegada a Lima y reserva con adelanto.">
 <meta property="og:title" content="Kuranko Bikes · Bicis de fábrica a pedido">
-<meta property="og:description" content="9 marcas de MTB y e-MTB. Configura tu bici, ve el precio final en soles y la fecha de llegada, y resérvala con adelanto.">
+<meta property="og:description" content="9 marcas de MTB y e-MTB. Configura tu bici, ve el precio final en Lima y la fecha de llegada, y solicita tu reserva sin pagar nada.">
 <meta property="og:type" content="website">
 <meta name="theme-color" content="#000726">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -118,6 +118,11 @@ nav.km a.on{background:#141414;color:#fff}
 .agenda{border:1px solid var(--line);border-radius:10px;padding:16px;background:var(--surface);margin:-14px 0 26px;display:grid;gap:10px}
 .agenda .form{grid-template-columns:repeat(4,minmax(0,1fr))}@media (max-width:760px){.agenda .form{grid-template-columns:1fr 1fr}}
 /* confianza, galería, grupo, logos */
+[data-foto][hidden]{display:none!important}
+.tfind{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:10px;font-size:13.5px}.tfind label{display:flex;gap:8px;align-items:center;font-weight:600}
+.tfind input{width:130px;padding:8px 10px;border:1px solid var(--line);border-radius:6px;font:inherit}.o.rec{box-shadow:inset 0 0 0 2px var(--ok)}
+.gar{font-size:13px;color:var(--muted);border-left:3px solid var(--ok);padding:4px 10px}.btn.comp{padding:8px 12px;font-size:12px}.hero.sinfoto{grid-template-columns:1fr}.hero.sinfoto .hero-txt{max-width:820px}
+.asesor.sinfoto{grid-template-columns:1fr auto}@media (max-width:640px){.asesor.sinfoto{grid-template-columns:1fr}}
 .o .swf{width:44px;height:28px;object-fit:contain;margin-right:8px;vertical-align:middle;background:#fff;border-radius:4px}
 .trust{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:8px 0 26px}
 .trust div{border:1px solid var(--line);border-radius:var(--r);padding:14px;display:grid;gap:4px;background:var(--surface)}
@@ -302,7 +307,7 @@ footer.kf a{color:#fff}
   <div class="hero">
     <div class="hero-txt">
       <h1>Tu nave, <em>de fábrica</em><br>a Lima.</h1>
-      <p>Nueve marcas de montaña y eléctricas configuradas a tu medida. Ves el precio final en soles, con envío, aduana, IGV y armado incluidos, y la fecha estimada de llegada antes de reservar.</p>
+      <p>Nueve marcas de montaña y eléctricas configuradas a tu medida. Ves el precio final, con envío, aduana, IGV y armado incluidos, y la fecha estimada de llegada antes de reservar.</p>
     <ol class="steps">
       <li><div><b>Elige tu bici y solicita la reserva</b><span>Talla, color y envío. Ves el precio final y la fecha de llegada. No pagas nada todavía.</span></div></li>
       <li><div><b>Te confirmamos por WhatsApp</b><span>Consultamos la unidad con la marca, normalmente en menos de 24 horas hábiles.</span></div></li>
@@ -327,7 +332,7 @@ footer.kf a{color:#fff}
       <div class="grid" id="grid"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>
     </div>
   </div>
-  <div class="trust" id="confianza"><div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg><b>Garantía oficial de la marca</b><span>Bicis nuevas, con factura y garantía del fabricante gestionada por Kuranko.</span></div><div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg><b>Soporte técnico en Lima</b><span>Taller propio en Magdalena: armado, ajuste de suspensión y servicio post venta.</span></div><div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.27 6.96L12 12.01l8.73-5.05M12 22.08V12"/></svg><b>Importación sin sorpresas</b><span>Precio final en soles con envío, aduana e IGV. Te avisamos cada etapa.</span></div><div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg><b>Reservar no cuesta nada</b><span>Pagas el adelanto solo cuando la marca confirma tu unidad. Si luego no puede entregarla, te devolvemos el 100%.</span></div></div>
+  <div class="trust" id="confianza"><div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg><b>Garantía oficial de la marca</b><span>Bicis nuevas, con factura y garantía del fabricante gestionada por Kuranko.</span></div><div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg><b>Soporte técnico en Lima</b><span>Taller propio en Magdalena: armado, ajuste de suspensión y servicio post venta.</span></div><div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.27 6.96L12 12.01l8.73-5.05M12 22.08V12"/></svg><b>Importación sin sorpresas</b><span>Precio final con envío, aduana e IGV. Te avisamos cada etapa.</span></div><div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg><b>Reservar no cuesta nada</b><span>Pagas el adelanto solo cuando la marca confirma tu unidad. Si luego no puede entregarla, te devolvemos el 100%.</span></div></div>
   <div class="asesor" id="asesor"><div class="foto" data-foto="asesor"></div><div><b id="asNom">Jean Pierre</b><span id="asCargo">Asesor de bicicletas</span><br><span>Te ayuda a elegir talla y modelo, y te acompaña hasta la entrega.</span></div><div style="display:grid;gap:8px"><a class="btn" id="asWa" href="https://wa.me/51963358335" target="_blank" rel="noopener" data-wa>Hablar con Jean Pierre</a><button class="btn sec" id="agBtn">Agendar una llamada</button></div></div>
   <div class="agenda" id="agenda" hidden><b>Agenda una llamada con el asesor</b>
     <form id="agForm" class="form" novalidate>
@@ -344,7 +349,7 @@ footer.kf a{color:#fff}
   <div class="terms" id="terminos">
     <h2>Cómo funciona la reserva</h2>
     <ul>
-      <li>El precio mostrado es final en soles: incluye flete, seguro, desaduanaje, IGV y armado. Se mantiene <span id="valH">48</span> horas desde tu reserva.</li>
+      <li>El precio mostrado es final: incluye flete, seguro, desaduanaje, IGV y armado. Se mantiene <span id="valH">48</span> horas desde tu reserva.</li>
       <li>Solicitar la reserva es gratis y no te compromete. Confirmamos la disponibilidad con la marca, normalmente en menos de 24 horas hábiles, y te escribimos por WhatsApp.</li>
       <li>Con la unidad confirmada, la separas con el adelanto (<span class="num" id="depTerm">30</span>%): link de pago con tarjeta (también en cuotas), Yape, transferencia o en nuestra tienda.</li>
       <li>Si la marca no puede entregar tu unidad, te devolvemos el adelanto completo.</li>
@@ -434,6 +439,9 @@ const evM=(tipo,x={})=>{if(!S)return;const T=totales();ev(tipo,{marca:S.m.marca,
 
 const soles=n=>'S/ '+Math.round(n).toLocaleString('es-PE');
 const usd=n=>'US$ '+Math.round(n).toLocaleString('en-US');
+// Moneda principal (Reglas): dólares con soles al lado, o al revés
+const enUSD=()=>!!(D&&D.moneda!=='PEN');
+const M=pen=>enUSD()?usd(pen/D.tc_usd):soles(pen), M2=pen=>enUSD()?soles(pen):usd(pen/D.tc_usd);
 const fD=iso=>new Date(iso+'T12:00:00').toLocaleDateString('es-PE',{day:'numeric',month:'short'}).replace('.','');
 const dias=iso=>Math.round((new Date(iso+'T12:00:00')-new Date((D&&D.hoy||new Date().toISOString().slice(0,10))+'T12:00:00'))/864e5);
 
@@ -471,7 +479,7 @@ function pintarFiltros(){
   $('#fAro').innerHTML=aros.map(a=>`<button type="button" aria-pressed="${F.aro===a}" data-a="${esc(a)}">${a==='all'?'Todos':esc(a)}</button>`).join('');
   const tallas=['all',...TALLAS.filter(t=>D.modelos.some(m=>m.tallas.includes(t)))];
   $('#fTalla').innerHTML=tallas.map(t=>`<button type="button" aria-pressed="${F.talla===t}" data-t="${esc(t)}">${t==='all'?'Todas':esc(t)}</button>`).join('');
-  $('#fMaxL').textContent=F.max>=60000?'sin límite':soles(F.max);
+  $('#fMaxL').textContent=F.max>=60000?'sin límite':M(F.max);
 }
 function pintarGrid(){
   let L=D.modelos.map(m=>({m,r:resumen(m)}));
@@ -492,7 +500,7 @@ function pintarGrid(){
       <span class="spec">${[m.aro?(m.aro==='Mullet'?'Mullet 29/27.5':'Aro '+m.aro):'',m.rec,m.mat,m.motor].filter(Boolean).map(esc).join(' · ')}</span>
       <div class="envs">${[...new Set(m.skus.flatMap(x=>(x.op||[]).map(o=>o.k)))].map(k=>`<span>${ENVL[k]||k}</span>`).join('')}${Math.max(0,...m.skus.flatMap(x=>(x.op||[]).map(o=>o.cu||0)))?`<span class="cu">Hasta ${Math.max(...m.skus.flatMap(x=>(x.op||[]).map(o=>o.cu||0)))} cuotas sin intereses</span>`:''}</div>
       <div class="sizes">${m.tallas.map(t=>`<span class="${m.skus.some(s=>s.t===t&&s.d>0)?'':'no'}">${esc(t)}</span>`).join('')}</div>
-      <div class="ft"><div class="price">${r.varios?'<span class="desde">desde </span>':''}${soles(r.min.pm)}<small>${usd(r.min.pm/D.tc_usd)} · IGV incl.</small></div>
+      <div class="ft"><div class="price">${r.varios?'<span class="desde">desde </span>':''}${M(r.min.pm)}<small>${M2(r.min.pm)} · IGV incl.</small></div>
       <div class="eta">${r.pronto.e==='Stock Lima'?'Entrega en '+dias(r.pronto.fm[0])+'–'+dias(r.pronto.fm[1])+' días':'Llega '+fD(r.pronto.fm[0])+'–'+fD(r.pronto.fm[1])}<small>${r.aereo?'aéreo: '+fD(r.aereo.fa[1]):r.pronto.e==='Stock Lima'?'Lista en tienda':'envío marítimo'}</small></div></div>
     </div></button>`}).join('');
 }
@@ -506,7 +514,7 @@ function abrir(id,push=true){
   pintarCfg();evM('modelo');$('#drawer').hidden=false;$('#scrim').hidden=false;document.body.style.overflow='hidden';
   if(push)try{history.replaceState(null,'','#'+id)}catch(e){}
 }
-function cerrar(){$('#drawer').hidden=true;$('#scrim').hidden=true;document.body.style.overflow='';try{if(location.hash&&location.hash!=='#pedido')history.replaceState(null,'',location.pathname+location.search)}catch(e){}}
+function cerrar(){$('#drawer').hidden=true;$('#scrim').hidden=true;document.body.style.overflow='';try{if(/^\/bici\//.test(location.pathname))history.replaceState(null,'',(/^bikes\./.test(location.hostname)?'/':'/bikes.html')+location.search)}catch(e){}try{if(location.hash&&location.hash!=='#pedido')history.replaceState(null,'',location.pathname+location.search)}catch(e){}}
 const skuSel=()=>S.m.skus.find(s=>s.mo===S.mo&&s.t===S.t&&s.c===S.c);
 function ajustar(){ // si la combinación no existe o está agotada, elige la más cercana disponible
   const m=S.m;let s=skuSel();
@@ -520,7 +528,10 @@ function grupoHTML(marca){const g=(D.grupos||{})[marca]||{actual:0,min:D.grupo_m
   return `<div class="grp"><b>Envío en grupo: ${n} de ${mn} reservas</b><div class="barra"><i style="width:${Math.round(n/mn*100)}%"></i></div><span>Las e-bikes viajan por mar como carga especial. Al juntar ${mn} reservas de ${esc(marca)} el envío sale a cuenta para todos. ${n?`Faltan ${mn-n}. Comparte el link con amigos que también quieran una.`:'Sé el primero: te avisamos cuando se complete.'}</span></div>`}
 const waAsesor=()=>'https://wa.me/'+(((D&&D.pagina)||{}).asesor_whatsapp||(D&&D.whatsapp)||'51963358335');
 function aplicarPagina(){const pg=D.pagina||{},f=pg.fotos||{};
-  $$('[data-foto]').forEach(el=>{const u=f[el.dataset.foto];el.style.backgroundImage=u?`url('${u}')`:''});
+  // Sin foto subida, el espacio no se muestra (nada de recuadros vacíos en la tienda)
+  $$('[data-foto]').forEach(el=>{const u=f[el.dataset.foto];el.style.backgroundImage=u?`url('${u}')`:'';el.hidden=!u});
+  $('.hero').classList.toggle('sinfoto',!f.hero);$('#asesor').classList.toggle('sinfoto',!f.asesor);
+  $('.taller').hidden=!f.taller&&!f.taller2;
   const n=pg.asesor_nombre||'Jean Pierre';$('#asNom').textContent=n;$('#asCargo').textContent=pg.asesor_cargo||'Asesor de bicicletas';
   $('#asWa').textContent='Hablar con '+n;$('#asWa').href=waAsesor();}
 function totales(){
@@ -529,10 +540,17 @@ function totales(){
   const o=ops.find(x=>x.k===S.envio)||ops[0];
   const env=o.k, bici=o.p, f=o.f, cu=o.cu||0, pp=!!o.pp;
   const ex=D.extras.filter(e=>e.incluido||S.extras[e.id]);const exT=ex.reduce((a,e)=>a+e.precio,0);
-  const total=bici+exT, dep=Math.ceil(total*D.adelanto/100/10)*10;
+  const total=bici+exT, dep=enUSD()?Math.round(Math.ceil(total/D.tc_usd*D.adelanto/100/10)*10*D.tc_usd):Math.ceil(total*D.adelanto/100/10)*10;
   return {s,env,bici,f,exT,total,dep,saldo:total-dep,cu,pp};
 }
 function guardarForm(){['rNom','rDoc','rTel','rMail','rCity'].forEach(k=>{const el=document.getElementById(k);if(el)S.form[k]=el.value})}
+// Talla recomendada según la altura (tabla de la marca, o referencial)
+function recTalla(m){const a=+S.alt;if(!m.tt||!a)return m.tt?`<span class="note">${m.tt.map(x=>`${esc(x.t)}: ${x.min}–${x.max}`).join(' · ')} cm${m.tt.some(x=>x.ref)?' (referencial)':''}</span>`:'';
+  const ok=m.tt.filter(x=>a>=x.min&&a<=x.max);
+  if(ok.length===1)return `Te recomendamos la talla <b>${esc(ok[0].t)}</b>${m.tt.some(x=>x.ref)?' <span class="note">(referencial; confírmala con el asesor)</span>':''}`;
+  if(ok.length>1)return `Estás entre <b>${ok.map(x=>esc(x.t)).join(' y ')}</b>: depende de tu estilo y largo de piernas. Te ayudamos a elegir.`;
+  return 'Tu altura está fuera de la tabla de este modelo. Escríbenos y lo vemos.'}
+function marcarTallas(){const m=S.m,a=+S.alt;$$('#drawer [data-t]').forEach(b=>{const x=(m.tt||[]).find(z=>z.t===b.dataset.t);b.classList.toggle('rec',!!(a&&x&&a>=x.min&&a<=x.max))});const o=$('#tRec');if(o)o.innerHTML=recTalla(m)}
 // Fotos del color elegido (si la bici tiene fotos asignadas por color); si ese color no tiene, todas las sin color.
 function galColor(m,c){const g=m.gal||[];if(!m.gc)return g;const del=g.filter((u,i)=>m.gc[i]===c),comun=g.filter((u,i)=>!m.gc[i]);return del.length?del.concat(comun):comun.length?comun:g}
 function pintarCfg(){
@@ -543,33 +561,36 @@ function pintarCfg(){
   const colHex=(m.colores.find(c=>c.n===S.c)||{}).h;const gal=galColor(m,S.c);if((S.img||0)>=gal.length)S.img=0;
   const ship=s.e==='Stock Lima'
     ?`<div class="when"><b>${dias(s.fm[0])}–${dias(s.fm[1])} días</b><div>Unidad en nuestra tienda de Lima. Se entrega armada y ajustada.</div></div>`
-    :`<div class="ship">${(s.op||[]).map(o=>`<button class="o" aria-pressed="${T.env===o.k}" data-env="${o.k}"><b>${ENVL[o.k]||o.k}</b><small>${o.ad?'Sin esperar al grupo':ENVS[o.k]||''}</small><small>Llega ${fD(o.f[0])}–${fD(o.f[1])}</small><small class="num">${soles(o.p)}${o.ad&&s.op.find(x=>x.k==='grupo')?` (+${soles(o.p-s.op.find(x=>x.k==='grupo').p)})`:''}</small></button>`).join('')}</div>${T.env==='grupo'?grupoHTML(m.marca):''}`;
+    :`<div class="ship">${(s.op||[]).map(o=>`<button class="o" aria-pressed="${T.env===o.k}" data-env="${o.k}"><b>${ENVL[o.k]||o.k}</b><small>${o.ad?'Sin esperar al grupo':ENVS[o.k]||''}</small><small>Llega ${fD(o.f[0])}–${fD(o.f[1])}</small><small class="num">${M(o.p)}${o.ad&&s.op.find(x=>x.k==='grupo')?` (+${M(o.p-s.op.find(x=>x.k==='grupo').p)})`:''}</small></button>`).join('')}</div>${T.env==='grupo'?grupoHTML(m.marca):''}`;
   $('#drawer').innerHTML=`
-  <div class="dhead"><div>${(D.logos||{})[m.marca]?`<img class="blogo" src="${esc(D.logos[m.marca])}" alt="${esc(m.marca)}"><br>`:''}<span class="br">${esc(m.marca)} · ${esc(m.cat)}${m.anio?' · '+m.anio:''}</span><h2 style="font-size:30px;line-height:1">${esc(m.modelo)}</h2></div><button class="x" id="xClose" aria-label="Cerrar">×</button></div>
+  <div class="dhead"><div>${(D.logos||{})[m.marca]?`<img class="blogo" src="${esc(D.logos[m.marca])}" alt="${esc(m.marca)}"><br>`:''}<span class="br">${esc(m.marca)} · ${esc(m.cat)}${m.anio?' · '+m.anio:''}</span><h2 style="font-size:30px;line-height:1">${esc(m.modelo)}</h2></div><div style="display:flex;gap:8px;align-items:center"><button class="btn sec comp" id="compartir">Compartir</button><button class="x" id="xClose" aria-label="Cerrar">×</button></div></div>
   <div class="dbody"><div class="izq">
     <div class="dpic" style="color:var(--ink)">${gal.length?`<img src="${esc(gal[S.img||0])}" alt="${esc(m.marca+' '+m.modelo+' '+(S.c||''))}">`:m.img?foto(m,col):bike(colHex||col,m.cat)}</div>
     ${gal.length>1?`<div class="gal">${gal.map((u,i)=>`<button data-img="${i}" aria-pressed="${(S.img||0)===i}" aria-label="Foto ${i+1}"><img src="${esc(u)}" alt="" loading="lazy"></button>`).join('')}</div>`:''}
     <div class="spec">${[m.aro?(m.aro==='Mullet'?'Mullet 29/27.5':'Aro '+m.aro):'',m.rec&&'Recorrido '+m.rec,m.mat,m.peso&&m.peso+(/kg/i.test(m.peso)?'':' kg'),m.motor].filter(Boolean).map(esc).join(' · ')}${m.ficha?` · <a href="${esc(m.ficha)}" target="_blank" rel="noopener">Ficha técnica</a>`:''}</div>
+    <div class="gar"><b>Garantía:</b> ${esc(m.gar||(D.garantias||{})[m.marca]||'oficial del fabricante, gestionada por Kuranko en Lima')}. Armado y ajuste en nuestro taller.</div>
     ${m.specs&&m.specs.length?`<details class="specs"><summary>Especificaciones técnicas</summary><table>${m.specs.map(x=>`<tr><td>${esc(x.k)}</td><td>${esc(x.v)}</td></tr>`).join('')}</table></details>`:''}
     ${m.desc?`<div class="desc ${S.descFull?'full':''}" id="dDesc">${esc(m.desc)}</div>${S.descFull?'':'<button class="btn sec" id="dMas" style="justify-self:start;padding:4px 10px;font-size:13px">Leer más</button>'}`:''}
     </div><div class="der">
-    ${m.montajes.length>1||m.montajes[0]!=='Base'?`<div class="opt"><div class="lbl">Montaje</div><div class="opts">${m.montajes.map(mo=>{const p=Math.min(...m.skus.filter(x=>x.mo===mo).map(x=>x.pm));return `<button class="o" aria-pressed="${S.mo===mo}" data-mo="${esc(mo)}" ${disp(x=>x.mo===mo)?'':'disabled'}><b>${esc(mo)}</b><small class="num">${soles(p)}</small></button>`}).join('')}</div></div>`:''}
-    <div class="opt"><div class="lbl">Talla</div><div class="opts">${m.tallas.map(t=>{const n=m.skus.filter(x=>x.mo===S.mo&&x.t===t).reduce((a,x)=>a+x.d,0);return `<button class="o" aria-pressed="${S.t===t}" data-t="${esc(t)}" ${n>0?'':'disabled'}><b>${esc(t)}</b>${n>=90?'':`<small>${n>0?n+' en tienda':'agotada'}</small>`}</button>`}).join('')}</div></div>
+    ${m.montajes.length>1||m.montajes[0]!=='Base'?`<div class="opt"><div class="lbl">Montaje</div><div class="opts">${m.montajes.map(mo=>{const p=Math.min(...m.skus.filter(x=>x.mo===mo).map(x=>x.pm));return `<button class="o" aria-pressed="${S.mo===mo}" data-mo="${esc(mo)}" ${disp(x=>x.mo===mo)?'':'disabled'}><b>${esc(mo)}</b><small class="num">${M(p)}</small></button>`}).join('')}</div></div>`:''}
+    <div class="opt"><div class="lbl">Talla</div><div class="opts">${m.tallas.map(t=>{const n=m.skus.filter(x=>x.mo===S.mo&&x.t===t).reduce((a,x)=>a+x.d,0);return `<button class="o" aria-pressed="${S.t===t}" data-t="${esc(t)}" ${n>0?'':'disabled'}><b>${esc(t)}</b>${n>=90?'':`<small>${n>0?n+' en tienda':'agotada'}</small>`}</button>`}).join('')}</div>
+      ${m.tt?`<div class="tfind"><label>¿Qué talla soy?<input type="number" id="altura" inputmode="numeric" min="120" max="215" placeholder="Tu altura en cm" value="${esc(S.alt||'')}"></label><span id="tRec">${recTalla(m)}</span></div>`:''}
+      <div class="note" style="margin-top:6px"><a href="#" id="tPrueba">Pruébate la talla en tienda o pide asesoría por videollamada</a></div></div>
     <div class="opt"><div class="lbl">Color</div><div class="opts">${m.colores.map(c=>`<button class="o" aria-pressed="${S.c===c.n}" data-c="${esc(c.n)}" ${disp(x=>x.mo===S.mo&&x.t===S.t&&x.c===c.n)?'':'disabled'}><span>${m.gc&&m.gc.includes(c.n)?`<img class="swf" src="${esc(m.gal[m.gc.indexOf(c.n)])}" alt="">`:c.h?`<span class="sw" style="background:${esc(c.h)}"></span>`:''}${esc(c.n)}</span></button>`).join('')}</div></div>
     <div class="opt"><div class="lbl">Envío a Lima</div>${m.conf&&T.env!=='lima'?'<div class="note" style="margin:-2px 0 8px;color:var(--ok)">✓ La marca confirmó que tiene unidades de este modelo.</div>':''}${ship}</div>
-    ${D.extras.length?`<div class="opt"><div class="lbl">Extras</div><div class="extras">${D.extras.map(e=>`<label><input type="checkbox" data-x="${esc(e.id)}" ${e.incluido?'checked disabled':S.extras[e.id]?'checked':''}><span>${esc(e.nombre)}</span><span>${e.incluido||!e.precio?'incluido':'+ '+soles(e.precio)}</span></label>`).join('')}</div></div>`:''}
+    ${D.extras.length?`<div class="opt"><div class="lbl">Extras</div><div class="extras">${D.extras.map(e=>`<label><input type="checkbox" data-x="${esc(e.id)}" ${e.incluido?'checked disabled':S.extras[e.id]?'checked':''}><span>${esc(e.nombre)}</span><span>${e.incluido||!e.precio?'incluido':'+ '+M(e.precio)}</span></label>`).join('')}</div></div>`:''}
     <div class="sum"><table>
-      <tr><td>${esc(m.modelo)} ${esc(S.mo!=='Base'?S.mo:'')} · talla ${esc(S.t)}<br><span class="note">Incluye ${T.env==='lima'?'':'flete, seguro, desaduanaje, '}IGV y armado</span></td><td>${soles(T.bici)}</td></tr>
-      ${s.ref&&s.ref>T.bici?`<tr><td class="note">Precio sugerido por la marca</td><td class="note" style="text-decoration:line-through">${soles(s.ref)}</td></tr>`:''}
-      ${T.exT?`<tr><td>Extras</td><td>${soles(T.exT)}</td></tr>`:''}
+      <tr><td>${esc(m.modelo)} ${esc(S.mo!=='Base'?S.mo:'')} · talla ${esc(S.t)}<br><span class="note">Incluye ${T.env==='lima'?'':'flete, seguro, desaduanaje, '}IGV y armado</span></td><td>${M(T.bici)}</td></tr>
+      ${s.ref&&s.ref>T.bici?`<tr><td class="note">Precio sugerido por la marca</td><td class="note" style="text-decoration:line-through">${M(s.ref)}</td></tr>`:''}
+      ${T.exT?`<tr><td>Extras</td><td>${M(T.exT)}</td></tr>`:''}
       <tr><td>Llega a Lima<br><span class="note">${T.env==='lima'?'Unidad en nuestra tienda':'Fecha estimada · '+(T.env==='aereo'?'aéreo':'marítimo')+' + aduana'}</span></td><td style="color:var(--ok);font-weight:700">${T.env==='lima'?dias(T.f[0])+'–'+dias(T.f[1])+' días':fD(T.f[0])+' – '+fD(T.f[1])}</td></tr>
-      <tr class="tot"><td>Precio final<br><span class="note num">${usd(T.total/D.tc_usd)}</span></td><td>${soles(T.total)}</td></tr>
+      <tr class="tot"><td>Precio final<br><span class="note num">${M2(T.total)}${enUSD()?' al tipo de cambio de hoy':''}</span></td><td>${M(T.total)}</td></tr>
     </table>
     ${T.cu?`<div class="cuotas">o hasta <b>${T.cu} cuotas sin intereses</b> de <b class="num">${soles(T.total/T.cu)}</b> <span>con ${esc(D.cuotas_bancos||'tarjeta de crédito')}${T.pp?' · otras tarjetas con Powerpay':''}</span></div>`:T.pp?`<div class="cuotas">También en cuotas con <b>Powerpay</b> <span>(cualquier tarjeta de crédito; Powerpay aplica su interés)</span></div>`:''}
     <ol class="pagos">
       <li><span><b>Hoy</b> · solicitas la reserva</span><b class="num">S/ 0</b></li>
-      <li><span><b>Al confirmar con la marca</b> · adelanto ${D.adelanto}%</span><b class="num">${soles(T.dep)}</b></li>
-      <li><span><b>Al recibir tu bici</b> · saldo</span><b class="num">${soles(T.saldo)}</b></li>
+      <li><span><b>Al confirmar con la marca</b> · adelanto ${D.adelanto}%</span><b class="num">${M(T.dep)}</b></li>
+      <li><span><b>Al recibir tu bici</b> · saldo${enUSD()?' fijo en dólares':''}</span><b class="num">${M(T.saldo)}</b></li>
     </ol></div>
 
     <div class="asesor-mini"><div class="foto" data-foto="asesor"></div><span>¿Dudas con la talla? <a href="${esc(waAsesor())}" target="_blank" rel="noopener" data-wa>Escríbele a ${esc((D.pagina||{}).asesor_nombre||'Jean Pierre')}</a> o <a href="#agenda" id="agDesde">agenda una llamada</a></span></div>
@@ -587,19 +608,19 @@ function pintarCfg(){
     </form>
   </div></div>`;
 }
-const _pintarCfg=pintarCfg;pintarCfg=function(){_pintarCfg();if(D)$$('#drawer [data-foto]').forEach(el=>{const u=((D.pagina||{}).fotos||{})[el.dataset.foto];el.style.backgroundImage=u?`url('${u}')`:''})};
+const _pintarCfg=pintarCfg;pintarCfg=function(){_pintarCfg();if(S&&S.m&&!S.done)marcarTallas();if(D)$$('#drawer [data-foto]').forEach(el=>{const u=((D.pagina||{}).fotos||{})[el.dataset.foto];el.style.backgroundImage=u?`url('${u}')`:'';el.hidden=!u})};
 function okHTML(r){
   return `<div class="dhead"><h2 style="font-size:26px">¡Solicitud enviada!</h2><button class="x" id="xClose" aria-label="Cerrar">×</button></div>
   <div class="dbody ok1"><div class="okbox"><span class="br">Tu código</span><h3 class="num">${esc(r.codigo)}</h3>
-   <p style="margin:0">No pagaste nada. El precio de <b>${soles(r.total)}</b> queda guardado ${D.validez_horas} horas mientras confirmamos tu unidad con la marca.</p>
+   <p style="margin:0">No pagaste nada. El precio de <b>${M(r.total)}</b> queda guardado ${D.validez_horas} horas mientras confirmamos tu unidad con la marca.</p>
    <a class="btn wa" data-wa href="https://wa.me/${esc(r.whatsapp)}?text=${encodeURIComponent(r.mensaje)}" target="_blank" rel="noopener">Avisar por WhatsApp</a><p class="note" style="margin:-4px 0 0;text-align:center">Opcional: así te atendemos más rápido.</p>
    <ol class="tl">
      <li class="done"><span><b>Solicitud enviada</b><br>Hoy</span></li>
      <li class="cur"><span><b>Confirmamos con la marca</b><br>Te escribimos por WhatsApp, normalmente en menos de 24 h hábiles</span></li>
-     <li><span><b>Separas tu bici con el adelanto</b><br>${soles(r.adelanto)} por link de pago (también en cuotas), Yape, transferencia o en tienda</span></li>
-     <li><span><b>La recibes armada</b><br>Entrega estimada ${fD(r.fechas[0])} – ${fD(r.fechas[1])} · saldo ${soles(r.saldo)}</span></li>
+     <li><span><b>Separas tu bici con el adelanto</b><br>${M(r.adelanto)} por link de pago (también en cuotas), Yape, transferencia o en tienda</span></li>
+     <li><span><b>La recibes armada</b><br>Entrega estimada ${fD(r.fechas[0])} – ${fD(r.fechas[1])} · saldo ${M(r.saldo)}</span></li>
    </ol>
-   <div class="row"><button class="btn sec" id="copyMsg">Copiar resumen</button><a class="btn sec" href="#pedido" data-view="pedido" data-cod="${esc(r.codigo)}">Ver estado</a></div>
+   <div class="row"><a class="btn sec" href="/bikes/proforma/${esc(r.codigo)}?doc=${esc(r.doc)}" target="_blank" rel="noopener">Ver proforma (PDF)</a><button class="btn sec" id="copyMsg">Copiar resumen</button><a class="btn sec" href="#pedido" data-view="pedido" data-cod="${esc(r.codigo)}">Ver estado</a></div>
    <pre class="msg" id="waMsg" hidden>${esc(r.mensaje)}</pre></div></div>`;
 }
 async function reservar(){
@@ -642,9 +663,9 @@ async function consultar(cod,doc){
     const pasos=j.estados.filter(e=>e!=='Cancelada'),i=pasos.indexOf(j.estado);const ET={'Nueva':'Solicitud recibida · confirmando con la marca','Confirmada con marca':'Unidad confirmada · falta el adelanto','Adelanto pagado':'Adelanto recibido · pedida a la marca','En tránsito':'En camino a Lima','En Lima':'En Lima · armado y entrega','Entregada':'Entregada'};
     out.innerHTML=`<div class="okbox" style="border-color:var(--line)"><span class="br">${esc(j.codigo)} · reservada el ${fD(j.creado)}</span><h3 style="color:var(--ink);font-size:26px">${esc(j.marca)} ${esc(j.modelo)} ${esc(j.montaje!=='Base'?j.montaje:'')}</h3>
       <span class="spec">Talla ${esc(j.talla)} · ${esc(j.color)} · envío ${esc((ENVL[j.envio]||j.envio).toLowerCase())} · entrega estimada ${fD(j.fecha_min)} – ${fD(j.fecha_max)}</span>
-      <span class="spec">Precio final ${soles(j.total)} · adelanto ${soles(j.adelanto)} · saldo al recibir ${soles(j.total-j.adelanto)}</span>
+      <span class="spec">Precio final ${M(j.total)} · adelanto ${M(j.adelanto)} · saldo al recibir ${M(j.total-j.adelanto)}</span>
       ${j.estado==='Cancelada'?'<p class="err">Esta reserva fue cancelada. Escríbenos si tienes dudas.</p>':`<ol class="tl">${pasos.map((p,k)=>`<li class="${k<i?'done':k===i?'cur':''}"><span>${esc(ET[p]||p)}</span></li>`).join('')}</ol>`}
-      <span class="note">Última actualización: ${fD(j.actualizado)}</span></div>`;
+      <span class="note">Última actualización: ${fD(j.actualizado)} · <a href="/bikes/proforma/${esc(j.codigo)}?doc=${esc(doc)}" target="_blank" rel="noopener">Ver proforma (PDF)</a></span></div>`;
   }catch(e){out.innerHTML='<p class="err">No hay conexión. Intenta otra vez.</p>'}
 }
 function vista(v,cod){
@@ -659,6 +680,9 @@ document.addEventListener('click',e=>{
   if(!t)return;
   if(t.dataset.view){e.preventDefault();vista(t.dataset.view,t.dataset.cod);try{history.replaceState(null,'',t.dataset.view==='pedido'?'#pedido':location.pathname+location.search)}catch(_){};return}
   if(t.id==='verTerm'){cerrar();return}
+  if(t.id==='tPrueba'){e.preventDefault();const m=S.m;cerrar();abrirAgenda('Asesoría de talla: '+m.marca+' '+m.modelo+(S.alt?' · mido '+S.alt+' cm':''));return}
+  if(t.id==='compartir'){const m=S.m,url=location.origin+'/bici/'+encodeURIComponent(m.id),tx=m.marca+' '+m.modelo+' en Kuranko';
+    if(navigator.share){navigator.share({title:tx,url}).catch(()=>{})}else{window.open('https://wa.me/?text='+encodeURIComponent(tx+': '+url),'_blank','noopener')}return}
   if(t.id==='waTop'){ev('whatsapp',{origen:'cabecera'})}
   if(t.dataset.b!==undefined&&t.closest('#brands')){F.marca=t.dataset.b;pintarFiltros();pintarGrid();ev('filtro',{marca:F.marca==='all'?null:F.marca})}
   else if(t.dataset.a!==undefined&&t.closest('#fAro')){F.aro=t.dataset.a;pintarFiltros();pintarGrid()}
@@ -684,7 +708,8 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#drawer').hidde
 $('#fCat').addEventListener('change',e=>{F.cat=e.target.value;pintarGrid()});
 $('#fEta').addEventListener('change',e=>{F.eta=e.target.value;pintarGrid()});
 $('#sort').addEventListener('change',e=>{F.sort=e.target.value;pintarGrid()});
-$('#fMax').addEventListener('input',e=>{F.max=+e.target.value;$('#fMaxL').textContent=F.max>=60000?'sin límite':soles(F.max);pintarGrid()});
+document.addEventListener('input',e=>{if(e.target.id==='altura'&&S){S.alt=e.target.value.replace(/\D/g,'').slice(0,3);marcarTallas()}});
+$('#fMax').addEventListener('input',e=>{F.max=+e.target.value;$('#fMaxL').textContent=F.max>=60000?'sin límite':M(F.max);pintarGrid()});
 document.addEventListener('submit',e=>{e.preventDefault();if(e.target.id==='agForm'){agendar();return}if(e.target.id==='resForm')reservar();else if(e.target.id==='trackForm')consultar($('#tCod').value.trim(),$('#tDoc').value.trim())});
 
 async function recargar(silencioso){
@@ -703,7 +728,8 @@ async function recargar(silencioso){
   await recargar(false);
   if(D){cargarAnalitica();ev('visita',{origen})}
   const h=decodeURIComponent((location.hash||'').slice(1));
-  if(h==='pedido')vista('pedido');else if(h&&D)abrir(h,false);
+  const pb=location.pathname.match(/^\/bici\/([^/]+)/);
+  if(h==='pedido')vista('pedido');else if(pb&&D)abrir(decodeURIComponent(pb[1]),false);else if(h&&D)abrir(h,false);
 })();
 </script>
 </body>

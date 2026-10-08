@@ -52,6 +52,7 @@ const REGLAS_BASE = {
   variacion_costos: 25,
   // Tienda: mostrar solo modelos con ficha completa (foto + descripción + especificaciones)
   solo_completos: true,
+  moneda_principal: 'USD', // 'USD' = precios en dólares (saldo fijo en US$) con soles al lado; 'PEN' = en soles
   prep: 7, mar_min: 45, mar_max: 60, aereo_min: 10, aereo_max: 16, aduana_min: 4, aduana_max: 8, lima_min: 2, lima_max: 4,
   validez_horas: 48,
   extras: [
@@ -77,12 +78,15 @@ function mezclarReglas(guardadas) {
   const r = { ...REGLAS_BASE, ...g, margenes: { ...REGLAS_BASE.margenes, ...(g.margenes || {}) },
     modos: { ...REGLAS_BASE.modos, ...(g.modos || {}) }, cuotas: g.cuotas && typeof g.cuotas === 'object' ? g.cuotas : REGLAS_BASE.cuotas, aereo_marcas: { ...(g.aereo_marcas || {}) }, factores_pvp: { ...REGLAS_BASE.factores_pvp, ...(g.factores_pvp || {}) } };
   if (!Array.isArray(r.extras)) r.extras = REGLAS_BASE.extras;
+  if (r.moneda_principal !== 'PEN') r.moneda_principal = 'USD';
   return r;
 }
 
 // Precio final en soles (IGV incluido) de un SKU para un tipo de envío.
 // tc = { usd, eur } en soles (ya con recargo). Devuelve también el desglose (solo admin).
 function calcularPrecio(sku, envio, R, tc, margenForzado = null) {
+  // Precio final: en dólares redondeado a US$ 5 (moneda principal USD) o en soles redondeado a S/ 10
+  const fin = usdx => R.moneda_principal === 'PEN' ? ceil10(usdx * tc.usd) : Math.round(Math.ceil(usdx / 5) * 5 * tc.usd);
   const lima = sku.estado === 'Stock Lima';
   const costoUSD = sku.moneda === 'EUR' ? num(sku.costo) * tc.eur / tc.usd : num(sku.costo);
   const flete = lima ? 0 : num({ aereo: R.flete_aereo, unidad: R.flete_unidad, grupo: R.flete_grupo }[envio] ?? R.flete_maritimo);
@@ -91,16 +95,16 @@ function calcularPrecio(sku, envio, R, tc, margenForzado = null) {
   const modo = (R.modos && R.modos[sku.marca]) || 'costo';
   let pen;
   if (margenForzado != null) {
-    pen = ceil10(puesto / (1 - margenForzado / 100) * igv * tc.usd);
+    pen = fin(puesto / (1 - margenForzado / 100) * igv);
   } else if (modo === 'pvp' && num(sku.pvp) > 0) {
     // PVP de la marca × factor = precio final con IGV. El envío aéreo suma la diferencia de flete (con IGV).
     const f = num(R.factores_pvp && R.factores_pvp[sku.marca] != null ? R.factores_pvp[sku.marca] : R.factor_pvp_defecto) || 1;
     const pvpUSD = sku.moneda === 'EUR' ? num(sku.pvp) * tc.eur / tc.usd : num(sku.pvp);
     const extraAereo = !lima && envio === 'aereo' ? (num(R.flete_aereo) - num(R.flete_maritimo)) * igv : 0;
-    pen = ceil10((pvpUSD * f + extraAereo) * tc.usd);
+    pen = fin(pvpUSD * f + extraAereo);
   } else {
     const m = Math.min(90, num(R.margenes && R.margenes[sku.marca] != null ? R.margenes[sku.marca] : R.margen_defecto)) / 100;
-    pen = ceil10(puesto / (1 - m) * igv * tc.usd);
+    pen = fin(puesto / (1 - m) * igv);
   }
   const sinIGV = pen / igv / tc.usd;
   const ganancia = sinIGV - puesto;
@@ -325,6 +329,20 @@ function normalizarFila(r, def = {}, hoy = hoyLima()) {
 
 const claveSku = f => f.sku ? `${norm(f.marca)}|sku|${norm(f.sku)}` : `${norm(f.marca)}|${norm(f.modelo)}|${norm(f.montaje)}|${norm(f.talla)}|${norm(f.color)}`;
 
+// Tabla de tallas por altura del ciclista (cm). Si la web de la marca la trae (IA), se usa esa; si no, una referencial.
+const TALLAS_REF = { XS: [150, 162], S: [160, 170], M: [168, 178], 'M/L': [174, 183], L: [178, 188], 'L/XL': [184, 192], XL: [186, 198], XXL: [194, 205] };
+function tablaTallas(tallas, datos = {}) {
+  const ia = Array.isArray(datos.tallas) ? datos.tallas.filter(x => x && x.t && num(x.min) > 100 && num(x.max) > num(x.min)) : [];
+  const out = [];
+  for (const t of tallas) {
+    const k = String(t).toUpperCase().replace(/\s+/g, '');
+    const de = ia.find(x => String(x.t).toUpperCase().replace(/\s+/g, '') === k);
+    if (de) out.push({ t, min: Math.round(num(de.min)), max: Math.round(num(de.max)) });
+    else if (TALLAS_REF[k]) out.push({ t, min: TALLAS_REF[k][0], max: TALLAS_REF[k][1], ref: 1 });
+  }
+  return out.length ? out : null;
+}
+
 // Adivina el color de una foto por su nombre de archivo (p. ej. …arid-carbon-r-atmos-blue_2000.jpg → «Atmos»).
 const sinTildes = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 function colorDeFoto(url, colores) {
@@ -387,6 +405,8 @@ function armarCatalogo(skus, R, tc, hoy = hoyLima(), mods = {}) {
       if (gc.some(Boolean)) m.gc = gc;
       m.gal = gal; m.img = m.img || gal[0];
     }
+    const tt = tablaTallas(m.tallas, (m._md && m._md.datos) || {}); if (tt) m.tt = tt;
+    if (m._md && m._md.datos && m._md.datos.garantia) m.gar = String(m._md.datos.garantia).slice(0, 200);
     delete m._ci; delete m._md;
     return m;
   });
@@ -602,7 +622,10 @@ async function fichaIA(texto, nombre) {
  "categoria": "Downhill|Bike Park|Enduro|Trail|XC|Gravel|E-MTB|Dirt|Kids|Ruta u otra breve",
  "recorrido": "ej. 165/170 mm o vacío", "material": "ej. Carbono, Aluminio", "aro": "29, 27.5 o Mullet",
  "motor": "solo e-bikes, ej. Bosch CX Gen5 · 800 Wh", "peso": "ej. 23.5 kg o vacío",
- "specs": [{"k": "Cuadro", "v": "valor resumido (máx. 120 caracteres)"}]}
+ "specs": [{"k": "Cuadro", "v": "valor resumido (máx. 120 caracteres)"}],
+ "tallas": [{"t": "M", "min": 170, "max": 180}],
+ "garantia": "solo si el texto la menciona, ej. Cuadro: 5 años · Componentes: 2 años; si no, vacío"}
+En "tallas" pon la altura recomendada del ciclista en cm por talla SOLO si el texto trae esa tabla; si no, [].
 En "specs" pon hasta 18 filas en español (Cuadro, Horquilla, Amortiguador, Motor, Batería, Transmisión, Frenos, Ruedas, Neumáticos, Tija, Tallas…), con valores resumidos.
 TEXTO:
 ${trozo}`;
@@ -617,7 +640,9 @@ ${trozo}`;
     const o = JSON.parse(txt);
     const corto = (v, n) => String(v || '').trim().slice(0, n);
     return { descripcion: corto(o.descripcion, 900), categoria: corto(o.categoria, 40), recorrido: corto(o.recorrido, 40), material: corto(o.material, 60), aro: corto(o.aro, 20),
-      motor: corto(o.motor, 120), peso: corto(o.peso, 20), specs: (Array.isArray(o.specs) ? o.specs : []).slice(0, 20).map(x => ({ k: corto(x.k, 40), v: corto(x.v, 160) })).filter(x => x.k && x.v) };
+      motor: corto(o.motor, 120), peso: corto(o.peso, 20), specs: (Array.isArray(o.specs) ? o.specs : []).slice(0, 20).map(x => ({ k: corto(x.k, 40), v: corto(x.v, 160) })).filter(x => x.k && x.v),
+      tallas: (Array.isArray(o.tallas) ? o.tallas : []).slice(0, 10).map(x => ({ t: corto(x.t, 10), min: Math.round(num(x.min)), max: Math.round(num(x.max)) })).filter(x => x.t && x.min > 100 && x.max > x.min && x.max < 230),
+      garantia: corto(o.garantia, 200) };
   } catch (e) { console.warn('[bikes] ficha IA', e.message); return null; }
 }
 // Links de modelos en una página de la marca (mismo dominio e idioma), para la carga masiva
@@ -670,7 +695,7 @@ async function leerFicha(url, opciones = {}) {
   const f = leerFichaHtml(html, r.url || u.href);
   const texto = htmlATexto(html);
   const ia = opciones.ia === false ? null : await fichaIA(texto, opciones.nombre || f.titulo);
-  if (ia) { f.ia = true; if (ia.descripcion) f.descripcion = ia.descripcion; f.specs = ia.specs; f.datos = { categoria: ia.categoria, recorrido: ia.recorrido, material: ia.material, aro: ia.aro, motor: ia.motor, peso: ia.peso }; }
+  if (ia) { f.ia = true; if (ia.descripcion) f.descripcion = ia.descripcion; f.specs = ia.specs; f.datos = { categoria: ia.categoria, recorrido: ia.recorrido, material: ia.material, aro: ia.aro, motor: ia.motor, peso: ia.peso, tallas: ia.tallas, garantia: ia.garantia }; }
   else f.specs = specsSimples(texto);
   if (!f.imagenes.length && !f.descripcion) throw new Error('No encontré fotos ni descripción en esa página (puede que cargue todo con JavaScript). Pega los links de las fotos a mano.');
   return { ...f, url: u.href };
@@ -799,8 +824,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
     } catch (e) { console.warn('[bikes] activo', req.params.archivo, e.message); res.redirect(302, K + a[0]); }
   });
 
-  app.get('/api/bikes/catalogo', async (req, res) => {
-    try {
+  async function catalogoPublico() {
       if (!catCache || Date.now() - catCache.t > 60000) {
         const R = await leerReglas(); const tc = await tcEfectivo(R);
         const infoMarcas = await leerMarcas();
@@ -820,6 +844,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
               fotos: Object.fromEntries(CLAVES_FOTO.map(k => [k, f[k] ? `/api/bikes/foto/${k}?v=${f[k]}` : null])) }; })(),
           logos: Object.fromEntries(Object.entries(await leerMarcas()).filter(([, v]) => v && v.logo).map(([k, v]) => [k, v.logo])),
           marcas: [...new Set([...MARCAS_BASE, ...skus.map(s => s.marca)])].filter(m => skus.some(s => s.marca === m)),
+          moneda: R.moneda_principal, garantias: Object.fromEntries(Object.entries(infoMarcas).filter(([, v]) => v && v.garantia).map(([k, v]) => [k, v.garantia])),
           adelanto: num(R.adelanto), tc_usd: tc.usd, aereo: !!R.aereo_activo, validez_horas: num(R.validez_horas),
           extras: (R.extras || []).map(e => ({ id: e.id, nombre: e.nombre, precio: num(e.precio), incluido: !!e.incluido })),
           whatsapp: process.env.BIKES_WHATSAPP || '51963358335', hoy: hoyLima(),
@@ -827,8 +852,13 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
           actualizado: skus.reduce((a, s) => s.actualizado > a ? s.actualizado : a, '')
         } };
       }
+      return catCache.data;
+  }
+  app.get('/api/bikes/catalogo', async (req, res) => {
+    try {
+      const data = await catalogoPublico();
       res.set('Cache-Control', 'public, max-age=30');
-      res.json(catCache.data);
+      res.json(data);
     } catch (e) { console.error('[bikes] catalogo', e.message); res.status(500).json({ error: 'No se pudo cargar el catálogo. Intenta en un momento.' }); }
   });
 
@@ -905,7 +935,9 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       const extras = (R.extras || []).filter(e => e.incluido || pedidos.includes(e.id)).map(e => ({ id: e.id, nombre: e.nombre, precio: num(e.precio) }));
       const extrasTotal = extras.reduce((a, e) => a + e.precio, 0);
       const total = p.pen + extrasTotal;
-      const adelanto = ceil10(total * num(R.adelanto) / 100);
+      const usdM = R.moneda_principal !== 'PEN';
+      const adelanto = usdM ? Math.round(Math.ceil(total / tc.usd * num(R.adelanto) / 100 / 10) * 10 * tc.usd) : ceil10(total * num(R.adelanto) / 100);
+      const $ = v => usdM ? `US$ ${Math.round(v / tc.usd).toLocaleString('en-US')} (${soles(v)})` : soles(v);
       // Si la página mostró otro precio (cambió el TC o las reglas), avisar antes de guardar
       if (b.total_visto && Math.abs(num(b.total_visto) - total) >= 1 && !b.acepto_nuevo) {
         await conn.rollback();
@@ -931,22 +963,22 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       }
       const fechasTxt = `${fechaCorta(fechas[0])} – ${fechaCorta(fechas[1])}`;
       const msg = `Hola Kuranko, envié la solicitud de reserva ${codigo}: ${s.marca} ${s.modelo}${s.montaje && s.montaje !== 'Base' ? ' ' + s.montaje : ''}, talla ${s.talla}, color ${s.color}, envío ${envTxt}.\n` +
-        `Precio final: ${soles(total)} · Adelanto al confirmar: ${soles(adelanto)}\nEntrega estimada: ${fechasTxt}\nNombre: ${nombre} · DNI/RUC: ${doc}\n¿Me confirman la disponibilidad?`;
+        `Precio final: ${$(total)} · Adelanto al confirmar: ${$(adelanto)}\nEntrega estimada: ${fechasTxt}\nNombre: ${nombre} · DNI/RUC: ${doc}\n¿Me confirman la disponibilidad?`;
       const fila = (a, v) => `<tr><td style="padding:6px 10px;border-bottom:1px solid #eee;color:#666;font-size:14px">${escH(a)}</td><td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:14px;color:#111"><b>${escH(v)}</b></td></tr>`;
       const tabla = [['Bici', `${s.marca} ${s.modelo} ${s.montaje}`], ['Talla / color', `${s.talla} · ${s.color}`], ['Envío', envTxt], ['Entrega estimada', fechasTxt],
-        ['Extras', extras.map(e => e.nombre).join(', ') || '—'], ['Precio final', soles(total)], [`Adelanto (${R.adelanto}%)`, soles(adelanto)], ['Saldo al recibir', soles(total - adelanto)]].map(x => fila(...x)).join('');
+        ['Extras', extras.map(e => e.nombre).join(', ') || '—'], ['Precio final', $(total)], [`Adelanto (${R.adelanto}%)`, $(adelanto)], ['Saldo al recibir', $(total - adelanto) + (usdM ? ' · fijo en dólares' : '')]].map(x => fila(...x)).join('');
       const caja = (titulo, extra) => `<div style="background:#f3f4f6;padding:16px;font-family:Arial,Helvetica,sans-serif"><div style="max-width:600px;margin:auto;background:#fff;border-radius:10px;padding:20px">
         <div style="font-size:20px;font-weight:bold;color:#111">${titulo}</div>${extra}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-top:12px">${tabla}</table></div></div>`;
       const wa = process.env.BIKES_WHATSAPP || '51963358335';
       const interno = caja(`Nueva solicitud de reserva ${escH(codigo)}`, `<p style="color:#444;font-size:14px">${escH(nombre)} · DNI/RUC ${escH(doc)} · WhatsApp ${escH(tel)}${email ? ' · ' + escH(email) : ''} · ${escH(ciudad)}${ref ? ' · vendedor: ' + escH(ref) : ''}</p>
         <p><a href="https://wa.me/51${escH(tel)}" style="background:#25d366;color:#fff;text-decoration:none;padding:10px 16px;border-radius:6px;font-weight:bold;font-size:14px">Escribir al cliente</a></p>`);
-      enviarCorreo((process.env.BIKES_EMAIL || 'info@kuranko.pe,ventas@kuranko.pe').split(',').map(x => x.trim()).filter(Boolean), `Solicitud ${codigo}: ${s.marca} ${s.modelo} ${s.talla} · ${soles(total)} · confirmar con la marca`, interno, msg);
+      enviarCorreo((process.env.BIKES_EMAIL || 'info@kuranko.pe,ventas@kuranko.pe').split(',').map(x => x.trim()).filter(Boolean), `Solicitud ${codigo}: ${s.marca} ${s.modelo} ${s.talla} · ${$(total)} · confirmar con la marca`, interno, msg);
       if (email) enviarCorreo([email], `Tu solicitud de reserva ${codigo} en Kuranko Bikes`, caja(`Recibimos tu solicitud ${escH(codigo)}`,
         `<p style="color:#444;font-size:14px">Hola ${escH(nombre.split(' ')[0])}, no tienes que pagar nada todavía. Vamos a confirmar la disponibilidad con ${escH(s.marca)} y te escribiremos por WhatsApp al ${escH(tel)}, normalmente en menos de 24 horas hábiles.</p>
-         <p style="color:#444;font-size:14px">Cuando esté confirmada, separas tu bici con el adelanto de ${escH(soles(adelanto))} (link de pago, Yape, transferencia o en tienda; también en cuotas). El saldo lo pagas al recibirla. El precio se mantiene ${escH(R.validez_horas)} horas.</p>
-         <p style="color:#444;font-size:14px">Consulta el estado en bikes.kuranko.pe con tu código y DNI. WhatsApp: +${escH(wa)}</p>`), msg);
+         <p style="color:#444;font-size:14px">Cuando esté confirmada, separas tu bici con el adelanto de ${escH($(adelanto))} (link de pago, Yape, transferencia o en tienda; también en cuotas). El saldo lo pagas al recibirla. El precio se mantiene ${escH(R.validez_horas)} horas.</p>
+         <p style="color:#444;font-size:14px"><a href="https://bikes.kuranko.pe/bikes/proforma/${escH(codigo)}?doc=${escH(doc)}">Descarga tu proforma</a>. Consulta el estado en bikes.kuranko.pe con tu código y DNI. WhatsApp: +${escH(wa)}</p>`), msg);
 
-      res.json({ ok: true, codigo, total, adelanto, saldo: total - adelanto, fechas, envio: env, mensaje: msg, whatsapp: wa });
+      res.json({ ok: true, codigo, doc, total, adelanto, saldo: total - adelanto, tc: tc.usd, fechas, envio: env, mensaje: msg, whatsapp: wa });
     } catch (e) {
       if (conn) { try { await conn.rollback(); } catch (_) {} }
       console.error('[bikes] reservar', e.message);
@@ -989,6 +1021,86 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       if (!r) return res.status(404).json({ error: 'No encontramos una reserva con ese código y documento.' });
       res.json({ ...r, total: num(r.total), adelanto: num(r.adelanto), estados: ESTADOS_RESERVA });
     } catch (e) { res.status(500).json({ error: 'No se pudo consultar. Intenta en un momento.' }); }
+  });
+
+  // ── Link propio por bici (/bici/<id>) con la foto y el precio para compartir por WhatsApp ──
+  let htmlTienda = null;
+  app.get('/bici/:id', async (req, res) => {
+    try {
+      if (!htmlTienda) htmlTienda = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'bikes.html'), 'utf8');
+      const D = await catalogoPublico();
+      const m = D.modelos.find(x => x.id === String(req.params.id || '').slice(0, 160));
+      let h = htmlTienda;
+      if (m) {
+        const min = Math.min(...m.skus.map(x => x.pm));
+        const precio = D.moneda === 'PEN' ? soles(min) : `US$ ${Math.round(min / D.tc_usd).toLocaleString('en-US')}`;
+        const titulo = `${m.marca} ${m.modelo} · desde ${precio} · Kuranko`;
+        const desc = (m.desc || `${m.marca} ${m.modelo} a pedido, precio final en Lima con envío, aduana e IGV.`).slice(0, 200);
+        const url = `https://${req.hostname}/bici/${m.id}`;
+        const meta = `<meta property="og:type" content="product"><meta property="og:title" content="${escH(titulo)}"><meta property="og:description" content="${escH(desc)}">` +
+          `${m.img ? `<meta property="og:image" content="${escH(m.img)}">` : ''}<meta property="og:url" content="${escH(url)}"><meta name="twitter:card" content="summary_large_image">` +
+          `<meta name="description" content="${escH(desc)}"><link rel="canonical" href="${escH(url)}">`;
+        h = h.replace(/<title>[^<]*<\/title>/, `<title>${escH(titulo)}</title>${meta}`);
+      }
+      res.set('Cache-Control', 'no-cache').type('html').send(h);
+    } catch (e) { res.status(500).send('No se pudo cargar'); }
+  });
+
+  // ── Proforma imprimible / PDF de una reserva (código + DNI/RUC) ──
+  app.get('/bikes/proforma/:codigo', async (req, res) => {
+    try {
+      const codigo = String(req.params.codigo || '').toUpperCase().slice(0, 20), doc = String(req.query.doc || '').replace(/\D/g, '');
+      if (demasiados('pf:' + ipDe(req), 60)) return res.status(429).send('Demasiadas consultas. Intenta en una hora.');
+      await prepararTablas();
+      const [[r]] = await portalPool.query(`SELECT codigo, UNIX_TIMESTAMP(creado) creado, UNIX_TIMESTAMP(valido_hasta) valido, marca, modelo, montaje, talla, color, envio, extras,
+          precio_bici, extras_total, total, adelanto, tc_usd, DATE_FORMAT(fecha_min,'%Y-%m-%d') fmin, DATE_FORMAT(fecha_max,'%Y-%m-%d') fmax, nombre, doc, tel, email, ciudad, estado
+        FROM bk_reservas WHERE codigo=? AND doc=?`, [codigo, doc]);
+      if (!r) return res.status(404).send('No encontramos una reserva con ese código y documento.');
+      const R = await leerReglas(), pg = await leerPagina(), info = await leerMarcas(), mods = await leerModelos();
+      const tc = num(r.tc_usd) || 1, usdM = R.moneda_principal !== 'PEN';
+      const $ = v => usdM ? `US$ ${Math.round(num(v) / tc).toLocaleString('en-US')}` : soles(v);
+      const $2 = v => usdM ? `<span class="s">${soles(v)}</span>` : '';
+      const fc = iso => iso ? new Date(iso + 'T12:00:00Z').toLocaleDateString('es-PE', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }) : '';
+      const ENV = { lima: 'Unidad en tienda Kuranko', aereo: 'Aéreo', maritimo: 'Marítimo', unidad: 'Marítimo individual', grupo: 'Marítimo en grupo' };
+      let extras = []; try { extras = JSON.parse(r.extras || '[]'); } catch (e) {}
+      const gar = (info[r.marca] || {}).garantia || ((mods[r.marca + '|' + r.modelo] || {}).datos || {}).garantia || 'Garantía oficial del fabricante, gestionada por Kuranko en Lima.';
+      const fila = (a, b, c = '') => `<tr><td>${a}</td><td class="n">${b}${c}</td></tr>`;
+      const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Proforma ${escH(r.codigo)} · Kuranko</title><style>
+*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#141414;background:#eee;margin:0;padding:24px 12px}
+.hoja{max-width:800px;margin:auto;background:#fff;padding:36px 40px;border-radius:6px}
+.top{display:flex;justify-content:space-between;gap:16px;border-bottom:3px solid #FBB911;padding-bottom:14px;flex-wrap:wrap}
+.marca{font-size:26px;font-weight:900;letter-spacing:.04em}.chico{font-size:12px;color:#555;line-height:1.5}
+h1{font-size:20px;margin:0 0 4px}h2{font-size:14px;text-transform:uppercase;letter-spacing:.06em;color:#555;margin:22px 0 8px}
+table{width:100%;border-collapse:collapse;font-size:14px}td{padding:7px 4px;border-bottom:1px solid #e5e5e5;vertical-align:top}.n{text-align:right;white-space:nowrap}
+.tot td{font-weight:900;font-size:17px;border-top:2px solid #141414}.s{display:block;font-size:12px;color:#666;font-weight:400}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 24px;font-size:14px}.grid b{display:block;font-size:11px;color:#666;text-transform:uppercase;letter-spacing:.05em}
+ul{margin:0;padding-left:18px;font-size:13px;line-height:1.55;color:#333}.bar{max-width:800px;margin:0 auto 12px;display:flex;gap:8px;justify-content:flex-end}
+button{background:#FBB911;border:0;padding:10px 16px;font-weight:700;border-radius:6px;cursor:pointer;font-size:14px}
+@media print{body{background:#fff;padding:0}.hoja{padding:0}.bar{display:none}}@media(max-width:600px){.hoja{padding:22px 18px}.grid{grid-template-columns:1fr}}
+</style></head><body>
+<div class="bar"><button onclick="window.print()">Descargar PDF / Imprimir</button></div>
+<div class="hoja">
+<div class="top"><div><div class="marca">KURANKO</div><div class="chico">${escH(pg.empresa || 'Kuranko')}${pg.ruc ? ' · RUC ' + escH(pg.ruc) : ''}<br>${escH(pg.direccion || 'Jr José Gálvez 476 Of 204, Magdalena del Mar, Lima')}<br>+${escH(process.env.BIKES_WHATSAPP || '51963358335')} · info@kuranko.pe</div></div>
+<div style="text-align:right"><h1>Proforma ${escH(r.codigo)}</h1><div class="chico">Emitida: ${escH(horaLima(r.creado).slice(0, 10))}<br>Precio válido hasta: ${escH(horaLima(r.valido))}<br>Estado: ${escH(r.estado)}</div></div></div>
+<h2>Cliente</h2><div class="grid"><div><b>Nombre</b>${escH(r.nombre)}</div><div><b>DNI / RUC</b>${escH(r.doc)}</div><div><b>WhatsApp</b>${escH(r.tel)}</div><div><b>Entrega</b>${escH(r.ciudad || 'Lima')}</div></div>
+<h2>Bicicleta</h2><div class="grid"><div><b>Modelo</b>${escH(r.marca)} ${escH(r.modelo)}${r.montaje && r.montaje !== 'Base' ? ' ' + escH(r.montaje) : ''}</div><div><b>Talla / color</b>${escH(r.talla)} · ${escH(r.color)}</div>
+<div><b>Envío</b>${escH(ENV[r.envio] || r.envio)}</div><div><b>Entrega estimada en Lima</b>${escH(fc(r.fmin))} – ${escH(fc(r.fmax))}</div></div>
+<h2>Precio</h2><table>
+${fila(`${escH(r.marca)} ${escH(r.modelo)} · incluye flete, seguro, desaduanaje, IGV y armado`, $(r.precio_bici), $2(r.precio_bici))}
+${extras.map(e => fila(escH(e.nombre), e.precio ? $(e.precio) : 'incluido', e.precio ? $2(e.precio) : '')).join('')}
+<tr class="tot"><td>Precio final</td><td class="n">${$(r.total)}${$2(r.total)}</td></tr>
+${fila(`Adelanto (${num(R.adelanto)}%) para separar la unidad, al confirmar con la marca`, $(r.adelanto), $2(r.adelanto))}
+${fila(`Saldo al recibir la bicicleta${usdM ? ' (fijo en dólares)' : ''}`, $(num(r.total) - num(r.adelanto)), $2(num(r.total) - num(r.adelanto)))}
+</table>${usdM ? `<p class="chico">Tipo de cambio referencial: S/ ${tc.toFixed(3)} por dólar. Puedes pagar en dólares o en soles al tipo de cambio del día del pago.</p>` : ''}
+<h2>Formas de pago</h2><ul><li>Link de pago con tarjeta de crédito o débito${R.cuotas_bancos ? `; cuotas sin intereses con ${escH(R.cuotas_bancos)}` : ''}${num(R.powerpay_pct) > 0 ? '; otras tarjetas en cuotas con Powerpay' : ''}.</li><li>Yape, transferencia bancaria o pago en nuestra tienda.</li>${pg.cuentas ? `<li>${escH(pg.cuentas)}</li>` : ''}</ul>
+<h2>Garantía y soporte</h2><ul><li>${escH(gar)}</li><li>Bicicleta nueva, con comprobante de pago. Armado, ajuste de suspensión y fitting básico en nuestro taller de Magdalena.</li></ul>
+<h2>Condiciones</h2><ul><li>Esta proforma no obliga al pago: la unidad se separa recién con el adelanto, después de que la marca confirme la disponibilidad.</li>
+<li>Si la marca no puede entregar la unidad, devolvemos el 100% del adelanto.</li><li>Las fechas son estimadas y dependen de la marca, el transporte y la aduana. Te avisamos cualquier cambio.</li>
+<li>El precio se mantiene hasta la fecha indicada arriba; luego puede actualizarse.</li></ul>
+</div></body></html>`;
+      res.set('Cache-Control', 'no-store').type('html').send(html);
+    } catch (e) { console.error('[bikes] proforma', e.message); res.status(500).send('No se pudo generar la proforma.'); }
   });
 
   // Evento de métricas (lo manda la página con sendBeacon). Sin datos personales.
@@ -1076,6 +1188,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
         else if (k === 'aereo_activo') nuevo.aereo_activo = !!b.aereo_activo;
         else if (k === 'cuotas_bancos') nuevo.cuotas_bancos = String(b.cuotas_bancos || '').slice(0, 120);
         else if (k === 'solo_completos') nuevo.solo_completos = !!b.solo_completos;
+        else if (k === 'moneda_principal') nuevo.moneda_principal = b.moneda_principal === 'PEN' ? 'PEN' : 'USD';
         else if (k === 'cuotas') { nuevo.cuotas = {}; for (const [n, v] of Object.entries(b.cuotas || {})) if (+n >= 2 && +n <= 36 && +v >= 0 && +v < 40) nuevo.cuotas[+n] = +v; }
         else if (isFinite(+b[k]) && +b[k] >= 0) nuevo[k] = +b[k];
       }
@@ -1261,6 +1374,8 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
       m[marca] = { ...(m[marca] || {}) };
       if (b.logo !== undefined) m[marca].logo = logo || null;
       if (b.visible !== undefined) m[marca].visible = !!b.visible; // false = la marca no se muestra en la tienda
+      if (b.garantia !== undefined) m[marca].garantia = String(b.garantia || '').trim().slice(0, 200) || null;
+      if (b.url_modelos !== undefined) m[marca].url_modelos = /^https?:\/\//i.test(b.url_modelos || '') ? String(b.url_modelos).trim().slice(0, 500) : null;
       await portalPool.query(`INSERT INTO bk_config (clave, valor, actualizado_por) VALUES ('marcas', ?, ?) ON DUPLICATE KEY UPDATE valor=VALUES(valor), actualizado=NOW(), actualizado_por=VALUES(actualizado_por)`, [JSON.stringify(m), usuarioDe(req)]);
       limpiarCache(); res.json({ ok: true });
     } catch (e) { res.status(500).json({ error: e.message }); }
@@ -1309,10 +1424,17 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
   let trabajo = null;
   app.post('/api/bikes/admin/fichas-masivo', authAdmin, mBikes, async (req, res) => {
     const b = req.body || {}; const marca = String(b.marca || '').trim();
-    if (!marca) return res.status(400).json({ error: 'Elige la marca' });
     if (trabajo && trabajo.corriendo) return res.status(409).json({ error: 'Ya hay una carga en curso', trabajo });
+    if (b.todas) return completarTodas(req, res, !!b.sobrescribir);
+    if (!marca) return res.status(400).json({ error: 'Elige la marca' });
     try {
       await prepararTablas();
+      const info = await leerMarcas();
+      if (!b.url && !b.pares && (info[marca] || {}).url_modelos) b.url = info[marca].url_modelos;
+      if (b.url && !b.iniciar && /^https?:\/\//i.test(b.url)) { // recordar el link de la marca para la próxima vez
+        info[marca] = { ...(info[marca] || {}), url_modelos: String(b.url).trim().slice(0, 500) };
+        await portalPool.query(`INSERT INTO bk_config (clave, valor, actualizado_por) VALUES ('marcas', ?, ?) ON DUPLICATE KEY UPDATE valor=VALUES(valor)`, [JSON.stringify(info), usuarioDe(req)]);
+      }
       const [mods] = await portalPool.query('SELECT DISTINCT modelo FROM bk_skus WHERE marca=? AND activo=1 ORDER BY modelo', [marca]);
       const modelos = mods.map(r => r.modelo);
       let pares = b.pares && typeof b.pares === 'object' ? b.pares : null;
@@ -1326,25 +1448,59 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
       const lista = Object.entries(pares).filter(([m, u]) => modelos.includes(m) && /^https?:\/\//.test(u) && (b.sobrescribir || !(existentes[marca + '|' + m] || {}).manual));
       trabajo = { marca, total: lista.length, hechos: 0, ok: 0, errores: [], corriendo: true, inicio: Date.now() };
       res.json({ iniciado: true, trabajo });
-      for (const [modelo, url] of lista) {
-        try {
-          const f = await leerFicha(url, { nombre: marca + ' ' + modelo });
-          await portalPool.query(`INSERT INTO bk_modelos (marca, modelo, descripcion, imagenes, url_ficha, specs, datos, manual) VALUES (?,?,?,?,?,?,?,0)
-            ON DUPLICATE KEY UPDATE descripcion=VALUES(descripcion), imagenes=IF(VALUES(imagenes)='[]', imagenes, VALUES(imagenes)), url_ficha=VALUES(url_ficha),
-              specs=VALUES(specs), datos=VALUES(datos), manual=0, actualizado=NOW()`,
-            [marca, modelo, String(f.descripcion || '').slice(0, 4000), JSON.stringify(f.imagenes || []), url.slice(0, 500), JSON.stringify(f.specs || []), JSON.stringify(f.datos || {})]);
-          trabajo.ok++;
-        } catch (e) { trabajo.errores.push(`${modelo}: ${e.message}`.slice(0, 200)); }
-        trabajo.hechos++;
-        await new Promise(r => setTimeout(r, 1500));
-      }
-      trabajo.corriendo = false; limpiarCache();
+      await procesarFichas(lista.map(([modelo, url]) => [marca, modelo, url]));
     } catch (e) {
       if (trabajo && trabajo.corriendo) { trabajo.corriendo = false; trabajo.errores.push(e.message); }
       if (!res.headersSent) res.status(400).json({ error: e.message });
     }
   });
   app.get('/api/bikes/admin/fichas-masivo', authAdmin, mBikes, (req, res) => res.json({ trabajo }));
+
+  // Lee cada ficha con IA y la guarda. lista = [[marca, modelo, url]]
+  async function procesarFichas(lista) {
+    for (const [marca, modelo, url] of lista) {
+      try {
+        const f = await leerFicha(url, { nombre: marca + ' ' + modelo });
+        await portalPool.query(`INSERT INTO bk_modelos (marca, modelo, descripcion, imagenes, url_ficha, specs, datos, manual) VALUES (?,?,?,?,?,?,?,0)
+          ON DUPLICATE KEY UPDATE descripcion=VALUES(descripcion), imagenes=IF(VALUES(imagenes)='[]', imagenes, VALUES(imagenes)), url_ficha=VALUES(url_ficha),
+            specs=VALUES(specs), datos=VALUES(datos), manual=0, actualizado=NOW()`,
+          [marca, modelo, String(f.descripcion || '').slice(0, 4000), JSON.stringify(f.imagenes || []), url.slice(0, 500), JSON.stringify(f.specs || []), JSON.stringify(f.datos || {})]);
+        trabajo.ok++;
+      } catch (e) { trabajo.errores.push(`${marca} ${modelo}: ${e.message}`.slice(0, 200)); }
+      trabajo.hechos++;
+      await new Promise(r => setTimeout(r, 1500));
+    }
+    trabajo.corriendo = false; limpiarCache();
+  }
+
+  // Un clic: todas las marcas con link guardado, solo los modelos con ficha incompleta
+  async function completarTodas(req, res, sobrescribir) {
+    try {
+      await prepararTablas();
+      const info = await leerMarcas(), existentes = await leerModelos();
+      const [rows] = await portalPool.query('SELECT marca, modelo, MAX(url_imagen) url_imagen FROM bk_skus WHERE activo=1 GROUP BY marca, modelo');
+      const porMarca = {}; rows.forEach(r => (porMarca[r.marca] ||= []).push(r));
+      const lista = [], sinLink = [];
+      for (const [marca, mods] of Object.entries(porMarca)) {
+        const falta = mods.filter(r => { const md = existentes[r.marca + '|' + r.modelo] || {}; return (sobrescribir || !md.manual) && fichaCompleta(md, r.url_imagen ? [r] : []).length; }).map(r => r.modelo);
+        if (!falta.length) continue;
+        const url = (info[marca] || {}).url_modelos;
+        if (!url) { sinLink.push(marca); continue; }
+        try {
+          const pag = await leerFicha(url, { soloHtml: true });
+          const pares = emparejarModelos(falta, linksDeModelos(pag.html, pag.url));
+          for (const m of falta) if (pares[m]) lista.push([marca, m, pares[m]]); else sinLink.push(`${marca} ${m}`);
+        } catch (e) { sinLink.push(`${marca} (${e.message})`); }
+      }
+      if (!lista.length) return res.json({ trabajo: null, sin: sinLink, nota: 'No hay modelos por completar con link encontrado.' });
+      trabajo = { marca: 'Todas', total: lista.length, hechos: 0, ok: 0, errores: sinLink.length ? [`Sin link (complétalos a mano o pon el link de la marca): ${sinLink.join(', ')}`.slice(0, 600)] : [], corriendo: true, inicio: Date.now() };
+      res.json({ iniciado: true, trabajo });
+      await procesarFichas(lista);
+    } catch (e) {
+      if (trabajo && trabajo.corriendo) { trabajo.corriendo = false; trabajo.errores.push(e.message); }
+      if (!res.headersSent) res.status(400).json({ error: e.message });
+    }
+  }
 
   // ── Página: fotos reales (portada, asesor, taller) y datos del asesor ──
   const CLAVES_FOTO = ['hero', 'asesor', 'taller', 'taller2'];
@@ -1357,7 +1513,7 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
     const b = req.body || {};
     try {
       const pg = await leerPagina();
-      for (const k of ['asesor_nombre', 'asesor_cargo', 'asesor_whatsapp', 'soporte_url', 'soporte_texto']) if (b[k] !== undefined) pg[k] = String(b[k]).trim().slice(0, k === 'soporte_texto' ? 300 : 120);
+      for (const k of ['asesor_nombre', 'asesor_cargo', 'asesor_whatsapp', 'soporte_url', 'soporte_texto', 'empresa', 'ruc', 'direccion', 'cuentas']) if (b[k] !== undefined) pg[k] = String(b[k]).trim().slice(0, k === 'soporte_texto' || k === 'cuentas' ? 400 : 120);
       if (b.foto && CLAVES_FOTO.includes(b.foto.clave)) {
         const d = String(b.foto.dato || '');
         if (d && !/^data:image\/(png|jpe?g|webp);base64,/i.test(d)) return res.status(400).json({ error: 'La foto debe ser JPG, PNG o WEBP' });

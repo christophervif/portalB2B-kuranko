@@ -673,24 +673,45 @@ ${trozo}`;
       garantia: corto(o.garantia, 200) };
   } catch (e) { console.warn('[bikes] ficha IA', e.message); return null; }
 }
+// Lee una o varias páginas de la marca (separadas por espacio, coma o salto) y junta sus links de modelos.
+// Si no encuentra ninguno, explica qué recibió el servidor (bloqueo, redirección, página vacía).
+async function linksDeVarias(urls) {
+  const lista = String(urls || '').split(/[\s,]+/).filter(u => /^https?:\/\//i.test(u)).slice(0, 5);
+  if (!lista.length) throw new Error('Pega un link de la marca');
+  const todos = [], vistos = new Set(), diag = [];
+  for (const url of lista) {
+    try {
+      const pag = await leerFicha(url, { soloHtml: true });
+      const ls = linksDeModelos(pag.html, pag.url);
+      for (const l of ls) if (!vistos.has(l.slug)) { vistos.add(l.slug); todos.push(l); }
+      if (pag.url !== url) diag.push(`${url} redirigió a ${pag.url}`);
+      if (!ls.length) diag.push(`${url} → ${pag.url !== url ? 'redirigió a ' + pag.url + ', ' : ''}${Math.round(pag.html.length / 1024)} KB, título «${((pag.html.match(/<title[^>]*>([^<]*)/i) || [])[1] || '').trim().slice(0, 80)}»`);
+    } catch (e) { diag.push(`${url} → ${e.message}`); }
+  }
+  return { links: todos, diag };
+}
 // Links de modelos en una página de la marca (mismo dominio e idioma), para la carga masiva
 function linksDeModelos(html, base) {
   const b = new URL(base); const pref = b.pathname.split('/').filter(Boolean).slice(0, 2).join('/');
   const out = new Map();
-  for (const m of html.matchAll(/href=["']([^"'#?]+)["']/gi)) {
+  // href y también data-url / data-href (ej. el histórico de temporadas de Mondraker)
+  for (const m of html.matchAll(/(?:href|data-url|data-href)=["']([^"'#?]+)["']/gi)) {
     let u; try { u = new URL(decodificar(m[1]), b); } catch (e) { continue; }
     if (u.hostname !== b.hostname) continue;
     const partes = u.pathname.split('/').filter(Boolean);
     if (partes.length < 1 || (pref && !u.pathname.slice(1).startsWith(pref))) continue;
     const sl = partes[partes.length - 1].toLowerCase();
     if (!/[a-z]/.test(sl) || sl.length < 3 || /\.(jpe?g|png|pdf|css|js)$/.test(sl)) continue;
-    if (!out.has(sl)) out.set(sl, u.href);
+    const det = h => /season-history\/detail|\/detail\//.test(h);
+    if (!out.has(sl) || (!det(out.get(sl)) && det(u.href))) out.set(sl, u.href); // mejor la ficha de temporada que la del menú
   }
-  return [...out.entries()].map(([slug, url]) => ({ slug, url }));
+  // Primero las fichas de temporada (season-history/detail), que traen fotos grandes y especificaciones
+  return [...out.entries()].map(([slug, url]) => ({ slug, url })).sort((a, c) => (/season-history\/detail|\/detail\//.test(c.url) ? 1 : 0) - (/season-history\/detail|\/detail\//.test(a.url) ? 1 : 0));
 }
 const IGNORAR_TOK = new Set(['mx', 'mullet', '29', '275', '27', '5', '2025', '2026', '2027', 'my26', 'my27']);
 // Tokens de un nombre o slug; quita códigos pegados al final (ej. "foxy-carbon-rr68f09832861fb" → foxy carbon rr)
-const tokensDe = t => slug(t).replace(/^(.*?[a-z])(?:[0-9a-f]{8,}|\d{6,})$/, '$1').split('-').filter(x => x && !IGNORAR_TOK.has(x));
+const VERSION_TOK = new Set(['s', 'r', 'rr', 'x', 'xr', 'rx', 'rs', 'sl', 'lt', 'e', 'flat', 'unlimited', 'axs', 'grx', 'team', 'pro', 'comp', 'race']);
+const tokensDe = t => slug(t).replace(/(.)[0-9a-f]{13}$/, '$1').replace(/^(.*?[a-z])(?:[0-9a-f]{8,}|\d{6,})$/, '$1').split('-').filter(x => x && !IGNORAR_TOK.has(x));
 // Empareja cada modelo del catálogo con el link más parecido: uno debe contener todas las palabras del otro
 // (ej. "SUMMUM R MX" ↔ summum-r-quasar-blue), gana el de mayor parecido.
 function emparejarModelos(modelos, links) {
@@ -700,6 +721,8 @@ function emparejarModelos(modelos, links) {
     for (const l of links) {
       const lt = tokensDe(l.slug); if (!lt.length) continue; const ls = new Set(lt);
       if (!(lt.every(t => ms.has(t)) || mt.every(t => ls.has(t)))) continue;
+      // Las palabras que distinguen versiones no pueden sobrar: ZENDIT S ≠ zendit-rr-s, ZENDIT LT RR ≠ zendit-rr, KAOZ ≠ kaoz-frameset
+      if (lt.some(t => !ms.has(t) && (VERSION_TOK.has(t) || t === 'frameset' || /^\d+$/.test(t))) || mt.some(t => !ls.has(t) && (VERSION_TOK.has(t) || /^\d+$/.test(t)))) continue;
       const inter = mt.filter(t => ls.has(t)).length, union = new Set([...mt, ...lt]).size, sc = inter / union;
       const minimo = mt.every(t => ls.has(t)) ? 0.3 : 0.5; // si el link contiene todo el nombre del modelo, basta menos parecido
       if (inter >= Math.min(2, mt.length) && sc >= minimo && sc > bs) { bs = sc; best = l; }
@@ -1404,7 +1427,7 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
       if (b.logo !== undefined) m[marca].logo = logo || null;
       if (b.visible !== undefined) m[marca].visible = !!b.visible; // false = la marca no se muestra en la tienda
       if (b.garantia !== undefined) m[marca].garantia = String(b.garantia || '').trim().slice(0, 200) || null;
-      if (b.url_modelos !== undefined) m[marca].url_modelos = /^https?:\/\//i.test(b.url_modelos || '') ? String(b.url_modelos).trim().slice(0, 500) : null;
+      if (b.url_modelos !== undefined) m[marca].url_modelos = /^https?:\/\//i.test(b.url_modelos || '') ? String(b.url_modelos).trim().slice(0, 1200) : null;
       await portalPool.query(`INSERT INTO bk_config (clave, valor, actualizado_por) VALUES ('marcas', ?, ?) ON DUPLICATE KEY UPDATE valor=VALUES(valor), actualizado=NOW(), actualizado_por=VALUES(actualizado_por)`, [JSON.stringify(m), usuarioDe(req)]);
       limpiarCache(); res.json({ ok: true });
     } catch (e) { res.status(500).json({ error: e.message }); }
@@ -1461,15 +1484,17 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
       const info = await leerMarcas();
       if (!b.url && !b.pares && (info[marca] || {}).url_modelos) b.url = info[marca].url_modelos;
       if (b.url && !b.iniciar && /^https?:\/\//i.test(b.url)) { // recordar el link de la marca para la próxima vez
-        info[marca] = { ...(info[marca] || {}), url_modelos: String(b.url).trim().slice(0, 500) };
+        info[marca] = { ...(info[marca] || {}), url_modelos: String(b.url).trim().slice(0, 1200) };
         await portalPool.query(`INSERT INTO bk_config (clave, valor, actualizado_por) VALUES ('marcas', ?, ?) ON DUPLICATE KEY UPDATE valor=VALUES(valor)`, [JSON.stringify(info), usuarioDe(req)]);
       }
       const [mods] = await portalPool.query('SELECT DISTINCT modelo FROM bk_skus WHERE marca=? AND activo=1 ORDER BY modelo', [marca]);
       const modelos = mods.map(r => r.modelo);
       let pares = b.pares && typeof b.pares === 'object' ? b.pares : null;
       if (!pares) {
-        const pag = await leerFicha(String(b.url || '').trim(), { soloHtml: true });
-        pares = emparejarModelos(modelos, linksDeModelos(pag.html, pag.url));
+        const { links, diag } = await linksDeVarias(b.url);
+        pares = emparejarModelos(modelos, links);
+        if (!links.length) return res.status(400).json({ error: 'No encontré links de modelos en esa página. Lo que recibió el servidor: ' + diag.join(' · ') });
+        if (!Object.keys(pares).length) return res.status(400).json({ error: `Leí ${links.length} links pero ninguno coincide con tus modelos. Ejemplos de lo que encontré: ${links.slice(0, 8).map(l => l.slug).join(', ')}. ${diag.join(' · ')}` });
       }
       const sin = modelos.filter(m => !pares[m]);
       if (!b.iniciar) return res.json({ pares, sin, total: modelos.length });
@@ -1517,8 +1542,9 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
         const url = (info[marca] || {}).url_modelos;
         if (!url) { sinLink.push(marca); continue; }
         try {
-          const pag = await leerFicha(url, { soloHtml: true });
-          const pares = emparejarModelos(falta, linksDeModelos(pag.html, pag.url));
+          const { links, diag } = await linksDeVarias(url);
+          if (!links.length) { sinLink.push(`${marca} (${diag.join(' · ')})`); continue; }
+          const pares = emparejarModelos(falta, links);
           for (const m of falta) if (pares[m]) lista.push([marca, m, pares[m]]); else sinLink.push(`${marca} ${m}`);
         } catch (e) { sinLink.push(`${marca} (${e.message})`); }
       }

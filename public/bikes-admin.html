@@ -148,7 +148,7 @@ tr.off td{opacity:.45}
         <div class="row" style="margin-top:8px;align-items:center"><button class="btn" id="fmTodas">Completar todo con IA</button><span class="desc" style="margin:0">Recorre todas las marcas que tienen guardado su «link de modelos» y completa solo las fichas que faltan.</span></div>
         <details style="margin-top:10px"><summary class="muted">Datos por marca: link de modelos y garantía</summary><div id="fmMarcas" class="tbl" style="margin-top:8px"></div></details>
         <p class="desc" style="margin-top:10px">O una marca a la vez (el link queda guardado para la próxima):</p>
-        <div class="row" style="margin-top:8px"><select id="fmMarca"></select><input id="fmUrl" style="flex:1;min-width:260px" placeholder="https://mondraker.com/es/es/season-history/detail/19-2027/zendit-rr"><button class="btn" id="fmBuscar">Buscar modelos</button></div>
+        <div class="row" style="margin-top:8px"><select id="fmMarca"></select><input id="fmUrl" style="flex:1;min-width:260px" placeholder="https://mondraker.com/es/es/season-history/19-2027 (puedes poner varios links separados por espacio)"><button class="btn" id="fmBuscar">Buscar modelos</button></div>
         <div id="fmOut" style="margin-top:10px"></div>
       </div>
       <div class="row" style="margin:10px 0"><input id="modQ" placeholder="Buscar modelo…" style="flex:1;min-width:200px"><label class="muted"><input type="checkbox" id="modSin"> Solo incompletos</label></div>
@@ -518,7 +518,7 @@ document.addEventListener('click',async e=>{const t=e.target;
 
 /* ---------- Carga masiva de fichas ---------- */
 function pintarFmMarcas(){const el=$('#fmMarcas');if(!el)return;const info=E.marcas_info||{};const ms=[...new Set(E.skus.map(x=>x.marca))].sort();
-  el.innerHTML=`<table><thead><tr><th>Marca</th><th>Link de modelos (cualquier página de la marca que liste sus modelos)</th><th>Garantía (se ve en la tienda y la proforma)</th><th></th></tr></thead><tbody>${ms.map(m=>`<tr><td><b>${esc(m)}</b></td><td><input data-mu="${esc(m)}" value="${esc((info[m]||{}).url_modelos||'')}" style="width:100%;min-width:260px" placeholder="https://…"></td><td><input data-mg="${esc(m)}" value="${esc((info[m]||{}).garantia||'')}" style="width:100%;min-width:220px" placeholder="Cuadro: 5 años · Componentes: 2 años"></td><td><button class="btn sec" style="padding:4px 10px;font-size:12px" data-mguardar="${esc(m)}">Guardar</button></td></tr>`).join('')}</tbody></table>`;
+  el.innerHTML=`<table><thead><tr><th>Marca</th><th>Link de modelos (página de la marca que liste sus modelos; varios separados por espacio, ej. temporada 2027 y 2026)</th><th>Garantía (se ve en la tienda y la proforma)</th><th></th></tr></thead><tbody>${ms.map(m=>`<tr><td><b>${esc(m)}</b></td><td><input data-mu="${esc(m)}" value="${esc((info[m]||{}).url_modelos||'')}" style="width:100%;min-width:260px" placeholder="https://…"></td><td><input data-mg="${esc(m)}" value="${esc((info[m]||{}).garantia||'')}" style="width:100%;min-width:220px" placeholder="Cuadro: 5 años · Componentes: 2 años"></td><td><button class="btn sec" style="padding:4px 10px;font-size:12px" data-mguardar="${esc(m)}">Guardar</button></td></tr>`).join('')}</tbody></table>`;
   const fu=$('#fmUrl'),fm=$('#fmMarca');if(fu&&fm&&!fu.value)fu.value=(info[fm.value]||{}).url_modelos||''}
 let FM=null,fmPoll=null;
 function pintarFM(){const out=$('#fmOut');if(!FM){out.innerHTML='';return}

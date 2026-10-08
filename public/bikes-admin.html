@@ -192,6 +192,12 @@ tr.off td{opacity:.45}
   <section data-p="pag" hidden><div class="card" id="pagCard"></div></section>
 
   <section data-p="reg" hidden>
+    <div class="card" id="simCard">
+      <h3>Simulador: ¿cómo se calcula el precio?</h3>
+      <p class="desc">Pon el costo y el PVP de una bici (o toca «Cálculo» en un modelo) y verás paso a paso el costo puesto en Lima, el peor caso, el precio de contado y el de cada número de cuotas con su margen. Usa las reglas guardadas abajo.</p>
+      <div class="row" style="margin-top:8px"><select id="simMarca"></select><label class="muted">Costo US$ <input id="simCosto" type="number" style="width:100px" value="1250"></label><label class="muted">PVP US$ <input id="simPvp" type="number" style="width:100px" value="2990"></label><label class="muted"><input type="checkbox" id="simEb"> e-bike</label><button class="btn" id="simIr">Calcular</button></div>
+      <div id="simOut" style="margin-top:10px"></div>
+    </div>
     <div class="card" id="regCard"></div>
   </section>
 </div>
@@ -424,14 +430,16 @@ const dz=$('#drop');['dragover','dragenter'].forEach(t=>dz.addEventListener(t,e=
 dz.addEventListener('drop',e=>e.dataTransfer.files[0]&&leerArchivo(e.dataTransfer.files[0]));
 
 /* ---------- Reglas ---------- */
-const RL=[['margen_minimo','Margen mínimo en el peor caso (%) · si no llega, el precio sube'],['variacion_costos','Incertidumbre de flete y aduana (± %)'],['flete_unidad','Flete marítimo individual e-bike (US$)'],['flete_grupo','Flete marítimo en grupo e-bike (US$ c/u)'],['grupo_min','Unidades para completar un grupo'],['flete_maritimo','Flete marítimo por bici (US$)'],['flete_aereo','Flete aéreo por bici (US$)'],['seguro','Seguro (% del costo)'],['arancel','Ad valorem (%)'],['aduana','Agente y aduana por bici (US$)'],['igv','IGV (%)'],
+const RL=[['margen_minimo','Margen mínimo en el peor caso (%) · si no llega, el precio sube'],['variacion_costos','Incertidumbre de flete y aduana (± %)'],['flete_aereo','Aéreo: flete por bici (US$ · IMP-73/82: 512–564)'],['flete_maritimo','Marítimo: flete por bici (US$ · IMP-70: ~35)'],['mar_fijos_envio','Marítimo: gastos fijos por envío, sin IGV (US$: pick up, EUR.1, almacén, agente, visto bueno, transporte)'],['mar_bicis_envio','Marítimo: bicis que comparten un envío (IMP-70: 7)'],['mar_exw_ref','Marítimo: valor EXW promedio de esas bicis (US$ · IMP-70: 3,300)'],['imo_envio','E-bikes: recargo IMO por envío (US$)'],['grupo_min','E-bikes: unidades para completar un grupo'],['seguro','Seguro (% del costo · cotizador: 1.75)'],['arancel','Ad valorem bicicletas, NO recuperable (% · 8712: 6)'],['arancel_ebike','Ad valorem e-bikes, general (% · 6; las de fabricación UE con EUR.1 van en 0 en el origen «Europa (UE)»)'],['aduana','Otros gastos por bici (US$ sin IGV)'],['igv','IGV (%)'],
   ['adelanto','Adelanto para reservar (%)'],['validez_horas','Precio válido (horas)'],['margen_defecto','Margen marcas nuevas (%)'],
   ['prep','Preparación en la marca (días)'],['mar_min','Marítimo mín. (días)'],['mar_max','Marítimo máx. (días)'],['aereo_min','Aéreo mín. (días)'],['aereo_max','Aéreo máx. (días)'],['aduana_min','Aduana mín. (días)'],['aduana_max','Aduana máx. (días)'],['lima_min','Stock Lima mín. (días)'],['lima_max','Stock Lima máx. (días)']];
+const OCOLS=[['flete_aereo','Flete aéreo US$'],['flete_maritimo','Flete mar. US$'],['mar_fijos_envio','Fijos envío mar. US$'],['mar_bicis_envio','Bicis/envío'],['imo_envio','IMO US$'],['arancel','A/V bici %'],['arancel_ebike','A/V e-bike %'],['seguro','Seguro %'],['prep','Prep. días'],['mar_min','Mar mín'],['mar_max','Mar máx'],['aereo_min','Aéreo mín'],['aereo_max','Aéreo máx']];
+document.addEventListener('click',e=>{if(e.target.id!=='addOrig')return;const tb=$('#origTbl tbody');tb.insertAdjacentHTML('beforeend',`<tr><td><input data-onom placeholder="Ej. Canadá" style="width:130px"></td>${OCOLS.map(([k])=>`<td><input type="number" step="any" data-ok="${k}" placeholder="${E.reglas[k]??''}" style="width:72px"></td>`).join('')}</tr>`)});
 function pintarReglas(){
   const R=E.reglas,dis=E.maestro?'':'disabled';
   const marcas=[...new Set([...E.marcas_base,...E.skus.map(s=>s.marca)])];
   $('#regCard').innerHTML=`<h3>Reglas de precio y entrega</h3>
-  <p class="desc">Precio final = ((costo US$ × (1 + seguro) + flete) × (1 + ad valorem) + aduana) ÷ (1 − margen de la marca) × (1 + IGV) × tipo de cambio, redondeado arriba a la decena. ${E.maestro?'':'<b>Solo el administrador maestro puede cambiarlas.</b>'}</p>
+  <p class="desc">Costo puesto en Lima = (costo × (1 + seguro) + flete) × (1 + ad valorem) + gastos fijos del envío por bici. Precio = PVP × factor o costo ÷ (1 − margen), y nunca menos del precio que deja tu margen mínimo en el peor caso. Usa el simulador de arriba para ver cada paso. ${E.maestro?'':'<b>Solo el administrador maestro puede cambiarlas.</b>'}</p>
   <h3 style="margin-top:14px">Tipo de cambio</h3>
   <div class="rules">
     <label>Modo<select id="g-tc_modo" ${dis}><option value="auto" ${R.tc_modo==='auto'?'selected':''}>Automático (mercado + recargo)</option><option value="manual" ${R.tc_modo==='manual'?'selected':''}>Manual</option></select></label>
@@ -442,23 +450,30 @@ function pintarReglas(){
   </div>
   <p class="desc">Hoy: USD ${E.tc.usd.toFixed(3)} · EUR ${E.tc.eur.toFixed(3)} (${esc(E.tc.fuente)}${E.tc.mercado?`; mercado ${E.tc.mercado.usd.toFixed(3)} / ${E.tc.mercado.eur.toFixed(3)}`:''})</p>
   <h3 style="margin-top:14px">Costos y tiempos</h3>
+  ${dis?'':`<div class="row" style="margin:6px 0 10px"><button class="btn sec" id="usarCotizador">Usar valores de mi cotizador de importación</button><span class="desc" style="margin:0">Valores calibrados con tus importaciones reales de Mondraker (IMP-70 marítimo, IMP-73 y IMP-82 aéreo). Revisa y guarda.</span></div>`}
   <div class="rules">${RL.map(([k,l])=>`<label>${l}<input type="number" step="any" id="g-${k}" value="${R[k]}" ${dis}></label>`).join('')}
     <label>Moneda principal de la tienda<select id="g-moneda_principal" ${dis}><option value="USD" ${R.moneda_principal!=='PEN'?'selected':''}>Dólares (US$), con soles al lado · saldo fijo en US$</option><option value="PEN" ${R.moneda_principal==='PEN'?'selected':''}>Soles (S/), con dólares al lado</option></select></label>
     <label>Tienda: mostrar solo modelos con ficha completa<select id="g-solo_completos" ${dis}><option value="1" ${R.solo_completos!==false?'selected':''}>Sí (foto + descripción + especificaciones)</option><option value="0" ${R.solo_completos===false?'selected':''}>No, mostrar todos</option></select></label>
     <label>Ofrecer envío aéreo<select id="g-aereo_activo" ${dis}><option value="1" ${R.aereo_activo?'selected':''}>Sí</option><option value="0" ${R.aereo_activo?'':'selected'}>No</option></select></label></div>
   <h3 style="margin-top:14px">Cómo se calcula el precio de cada marca</h3>
-  <p class="desc">«PVP × factor»: precio final = PVP sugerido de la marca × factor (con IGV), convertido a soles; el aéreo suma la diferencia de flete. Si un SKU no trae PVP, se usa «Costo + margen».</p>
-  <div class="tbl" style="margin-top:8px"><table><thead><tr><th>Marca</th><th>Cálculo</th><th class="n">Factor PVP</th><th class="n">Margen % (costo + margen)</th><th>Acepta aéreo</th><th>Logo</th></tr></thead><tbody>${marcas.map(m=>`<tr><td>${esc(m)}</td>
+  <p class="desc">«PVP × factor»: precio final = PVP sugerido de la marca × factor (con IGV), convertido a soles; igual para marítimo y aéreo. Si el peor caso no deja tu margen mínimo, el precio sube lo justo. Si un SKU no trae PVP, se usa «Costo + margen».</p>
+  <div class="tbl" style="margin-top:8px"><table><thead><tr><th>Marca</th><th>Cálculo</th><th class="n">Factor PVP</th><th class="n">Margen % (costo + margen)</th><th>Acepta aéreo</th><th>Origen</th><th>Logo</th></tr></thead><tbody>${marcas.map(m=>`<tr><td>${esc(m)}</td>
     <td><select data-modo="${esc(m)}" ${dis}><option value="costo" ${(R.modos[m]||'costo')==='costo'?'selected':''}>Costo + margen</option><option value="pvp" ${R.modos[m]==='pvp'?'selected':''}>PVP × factor</option></select></td>
     <td class="n"><input type="number" step="0.01" data-fac="${esc(m)}" value="${R.factores_pvp[m]??R.factor_pvp_defecto}" style="width:80px" ${dis}></td>
     <td class="n"><input type="number" step="0.5" data-marg="${esc(m)}" value="${R.margenes[m]??R.margen_defecto}" style="width:80px" ${dis}></td>
     <td><label class="muted"><input type="checkbox" data-aer="${esc(m)}" ${(R.aereo_marcas||{})[m]===false?'':'checked'} ${dis}> sí</label></td>
+    <td><select data-orig="${esc(m)}" ${dis}><option value="">General</option>${Object.keys(R.origenes||{}).map(o=>`<option ${(R.marca_origen||{})[m]===o?'selected':''}>${esc(o)}</option>`).join('')}</select></td>
     <td><div class="row" style="flex-wrap:nowrap">${((E.marcas_info||{})[m]||{}).logo?`<img src="${esc(E.marcas_info[m].logo)}" alt="" style="height:22px;max-width:90px;object-fit:contain;background:#fff;border-radius:4px;padding:2px">`:''}<label class="btn sec" style="padding:4px 10px;font-size:12px;cursor:pointer">Subir<input type="file" accept="image/*" data-logo="${esc(m)}" hidden></label><button class="btn sec" style="padding:4px 10px;font-size:12px" data-logolink="${esc(m)}">Link</button></div></td></tr>`).join('')}</tbody></table></div>
   <h3 style="margin-top:14px">Cuotas sin intereses (comisión del banco, %)</h3>
   <p class="desc">Se ofrecen solo las cuotas cuya comisión deja el margen en tu mínimo o más. Deja vacío para no ofrecer ese plazo.</p>
   <div class="rules">${[3,6,9,12].map(n=>`<label>${n} cuotas (%)<input type="number" step="0.1" data-cuota="${n}" value="${(R.cuotas||{})[n]??''}" ${dis}></label>`).join('')}
     <label>Bancos con cuotas sin intereses<input id="g-cuotas_bancos" value="${esc(R.cuotas_bancos||'')}" ${dis}></label>
-    <label>Powerpay: comisión fija a Kuranko (%)<input type="number" step="0.1" id="g-powerpay_pct" value="${R.powerpay_pct??5}" ${dis}></label></div>
+    <label>Powerpay: comisión fija a Kuranko (%)<input type="number" step="0.1" id="g-powerpay_pct" value="${R.powerpay_pct??5}" ${dis}></label>
+    <label>Tarjeta al contado: comisión del link de pago / POS (%)<input type="number" step="0.1" id="g-tarjeta_pct" value="${R.tarjeta_pct??4.3}" ${dis}></label></div>
+  <h3 style="margin-top:14px">Orígenes: logística por país de despacho</h3>
+  <p class="desc">Cada marca puede despachar desde otro lugar. Deja una casilla vacía para usar el valor general de arriba. El ad valorem depende de dónde se <b>fabricó</b> la bici y del certificado de origen (tratados con UE, Reino Unido, EE. UU.); confírmalo con tu agente de aduanas. Asigna el origen de cada marca en la tabla de marcas de abajo.</p>
+  <div class="tbl" style="margin-top:8px"><table id="origTbl"><thead><tr><th>Origen</th>${OCOLS.map(([k,l])=>`<th class="n">${l}</th>`).join('')}</tr></thead><tbody>${Object.entries(R.origenes||{}).map(([n,o])=>`<tr><td><input data-onom value="${esc(n)}" style="width:130px" ${dis}></td>${OCOLS.map(([k])=>`<td><input type="number" step="any" data-ok="${k}" value="${o[k]??''}" placeholder="${R[k]??''}" style="width:72px" ${dis}></td>`).join('')}</tr>`).join('')}</tbody></table></div>
+  ${dis?'':'<button class="btn sec" id="addOrig" style="margin-top:6px">+ Agregar origen</button>'}
   <h3 style="margin-top:14px">Extras que se ofrecen</h3>
   <div id="extras">${R.extras.map((x,i)=>`<div class="row" style="margin:6px 0"><input data-ex="${i}" data-k="nombre" value="${esc(x.nombre)}" style="flex:1;min-width:200px" ${dis}><input type="number" data-ex="${i}" data-k="precio" value="${x.precio}" style="width:100px" ${dis}><label class="muted"><input type="checkbox" data-ex="${i}" data-k="incluido" ${x.incluido?'checked':''} ${dis}> incluido</label></div>`).join('')}</div>
   ${E.maestro?'<div class="row" style="margin-top:8px"><button class="btn sec" id="addEx">+ Agregar extra</button><button class="btn" id="saveReg">Guardar reglas</button></div>':''}`;
@@ -469,7 +484,9 @@ document.addEventListener('click',async e=>{
     const b={};['tc_modo','recargo_usd','recargo_eur','tc_usd_manual','tc_eur_manual',...RL.map(r=>r[0])].forEach(k=>{const el=$('#g-'+k);b[k]=k==='tc_modo'?el.value:+el.value});
     b.aereo_activo=$('#g-aereo_activo').value==='1';
     b.solo_completos=$('#g-solo_completos').value==='1';b.moneda_principal=$('#g-moneda_principal').value;
-    b.cuotas_bancos=$('#g-cuotas_bancos').value;b.powerpay_pct=+$('#g-powerpay_pct').value;
+    b.cuotas_bancos=$('#g-cuotas_bancos').value;b.powerpay_pct=+$('#g-powerpay_pct').value;b.tarjeta_pct=+$('#g-tarjeta_pct').value;
+    b.origenes={};$$('#origTbl tbody tr').forEach(tr=>{const n=tr.querySelector('[data-onom]').value.trim();if(!n)return;const o={};tr.querySelectorAll('[data-ok]').forEach(i=>{if(i.value!=='')o[i.dataset.ok]=+i.value});b.origenes[n]=o});
+    b.marca_origen={};$$('[data-orig]').forEach(el=>{if(el.value)b.marca_origen[el.dataset.orig]=el.value});
     b.cuotas={};$$('[data-cuota]').forEach(el=>{if(el.value!=='')b.cuotas[el.dataset.cuota]=+el.value});
     b.margenes={};$$('[data-marg]').forEach(el=>b.margenes[el.dataset.marg]=+el.value);
     b.modos={};$$('[data-modo]').forEach(el=>b.modos[el.dataset.modo]=el.value);
@@ -511,7 +528,7 @@ function pintarModelos(){
     <td style="white-space:nowrap"><label class="muted" style="display:block"><input type="checkbox" data-modflag="destacado" data-mod="${esc(x.marca+'|'+x.modelo)}" ${md.destacado?'checked':''}> Destacada</label>
       <label class="muted" style="display:block" title="La marca te confirmó que tiene unidades"><input type="checkbox" data-modflag="confirmado" data-mod="${esc(x.marca+'|'+x.modelo)}" ${md.confirmado?'checked':''}> Stock confirmado</label>
       <select data-modflag="etiqueta" data-mod="${esc(x.marca+'|'+x.modelo)}" style="margin-top:4px">${[['','Sin etiqueta'],['novedad','Novedad'],['lanzamiento','Lanzamiento'],['proximamente','Próximamente (silueta)']].map(([v,l])=>`<option value="${v}" ${(md.etiqueta||'')===v?'selected':''}>${l}</option>`).join('')}</select></td>
-    <td><button class="btn sec" style="padding:4px 10px;font-size:12px" data-moded="${esc(x.marca+'|'+x.modelo)}">Editar ficha</button></td></tr>`}).join('')}</tbody></table>`;
+    <td><button class="btn sec" style="padding:4px 10px;font-size:12px" data-moded="${esc(x.marca+'|'+x.modelo)}">Editar ficha</button><br><button class="btn sec" style="padding:4px 10px;font-size:12px;margin-top:4px" data-calc="${(E.skus.find(s=>s.marca===x.marca&&s.modelo===x.modelo&&s.activo)||{}).id||''}">Cálculo</button></td></tr>`}).join('')}</tbody></table>`;
   const ed=$('#modEd');
   if(!MOD_ED){ed.innerHTML='';return}
   const md=E.modelos[MOD_ED.k]||{};const [marca,modelo]=MOD_ED.k.split('|');
@@ -551,6 +568,29 @@ document.addEventListener('click',async e=>{const t=e.target;
     try{await api('/api/bikes/admin/modelo',{method:'POST',body:JSON.stringify({marca,modelo,descripcion:$('#medDesc').value,imagenes:MOD_ED.imgs.filter(u=>MOD_ED.sel.has(u)),url_ficha:$('#medUrl').value.trim(),aereo:md.aereo||'auto',unidad:($('#medUni')||{}).value||md.unidad||'auto',specs:MOD_ED.specs||md.specs||null,img_colores:MOD_ED.imgc})});
       toast('Modelo guardado. Ya se ve en la tienda.');MOD_ED=null;await cargar()}catch(err){toast(err.message)}}
 });
+
+document.addEventListener('click',e=>{if(e.target.id!=='usarCotizador')return;[['arancel',6],['arancel_ebike',6],['seguro',1.75],['flete_aereo',540],['flete_maritimo',35],['mar_fijos_envio',1250],['mar_bicis_envio',7],['mar_exw_ref',3300],['imo_envio',200],['aduana',0]].forEach(([k,v])=>{const el=$('#g-'+k);if(el){el.value=v;el.style.outline='2px solid var(--accent)'}});const eu=[...document.querySelectorAll('#origTbl tbody tr')].find(tr=>tr.querySelector('[data-onom]').value==='Europa (UE)');if(eu){const i=eu.querySelector('[data-ok="arancel_ebike"]');if(i){i.value=0;i.style.outline='2px solid var(--accent)'}}const mo=$('[data-orig="Mondraker"]');if(mo&&!mo.value)mo.value='Europa (UE)';toast('Valores puestos. Revisa y toca Guardar.')});
+/* ---------- Simulador de precios ---------- */
+async function simular(body){const out=$('#simOut');out.innerHTML='<p class="muted">Calculando…</p>';
+  try{const j=await api('/api/bikes/admin/simular',{method:'POST',body:JSON.stringify(body)});const u=v=>'US$ '+Math.round(v).toLocaleString('en-US');
+    const ENVN={maritimo:'Marítimo',aereo:'Aéreo',unidad:'Marítimo individual',grupo:'Marítimo en grupo',lima:'En tienda'};
+    const mg=(o)=>`<span style="color:${o.peor<j.margen_minimo-0.5?'var(--fg-r)':'var(--fg-ok)'}">${o.real}% (peor caso ${o.peor}%)</span>`;
+    out.innerHTML=`<p class="desc">${esc(j.sku.marca)} ${esc(j.sku.modelo)} · costo ${u(j.sku.costo)}${j.pvp?` · PVP ${u(j.pvp)}`:''} · origen ${esc(j.origen)} · cálculo por ${j.modo==='pvp'?'PVP × '+j.factor:'costo + margen de la marca'} · TC ${j.tc.toFixed(3)} · IGV ${j.igv}% · margen mínimo ${j.margen_minimo}% en el peor caso</p>
+    <div class="dos">${j.ops.map(o=>`<div class="card" style="background:var(--surface3);margin:0"><h3>${ENVN[o.envio]||o.envio}</h3>
+      <table>${o.pasos.map(p=>`<tr><td class="muted">${esc(p.k)}</td><td class="n">${u(p.v)}</td></tr>`).join('')}
+      <tr><td class="muted">Precio según la regla (${o.modo==='pvp'?'PVP × factor':'margen de la marca'}), con IGV</td><td class="n">${u(o.precio_regla)}</td></tr>
+      ${o.precio_minimo?`<tr><td><b>Precio mínimo para ${j.margen_minimo}% en el peor caso</b></td><td class="n"><b>${u(o.precio_minimo)}</b></td></tr>`:''}</table>
+      <table style="margin-top:8px"><thead><tr><th>Pago</th><th class="n">Precio final</th><th>Margen</th></tr></thead><tbody>
+      <tr><td>Contado (Yape / transferencia)</td><td class="n"><b>${u(o.contado.usd)}</b><br><span class="muted">${soles(o.contado.pen)}</span></td><td>${mg(o.contado)}</td></tr>
+      ${o.cuotas.map(c=>`<tr><td>${c.n} cuotas (banco cobra ${c.pct}%)</td><td class="n"><b>${u(c.usd)}</b>${c.usd>o.contado.usd?` <span class="pill p-w">+${u(c.usd-o.contado.usd)}</span>`:''}<br><span class="muted">${u(c.usd/c.n)}/mes</span></td><td>${mg(c)}</td></tr>`).join('')}
+      ${o.tarjeta?`<tr><td>Tarjeta en 1 pago (${o.tarjeta.pct}%)</td><td class="n"><b>${u(o.tarjeta.usd)}</b>${o.tarjeta.usd>o.contado.usd?` <span class="pill p-w">+${u(o.tarjeta.usd-o.contado.usd)}</span>`:''}</td><td>${mg(o.tarjeta)}</td></tr>`:''}
+      ${o.powerpay?`<tr><td>Powerpay (${o.powerpay.pct}%)</td><td class="n"><b>${u(o.powerpay.usd)}</b></td><td>${mg(o.powerpay)}</td></tr>`:''}</tbody></table></div>`).join('')}</div>
+    <details style="margin-top:10px"><summary><b>¿El modelo acierta?</b> Comparación con tus importaciones reales</summary><table style="margin-top:6px"><thead><tr><th>Bici</th><th class="n">EXW</th><th class="n">Costo real</th><th class="n">Modelo</th><th class="n">Diferencia</th></tr></thead><tbody>${j.validacion.map(v=>`<tr><td>${esc(v.nombre)}</td><td class="n">${u(v.exw)}</td><td class="n">${u(v.real)}</td><td class="n">${u(v.modelo)}</td><td class="n" style="color:${Math.abs(v.dif)<=5?'var(--fg-ok)':'var(--fg-warn)'}">${v.dif>0?'+':''}${v.dif}%</td></tr>`).join('')}</tbody></table><p class="desc">Costo real = costo sin impuestos deducibles de tu archivo de Compras. Positivo = el modelo es más conservador (cobra un poco más).</p></details>
+    <p class="desc" style="margin-top:8px">El IGV (${j.igv}%) se suma al final y no cuenta como ganancia; el IGV que pagas al importar se recupera como crédito fiscal, por eso no está en el costo. En «Arancel / ad valorem» pon solo los impuestos que <b>no</b> recuperas.</p>`}
+  catch(err){out.innerHTML=`<p class="err">${esc(err.message)}</p>`}}
+document.addEventListener('click',e=>{const t=e.target;
+  if(t.id==='simIr')simular({marca:$('#simMarca').value,costo:+$('#simCosto').value,pvp:+$('#simPvp').value,ebike:$('#simEb').checked});
+  if(t.dataset&&t.dataset.calc){tab('reg');simular({sku_id:+t.dataset.calc});$('#simCard').scrollIntoView({behavior:'smooth'})}});
 
 /* ---------- Modelo de IA (se elige aquí, no en Railway) ---------- */
 let IA=null;
@@ -629,6 +669,7 @@ async function cargar(){
     pintarReservas();pintarLlamadas();pintarCatalogo();pintarReglas();pintarModelos();pintarPagina();
     const fm=$('#fmMarca');if(fm&&!fm.options.length){const ms=[...new Set(E.skus.map(x=>x.marca))].sort();fm.innerHTML=ms.map(m=>`<option>${esc(m)}</option>`).join('');fm.onchange=()=>{$('#fmUrl').value=((E.marcas_info||{})[fm.value]||{}).url_modelos||''}}pintarFmMarcas();prepararLector();
     pintarPendientes();if(!IA)cargarIA();
+    const sm=$('#simMarca');if(sm&&!sm.options.length)sm.innerHTML=[...new Set([...E.marcas_base,...E.skus.map(x=>x.marca)])].map(m=>`<option>${esc(m)}</option>`).join('');
     const tabRes=$('#tabs [data-t="res"]');const n=E.reservas.filter(r=>r.estado==='Nueva').length;tabRes.textContent=n?`Reservas (${n} nuevas)`:'Reservas';
   }catch(e){if(e.message!=='401')$('#msg').innerHTML=`<div class="card"><p class="err">${esc(e.message)}</p></div>`}
 }

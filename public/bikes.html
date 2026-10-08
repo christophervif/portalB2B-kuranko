@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Kuranko Bikes · Bicicletas de fábrica a pedido</title>
+<link rel="icon" href="https://kuranko.pe/wp-content/uploads/2024/03/cropped-Aplicativo-32x32.jpg" sizes="32x32">
+<link rel="icon" href="https://kuranko.pe/wp-content/uploads/2024/03/cropped-Aplicativo-192x192.jpg" sizes="192x192">
+<link rel="apple-touch-icon" href="https://kuranko.pe/wp-content/uploads/2024/03/cropped-Aplicativo-180x180.jpg">
 <meta name="description" content="Mondraker, Forestal, Atherton, Thömus, Crestline, Forbidden, Megamo, Steppenwolf y Revel a pedido. Precio final en Lima con IGV, fecha de llegada a Lima y reserva con adelanto.">
 <meta property="og:title" content="Kuranko Bikes · Bicis de fábrica a pedido">
 <meta property="og:description" content="9 marcas de MTB y e-MTB. Configura tu bici, ve el precio final en Lima y la fecha de llegada, y solicita tu reserva sin pagar nada.">
@@ -311,7 +314,7 @@ footer.kf a{color:#fff}
 <section id="v-tienda" class="wrap">
   <div class="hero">
     <div class="hero-txt">
-      <h1>Tu nave, <em>de fábrica</em><br>a la puerta de tu casa.</h1>
+      <h1>Tu nave, <em>de fábrica</em><br>a Lima.</h1>
       <p>Nueve marcas de montaña y eléctricas configuradas a tu medida. Ves el precio final, con envío, aduana, IGV y armado incluidos, y la fecha estimada de llegada antes de reservar.</p>
     <ol class="steps">
       <li><div><b>Elige tu bici y solicita la reserva</b><span>Talla, color y envío. Ves el precio final y la fecha de llegada. No pagas nada todavía.</span></div></li>
@@ -569,8 +572,8 @@ function totales(){
   const ops=s.op&&s.op.length?s.op:[{k:s.e==='Stock Lima'?'lima':'maritimo',p:s.pm,f:s.fm}];
   const o=ops.find(x=>x.k===S.envio)||ops[0];
   // Forma de pago: contado, N cuotas (el precio sube solo si la comisión no deja el margen mínimo) o Powerpay
-  const cq=o.cq||{};if(S.pago!=='0'&&S.pago!=='pp'&&!cq[S.pago])S.pago='0';if(S.pago==='pp'&&!o.pp)S.pago='0';
-  const env=o.k, bici=S.pago==='pp'?o.pp:S.pago!=='0'?cq[S.pago]:o.p, f=o.f, cu=+S.pago||0, pp=!!o.pp;
+  const cq=o.cq||{};if(!['0','pp','t'].includes(S.pago)&&!cq[S.pago])S.pago='0';if(S.pago==='pp'&&!o.pp)S.pago='0';if(S.pago==='t'&&!o.tj)S.pago='0';
+  const env=o.k, bici=S.pago==='pp'?o.pp:S.pago==='t'?o.tj:S.pago!=='0'?cq[S.pago]:o.p, f=o.f, cu=+S.pago||0, pp=!!o.pp;
   const ex=D.extras.filter(e=>e.incluido||S.extras[e.id]);const exT=ex.reduce((a,e)=>a+e.precio,0);
   const total=bici+exT, dep=enUSD()?Math.round(Math.ceil(total/D.tc_usd*D.adelanto/100/10)*10*D.tc_usd):Math.ceil(total*D.adelanto/100/10)*10;
   return {s,o,env,bici,f,exT,total,dep,saldo:total-dep,cu,pp,cq,base:o.p};
@@ -612,8 +615,9 @@ function pintarCfg(){
     <div class="opt"><div class="lbl">Color</div><div class="opts">${m.colores.map(c=>`<button class="o" aria-pressed="${S.c===c.n}" data-c="${esc(c.n)}" ${disp(x=>x.mo===S.mo&&x.t===S.t&&x.c===c.n)?'':'disabled'}><span>${m.gc&&m.gc.includes(c.n)?`<img class="swf" src="${esc(m.gal[m.gc.indexOf(c.n)])}" alt="">`:c.h?`<span class="sw" style="background:${esc(c.h)}"></span>`:''}${esc(c.n)}</span></button>`).join('')}</div></div>
     <div class="opt"><div class="lbl">Envío a Lima</div>${m.conf&&T.env!=='lima'?'<div class="note" style="margin:-2px 0 8px;color:var(--ok)">✓ La marca confirmó que tiene unidades de este modelo.</div>':''}${ship}</div>
     <div class="opt pago"><div class="lbl">Forma de pago</div><div class="opts">
-      <button class="o" aria-pressed="${S.pago==='0'}" data-pago="0"><b>Contado</b><small>tarjeta, Yape o transferencia</small><small class="num">${M(T.base)}</small></button>
-      ${Object.keys(T.cq).map(Number).sort((a,b)=>a-b).map(n=>`<button class="o" aria-pressed="${S.pago===String(n)}" data-pago="${n}"><b>${n} cuotas</b><small>sin intereses</small><small class="num">${soles(T.cq[n]/n)}/mes${T.cq[n]>T.base?' · +'+M(T.cq[n]-T.base):''}</small></button>`).join('')}
+      <button class="o" aria-pressed="${S.pago==='0'}" data-pago="0"><b>Contado</b><small>Yape o transferencia</small><small class="num">${M(T.base)}</small></button>
+      ${T.o.tj?`<button class="o" aria-pressed="${S.pago==='t'}" data-pago="t"><b>Tarjeta</b><small>1 pago, crédito o débito</small><small class="num">${M(T.o.tj)}${T.o.tj>T.base?' · +'+M(T.o.tj-T.base):''}</small></button>`:''}
+      ${Object.keys(T.cq).map(Number).sort((a,b)=>a-b).map(n=>`<button class="o" aria-pressed="${S.pago===String(n)}" data-pago="${n}"><b>${n} cuotas</b><small>sin intereses</small><small class="num">${M(T.cq[n]/n)}/mes${enUSD()?' · '+soles(T.cq[n]/n):''}</small>${T.cq[n]>T.base?`<small class="num">total ${M(T.cq[n])} (+${M(T.cq[n]-T.base)})</small>`:''}</button>`).join('')}
       ${T.pp?`<button class="o" aria-pressed="${S.pago==='pp'}" data-pago="pp"><b>Powerpay</b><small>cualquier tarjeta, en cuotas</small><small class="num">${M(T.o.pp)}${T.o.pp>T.base?' · +'+M(T.o.pp-T.base):''}</small></button>`:''}
     </div>${T.cu?`<div class="note" style="margin-top:6px">${T.cu} cuotas sin intereses con ${esc(D.cuotas_bancos||'tarjeta de crédito')}. El adelanto también puede ir en cuotas.</div>`:S.pago==='pp'?'<div class="note" style="margin-top:6px">Powerpay aplica su propio interés al cliente.</div>':''}</div>
     ${D.extras.length?`<div class="opt"><div class="lbl">Extras</div><div class="extras">${D.extras.map(e=>`<label><input type="checkbox" data-x="${esc(e.id)}" ${e.incluido?'checked disabled':S.extras[e.id]?'checked':''}><span>${esc(e.nombre)}</span><span>${e.incluido||!e.precio?'incluido':'+ '+M(e.precio)}</span></label>`).join('')}</div></div>`:''}
@@ -624,7 +628,7 @@ function pintarCfg(){
       <tr><td>Llega a Lima<br><span class="note">${T.env==='lima'?'Unidad en nuestra tienda':'Fecha estimada · '+(T.env==='aereo'?'aéreo':'marítimo')+' + aduana'}</span></td><td style="color:var(--ok);font-weight:700">${T.env==='lima'?dias(T.f[0])+'–'+dias(T.f[1])+' días':fD(T.f[0])+' – '+fD(T.f[1])}</td></tr>
       <tr class="tot"><td>Precio final<br><span class="note num">${M2(T.total)}${enUSD()?' al tipo de cambio de hoy':''}</span></td><td>${M(T.total)}</td></tr>
     </table>
-    ${T.cu?`<div class="cuotas"><b>${T.cu} cuotas sin intereses</b> de <b class="num">${soles(T.total/T.cu)}</b></div>`:S.pago==='pp'?`<div class="cuotas">Pago en cuotas con <b>Powerpay</b></div>`:''}
+    ${T.cu?`<div class="cuotas"><b>${T.cu} cuotas sin intereses</b> de <b class="num">${M(T.total/T.cu)}</b>${enUSD()?` <span>(${soles(T.total/T.cu)} al TC de hoy)</span>`:''}</div>`:S.pago==='pp'?`<div class="cuotas">Pago en cuotas con <b>Powerpay</b></div>`:''}
     <ol class="pagos">
       <li><span><b>Hoy</b> · solicitas la reserva</span><b class="num">S/ 0</b></li>
       <li><span><b>Al confirmar con la marca</b> · adelanto ${D.adelanto}%</span><b class="num">${M(T.dep)}</b></li>

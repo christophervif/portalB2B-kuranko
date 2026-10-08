@@ -31,8 +31,25 @@ const REGLAS_BASE = {
   tc_modo: 'auto',            // 'auto' = mercado + recargo · 'manual' = valores fijos
   recargo_usd: 1, recargo_eur: 1.5,
   tc_usd_manual: 3.49, tc_eur_manual: 4.20,
-  flete_maritimo: 110, flete_aereo: 320,   // US$ por bici
-  seguro: 1.5, arancel: 0, aduana: 70,     // %, %, US$ por bici
+  // Calibrado con importaciones reales de Mondraker (Compras): aéreo IMP-73 y IMP-82, marítimo IMP-70.
+  // Aéreo: (EXW + seguro + flete por bici) + ad valorem. Ej. Summum R: (2931+564)×1.06 ≈ US$ 3,706 real.
+  // Marítimo: el flete es barato, pero el envío tiene gastos fijos (pick up, EUR.1, almacén, agente, visto bueno,
+  // transporte…) que se reparten entre las bicis del envío; las e-bikes además pagan recargo IMO (baterías).
+  flete_maritimo: 35, flete_aereo: 540,    // US$ por bici
+  mar_fijos_envio: 1250, mar_bicis_envio: 7, mar_exw_ref: 3300, imo_envio: 200,
+  // Orígenes: cada marca puede despachar desde otro lugar (UE, Reino Unido, EE. UU., Taiwán…) con su propia logística,
+  // ad valorem (según tratado y certificado de origen) y días de tránsito. Lo que se deja vacío usa los valores generales.
+  origenes: {
+    // E-bikes fabricadas en la UE (ej. Mondraker) entran con EUR.1 y el TLC Perú-UE: ad valorem 0 (IMP-70: Crafty sin A/V).
+    // Las bicis sin motor de Mondraker sí pagan 6% (no califican como origen UE).
+    'Europa (UE)': { arancel_ebike: 0 },
+    'Reino Unido': {},
+    'Estados Unidos': { mar_min: 25, mar_max: 40, aereo_min: 5, aereo_max: 10 },
+    'Taiwán': { mar_min: 40, mar_max: 55 }
+  },
+  marca_origen: { Mondraker: 'Europa (UE)' }, // { Marca: 'Estados Unidos' } · sin asignar = valores generales // US$ sin IGV por envío marítimo · bicis que comparten un envío · recargo IMO por envío con e-bikes
+  seguro: 1.75, arancel: 6, arancel_ebike: 6, aduana: 0, // % seguro · % ad valorem bicis (8712: 6%) y e-bikes (8711.60: 6%, salvo origen con tratado) · otros gastos US$ por bici
+  // IGV 16% + IPM 2% y percepción 3.5% de la importación son crédito fiscal: no van al costo
   igv: 18, adelanto: 30,                   // %
   margen_defecto: 25,
   // Cómo se calcula el precio de cada marca: 'costo' = costo + flete + aduana + margen;
@@ -45,7 +62,9 @@ const REGLAS_BASE = {
   // E-bikes por mar: envío individual (flete_unidad) si el margen queda ≥ margen_minimo; si no, envío en grupo (flete_grupo, mínimo grupo_min unidades por marca).
   flete_unidad: 650, flete_grupo: 300, grupo_min: 3, margen_minimo: 20,
   // Cuotas sin intereses con tarjeta: % que cobra el banco por número de cuotas (lo asume Kuranko si el margen sigue ≥ margen_minimo)
-  cuotas: { 3: 5, 6: 7, 9: 9, 12: 11 }, cuotas_bancos: 'BBVA, Scotiabank y Diners Club',
+  cuotas: { 3: 5, 6: 7, 9: 9, 12: 11 },
+  tarjeta_pct: 4.3, // comisión del link de pago / POS cuando pagan al contado con tarjeta
+  cuotas_bancos: 'BBVA, Scotiabank y Diners Club',
   // Powerpay: acepta cualquier tarjeta de crédito; a Kuranko le cobra un % fijo y al cliente le cobra su propio interés
   powerpay_pct: 5,
   // Los costos de importación son aproximados: el margen se muestra como rango con flete/seguro/aduana ± este % y el TC ± 2%
@@ -78,30 +97,48 @@ function mezclarReglas(guardadas) {
   const r = { ...REGLAS_BASE, ...g, margenes: { ...REGLAS_BASE.margenes, ...(g.margenes || {}) },
     modos: { ...REGLAS_BASE.modos, ...(g.modos || {}) }, cuotas: g.cuotas && typeof g.cuotas === 'object' ? g.cuotas : REGLAS_BASE.cuotas, aereo_marcas: { ...(g.aereo_marcas || {}) }, factores_pvp: { ...REGLAS_BASE.factores_pvp, ...(g.factores_pvp || {}) } };
   if (!Array.isArray(r.extras)) r.extras = REGLAS_BASE.extras;
+  r.origenes = { ...REGLAS_BASE.origenes, ...(g.origenes || {}) }; r.marca_origen = { ...REGLAS_BASE.marca_origen, ...(g.marca_origen || {}) };
   if (r.moneda_principal !== 'PEN') r.moneda_principal = 'USD';
   return r;
 }
 
+// Reglas con la logística del origen de la marca (si tiene uno asignado). Idempotente.
+const CLAVES_ORIGEN = ['flete_aereo', 'flete_maritimo', 'mar_fijos_envio', 'mar_bicis_envio', 'mar_exw_ref', 'imo_envio', 'seguro', 'arancel', 'arancel_ebike', 'aduana', 'prep', 'mar_min', 'mar_max', 'aereo_min', 'aereo_max', 'aduana_min', 'aduana_max'];
+function reglasMarca(R, marca) {
+  if (R._origen !== undefined) return R;
+  const o = (R.origenes || {})[(R.marca_origen || {})[marca]] || {};
+  const x = { ...R, _origen: (R.marca_origen || {})[marca] || '' };
+  for (const k of CLAVES_ORIGEN) if (o[k] !== undefined && o[k] !== null && o[k] !== '' && isFinite(+o[k])) x[k] = +o[k];
+  return x;
+}
 // Precio final en soles (IGV incluido) de un SKU para un tipo de envío.
 // tc = { usd, eur } en soles (ya con recargo). Devuelve también el desglose (solo admin).
 function calcularPrecio(sku, envio, R, tc, margenForzado = null) {
+  R = reglasMarca(R, sku.marca);
   // Precio final: en dólares redondeado a US$ 5 (moneda principal USD) o en soles redondeado a S/ 10
   const fin = usdx => R.moneda_principal === 'PEN' ? ceil10(usdx * tc.usd) : Math.round(Math.ceil(usdx / 5) * 5 * tc.usd);
   const lima = sku.estado === 'Stock Lima';
   const costoUSD = sku.moneda === 'EUR' ? num(sku.costo) * tc.eur / tc.usd : num(sku.costo);
-  const flete = lima ? 0 : num({ aereo: R.flete_aereo, unidad: R.flete_unidad, grupo: R.flete_grupo }[envio] ?? R.flete_maritimo);
-  const puesto = (costoUSD * (1 + num(R.seguro) / 100) + flete) * (1 + num(R.arancel) / 100) + (lima ? 0 : num(R.aduana));
+  const ebike = esEbike(sku), aereo = envio === 'aereo';
+  const flete = lima ? 0 : num(aereo ? R.flete_aereo : R.flete_maritimo);
+  const av = num(ebike && R.arancel_ebike != null ? R.arancel_ebike : R.arancel) / 100;
+  // Gastos fijos del envío marítimo repartidos por bici; el recargo IMO de las e-bikes se reparte entre las e-bikes del envío
+  const nEnv = Math.max(1, num(R.mar_bicis_envio) || 1);
+  // Reparto como en el cotizador: 40% igual por bici y 60% según su valor (una bici cara absorbe más que una barata)
+  const pesoValor = num(R.mar_exw_ref) > 0 ? 0.4 + 0.6 * costoUSD / num(R.mar_exw_ref) : 1;
+  const fijos = lima ? 0 : num(R.aduana) + (aereo ? 0 : num(R.mar_fijos_envio) / nEnv * pesoValor + (ebike ? num(R.imo_envio) / (envio === 'grupo' ? Math.max(1, num(R.grupo_min) || 1) : 1) : 0));
+  const puesto = (costoUSD * (1 + num(R.seguro) / 100) + flete) * (1 + av) + fijos;
   const igv = 1 + num(R.igv) / 100;
   const modo = (R.modos && R.modos[sku.marca]) || 'costo';
   let pen;
   if (margenForzado != null) {
     pen = fin(puesto / (1 - margenForzado / 100) * igv);
   } else if (modo === 'pvp' && num(sku.pvp) > 0) {
-    // PVP de la marca × factor = precio final con IGV. El envío aéreo suma la diferencia de flete (con IGV).
+    // PVP de la marca × factor = precio final con IGV (igual para marítimo y aéreo).
     const f = num(R.factores_pvp && R.factores_pvp[sku.marca] != null ? R.factores_pvp[sku.marca] : R.factor_pvp_defecto) || 1;
     const pvpUSD = sku.moneda === 'EUR' ? num(sku.pvp) * tc.eur / tc.usd : num(sku.pvp);
-    const extraAereo = !lima && envio === 'aereo' ? (num(R.flete_aereo) - num(R.flete_maritimo)) * igv : 0;
-    pen = fin(pvpUSD * f + extraAereo);
+    // Aéreo/courier: mismo PVP × factor; si el flete más caro deja el margen bajo el mínimo, el precio mínimo lo sube (opcionesEnvio)
+    pen = fin(pvpUSD * f);
   } else {
     const m = Math.min(90, num(R.margenes && R.margenes[sku.marca] != null ? R.margenes[sku.marca] : R.margen_defecto)) / 100;
     pen = fin(puesto / (1 - m) * igv);
@@ -113,7 +150,7 @@ function calcularPrecio(sku, envio, R, tc, margenForzado = null) {
   const mg = pu => sinIGV > 0 ? (sinIGV - pu) / sinIGV * 100 : 0;
   const margen_bajo = mg(costoUSD * 1.02 + logist * (1 + v)), margen_alto = mg(costoUSD * 0.98 + logist * Math.max(0, 1 - v));
   const cw = costoUSD * 1.02 + logist * (1 + v); // costo en el peor caso (para el precio mínimo)
-  return { pen, cw, usd: pen / tc.usd, costoUSD, flete, puesto, margen: sinIGV > 0 ? ganancia / sinIGV * 100 : 0, ganancia, margen_bajo, margen_alto, modo: margenForzado != null ? 'minimo' : modo === 'pvp' && num(sku.pvp) > 0 ? 'pvp' : 'costo' };
+  return { pen, cw, usd: pen / tc.usd, costoUSD, flete, fijos, av: av * 100, puesto, margen: sinIGV > 0 ? ganancia / sinIGV * 100 : 0, ganancia, margen_bajo, margen_alto, modo: margenForzado != null ? 'minimo' : modo === 'pvp' && num(sku.pvp) > 0 ? 'pvp' : 'costo' };
 }
 
 // Ficha completa = al menos una foto, descripción y especificaciones
@@ -130,6 +167,7 @@ const esEbike = s => s.categoria === 'E-MTB' || !!(s.motor && String(s.motor).tr
 // Precio final redondeado igual que calcularPrecio (US$ 5 o S/ 10), a partir de un valor en US$ con IGV
 const finPrecio = (usdx, R, tc) => R.moneda_principal === 'PEN' ? ceil10(usdx * tc.usd) : Math.round(Math.ceil(usdx / 5) * 5 * tc.usd);
 function opcionesEnvio(sku, R, tc, mod = {}, hoy = hoyLima()) {
+  R = reglasMarca(R, sku.marca);
   const min = num(R.margen_minimo) / 100, igv = 1 + num(R.igv) / 100;
   // Precio mínimo para que, en el peor caso de costos y pagando la comisión f del medio de pago, quede el margen mínimo
   const piso = (p, f) => { const d = 1 - f - min; return d > 0.05 ? finPrecio(p.cw / d * igv, R, tc) : Infinity; };
@@ -140,10 +178,11 @@ function opcionesEnvio(sku, R, tc, mod = {}, hoy = hoyLima()) {
     const cq = {}; let cu = 0;
     for (const [n, pct] of Object.entries(R.cuotas || {})) { const pn = Math.max(base, piso(p, num(pct) / 100)); if (isFinite(pn)) { cq[n] = pn; if (pn === base && +n > cu) cu = +n; } }
     const ppPct = num(R.powerpay_pct) / 100, ppP = ppPct > 0 ? Math.max(base, piso(p, ppPct)) : 0;
+    const tjPct = num(R.tarjeta_pct) / 100, tjP = tjPct > 0 ? Math.max(base, piso(p, tjPct)) : 0; // contado con tarjeta
     const sinI = base / igv / tc.usd;
     return { k, p: base, f: calcularEntrega(sku, k, R, hoy), margen: sinI > 0 ? Math.round((sinI - p.puesto) / sinI * 1000) / 10 : 0, m0: p.margen,
       mb: sinI > 0 ? (sinI - p.cw) / sinI * 100 : 0, ma: p.margen_alto + (base > p.pen ? (base - p.pen) / base * 100 : 0),
-      cu, cq, pp: !!ppP, ...(ppP ? { ppp: ppP } : {}), ...(base > p.pen ? { sub: 1 } : {}) };
+      cu, cq, pp: !!ppP, ...(ppP ? { ppp: ppP } : {}), ...(tjP ? { tj: tjP } : {}), ...(base > p.pen ? { sub: 1 } : {}) };
   };
   if (sku.estado === 'Stock Lima') return [op('lima')];
   const out = [];
@@ -166,6 +205,7 @@ function opcionesEnvio(sku, R, tc, mod = {}, hoy = hoyLima()) {
 
 // Rango de fechas estimadas de entrega en Lima (AAAA-MM-DD).
 function calcularEntrega(sku, envio, R, hoy = hoyLima()) {
+  R = reglasMarca(R, sku.marca);
   if (sku.estado === 'Stock Lima') return [sumarDias(hoy, num(R.lima_min)), sumarDias(hoy, num(R.lima_max))];
   const disp = sku.fecha_disponible && sku.fecha_disponible > hoy ? sku.fecha_disponible : hoy;
   const t = envio === 'aereo' ? [num(R.aereo_min), num(R.aereo_max)] : [num(R.mar_min), num(R.mar_max)];
@@ -418,7 +458,7 @@ function armarCatalogo(skus, R, tc, hoy = hoyLima(), mods = {}) {
     if (!ops.length) continue; // no llega al margen mínimo: no se publica
     const base = ops.reduce((a, o) => o.p < a.p ? o : a, ops[0]);
     const it = { id: s.id, mo: s.montaje, t: s.talla, c: s.color, d: sinLimite(s) ? 99 : Math.max(0, num(s.stock) - num(s.reservado)), e: s.estado,
-      pm: base.p, fm: base.f, op: ops.map(o => ({ k: o.k, p: o.p, f: o.f, cu: o.cu, cq: o.cq, ...(o.pp ? { pp: o.ppp } : {}), ...(o.adicional ? { ad: 1 } : {}) })) };
+      pm: base.p, fm: base.f, op: ops.map(o => ({ k: o.k, p: o.p, f: o.f, cu: o.cu, cq: o.cq, ...(o.tj ? { tj: o.tj } : {}), ...(o.pp ? { pp: o.ppp } : {}), ...(o.adicional ? { ad: 1 } : {}) })) };
     if (s.pvp > 0) it.ref = Math.ceil(s.pvp * (s.moneda === 'EUR' ? tc.eur : tc.usd) / 10) * 10; // PVP de la marca en soles, referencia
     m.skus.push(it);
   }
@@ -1059,7 +1099,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       const op = ops.find(o => o.k === String(b.envio || '')) || ops[0];
       const env = op.k;
       const pago = String(b.pago || '0'); // '0' contado, '3'/'6'/… cuotas, 'pp' Powerpay
-      const precioBici = pago === 'pp' && op.ppp ? op.ppp : (op.cq && op.cq[pago]) || op.p;
+      const precioBici = pago === 'pp' && op.ppp ? op.ppp : pago === 't' && op.tj ? op.tj : (op.cq && op.cq[pago]) || op.p;
       const p = { ...calcularPrecio(s, env, R, tc, op.adicional ? num(R.margen_minimo) : null), pen: precioBici };
       const fechas = op.f;
       const pedidos = Array.isArray(b.extras) ? b.extras.map(String) : [];
@@ -1093,7 +1133,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
         envTxt += g.actual === 0 ? ` (¡grupo completo de ${g.min}!)` : ` (${g.actual} de ${g.min}; faltan ${g.min - g.actual})`;
       }
       const fechasTxt = `${fechaCorta(fechas[0])} – ${fechaCorta(fechas[1])}`;
-      envTxt += pago === 'pp' ? ' · pago con Powerpay' : +pago > 1 ? ` · ${pago} cuotas sin intereses` : '';
+      envTxt += pago === 'pp' ? ' · pago con Powerpay' : pago === 't' ? ' · tarjeta en 1 pago' : +pago > 1 ? ` · ${pago} cuotas sin intereses` : '';
       const msg = `Hola Kuranko, envié la solicitud de reserva ${codigo}: ${s.marca} ${s.modelo}${s.montaje && s.montaje !== 'Base' ? ' ' + s.montaje : ''}, talla ${s.talla}, color ${s.color}, envío ${envTxt}.\n` +
         `Precio final: ${$(total)} · Adelanto al confirmar: ${$(adelanto)}\nEntrega estimada: ${fechasTxt}\nNombre: ${nombre} · DNI/RUC: ${doc}\n¿Me confirman la disponibilidad?`;
       const fila = (a, v) => `<tr><td style="padding:6px 10px;border-bottom:1px solid #eee;color:#666;font-size:14px">${escH(a)}</td><td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:14px;color:#111"><b>${escH(v)}</b></td></tr>`;
@@ -1253,6 +1293,34 @@ ${fila(`Saldo al recibir la bicicleta${usdM ? ' (fijo en dólares)' : ''}`, $(nu
   });
 
   // ── ADMIN ───────────────────────────────────────────────────────────────────
+  // Simulador de precios: muestra paso a paso cómo se llega al precio de una bici (para validar las reglas)
+  app.post('/api/bikes/admin/simular', authAdmin, mBikes, async (req, res) => {
+    try {
+      const b = req.body || {}; const R = await leerReglas(); const tc = await tcEfectivo(R);
+      let sku;
+      if (b.sku_id) { const [[x]] = await portalPool.query(`SELECT ${COLS} FROM bk_skus WHERE id=?`, [num(b.sku_id)]); if (!x) throw new Error('SKU no encontrado'); sku = { ...x, costo: num(x.costo), pvp: num(x.pvp) }; }
+      else sku = { marca: String(b.marca || ''), modelo: 'Simulación', categoria: b.ebike ? 'E-MTB' : 'MTB', motor: b.ebike ? 'sí' : '', costo: num(b.costo), pvp: num(b.pvp), moneda: b.moneda === 'EUR' ? 'EUR' : 'USD', estado: 'A pedido' };
+      const mods = await leerModelos(); const md = mods[sku.marca + '|' + sku.modelo] || {}; const RM = reglasMarca(R, sku.marca);
+      const igv = 1 + num(R.igv) / 100, usd = pen => Math.round(pen / tc.usd);
+      const ops = opcionesEnvio(sku, R, tc, md).map(o => {
+        const p = calcularPrecio(sku, o.k, R, tc, o.adicional ? num(R.margen_minimo) : null);
+        const seguro = p.costoUSD * num(RM.seguro) / 100, arancel = (p.costoUSD + seguro + p.flete) * p.av / 100;
+        const margenCon = (precio, pct) => { const sin = precio / igv / tc.usd; return { real: Math.round((sin * (1 - pct) - p.puesto) / sin * 1000) / 10, peor: Math.round((sin * (1 - pct) - p.cw) / sin * 1000) / 10 }; };
+        return { envio: o.k, pasos: [['Costo de la bici', p.costoUSD], ['Seguro (' + num(RM.seguro) + '%)', seguro], ['Flete', p.flete], ['Ad valorem (' + p.av + '%, no recuperable)', arancel], [o.k === 'aereo' ? 'Otros gastos' : 'Gastos fijos del envío por bici (almacén, agente, etc.' + (esEbike(sku) ? ', IMO' : '') + ')', p.fijos], ['= Costo puesto en Lima (sin IGV)', p.puesto], ['Peor caso (+' + num(RM.variacion_costos ?? 25) + '% logística, +2% TC)', p.cw]].map(([k, v]) => ({ k, v: Math.round(v) })),
+          modo: p.modo, precio_regla: usd(p.pen), precio_minimo: o.sub ? usd(o.p) : null, contado: { usd: usd(o.p), pen: o.p, ...margenCon(o.p, 0) },
+          cuotas: Object.entries(o.cq || {}).map(([n, v]) => ({ n: +n, pct: num((R.cuotas || {})[n]), usd: usd(v), pen: v, ...margenCon(v, num((R.cuotas || {})[n]) / 100) })),
+          tarjeta: o.tj ? { pct: num(R.tarjeta_pct), usd: usd(o.tj), pen: o.tj, ...margenCon(o.tj, num(R.tarjeta_pct) / 100) } : null,
+          powerpay: o.ppp ? { pct: num(R.powerpay_pct), usd: usd(o.ppp), pen: o.ppp, ...margenCon(o.ppp, num(R.powerpay_pct) / 100) } : null };
+      });
+      // Validación: el modelo contra costos reales de importaciones de Mondraker (costo sin impuestos deducibles, US$)
+      const REALES = [['Arid S · marítimo (IMP-70)', 1250, false, 'maritimo', 1427], ['Chrono Carbon DC · marítimo (IMP-70)', 1085.4, false, 'maritimo', 1243],
+        ['F-Podium RR · marítimo (IMP-70)', 4058.56, false, 'maritimo', 4544], ['Crafty Carbon RR e-bike · marítimo (IMP-70)', 4351.6, true, 'maritimo', 4781],
+        ['Crafty Carbon XR e-bike · marítimo (IMP-70)', 6594, true, 'maritimo', 7203], ['Arid S · aéreo (IMP-82)', 1250, false, 'aereo', 1870], ['Summum R · aéreo (IMP-73)', 2931, false, 'aereo', 3706]];
+      const validacion = REALES.map(([nombre, exw, eb, env, real]) => { const x = calcularPrecio({ marca: 'Mondraker', costo: exw, moneda: 'USD', categoria: eb ? 'E-MTB' : 'MTB', motor: eb ? 'sí' : '', estado: 'A pedido' }, env, R, tc);
+        return { nombre, exw, real, modelo: Math.round(x.puesto), dif: Math.round((x.puesto - real) / real * 1000) / 10 }; });
+      res.json({ validacion, origen: (R.marca_origen || {})[sku.marca] || 'General', tc: tc.usd, igv: num(R.igv), margen_minimo: num(R.margen_minimo), pvp: sku.pvp, factor: (R.factores_pvp || {})[sku.marca] ?? R.factor_pvp_defecto, modo: (R.modos || {})[sku.marca] || 'costo', sku: { marca: sku.marca, modelo: sku.modelo, costo: sku.costo }, ops });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+  });
   app.post('/api/bikes/admin/metricas/reiniciar', authAdmin, mBikes, async (req, res) => {
     try { await prepararTablas(); const [r] = await portalPool.query('DELETE FROM bk_eventos'); res.json({ ok: true, borrados: r.affectedRows }); }
     catch (e) { res.status(500).json({ error: e.message }); }
@@ -1325,6 +1393,9 @@ ${fila(`Saldo al recibir la bicicleta${usdM ? ' (fijo en dólares)' : ''}`, $(nu
         else if (k === 'aereo_activo') nuevo.aereo_activo = !!b.aereo_activo;
         else if (k === 'cuotas_bancos') nuevo.cuotas_bancos = String(b.cuotas_bancos || '').slice(0, 120);
         else if (k === 'solo_completos') nuevo.solo_completos = !!b.solo_completos;
+        else if (k === 'origenes') { nuevo.origenes = {}; for (const [n, o] of Object.entries(b.origenes || {}).slice(0, 20)) { const nom = String(n).trim().slice(0, 40); if (!nom) continue; nuevo.origenes[nom] = {};
+            for (const c of CLAVES_ORIGEN) if (o && o[c] !== '' && o[c] != null && isFinite(+o[c]) && +o[c] >= 0) nuevo.origenes[nom][c] = +o[c]; } }
+        else if (k === 'marca_origen') { nuevo.marca_origen = {}; for (const [m, o] of Object.entries(b.marca_origen || {})) if (o) nuevo.marca_origen[String(m).slice(0, 60)] = String(o).slice(0, 40); }
         else if (k === 'moneda_principal') nuevo.moneda_principal = b.moneda_principal === 'PEN' ? 'PEN' : 'USD';
         else if (k === 'cuotas') { nuevo.cuotas = {}; for (const [n, v] of Object.entries(b.cuotas || {})) if (+n >= 2 && +n <= 36 && +v >= 0 && +v < 40) nuevo.cuotas[+n] = +v; }
         else if (isFinite(+b[k]) && +b[k] >= 0) nuevo[k] = +b[k];

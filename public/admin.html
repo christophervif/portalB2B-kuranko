@@ -265,7 +265,7 @@ tr:hover td{background:var(--hover)}
     </div>
     <div class="tabs" id="tabs-bar" style="display:none">
       <button class="tab active" onclick="tab('clientes_gestion',this)">Gestión de clientes</button>
-      <button class="tab" data-modulos="resumen,caja_bi,rentabilidad" onclick="tab('ventas_ingresos',this)">Ventas e ingresos</button>
+      <button class="tab" data-modulos="resumen,caja_bi,rentabilidad,gastos,rendimiento" onclick="tab('ventas_ingresos',this)">Ventas y compras</button>
       <button class="tab" onclick="tab('cotizador',this)">Cotizador</button>
       <button class="tab" onclick="tab('precio_importado',this)">Precio importado</button>
       <button class="tab" onclick="tab('bikes',this)">Bikes a pedido</button>
@@ -302,6 +302,12 @@ tr:hover td{background:var(--hover)}
     </div>
 
     <div id="tab-ventas_ingresos" class="panel">
+      <div class="subtabs" id="vc-subtabs">
+        <button class="subtab active" id="vc-t-ventas" onclick="vcSub('ventas')">Ventas e ingresos</button>
+        <button class="subtab" id="vc-t-gastos" data-modulo="gastos" onclick="vcSub('gastos')">Compras y gastos</button>
+        <button class="subtab" id="vc-t-rendimiento" data-modulo="rendimiento" onclick="vcSub('rendimiento')">Rendimiento</button>
+      </div>
+      <div class="subpanel active" id="vc-ventas">
       <div class="card">
         <div class="vi-barra">
           <span class="vi-emp-lbl">Empresa</span>
@@ -390,6 +396,19 @@ tr:hover td{background:var(--hover)}
           <div style="overflow-x:auto"><table class="dtable" id="tbl-margen-bajo"></table></div></div>
         <div class="dbcard"><h4>Rentabilidad por marca</h4>
           <div style="overflow-x:auto"><table class="dtable" id="tbl-marcas"></table></div></div>
+      </div>
+      </div>
+      <div class="subpanel" id="vc-gastos">
+        <div class="card" style="padding:0;overflow:hidden">
+          <iframe id="gastos-frame" title="Compras y gastos"
+            style="width:100%;height:calc(100vh - 200px);min-height:560px;border:0;display:block"></iframe>
+        </div>
+      </div>
+      <div class="subpanel" id="vc-rendimiento">
+        <div class="card" style="padding:0;overflow:hidden">
+          <iframe id="rendimiento-frame" title="Rendimiento"
+            style="width:100%;height:calc(100vh - 200px);min-height:560px;border:0;display:block"></iframe>
+        </div>
       </div>
     </div>
 
@@ -889,11 +908,12 @@ function cargarDatosTab(id){
     if(ES_MAESTRO&&typeof cargarAccesos==='function')cargarAccesos();
   }
   else if(id==='ventas_ingresos'){
-    // Panel unificado: resumen de ventas + ingresos/caja con un solo filtro de fecha
-    dbInitFechas('tab-ventas_ingresos');
-    if(!dbCargadas['resumen'])dbCargarModulo('resumen');
-    if(!dbCargadas['caja_bi'])dbCargarModulo('caja_bi');
-    if(!dbCargadas['rentabilidad'])dbCargarModulo('rentabilidad');
+    // "Ventas y compras": sub-pestañas Ventas e ingresos / Compras y gastos / Rendimiento.
+    // Abre la última usada si el usuario tiene permiso; si no, la primera permitida.
+    let sub='ventas';
+    try{sub=localStorage.getItem('vc_sub')||'ventas';}catch(e){}
+    if(!vcPuede(sub))sub=Object.keys(VC_MODS).find(vcPuede)||'ventas';
+    vcSub(sub);
   }
   else if(id==='conciliacion'){
     // Pestaña independiente: solo prepara la fecha (hoy). Los datos del Google Sheet
@@ -1578,6 +1598,28 @@ function dbAplicarMes(elemento){
   const d=panel.querySelector('.db-desde'), h=panel.querySelector('.db-hasta');
   if(d)d.value=desde; if(h)h.value=hasta;
 }
+// ── "Ventas y compras": sub-pestañas ──
+const VC_MODS={ventas:['resumen','caja_bi','rentabilidad'],gastos:['gastos'],rendimiento:['rendimiento']};
+function vcPuede(sub){return ES_MAESTRO||(VC_MODS[sub]||[]).some(m=>MIS_MODULOS.includes(m));}
+function vcSub(sub){
+  if(!vcPuede(sub))return;
+  Object.keys(VC_MODS).forEach(k=>{
+    document.getElementById('vc-'+k).classList.toggle('active',k===sub);
+    const t=document.getElementById('vc-t-'+k);t.classList.toggle('active',k===sub);t.style.display=vcPuede(k)?'':'none';
+  });
+  try{localStorage.setItem('vc_sub',sub);}catch(e){}
+  if(sub==='ventas'){
+    dbInitFechas('tab-ventas_ingresos');
+    if(!dbCargadas['resumen'])dbCargarModulo('resumen');
+    if(!dbCargadas['caja_bi'])dbCargarModulo('caja_bi');
+    if(!dbCargadas['rentabilidad'])dbCargarModulo('rentabilidad');
+  }else{
+    // Compras y gastos / Rendimiento en iframe (public/gastos.html, public/rendimiento.html).
+    // Rendimiento se recarga cada vez para tomar los gastos recién anotados.
+    const fr=document.getElementById(sub+'-frame');
+    if(fr&&(!fr.src||sub==='rendimiento'))fr.src='/'+sub+'.html?v='+Date.now();
+  }
+}
 function dbCargarActual(){
   const panel=document.querySelector('.panel.active'); if(!panel)return;
   let id=panel.id.replace('tab-','');
@@ -2122,7 +2164,7 @@ async function cargarEstadoActualizacion(){
   }catch(e){ if(box)box.style.display='none'; }
 }
 // Nombres legibles de los módulos
-const NOMBRE_MODULO={clientes_gestion:'Gestión de clientes',sync:'Sincronización web (en Sistemas)',auditoria:'Auditoría de catálogo',resumen:'Resumen de ventas (en Ventas e ingresos)',rentabilidad:'Rentabilidad (en Ventas e ingresos)',inventario:'Inventario',restock:'Restock',clientes_bi:'Clientes BI',caja_bi:'Ingresos y caja (en Ventas e ingresos)',crm:'CRM Kommo',reportes:'Contabilidad',pagos:'Métodos de pago (en Sistemas)',importaciones:'Importaciones',recepciones:'Recepciones',seguimiento:'Seguimiento (trackings y backorders)',conciliacion:'Conciliación de pagos online',cuentas_cobrar:'Cuentas por cobrar',saldo_favor:'Créditos',cotizador:'Cotizador rápido',precio_importado:'Precio importado (pedidos especiales)',bikes:'Bikes a pedido (bikes.kuranko.pe)',facturacion:'Facturación electrónica'};
+const NOMBRE_MODULO={clientes_gestion:'Gestión de clientes',sync:'Sincronización web (en Sistemas)',auditoria:'Auditoría de catálogo',resumen:'Resumen de ventas (en Ventas e ingresos)',rentabilidad:'Rentabilidad (en Ventas e ingresos)',inventario:'Inventario',restock:'Restock',clientes_bi:'Clientes BI',caja_bi:'Ingresos y caja (en Ventas e ingresos)',crm:'CRM Kommo',reportes:'Contabilidad',pagos:'Métodos de pago (en Sistemas)',importaciones:'Importaciones',recepciones:'Recepciones',seguimiento:'Seguimiento (trackings y backorders)',conciliacion:'Conciliación de pagos online',cuentas_cobrar:'Cuentas por cobrar',saldo_favor:'Créditos',cotizador:'Cotizador rápido',precio_importado:'Precio importado (pedidos especiales)',bikes:'Bikes a pedido (bikes.kuranko.pe)',facturacion:'Facturación electrónica',gastos:'Compras y gastos (en Ventas y compras)',rendimiento:'Rendimiento (en Ventas y compras)'};
 let accesosCache={modulos_disponibles:[],usuarios:[]};
 async function cargarAccesos(){
   try{

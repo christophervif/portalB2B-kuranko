@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lector de fichas · Kuranko Bikes</title>
+<style>
+:root{--bg:#0a1030;--surface:#111a44;--line:#26305e;--fg:#e8ecff;--muted:#9aa3c8;--accent:#FBB911;--ok:#6ee59a;--warn:#ffcb52;--r:#f79a9a}
+@media (prefers-color-scheme:light){:root{--bg:#f6f8fd;--surface:#fff;--line:#dfe4f2;--fg:#141a33;--muted:#5d6687;--ok:#1f9c56;--warn:#9a6b00;--r:#dc4b4b}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:16px}
+h1{font-size:18px;margin:0 0 4px}.muted{color:var(--muted)}.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px;margin-top:12px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}select,input{background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:7px 9px;font:inherit}
+button{background:var(--accent);color:#141414;border:0;border-radius:6px;padding:9px 14px;font-weight:700;cursor:pointer;font:inherit;font-weight:700}button:disabled{opacity:.5;cursor:default}
+table{width:100%;border-collapse:collapse;font-size:13px}td,th{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line);vertical-align:top}td input{width:100%}
+.ok{color:var(--ok)}.warn{color:var(--warn)}.err{color:var(--r)}.tbl{max-height:52vh;overflow:auto}
+</style>
+</head>
+<body>
+<h1>Lector de fichas desde tu navegador</h1>
+<p class="muted" style="margin:0">Lee las páginas de la marca desde tu navegador (como una persona) y las envía al portal. No cierres la pestaña de la marca mientras trabaja.</p>
+<div id="app" class="card">Esperando la página de la marca…</div>
+<script>
+const $=s=>document.querySelector(s);const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let TOKEN='';try{TOKEN=localStorage.getItem('admtoken')||''}catch(e){}
+const marca0=new URLSearchParams(location.search).get('marca')||'';
+async function api(ep,body){const r=await fetch(ep,{method:body?'POST':'GET',headers:{'Authorization':'Bearer '+TOKEN,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
+  const j=await r.json().catch(()=>({}));if(r.status===401)throw new Error('Tu sesión del panel expiró. Vuelve a entrar al panel en este navegador.');if(!r.ok)throw new Error(j.error||('Error '+r.status));return j}
+const ST={origen:'',links:[],marcas:[],marca:marca0,pares:{},sin:[],estado:{},corriendo:false};
+const pend=new Map();let idN=0;
+// Mensajes de la pestaña de la marca (solo de la ventana que abrió el lector)
+addEventListener('message',e=>{if(!window.opener||e.source!==window.opener)return;const d=e.data||{};
+  if(d.tipo==='links'&&!ST.origen){ST.origen=String(d.origen||'');ST.links=(d.links||[]).slice(0,3000);clearInterval(ping);iniciar()}
+  if(d.tipo==='pagina'&&pend.has(d.id)){pend.get(d.id)(d);pend.delete(d.id)}});
+const ping=setInterval(()=>{if(window.opener)window.opener.postMessage({tipo:'listo'},'*')},700);
+setTimeout(()=>{if(!ST.origen)$('#app').innerHTML='<span class="err">No recibí nada de la página de la marca. Abre la página de la marca (por ejemplo la temporada 2027) y toca el marcador «Lector Kuranko» desde ahí.</span>'},12000);
+function leer(url){return new Promise(res=>{const id=++idN;pend.set(id,res);window.opener.postMessage({tipo:'leer',id,url},'*');setTimeout(()=>{if(pend.has(id)){pend.delete(id);res({error:'La página tardó demasiado'})}},60000)})}
+async function iniciar(){
+  if(!TOKEN){$('#app').innerHTML='<span class="err">Primero entra al panel del portal en este mismo navegador.</span>';return}
+  try{const E=await api('/api/bikes/admin/estado');ST.marcas=[...new Set((E.skus||[]).map(s=>s.marca))].sort();
+    if(!ST.marca){const h=ST.origen.toLowerCase();ST.marca=ST.marcas.find(m=>h.includes(m.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'')))||ST.marcas[0]||''}
+    await emparejar()}catch(err){$('#app').innerHTML=`<span class="err">${esc(err.message)}</span>`}}
+async function emparejar(){const j=await api('/api/bikes/admin/lector/emparejar',{marca:ST.marca,origen:ST.origen,links:ST.links,sobrescribir:!!ST.sobre});ST.pares=j.pares;ST.sin=j.sin;ST.nLinks=j.links;pintar()}
+function pintar(){const P=Object.entries(ST.pares);
+  $('#app').innerHTML=`<div class="row"><b>Marca</b><select id="marca">${ST.marcas.map(m=>`<option ${m===ST.marca?'selected':''}>${esc(m)}</option>`).join('')}</select>
+    <label class="muted"><input type="checkbox" id="sobre" ${ST.sobre?'checked':''}> Sobrescribir también las fichas editadas a mano</label></div>
+  <p class="muted">Página leída: ${esc(ST.origen)} · ${ST.nLinks} links · <b>${P.length}</b> modelos encontrados${ST.sin.length?`; sin link: ${ST.sin.map(esc).join(', ')} (puedes pegarlo abajo)`:''}.</p>
+  <div class="tbl"><table><thead><tr><th>Modelo</th><th>Link</th><th>Estado</th></tr></thead><tbody>${[...P,...ST.sin.map(m=>[m,''])].map(([m,u])=>`<tr><td><b>${esc(m)}</b></td><td><input data-par="${esc(m)}" value="${esc(u)}" placeholder="(sin link)"></td><td id="st-${btoa(unescape(encodeURIComponent(m))).replace(/=/g,'')}" class="muted">${esc(ST.estado[m]||'')}</td></tr>`).join('')}</tbody></table></div>
+  <div class="row" style="margin-top:10px"><button id="ir" ${ST.corriendo?'disabled':''}>Traer fichas</button><span id="prog" class="muted"></span></div>`;
+  $('#marca').onchange=async e=>{ST.marca=e.target.value;await emparejar()};$('#sobre').onchange=async e=>{ST.sobre=e.target.checked;await emparejar()};
+  $('#ir').onclick=traer}
+const celda=m=>document.getElementById('st-'+btoa(unescape(encodeURIComponent(m))).replace(/=/g,''));
+async function traer(){const lista=[...document.querySelectorAll('[data-par]')].map(i=>[i.dataset.par,i.value.trim()]).filter(([,u])=>/^https?:\/\//.test(u));
+  if(!lista.length)return;ST.corriendo=true;$('#ir').disabled=true;let ok=0;
+  for(const [k,[m,u]] of lista.entries()){$('#prog').textContent=`${k+1} de ${lista.length}…`;const c=celda(m);if(c){c.className='muted';c.textContent='leyendo…'}
+    const d=await leer(u);let txt,cls;
+    if(d.error){txt=d.error;cls='err'}else{try{const r=await api('/api/bikes/admin/lector/ficha',{marca:ST.marca,modelo:m,url:u,imgs:d.imgs,texto:d.texto});ok++;
+        txt=`${r.fotos} fotos · ${r.specs} especificaciones${r.descripcion?' · descripción':''}${r.ia?' · IA':''}${r.ia_error?' · '+r.ia_error:''}`;cls=r.fotos&&r.specs&&r.descripcion?'ok':'warn'}catch(err){txt=err.message;cls='err'}}
+    ST.estado[m]=txt;if(c){c.className=cls;c.textContent=txt}
+    await new Promise(r=>setTimeout(r,800))}
+  ST.corriendo=false;$('#ir').disabled=false;$('#prog').innerHTML=`<span class="ok">Listo: ${ok} de ${lista.length} fichas guardadas.</span> Ya puedes cerrar esta ventana y recargar el panel.`}
+</script>
+</body>
+</html>

@@ -692,11 +692,14 @@ async function linksDeVarias(urls) {
 }
 // Links de modelos en una página de la marca (mismo dominio e idioma), para la carga masiva
 function linksDeModelos(html, base) {
+  // href y también data-url / data-href (ej. el histórico de temporadas de Mondraker)
+  return filtrarLinks([...html.matchAll(/(?:href|data-url|data-href)=["']([^"'#?]+)["']/gi)].map(m => decodificar(m[1])), base);
+}
+function filtrarLinks(urls, base) {
   const b = new URL(base); const pref = b.pathname.split('/').filter(Boolean).slice(0, 2).join('/');
   const out = new Map();
-  // href y también data-url / data-href (ej. el histórico de temporadas de Mondraker)
-  for (const m of html.matchAll(/(?:href|data-url|data-href)=["']([^"'#?]+)["']/gi)) {
-    let u; try { u = new URL(decodificar(m[1]), b); } catch (e) { continue; }
+  for (const x of urls) {
+    let u; try { u = new URL(String(x).split('#')[0].split('?')[0], b); } catch (e) { continue; }
     if (u.hostname !== b.hostname) continue;
     const partes = u.pathname.split('/').filter(Boolean);
     if (partes.length < 1 || (pref && !u.pathname.slice(1).startsWith(pref))) continue;
@@ -722,7 +725,7 @@ function emparejarModelos(modelos, links) {
       const lt = tokensDe(l.slug); if (!lt.length) continue; const ls = new Set(lt);
       if (!(lt.every(t => ms.has(t)) || mt.every(t => ls.has(t)))) continue;
       // Las palabras que distinguen versiones no pueden sobrar: ZENDIT S ≠ zendit-rr-s, ZENDIT LT RR ≠ zendit-rr, KAOZ ≠ kaoz-frameset
-      if (lt.some(t => !ms.has(t) && (VERSION_TOK.has(t) || t === 'frameset' || /^\d+$/.test(t))) || mt.some(t => !ls.has(t) && (VERSION_TOK.has(t) || /^\d+$/.test(t)))) continue;
+      if (lt.some(t => !ms.has(t) && (VERSION_TOK.has(t) || t === 'frameset' || /^\d+$/.test(t))) || mt.some(t => !ls.has(t) && (VERSION_TOK.has(t) || t === 'frameset' || /^\d+$/.test(t)))) continue;
       const inter = mt.filter(t => ls.has(t)).length, union = new Set([...mt, ...lt]).size, sc = inter / union;
       const minimo = mt.every(t => ls.has(t)) ? 0.3 : 0.5; // si el link contiene todo el nombre del modelo, basta menos parecido
       if (inter >= Math.min(2, mt.length) && sc >= minimo && sc > bs) { bs = sc; best = l; }
@@ -744,13 +747,23 @@ async function leerFicha(url, opciones = {}) {
   const html = (await r.text()).slice(0, 4e6);
   if (opciones.soloHtml) return { html, url: r.url || u.href };
   const f = leerFichaHtml(html, r.url || u.href);
-  const texto = htmlATexto(html);
+  return { ...(await completarFicha(f, htmlATexto(html), opciones)), url: u.href };
+}
+// Ficha leída en el navegador del usuario (lector): fotos y texto ya extraídos allá
+const EXCLUIR_IMG = /\.svg(\?|$)|logo|share|icon|sprite|favicon|placeholder|blank|pixel|badge|flag|payment|[-_]geo[-_.]|geometr|size-?guide|sizing/i;
+async function fichaDesdeNavegador(url, imgs, texto, nombre) {
+  const lista = [...new Set((Array.isArray(imgs) ? imgs : []).map(String).filter(u => /^https?:\/\//i.test(u) && !EXCLUIR_IMG.test(u)))].slice(0, 400);
+  const f = { titulo: nombre, descripcion: '', imagenes: elegirImagenes(lista, url).slice(0, 16) };
+  return { ...(await completarFicha(f, String(texto || '').slice(0, 200000), { nombre })), url };
+}
+async function completarFicha(f, texto, opciones = {}) {
   const ia = opciones.ia === false ? null : await fichaIA(texto, opciones.nombre || f.titulo);
   if (ia) { f.ia = true; if (ia.descripcion) f.descripcion = ia.descripcion; f.specs = ia.specs; f.datos = { categoria: ia.categoria, recorrido: ia.recorrido, material: ia.material, aro: ia.aro, motor: ia.motor, peso: ia.peso, tallas: ia.tallas, garantia: ia.garantia }; }
-  else { f.specs = specsSimples(texto); if (ultimoErrorIA) f.ia_error = ultimoErrorIA; }
+  else { f.specs = specsSimples(texto); if (ultimoErrorIA) f.ia_error = ultimoErrorIA;
+    const peso = (f.specs.find(x => /^peso|weight/i.test(x.k)) || {}).v; if (peso) f.datos = { peso: peso.slice(0, 20) }; }
   if (!f.descripcion && f.specs && f.specs.length) f.descripcion = descDeSpecs(opciones.nombre || f.titulo, f.specs);
-  if (!f.imagenes.length && !f.descripcion) throw new Error('No encontré fotos ni descripción en esa página (puede que cargue todo con JavaScript). Pega los links de las fotos a mano.');
-  return { ...f, url: u.href };
+  if (!f.imagenes.length && !f.descripcion) throw new Error('No encontré fotos ni descripción en esa página. Si la marca bloquea al servidor, usa el «Lector desde tu navegador».');
+  return f;
 }
 
 // ── Registro de rutas ─────────────────────────────────────────────────────────
@@ -1509,6 +1522,36 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
     }
   });
   app.get('/api/bikes/admin/fichas-masivo', authAdmin, mBikes, (req, res) => res.json({ trabajo }));
+
+  // ── Lector desde el navegador: para marcas que bloquean al servidor ──
+  // 1) La ventana del lector manda los links de la página de la marca → se emparejan con los modelos del catálogo
+  app.post('/api/bikes/admin/lector/emparejar', authAdmin, mBikes, async (req, res) => {
+    const b = req.body || {}; const marca = String(b.marca || '').trim();
+    try {
+      await prepararTablas();
+      const [mods] = await portalPool.query('SELECT DISTINCT modelo FROM bk_skus WHERE marca=? AND activo=1 ORDER BY modelo', [marca]);
+      const existentes = await leerModelos();
+      const modelos = mods.map(x => x.modelo).filter(m => b.sobrescribir || !(existentes[marca + '|' + m] || {}).manual);
+      const links = filtrarLinks((Array.isArray(b.links) ? b.links : []).slice(0, 3000), String(b.origen || ''));
+      const pares = emparejarModelos(modelos, links);
+      res.json({ pares, sin: modelos.filter(m => !pares[m]), total: modelos.length, links: links.length,
+        completos: modelos.filter(m => !fichaCompleta(existentes[marca + '|' + m] || {}, []).length) });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+  });
+  // 2) Por cada modelo, la ventana manda fotos y texto leídos en el navegador → IA → se guarda
+  app.post('/api/bikes/admin/lector/ficha', authAdmin, mBikes, async (req, res) => {
+    const b = req.body || {}; const marca = String(b.marca || '').trim().slice(0, 60), modelo = String(b.modelo || '').trim().slice(0, 120), url = String(b.url || '').slice(0, 500);
+    if (!marca || !modelo || !/^https?:\/\//i.test(url)) return res.status(400).json({ error: 'Faltan datos' });
+    try {
+      const f = await fichaDesdeNavegador(url, b.imgs, b.texto, marca + ' ' + modelo);
+      await portalPool.query(`INSERT INTO bk_modelos (marca, modelo, descripcion, imagenes, url_ficha, specs, datos, manual) VALUES (?,?,?,?,?,?,?,0)
+        ON DUPLICATE KEY UPDATE descripcion=VALUES(descripcion), imagenes=IF(VALUES(imagenes)='[]', imagenes, VALUES(imagenes)), url_ficha=VALUES(url_ficha),
+          specs=VALUES(specs), datos=VALUES(datos), manual=0, actualizado=NOW()`,
+        [marca, modelo, String(f.descripcion || '').slice(0, 4000), JSON.stringify(f.imagenes || []), url, JSON.stringify(f.specs || []), JSON.stringify(f.datos || {})]);
+      limpiarCache();
+      res.json({ ok: true, fotos: f.imagenes.length, specs: (f.specs || []).length, descripcion: !!f.descripcion, ia: !!f.ia, ia_error: f.ia_error || null });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+  });
 
   // Lee cada ficha con IA y la guarda. lista = [[marca, modelo, url]]
   async function procesarFichas(lista) {

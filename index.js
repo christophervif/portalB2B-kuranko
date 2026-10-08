@@ -131,7 +131,7 @@ function soloMaestro(req, res, next) {
 // LOGIN ADMIN
 // ════════════════════════════════════════════════════════════════════════════
 // Lista de módulos (pestañas) del admin. Debe coincidir con las pestañas del HTML.
-const MODULOS_ADMIN = ['clientes_gestion', 'sync', 'auditoria', 'resumen', 'rentabilidad', 'inventario', 'restock', 'clientes_bi', 'caja_bi', 'crm', 'reportes', 'pagos', 'importaciones', 'recepciones', 'seguimiento', 'conciliacion', 'cuentas_cobrar', 'saldo_favor', 'cotizador', 'precio_importado', 'asistencia', 'facturacion', 'bikes'];
+const MODULOS_ADMIN = ['clientes_gestion', 'sync', 'auditoria', 'resumen', 'rentabilidad', 'inventario', 'restock', 'clientes_bi', 'caja_bi', 'crm', 'reportes', 'pagos', 'importaciones', 'recepciones', 'seguimiento', 'conciliacion', 'cuentas_cobrar', 'saldo_favor', 'cotizador', 'precio_importado', 'asistencia', 'facturacion', 'bikes', 'gastos', 'rendimiento'];
 
 // Usuarios admin secundarios definidos en variables de entorno (Railway).
 // Formato por usuario (numeradas del 2 en adelante):
@@ -255,7 +255,14 @@ let modBikes = null;
   modPortal = require('./modulos/portal-cliente')({ app, authAdmin, requiereModulo, prodPool, portalPool, JWT_SECRET, grupos: modGestion });
 
   // ── Módulo Ventas-BI (KPIs, rentabilidad, top productos) ──
-  require('./modulos/ventas-bi')({ app, authAdmin, mResumen, mRent, mCaja, prodPool, portalPool, VV });
+  const modVentasBI = require('./modulos/ventas-bi')({ app, authAdmin, mResumen, mRent, mCaja, prodPool, portalPool, VV });
+
+  // ── "Ventas y compras": Compras y gastos (public/gastos.html, permiso 'gastos') y
+  //    Rendimiento (public/rendimiento.html, permiso 'rendimiento'). Rendimiento no
+  //    guarda datos: cruza ventas-bi con gastos.
+  const modGastos = require('./modulos/gastos')({ app, authAdmin, requiereModulo, prodPool, portalPool });
+  require('./modulos/rendimiento')({ app, authAdmin, requiereModulo,
+    serieAgrupada: modVentasBI.serieAgrupada, gastosMensuales: modGastos.gastosMensuales });
 
   // ── Módulo Inventario (foto del stock: salud, antigüedad, ubicaciones, capital parado) ──
   //    Frontend propio en public/inventario.html (iframe dentro del panel).

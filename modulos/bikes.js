@@ -546,7 +546,7 @@ try { ipPrivada = require('./precio-importado')._interno.ipPrivada; } catch (e) 
 function leerFichaHtml(html, base) {
   const meta = n => { const m = html.match(new RegExp(`<meta[^>]+(?:property|name)=["']${n}["'][^>]*content=["']([^"']*)["']`, 'i')) || html.match(new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]*(?:property|name)=["']${n}["']`, 'i')); return m ? decodificar(m[1]).trim() : ''; };
   const abs = u => { try { return new URL(decodificar(u), base).href; } catch (e) { return null; } };
-  const imgs = [], add = u => { const a = u && abs(String(u).split(' ')[0]); if (a && /^https?:/i.test(a) && !/\.svg(\?|$)|logo|icon|sprite|favicon|placeholder|blank|pixel|badge|flag|payment/i.test(a) && !imgs.includes(a)) imgs.push(a); };
+  const imgs = [], add = u => { const a = u && abs(String(u).split(' ')[0]); if (a && /^https?:/i.test(a) && !/\.svg(\?|$)|logo|icon|sprite|favicon|placeholder|blank|pixel|badge|flag|payment|[-_]geo[-_.]|geometr|size-?guide|sizing/i.test(a) && !imgs.includes(a)) imgs.push(a); };
   let titulo = meta('og:title'), desc = '';
   // JSON-LD Product: nombre, descripción e imágenes
   for (const b of html.matchAll(/<script[^>]+application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi)) {
@@ -557,23 +557,27 @@ function leerFichaHtml(html, base) {
       visitar(JSON.parse(b[1].trim()));
     } catch (e) {}
   }
-  for (const m of html.matchAll(/<meta[^>]+property=["']og:image(?::secure_url)?["'][^>]*content=["']([^"']+)["']/gi)) add(m[1]);
+  // og:image suele ser una imagen genérica de la marca (logo o «share»): solo se usa si no hay otras fotos
+  const og = [...html.matchAll(/<meta[^>]+property=["']og:image(?::secure_url)?["'][^>]*content=["']([^"']+)["']/gi)].map(m => abs(m[1])).filter(u => u && !/share|default|logo/i.test(u));
   // Fotos grandes de la página (src, data-src, srcset: se toma la de mayor tamaño)
   for (const m of html.matchAll(/<img\b[^>]*>/gi)) {
     const tag = m[0];
     const srcset = (tag.match(/\b(?:data-)?srcset=["']([^"']+)["']/i) || [])[1];
     if (srcset) { const ult = srcset.split(',').map(x => x.trim().split(/\s+/)).sort((a, b) => (parseInt(b[1]) || 0) - (parseInt(a[1]) || 0))[0]; if (ult) add(ult[0]); }
     add((tag.match(/\b(?:data-src|data-lazy-src|data-original|src)=["']([^"']+\.(?:jpe?g|png|webp)[^"']*)["']/i) || [])[1]);
-    if (imgs.length >= 30) break;
+    if (imgs.length >= 400) break;
   }
   if (!desc) desc = meta('og:description') || meta('description');
   desc = desc.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 1500);
-  return { titulo: titulo.slice(0, 200), descripcion: desc, imagenes: elegirImagenes(imgs, base).slice(0, 16) };
+  let imagenes = elegirImagenes(imgs, base);
+  if (!imagenes.length) imagenes = elegirImagenes(og, base);
+  return { titulo: titulo.slice(0, 200), descripcion: desc, imagenes: imagenes.slice(0, 16) };
 }
 // De todas las fotos de la página: si varias llevan el nombre del modelo en el archivo, solo esas;
 // y de cada foto repetida en varios tamaños, la más grande (ej. Mondraker: 366x250_ vs 2000_).
 function elegirImagenes(imgs, base) {
-  const slugPag = (String(base).split('?')[0].split('/').filter(Boolean).pop() || '').toLowerCase();
+  // Slug de la página sin el código final que agregan algunas marcas (ej. f-trick-26 + 6a509abeb8840)
+  const slugPag = (String(base).split('?')[0].split('/').filter(Boolean).pop() || '').toLowerCase().replace(/[0-9a-f]{13}$/, '');
   const tam = u => { let m = u.match(/[-_/](\d{1,4})x(\d{1,4})_/); if (m) return Math.max(+m[1], +m[2]);
     m = u.match(/[-_/](\d{3,4})_/) || u.match(/[-_](\d{3,4})w\b/) || u.match(/[?&](?:w|width)=(\d+)/); return m ? +m[1] : 800; };
   const cola = u => u.split('?')[0].split('/').pop().replace(/^\d+-[\dx]+_[0-9a-f]+-/i, '').replace(/[-_]\d{2,4}x\d{2,4}(?=\.)/, '').toLowerCase();
@@ -581,7 +585,9 @@ function elegirImagenes(imgs, base) {
   if (slugPag.length > 3) { const del = imgs.filter(u => cola(u).includes(slugPag)); if (del.length >= 2) lista = del; }
   const mejor = new Map();
   for (const u of lista) { const k = cola(u); const prev = mejor.get(k); if (!prev || tam(u) > tam(prev)) mejor.set(k, u); }
-  return [...mejor.values()].filter(u => tam(u) >= 400);
+  // Solo las fotos grandes: las miniaturas de menús y «otros modelos» quedan fuera (ej. 2000_ sí, 366x250_ y 300_ no)
+  const vals = [...mejor.values()], max = Math.max(0, ...vals.map(tam));
+  return vals.filter(u => tam(u) >= Math.max(400, Math.min(1000, max * 0.6)));
 }
 // HTML → texto con saltos de línea (para leer especificaciones)
 function htmlATexto(html) {
@@ -593,7 +599,10 @@ function htmlATexto(html) {
 function specsSimples(texto) {
   const i = inicioSpecs(texto);
   if (i < 0) return [];
-  const lineas = texto.slice(i, i + 12000).split('\n').map(l => l.trim()).filter(Boolean);
+  let bloque = texto.slice(i, i + 12000);
+  const fin = bloque.slice(200).search(/\n\s*(Guía de tallas|Geometr[íi]a|Geometry|Size guide|Spare parts|Repuestos)\s*\n/i); // hasta donde empieza la geometría
+  if (fin > 0) bloque = bloque.slice(0, fin + 200);
+  const lineas = bloque.split('\n').map(l => l.trim()).filter(Boolean);
   const out = [];
   // Formato "Horquilla · Fox 38…" en una sola línea
   for (const l of lineas) { const m = l.match(/^([A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑáéíóúñ ]{1,30}?)\s*[·:]\s+(.{3,300})$/); if (m) out.push({ k: m[1].trim(), v: m[2].trim() }); if (out.length >= 30) break; }
@@ -605,14 +614,23 @@ function specsSimples(texto) {
   }
   return out;
 }
+// Descripción sin IA (si la página no trae una): se arma con las especificaciones clave
+function descDeSpecs(nombre, specs) {
+  const v = re => { const x = specs.find(s => re.test(s.k)); return x ? x.v.split(/[,.]/)[0].trim() : ''; };
+  const partes = [[/cuadro|frame/i, 'cuadro'], [/horquilla|fork/i, 'horquilla'], [/amortiguador|shock/i, 'amortiguador'], [/motor/i, 'motor'], [/bater/i, 'batería'], [/cambio|transmisi|derailleur/i, 'transmisión'], [/freno|brake/i, 'frenos']]
+    .map(([re, n]) => { const x = v(re); return x ? `${n} ${x}` : ''; }).filter(Boolean).slice(0, 5);
+  return partes.length >= 2 ? `${nombre}: ${partes.join(', ')}.` : '';
+}
 // Con IA (Gemini): resumen de venta y datos clave a partir del texto de la página
 // Dónde empiezan las especificaciones: título, o la zona donde aparecen horquilla y frenos juntos
 function inicioSpecs(texto) {
-  let i = texto.search(/ESPECIFICACIONES|SPECIFICATIONS|FICHA T[ÉE]CNICA|TECHNISCHE DATEN/);
-  if (i >= 0) return i;
+  // El título de la sección, seguido de cerca por cuadro/horquilla (así no se confunde con un menú)
+  for (const m of texto.matchAll(/ESPECIFICACIONES|SPECIFICATIONS|FICHA T[ÉE]CNICA|TECHNISCHE DATEN|SPECS\b/gi))
+    if (/Cuadro|Frame|Rahmen|Horquilla|Fork|Gabel/i.test(texto.slice(m.index, m.index + 700))) return m.index;
   for (const m of texto.matchAll(/Horquilla|Fork\b|Gabel/g)) { const w = texto.slice(Math.max(0, m.index - 2500), m.index + 2500); if (/Freno|Brake|Bremse/.test(w) && /Cuadro|Frame|Rahmen/.test(w)) return Math.max(0, w.search(/Cuadro|Frame|Rahmen/) + Math.max(0, m.index - 2500) - 50); }
   return -1;
 }
+let ultimoErrorIA = '';
 async function fichaIA(texto, nombre) {
   const key = process.env.GEMINI_API_KEY; if (!key) return null;
   const i = inicioSpecs(texto);
@@ -629,14 +647,24 @@ En "tallas" pon la altura recomendada del ciclista en cm por talla SOLO si el te
 En "specs" pon hasta 18 filas en español (Cuadro, Horquilla, Amortiguador, Motor, Batería, Transmisión, Frenos, Ruedas, Neumáticos, Tija, Tallas…), con valores resumidos.
 TEXTO:
 ${trozo}`;
+  ultimoErrorIA = '';
+  // Prueba el modelo configurado y, si falla, modelos alternativos (por si el nombre cambió)
+  const modelos = [...new Set([(process.env.BIKES_GEMINI_MODEL || 'gemini-3.6-flash'), 'gemini-2.5-flash', 'gemini-2.0-flash'].map(m => m.replace(/[^a-zA-Z0-9.\-]/g, '')))];
+  let txt = '';
+  for (const mdl of modelos) {
+    try {
+      const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 40000);
+      const g = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${mdl}:generateContent?key=${encodeURIComponent(key)}`, { method: 'POST', signal: ctrl.signal,
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2, response_mime_type: 'application/json' } }) });
+      clearTimeout(to);
+      const j = await g.json().catch(() => ({}));
+      if (!g.ok || j.error) { ultimoErrorIA = `IA (${mdl}): ${(j.error && j.error.message) || 'HTTP ' + g.status}`.slice(0, 200); continue; }
+      txt = (((j.candidates || [])[0] || {}).content || {}).parts?.map(x => x.text).join('') || '';
+      if (txt) break;
+    } catch (e) { ultimoErrorIA = `IA (${mdl}): ${e.message}`.slice(0, 200); }
+  }
+  if (!txt) { console.warn('[bikes] ficha IA', ultimoErrorIA); return null; }
   try {
-    const mdl = (process.env.BIKES_GEMINI_MODEL || 'gemini-3.6-flash').replace(/[^a-zA-Z0-9.\-]/g, '');
-    const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 40000);
-    const g = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${mdl}:generateContent?key=${encodeURIComponent(key)}`, { method: 'POST', signal: ctrl.signal,
-      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2, response_mime_type: 'application/json' } }) });
-    clearTimeout(to);
-    const j = await g.json();
-    const txt = (((j.candidates || [])[0] || {}).content || {}).parts?.map(x => x.text).join('') || '';
     const o = JSON.parse(txt);
     const corto = (v, n) => String(v || '').trim().slice(0, n);
     return { descripcion: corto(o.descripcion, 900), categoria: corto(o.categoria, 40), recorrido: corto(o.recorrido, 40), material: corto(o.material, 60), aro: corto(o.aro, 20),
@@ -696,7 +724,8 @@ async function leerFicha(url, opciones = {}) {
   const texto = htmlATexto(html);
   const ia = opciones.ia === false ? null : await fichaIA(texto, opciones.nombre || f.titulo);
   if (ia) { f.ia = true; if (ia.descripcion) f.descripcion = ia.descripcion; f.specs = ia.specs; f.datos = { categoria: ia.categoria, recorrido: ia.recorrido, material: ia.material, aro: ia.aro, motor: ia.motor, peso: ia.peso, tallas: ia.tallas, garantia: ia.garantia }; }
-  else f.specs = specsSimples(texto);
+  else { f.specs = specsSimples(texto); if (ultimoErrorIA) f.ia_error = ultimoErrorIA; }
+  if (!f.descripcion && f.specs && f.specs.length) f.descripcion = descDeSpecs(opciones.nombre || f.titulo, f.specs);
   if (!f.imagenes.length && !f.descripcion) throw new Error('No encontré fotos ni descripción en esa página (puede que cargue todo con JavaScript). Pega los links de las fotos a mano.');
   return { ...f, url: u.href };
 }
@@ -1466,6 +1495,7 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
             specs=VALUES(specs), datos=VALUES(datos), manual=0, actualizado=NOW()`,
           [marca, modelo, String(f.descripcion || '').slice(0, 4000), JSON.stringify(f.imagenes || []), url.slice(0, 500), JSON.stringify(f.specs || []), JSON.stringify(f.datos || {})]);
         trabajo.ok++;
+        if (f.ia_error && !trabajo.errores.some(x => x.startsWith('IA'))) trabajo.errores.unshift(`${f.ia_error} · se completó sin IA (descripción armada con las especificaciones)`);
       } catch (e) { trabajo.errores.push(`${marca} ${modelo}: ${e.message}`.slice(0, 200)); }
       trabajo.hechos++;
       await new Promise(r => setTimeout(r, 1500));

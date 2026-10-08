@@ -507,8 +507,8 @@ document.addEventListener('click',async e=>{const t=e.target;
   if(t.id==='medCerrar'){MOD_ED=null;pintarModelos()}
   if(t.id==='medTraer'){const url=$('#medUrl').value.trim();if(!url)return toast('Pega el link primero');t.disabled=true;t.textContent='Leyendo la página…';
     try{const f=await api('/api/bikes/admin/ficha',{method:'POST',body:JSON.stringify({url,nombre:MOD_ED.k.replace('|',' ')})});MOD_ED.specs=f.specs||[];
-      MOD_ED.url=url;f.imagenes.forEach(u=>{if(!MOD_ED.imgs.includes(u))MOD_ED.imgs.push(u)});if(!MOD_ED.sel.size)f.imagenes.slice(0,6).forEach(u=>MOD_ED.sel.add(u));
-      MOD_ED.desc=$('#medDesc').value||f.descripcion;pintarModelos();$('#medMsg').textContent=`Encontré ${f.imagenes.length} fotos${f.descripcion?' y la descripción':''}. Desmarca las que no sirvan.`}
+      MOD_ED.url=url;if(f.imagenes.length){MOD_ED.imgs=[...f.imagenes];MOD_ED.sel=new Set(f.imagenes.slice(0,8));MOD_ED.imgc={}}
+      MOD_ED.desc=$('#medDesc').value||f.descripcion;pintarModelos();$('#medMsg').textContent=`Encontré ${f.imagenes.length} fotos${f.descripcion?', la descripción':''}${(f.specs||[]).length?' y '+f.specs.length+' especificaciones':''}. Desmarca las fotos que no sirvan y guarda.${f.ia_error?' Ojo: '+f.ia_error+' (se completó sin IA).':''}`}
     catch(err){MOD_ED.url=url;MOD_ED.desc=$('#medDesc').value;pintarModelos();$('#medMsg').innerHTML=`<span class="err">${esc(err.message)}</span>`}}
   if(t.id==='medAddB'){const u=$('#medAdd').value.trim();if(!/^https?:\/\//.test(u))return toast('Pega un link que empiece con https://');MOD_ED.imgs.push(u);MOD_ED.sel.add(u);MOD_ED.desc=$('#medDesc').value;MOD_ED.url=$('#medUrl').value;pintarModelos()}
   if(t.id==='medGuardar'){const [marca,modelo]=MOD_ED.k.split('|');const md=E.modelos[MOD_ED.k]||{};

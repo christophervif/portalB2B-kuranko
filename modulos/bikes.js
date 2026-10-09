@@ -462,7 +462,10 @@ function armarCatalogo(skus, R, tc, hoy = hoyLima(), mods = {}) {
     if (!m.colores.find(c => c.n === s.color)) m.colores.push({ n: s.color, h: s.color_hex || null });
     if (!m.tallas.includes(s.talla)) m.tallas.push(s.talla);
     const ops = opcionesEnvio(s, R, tc, md, hoy).filter(o => !o.bajo);
-    if (!ops.length) continue; // no llega al margen mínimo: no se publica
+    if (!ops.length) { // no llega al margen mínimo: no se publica (salvo «próximamente», que solo muestra la silueta)
+      if (md.etiqueta === 'proximamente') m.skus.push({ id: s.id, mo: s.montaje, t: s.talla, c: s.color, d: 0, pm: 0, fm: [hoy, hoy], op: [] });
+      continue;
+    }
     const base = ops.reduce((a, o) => o.p < a.p ? o : a, ops[0]);
     const it = { id: s.id, mo: s.montaje, t: s.talla, c: s.color, d: sinLimite(s) ? 99 : Math.max(0, num(s.stock) - num(s.reservado)), e: s.estado, ...(num(s.stock_kuranko) > 0 ? { tk: num(s.stock_kuranko) } : {}),
       pm: base.p, fm: base.f, op: ops.map(o => ({ k: o.k, p: o.p, f: o.f, cu: o.cu, cq: o.cq, ...(o.tj ? { tj: o.tj } : {}), ...(o.pp ? { pp: o.ppp } : {}), ...(o.adicional ? { ad: 1 } : {}) })) };
@@ -1258,13 +1261,20 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
     const ip = ipDe(req);
     if (demasiados('ll:' + ip, 5)) return res.status(429).json({ error: 'Ya agendaste varias llamadas. Escríbenos por WhatsApp.' });
     const nombre = String(b.nombre || '').trim().slice(0, 120); let tel = String(b.tel || '').replace(/\D/g, ''); if (tel.length === 11 && tel.startsWith('51')) tel = tel.slice(2);
-    const fecha = /^\d{4}-\d{2}-\d{2}$/.test(b.fecha || '') && b.fecha >= hoyLima() ? b.fecha : null;
-    const franja = FRANJAS.includes(b.franja) ? b.franja : null;
-    if (nombre.length < 3 || !/^9\d{8}$/.test(tel) || !fecha || !franja) return res.status(400).json({ error: 'Completa tu nombre, un celular de 9 dígitos, el día y la hora.' });
+    const aviso = !!b.aviso; // «Avísame cuando llegue» (próximos lanzamientos): solo nombre y celular
+    const fecha = aviso ? null : /^\d{4}-\d{2}-\d{2}$/.test(b.fecha || '') && b.fecha >= hoyLima() ? b.fecha : null;
+    const franja = aviso ? 'Avísame' : FRANJAS.includes(b.franja) ? b.franja : null;
+    if (aviso && (nombre.length < 3 || !/^9\d{8}$/.test(tel))) return res.status(400).json({ error: 'Escribe tu nombre y un celular de 9 dígitos.' });
+    if (nombre.length < 3 || !/^9\d{8}$/.test(tel) || (!aviso && !fecha) || !franja) return res.status(400).json({ error: 'Completa tu nombre, un celular de 9 dígitos, el día y la hora.' });
     try {
       await prepararTablas();
       const tema = String(b.tema || '').slice(0, 300), ref = String(b.ref || '').replace(/[^\w.\-]/g, '').slice(0, 60) || null;
       await portalPool.query('INSERT INTO bk_llamadas (nombre, tel, fecha, franja, tema, ref, ip) VALUES (?,?,?,?,?,?,?)', [nombre, tel, fecha, franja, tema, ref, ip]);
+      if (aviso) {
+        enviarCorreo((process.env.BIKES_EMAIL || 'info@kuranko.pe,ventas@kuranko.pe').split(',').map(x => x.trim()).filter(Boolean), `Avísame cuando llegue: ${nombre}`,
+          `<div style="font-family:Arial,sans-serif;font-size:15px"><b>${escH(nombre)}</b> quiere que le avisen.<br>Celular: ${escH(tel)}${tema ? '<br>' + escH(tema) : ''}</div>`).catch(() => {});
+        return res.json({ ok: true });
+      }
       const txt = `Llamada agendada: ${nombre} · ${tel} · ${fechaCorta(fecha)} ${franja}${tema ? ' · ' + tema : ''}`;
       enviarCorreo((process.env.BIKES_EMAIL || 'info@kuranko.pe,ventas@kuranko.pe').split(',').map(x => x.trim()).filter(Boolean), `Llamada agendada: ${nombre} · ${fechaCorta(fecha)} ${franja}`,
         `<div style="font-family:Arial,sans-serif;font-size:15px"><b>${escH(nombre)}</b> quiere una llamada el <b>${escH(fechaCorta(fecha))}</b> entre <b>${escH(franja)}</b>.<br>Celular: ${escH(tel)}${tema ? '<br>Tema: ' + escH(tema) : ''}${ref ? '<br>Vendedor: ' + escH(ref) : ''}<br><br><a href="https://wa.me/51${escH(tel)}">Escribir por WhatsApp</a></div>`, txt);
@@ -1420,12 +1430,23 @@ ${fila(`Saldo al recibir la bicicleta${usdM ? ' (fijo en dólares)' : ''}`, $(nu
       x.qty += Math.max(0, num(f.q) - num(f.r)); if (!x.locs.includes(f.loc)) x.locs.push(f.loc); porVid.set(f.vid, x);
     }
     const [skus] = await portalPool.query('SELECT id, marca, modelo, talla, color, sku FROM bk_skus WHERE activo=1');
-    const stock = new Map(), emparejadas = [], sin = [];
+    // Correcciones a mano: { id de variación del ERP: id del SKU del catálogo, o 0 = «no está en el catálogo» }
+    const [[cm]] = await portalPool.query(`SELECT valor FROM bk_config WHERE clave='erp_map'`); let mapa = {}; try { mapa = JSON.parse(cm ? cm.valor : '{}') || {}; } catch (e) {}
+    const stock = new Map(), emparejadas = [], sin = [], todas = [];
     for (const x of porVid.values()) {
       if (x.qty <= 0) continue;
+      const n = leerNombreERP(x.nombre);
+      const fila = { vid: x.vid, erp: x.nombre, marca: n ? n.marca : '', modelo: n ? n.modelo : '', talla: n ? n.talla : '', color: n ? n.color : '', qty: x.qty, locs: x.locs.join(', '), sku_id: null, modo: '' };
+      todas.push(fila);
+      if (mapa[x.vid] !== undefined) {
+        const s = skus.find(k => k.id === num(mapa[x.vid]));
+        fila.modo = 'manual';
+        if (s) { fila.sku_id = s.id; fila.bici = `${s.marca} ${s.modelo} · ${s.talla} · ${s.color}`; stock.set(s.id, (stock.get(s.id) || 0) + x.qty); emparejadas.push({ erp: x.nombre, qty: x.qty, sku_id: s.id, bici: fila.bici, manual: true }); }
+        else sin.push({ erp: x.nombre, qty: x.qty, locs: fila.locs });
+        continue;
+      }
       // 1) Por SKU de la marca si coincide; 2) por marca + modelo + talla (+ color)
       let cand = skus.filter(s => s.sku && x.sku && norm(s.sku) === norm(x.sku));
-      const n = leerNombreERP(x.nombre);
       if (!cand.length && n) {
         // El modelo del ERP se empareja con los modelos del catálogo de esa marca con la misma regla que las fichas (ALU/CARBON, MX, etc.)
         const deMarca = skus.filter(s => norm(s.marca) === norm(n.marca));
@@ -1435,12 +1456,14 @@ ${fila(`Saldo al recibir la bicicleta${usdM ? ' (fijo en dólares)' : ''}`, $(nu
         cand = modelo ? deMarca.filter(s => s.modelo === modelo && (!n.talla || tallaNorm(s.talla) === n.talla)) : [];
         if (cand.length > 1 && n.color) { const tc = new Set(sinTildes(n.color).split(/[^a-z0-9]+/).filter(t => t.length > 2)); const c2 = cand.filter(s => sinTildes(s.color).split(/[^a-z0-9]+/).some(t => tc.has(t))); if (c2.length) cand = c2; }
       }
-      if (cand.length) { const s = cand[0]; stock.set(s.id, (stock.get(s.id) || 0) + x.qty); emparejadas.push({ erp: x.nombre, qty: x.qty, sku_id: s.id, bici: `${s.marca} ${s.modelo} · ${s.talla} · ${s.color}`, dudoso: cand.length > 1 }); }
+      if (cand.length) { const s = cand[0]; stock.set(s.id, (stock.get(s.id) || 0) + x.qty); fila.sku_id = s.id; fila.bici = `${s.marca} ${s.modelo} · ${s.talla} · ${s.color}`; fila.modo = cand.length > 1 ? 'dudoso' : 'auto';
+        emparejadas.push({ erp: x.nombre, qty: x.qty, sku_id: s.id, bici: fila.bici, dudoso: cand.length > 1 }); }
       else sin.push({ erp: x.nombre, qty: x.qty, locs: x.locs.join(', ') });
     }
+    todas.sort((a, b) => (a.marca + a.modelo + a.erp).localeCompare(b.marca + b.modelo + b.erp));
     await portalPool.query('UPDATE bk_skus SET stock_kuranko=0 WHERE stock_kuranko<>0');
     for (const [id, q] of stock) await portalPool.query('UPDATE bk_skus SET stock_kuranko=? WHERE id=?', [q, id]);
-    const estado = { t: Date.now(), en_tienda: [...stock.values()].reduce((a, b) => a + b, 0), emparejadas, sin_emparejar: sin };
+    const estado = { t: Date.now(), en_tienda: [...stock.values()].reduce((a, b) => a + b, 0), emparejadas, sin_emparejar: sin, todas };
     await portalPool.query(`INSERT INTO bk_config (clave, valor, actualizado_por) VALUES ('erp_stock', ?, 'sistema') ON DUPLICATE KEY UPDATE valor=VALUES(valor), actualizado=NOW()`, [JSON.stringify(estado)]);
     limpiarCache();
     return estado;
@@ -1455,6 +1478,17 @@ ${fila(`Saldo al recibir la bicicleta${usdM ? ' (fijo en dólares)' : ''}`, $(nu
   });
   app.post('/api/bikes/admin/stock-erp', authAdmin, mBikes, async (req, res) => {
     try { res.json(await sincronizarStockERP()); } catch (e) { res.status(500).json({ error: 'No se pudo leer el ERP: ' + e.message }); }
+  });
+
+  // Corrige a mano el emparejamiento de una bici del ERP (sku_id: id del catálogo, 0 = no está, null = volver a automático)
+  app.post('/api/bikes/admin/stock-erp/emparejar', authAdmin, mBikes, async (req, res) => {
+    try {
+      await prepararTablas(); const b = req.body || {}; const vid = String(num(b.vid)); if (vid === '0') return res.status(400).json({ error: 'Falta la bici del ERP' });
+      const [[cm]] = await portalPool.query(`SELECT valor FROM bk_config WHERE clave='erp_map'`); let mapa = {}; try { mapa = JSON.parse(cm ? cm.valor : '{}') || {}; } catch (e) {}
+      if (b.sku_id === null || b.sku_id === '' || b.sku_id === undefined) delete mapa[vid]; else mapa[vid] = num(b.sku_id);
+      await portalPool.query(`INSERT INTO bk_config (clave, valor, actualizado_por) VALUES ('erp_map', ?, ?) ON DUPLICATE KEY UPDATE valor=VALUES(valor), actualizado=NOW()`, [JSON.stringify(mapa), 'admin']);
+      res.json(await sincronizarStockERP());
+    } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
   // Simulador de precios: muestra paso a paso cómo se llega al precio de una bici (para validar las reglas)

@@ -1756,7 +1756,7 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
     const b = req.body || {};
     const marca = String(b.marca || '').slice(0, 60), modelo = String(b.modelo || '').slice(0, 120);
     if (!marca || !modelo) return res.status(400).json({ error: 'Falta el modelo' });
-    const imgs = (Array.isArray(b.imagenes) ? b.imagenes : []).filter(u => /^https?:\/\//i.test(u)).slice(0, 12).map(u => String(u).slice(0, 600));
+    const imgs = (Array.isArray(b.imagenes) ? b.imagenes : []).filter(u => /^https?:\/\//i.test(u)).slice(0, 40).map(u => String(u).slice(0, 600)); // hasta 40 fotos por modelo
     const ok = v => ['auto', 'si', 'no'].includes(v) ? v : 'auto';
     try {
       await prepararTablas();

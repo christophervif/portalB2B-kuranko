@@ -158,7 +158,7 @@ tr.off td{opacity:.45}
 
     <div class="card">
       <div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:0">Traer fichas desde la web de la marca</h3>
-        <div class="row" style="align-items:center"><span class="muted">Modelo de IA</span><select id="iaModelo"><option value="">Automático (el que funcione)</option></select><button class="btn sec" id="iaProbar">Probar</button><span id="iaMsg" class="muted"></span></div></div>
+        <div class="row" style="align-items:center"><span class="muted">Modelo de IA</span><select id="iaModelo"><option value="">Automático (el que funcione)</option></select><button class="btn sec" id="iaProbar">Probar</button><button class="btn sec" id="iaTodos" title="Prueba cada modelo con tu clave y marca cuáles funcionan">Probar todos</button><span id="iaMsg" class="muted"></span></div></div>
       <div class="dos" style="margin-top:12px">
         <div class="card" style="background:var(--surface3);margin:0">
           <h3>Opción A · Desde tu navegador <span class="pill p-ok">recomendado</span></h3>
@@ -570,6 +570,10 @@ document.addEventListener('click',async e=>{const t=e.target;
 });
 
 document.addEventListener('click',e=>{if(e.target.id!=='usarCotizador')return;[['arancel',6],['arancel_ebike',6],['seguro',1.75],['flete_aereo',540],['flete_maritimo',35],['mar_fijos_envio',1250],['mar_bicis_envio',7],['mar_exw_ref',3300],['imo_envio',200],['aduana',0]].forEach(([k,v])=>{const el=$('#g-'+k);if(el){el.value=v;el.style.outline='2px solid var(--accent)'}});const eu=[...document.querySelectorAll('#origTbl tbody tr')].find(tr=>tr.querySelector('[data-onom]').value==='Europa (UE)');if(eu){const i=eu.querySelector('[data-ok="arancel_ebike"]');if(i){i.value=0;i.style.outline='2px solid var(--accent)'}}const mo=$('[data-orig="Mondraker"]');if(mo&&!mo.value)mo.value='Europa (UE)';toast('Valores puestos. Revisa y toca Guardar.')});
+function pintarSelIA(sel,J){const pr={};((J.pruebas||{}).r||[]).forEach(x=>pr[x.id]=x);const ids=[...new Set([J.elegido,...J.lista.map(m=>m.id)].filter(Boolean))];
+  sel.innerHTML='<option value="">Automático (el que funcione)</option>'+ids.map(id=>{const x=pr[id];return `<option value="${esc(id)}" ${id===J.elegido?'selected':''}>${x?(x.ok?'✓ ':'✗ '):''}${esc((J.lista.find(m=>m.id===id)||{}).nombre||id)}${x?(x.ok?` · ${(x.ms/1000).toFixed(1)} s`:` · ${x.error}`):''}</option>`}).join('')}
+document.addEventListener('click',async e=>{if(e.target.id!=='iaTodos')return;const b=e.target;b.disabled=true;$('#iaMsg').textContent='Probando cada modelo…';
+  try{const j=await api('/api/bikes/admin/ia',{method:'POST',body:JSON.stringify({probar_todos:true})});IA.pruebas=j.pruebas;pintarSelIA($('#iaModelo'),IA);const n=(j.pruebas.r||[]).filter(x=>x.ok).length;$('#iaMsg').textContent=`${n} de ${(j.pruebas.r||[]).length} modelos funcionan con tu clave. Elige uno de los marcados con ✓.`}catch(err){$('#iaMsg').textContent=err.message}b.disabled=false});
 /* ---------- Simulador de precios ---------- */
 async function simular(body){const out=$('#simOut');out.innerHTML='<p class="muted">Calculando…</p>';
   try{const j=await api('/api/bikes/admin/simular',{method:'POST',body:JSON.stringify(body)});const u=v=>'US$ '+Math.round(v).toLocaleString('en-US');
@@ -596,7 +600,7 @@ document.addEventListener('click',e=>{const t=e.target;
 let IA=null;
 async function cargarIA(){try{IA=await api('/api/bikes/admin/ia');const sel=$('#iaModelo');if(!sel)return;
   const ids=[...new Set([IA.elegido,...IA.lista.map(m=>m.id)].filter(Boolean))];
-  sel.innerHTML='<option value="">Automático (el que funcione)</option>'+ids.map(id=>`<option value="${esc(id)}" ${id===IA.elegido?'selected':''}>${esc((IA.lista.find(m=>m.id===id)||{}).nombre||id)}</option>`).join('');
+  pintarSelIA(sel,IA);
   $('#iaMsg').textContent=!IA.clave?'Falta la clave de Gemini en el servidor':IA.ultimo_ok?'Último que funcionó: '+IA.ultimo_ok:''}catch(e){}}
 document.addEventListener('change',async e=>{if(e.target.id!=='iaModelo')return;try{await api('/api/bikes/admin/ia',{method:'POST',body:JSON.stringify({modelo:e.target.value})});toast(e.target.value?'Se usará '+e.target.value+' (si está saturado, prueba otros)':'Modo automático')}catch(err){toast(err.message)}});
 document.addEventListener('click',async e=>{if(e.target.id!=='iaProbar')return;const b=e.target;b.disabled=true;$('#iaMsg').textContent='Probando…';

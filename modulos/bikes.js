@@ -441,6 +441,7 @@ function armarCatalogo(skus, R, tc, hoy = hoyLima(), mods = {}) {
     if (dt.rec_del && !m.rd) { m.rd = dt.rec_del; if (dt.rec_tras) m.rt = dt.rec_tras; }
     if (dt.material && !m.matx) m.matx = dt.material;
     if (dt.geo && !m.geo) m.geo = dt.geo;
+    if (dt.geometria && !m.geom) m.geom = dt.geometria;
     if (dt.recorrido && !m.rec) m.rec = dt.recorrido; if (dt.material && !m.mat) m.mat = dt.material; if (dt.peso && !m.peso) m.peso = dt.peso; if (dt.motor && !m.motor) m.motor = dt.motor;
     if (md.url_ficha && !m.ficha) m.ficha = md.url_ficha;
     if (md.confirmado) m.conf = 1;
@@ -683,7 +684,7 @@ function specsSimples(texto) {
   out.length = 0; lineas.shift();
   for (let k = 0; k < lineas.length - 1 && out.length < 30; k++) {
     const a = lineas[k], b = lineas[k + 1];
-    if (a.length <= 32 && /^[A-ZÁÉÍÓÚÑa-z]/.test(a) && !/[.:]$/.test(a) && b.length > a.length && b.length < 400) { out.push({ k: a, v: b }); k++; }
+    if (a.length <= 32 && /^[A-ZÁÉÍÓÚÑa-z]/.test(a) && !/[.:]$/.test(a) && (b.length > a.length || /\d/.test(b)) && b.length < 400) { out.push({ k: a, v: b }); k++; }
   }
   return out;
 }
@@ -706,14 +707,46 @@ function inicioSpecs(texto) {
 let ultimoErrorIA = '', modeloIAok = '', modeloIAelegido = '';
 // Llama a Gemini probando modelos: el que funcionó la última vez, el configurado, los conocidos y el que sugiera Google
 // en su mensaje de error («use models/gemini-x.y-flash»). Devuelve el texto, o '' y deja el motivo en ultimoErrorIA.
+// Modelos de Gemini que la clave puede usar (lista oficial de Google), los «flash» más nuevos primero. Se refresca cada 6 h.
+let modelosIA = { t: 0, lista: [], todos: [] }, pruebasIA = null;
+async function modelosDisponibles(key) {
+  if (Date.now() - modelosIA.t < 6 * 3600e3 && modelosIA.lista.length) return modelosIA.lista;
+  try {
+    const j = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=200&key=${encodeURIComponent(key)}`).then(r => r.json());
+    const ver = n => (String(n).match(/(\d+(?:\.\d+)?)/) || [0, 0])[1] * 1;
+    // todos: cualquier Gemini que genere texto (para elegir a mano); lista: los estables, para el modo automático
+    const orden = (a, b) => (/flash/.test(b.id) - /flash/.test(a.id)) || (/lite/.test(a.id) - /lite/.test(b.id)) || ver(b.id) - ver(a.id);
+    const todos = (j.models || []).filter(m => (m.supportedGenerationMethods || []).includes('generateContent') && /gemini/i.test(m.name) && !/embedding|tts|image-gen|audio|live/i.test(m.name))
+      .map(m => ({ id: m.name.replace(/^models\//, ''), nombre: m.displayName || m.name })).sort(orden);
+    const lista = todos.filter(m => !/thinking-exp|exp-|preview|image|vision/i.test(m.id));
+    if (todos.length) modelosIA = { t: Date.now(), lista, todos };
+  } catch (e) {}
+  return modelosIA.lista;
+}
+// Prueba un solo modelo (sin pasar a otros): para que el usuario vea cuáles funcionan con su clave
+async function probarModelo(key, mdl) {
+  const t0 = Date.now();
+  try {
+    const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 20000);
+    const g = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${mdl}:generateContent?key=${encodeURIComponent(key)}`, { method: 'POST', signal: ctrl.signal,
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: 'Responde solo este JSON: {"ok": true}' }] }], generationConfig: { temperature: 0, response_mime_type: 'application/json' } }) });
+    clearTimeout(to);
+    const j = await g.json().catch(() => ({}));
+    if (!g.ok || j.error) { const msg = String((j.error && j.error.message) || 'HTTP ' + g.status);
+      return { id: mdl, ok: false, error: g.status === 429 || /exhausted|quota/i.test(msg) ? 'cuota agotada o límite por minuto' : g.status === 503 || /overload|high demand/i.test(msg) ? 'saturado ahora' : /no longer available|not found|not supported/i.test(msg) ? 'no disponible para tu clave' : msg.split('.')[0].slice(0, 80) }; }
+    return { id: mdl, ok: true, ms: Date.now() - t0 };
+  } catch (e) { return { id: mdl, ok: false, error: e.name === 'AbortError' ? 'tardó demasiado' : e.message }; }
+}
+// Llama a Gemini probando modelos: el elegido en el panel, el que funcionó la última vez, los de la lista de Google
+// y el que sugiera Google en su mensaje de error. Devuelve el texto, o '' y deja en ultimoErrorIA el motivo de cada intento.
 async function llamarGemini(prompt, temperatura = 0.2, espera = 40000) {
   const key = process.env.GEMINI_API_KEY; if (!key) { ultimoErrorIA = 'Falta GEMINI_API_KEY'; return ''; }
   const limpio = m => String(m || '').replace(/^models\//, '').replace(/[^a-zA-Z0-9.\-]/g, '');
-  // Primero el elegido en el panel; si está saturado o no existe, los demás (para no dejar la carga a medias)
-  const cola = [modeloIAelegido, modeloIAok, process.env.BIKES_GEMINI_MODEL, 'gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-2.5-flash'].map(limpio).filter(Boolean);
-  const probados = new Set(), reintentos = {};
+  const lista = (await modelosDisponibles(key)).map(m => m.id);
+  const cola = [modeloIAelegido, modeloIAok, process.env.BIKES_GEMINI_MODEL, ...lista.slice(0, 6), 'gemini-3.8-flash', 'gemini-3.6-flash'].map(limpio).filter(Boolean);
+  const probados = new Set(), reintentos = {}, errores = [];
   ultimoErrorIA = '';
-  while (cola.length && probados.size < 6) {
+  while (cola.length && probados.size < 8) {
     const mdl = cola.shift(); if (probados.has(mdl)) continue; probados.add(mdl);
     try {
       const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), espera);
@@ -723,19 +756,21 @@ async function llamarGemini(prompt, temperatura = 0.2, espera = 40000) {
       const j = await g.json().catch(() => ({}));
       if (!g.ok || j.error) {
         const msg = (j.error && j.error.message) || 'HTTP ' + g.status;
-        ultimoErrorIA = `IA (${mdl}): ${msg}`.slice(0, 200);
         // Saturado (429/503/«overloaded»): espera y reintenta el mismo modelo hasta 2 veces antes de pasar a otro
-        if ((g.status === 429 || g.status === 503 || /overload|unavailable|exhausted|try again/i.test(msg)) && (reintentos[mdl] || 0) < 2) {
+        if ((g.status === 429 || g.status === 503 || /overload|exhausted|try again|high demand/i.test(msg)) && (reintentos[mdl] || 0) < 2) {
           reintentos[mdl] = (reintentos[mdl] || 0) + 1; probados.delete(mdl); cola.unshift(mdl);
           await new Promise(r => setTimeout(r, reintentos[mdl] * 3000)); continue;
         }
+        errores.push(`${mdl}: ${String(msg).split('.')[0].slice(0, 90)}`);
         for (const m of String(msg).matchAll(/models\/([a-z0-9.\-]+)/gi)) if (!probados.has(limpio(m[1]))) cola.unshift(limpio(m[1])); // el que recomienda Google
         continue;
       }
       const txt = (((j.candidates || [])[0] || {}).content || {}).parts?.map(x => x.text).join('') || '';
       if (txt) { modeloIAok = mdl; ultimoErrorIA = ''; return txt; }
-    } catch (e) { ultimoErrorIA = `IA (${mdl}): ${e.message}`.slice(0, 200); }
+      errores.push(`${mdl}: respuesta vacía`);
+    } catch (e) { errores.push(`${mdl}: ${e.name === 'AbortError' ? 'tardó demasiado' : e.message}`.slice(0, 120)); }
   }
+  ultimoErrorIA = ('IA sin respuesta · ' + errores.join(' · ')).slice(0, 600);
   return '';
 }
 async function fichaIA(texto, nombre) {
@@ -851,6 +886,35 @@ async function fichaDesdeNavegador(url, imgs, texto, nombre) {
   const f = { titulo: nombre, descripcion: '', imagenes: elegirImagenes(lista, url).slice(0, 16), geo: fotoGeometria(todas) };
   return { ...(await completarFicha(f, String(texto || '').slice(0, 200000), { nombre })), url };
 }
+// Tabla de geometría a partir del texto de la ficha (filas A, B, C… con un valor por talla, en mm o grados)
+const RE_TALLA_GEO = /^(XXS|XS|S|S\/M|SM|M|M\/L|ML|L|L\/XL|LXL|XL|XXL|S[1-6]|[1-6]|\d{2}(?:\.\d)?|One size|Única|Unica)$/i;
+function geometriaDeTexto(texto) {
+  const t = String(texto || ''); const i = t.search(/\n\s*(Frame size|Talla(?: de cuadro)?|Size)\s*\n/i);
+  if (i < 0) return null;
+  const L = t.slice(i, i + 20000).split('\n').map(x => x.trim()).filter(x => x && x !== '&nbsp;').slice(1);
+  let k = 0; const tallas = [];
+  while (k < L.length && RE_TALLA_GEO.test(L[k])) tallas.push(L[k++].toUpperCase().replace('ML', 'M/L'));
+  if (!tallas.length && L[0] && /^[A-Z]{1,2}$/.test(L[1] || '')) { tallas.push('Única'); k = 1; } // talla única (ej. F-Trick 26)
+  if (!tallas.length) return null;
+  // Algunas marcas repiten las tallas para dos configuraciones (ej. vainas estándar y cortas): se usa la primera
+  let n = tallas.length; if (n % 2 === 0 && tallas.slice(0, n / 2).join() === tallas.slice(n / 2).join()) n = n / 2;
+  const esValor = x => /^[-–]?\s?\d+(?:[.,]\d+)?\s?(mm|°|º)?$/i.test(x), esPulg = x => /^[-–]?\s?\d+(?:[.,]\d+)?\s?("|”|in)$/i.test(x);
+  const filas = [];
+  while (k < L.length && filas.length < 30) {
+    let letra = '';
+    if (/^[A-Z]{1,2}$/.test(L[k])) letra = L[k++];
+    const nombre = L[k];
+    if (!nombre || esValor(nombre) || nombre.length > 60) break;
+    k++;
+    const vals = [];
+    while (k < L.length && (esValor(L[k]) || esPulg(L[k]))) { if (esValor(L[k])) vals.push(L[k].replace(/^([-–])\s+/, '-').replace(/\s+/g, ' ')); k++; }
+    if (vals.length < n) break;
+    filas.push({ l: letra, n: nombre.slice(0, 50), v: vals.slice(0, n) });
+  }
+  // Valores sin unidad: si la fila no es de ángulo, son milímetros
+  for (const f of filas) f.v = f.v.map(v => /mm|°|º/.test(v) ? v : v + (/[áa]ngulo|angle/i.test(f.n) ? '°' : ' mm'));
+  return filas.length >= 3 ? { tallas: tallas.slice(0, n), filas } : null;
+}
 // Dibujo de geometría de la marca (la foto con «geo»/«geometry» en el nombre, la más grande)
 function fotoGeometria(imgs) {
   const g = imgs.filter(u => /[-_]geo[-_.]|geometr/i.test(u) && !/\.svg/i.test(u));
@@ -863,7 +927,8 @@ async function completarFicha(f, texto, opciones = {}) {
   else { f.specs = specsSimples(texto); if (ultimoErrorIA) f.ia_error = ultimoErrorIA;
     const peso = (f.specs.find(x => /^peso|weight/i.test(x.k)) || {}).v; if (peso) f.datos = { peso: peso.slice(0, 20) }; }
   if (!f.descripcion && f.specs && f.specs.length) f.descripcion = descDeSpecs(opciones.nombre || f.titulo, f.specs);
-  f.datos = { ...datosDeSpecs(f.specs || []), ...Object.fromEntries(Object.entries(f.datos || {}).filter(([, x]) => x)), ...(f.geo ? { geo: f.geo } : {}) };
+  const geometria = geometriaDeTexto(texto);
+  f.datos = { ...datosDeSpecs(f.specs || []), ...Object.fromEntries(Object.entries(f.datos || {}).filter(([, x]) => x)), ...(f.geo ? { geo: f.geo } : {}), ...(geometria ? { geometria } : {}) };
   if (!f.imagenes.length && !f.descripcion) throw new Error('No encontré fotos ni descripción en esa página. Si la marca bloquea al servidor, usa el «Lector desde tu navegador».');
   return f;
 }
@@ -1626,14 +1691,10 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
 
   // Modelo de IA elegido desde el panel (sin tocar Railway) y lista de modelos disponibles en Google
   app.get('/api/bikes/admin/ia', authAdmin, mBikes, async (req, res) => {
-    let lista = [];
-    try {
-      const key = process.env.GEMINI_API_KEY;
-      if (key) { const j = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=200&key=${encodeURIComponent(key)}`).then(r => r.json());
-        lista = (j.models || []).filter(m => (m.supportedGenerationMethods || []).includes('generateContent') && /gemini/i.test(m.name) && !/embedding|tts|image|audio|live|vision/i.test(m.name))
-          .map(m => ({ id: m.name.replace(/^models\//, ''), nombre: m.displayName || m.name })).slice(0, 40); }
-    } catch (e) {}
-    res.json({ elegido: modeloIAelegido, ultimo_ok: modeloIAok, lista, clave: !!process.env.GEMINI_API_KEY });
+    const key = process.env.GEMINI_API_KEY;
+    if (key) modelosIA.t = 0; // refresca la lista al abrir el panel
+    if (key) await modelosDisponibles(key);
+    res.json({ elegido: modeloIAelegido, ultimo_ok: modeloIAok, lista: modelosIA.todos, clave: !!key, pruebas: pruebasIA });
   });
   app.post('/api/bikes/admin/ia', authAdmin, mBikes, async (req, res) => {
     const b = req.body || {};
@@ -1641,6 +1702,14 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
       if (b.modelo !== undefined) {
         modeloIAelegido = String(b.modelo || '').replace(/^models\//, '').replace(/[^a-zA-Z0-9.\-]/g, '').slice(0, 60);
         await portalPool.query(`INSERT INTO bk_config (clave, valor, actualizado_por) VALUES ('ia', ?, ?) ON DUPLICATE KEY UPDATE valor=VALUES(valor), actualizado=NOW(), actualizado_por=VALUES(actualizado_por)`, [JSON.stringify({ modelo: modeloIAelegido }), usuarioDe(req)]);
+      }
+      if (b.probar_todos) { // prueba cada modelo disponible y devuelve cuáles funcionan
+        const key = process.env.GEMINI_API_KEY; if (!key) return res.json({ pruebas: [] });
+        await modelosDisponibles(key);
+        const ids = modelosIA.todos.map(m => m.id).slice(0, 16), out = [];
+        for (let i = 0; i < ids.length; i += 4) out.push(...await Promise.all(ids.slice(i, i + 4).map(id => probarModelo(key, id))));
+        pruebasIA = { t: Date.now(), r: out };
+        return res.json({ pruebas: pruebasIA });
       }
       if (b.probar) {
         const t0 = Date.now(); const txt = await llamarGemini('Responde solo este JSON: {"ok": true}', 0, 20000);
@@ -1714,8 +1783,14 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
       const modelos = mods.map(x => x.modelo).filter(m => b.sobrescribir || !(existentes[marca + '|' + m] || {}).manual);
       const links = filtrarLinks((Array.isArray(b.links) ? b.links : []).slice(0, 3000), String(b.origen || ''));
       const pares = emparejarModelos(modelos, links);
-      res.json({ pares, sin: modelos.filter(m => !pares[m]), total: modelos.length, links: links.length,
-        completos: modelos.filter(m => !fichaCompleta(existentes[marca + '|' + m] || {}, []).length) });
+      // Lo que ya tiene cada modelo guardado (para no volver a traer lo que está completo)
+      const previo = {};
+      for (const m of modelos) { const md = existentes[marca + '|' + m] || {}, d = { ...datosDeSpecs(md.specs || []), ...(md.datos || {}) };
+        previo[m] = { fotos: (md.imgs || []).length, specs: (md.specs || []).length, descripcion: !!String(md.desc || '').trim(), geometria: d.geometria ? d.geometria.filas.length : 0,
+          geo_img: !!d.geo, recorrido: !!d.rec_del, material: !!d.material, peso: !!d.peso }; }
+      const completo = p => p.fotos > 0 && p.specs > 0 && p.descripcion && (p.geometria > 0 || p.geo_img);
+      res.json({ pares, sin: modelos.filter(m => !pares[m]), total: modelos.length, links: links.length, previo,
+        completos: modelos.filter(m => completo(previo[m])) });
     } catch (e) { res.status(400).json({ error: e.message }); }
   });
   // 2) Por cada modelo, la ventana manda fotos y texto leídos en el navegador → IA → se guarda
@@ -1729,7 +1804,9 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
           specs=VALUES(specs), datos=VALUES(datos), manual=0, actualizado=NOW()`,
         [marca, modelo, String(f.descripcion || '').slice(0, 4000), JSON.stringify(f.imagenes || []), url, JSON.stringify(f.specs || []), JSON.stringify(f.datos || {})]);
       limpiarCache();
-      res.json({ ok: true, fotos: f.imagenes.length, specs: (f.specs || []).length, descripcion: !!f.descripcion, ia: !!f.ia, ia_error: f.ia_error || null });
+      const d = f.datos || {};
+      res.json({ ok: true, fotos: f.imagenes.length, specs: (f.specs || []).length, descripcion: !!f.descripcion, ia: !!f.ia, ia_error: f.ia_error || null,
+        geometria: d.geometria ? d.geometria.filas.length : 0, geo_img: !!d.geo, recorrido: !!d.rec_del, material: !!d.material, tallas: Array.isArray(d.tallas) && d.tallas.length > 0, peso: !!d.peso });
     } catch (e) { res.status(400).json({ error: e.message }); }
   });
 

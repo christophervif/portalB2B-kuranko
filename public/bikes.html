@@ -126,6 +126,7 @@ nav.km a.on{background:#141414;color:#fff}
 .dtit{font-size:22px;margin:4px 0 12px;text-transform:uppercase}.dgrid{margin-bottom:26px}
 .card.pronto .pic{background:linear-gradient(180deg,#f3f3f3,#e4e4e4)}.silueta{filter:brightness(0);opacity:.88}
 .geo img{width:100%;background:#fff;border-radius:6px;margin-top:8px}
+.gtab{overflow-x:auto;margin-top:8px}.gtab table{width:100%;border-collapse:collapse;font-size:12.5px}.gtab th,.gtab td{padding:5px 6px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}.gtab td:first-child,.gtab th:first-child{text-align:left;white-space:normal}.gtab .on{background:var(--amber);color:var(--amber-ink);font-weight:700}
 .pago .o small{display:block}
 .tfind{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:10px;font-size:13.5px}.tfind label{display:flex;gap:8px;align-items:center;font-weight:600}
 .tfind input{width:130px;padding:8px 10px;border:1px solid var(--line);border-radius:6px;font:inherit}.o.rec{box-shadow:inset 0 0 0 2px var(--ok)}
@@ -314,7 +315,7 @@ footer.kf a{color:#fff}
 <section id="v-tienda" class="wrap">
   <div class="hero">
     <div class="hero-txt">
-      <h1>Tu nave, <em>de fábrica</em><br>a la puerta de tu casa.</h1>
+      <h1>Tu nave, <em>de fábrica</em><br>a Lima.</h1>
       <p>Nueve marcas de montaña y eléctricas configuradas a tu medida. Ves el precio final, con envío, aduana, IGV y armado incluidos, y la fecha estimada de llegada antes de reservar.</p>
     <ol class="steps">
       <li><div><b>Elige tu bici y solicita la reserva</b><span>Talla, color y envío. Ves el precio final y la fecha de llegada. No pagas nada todavía.</span></div></li>
@@ -603,7 +604,8 @@ function pintarCfg(){
     <div class="dpic" style="color:var(--ink)">${gal.length?`<img src="${esc(gal[S.img||0])}" alt="${esc(m.marca+' '+m.modelo+' '+(S.c||''))}">`:m.img?foto(m,col):bike(colHex||col,m.cat)}</div>
     ${gal.length>1?`<div class="gal">${gal.map((u,i)=>`<button data-img="${i}" aria-pressed="${(S.img||0)===i}" aria-label="Foto ${i+1}"><img src="${esc(u)}" alt="" loading="lazy"></button>`).join('')}</div>`:''}
     <div class="spec">${specLinea(m)}${m.peso?' · '+esc(m.peso+(/kg/i.test(m.peso)?'':' kg')):''}${m.ficha?` · <a href="${esc(m.ficha)}" target="_blank" rel="noopener">Ficha técnica</a>`:''}</div>
-    ${m.geo?`<details class="specs geo"><summary>Geometría</summary><a href="${esc(m.geo)}" target="_blank" rel="noopener"><img src="${esc(m.geo)}" alt="Geometría ${esc(m.marca+' '+m.modelo)}" loading="lazy"></a></details>`:''}
+    ${m.geo||m.geom?`<details class="specs geo"><summary>Geometría</summary>${m.geo?`<a href="${esc(m.geo)}" target="_blank" rel="noopener"><img src="${esc(m.geo)}" alt="Geometría ${esc(m.marca+' '+m.modelo)}" loading="lazy"></a>`:''}
+      ${m.geom?`<div class="gtab"><table><thead><tr><th></th>${m.geom.tallas.map(t=>`<th class="${t===S.t?'on':''}">${esc(t)}</th>`).join('')}</tr></thead><tbody>${m.geom.filas.map(f=>`<tr><td>${f.l?`<b>${esc(f.l)}</b> `:''}${esc(f.n)}</td>${f.v.map((v,i)=>`<td class="${m.geom.tallas[i]===S.t?'on':''}">${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`:''}</details>`:''}
     <div class="gar"><b>Garantía:</b> ${esc(m.gar||(D.garantias||{})[m.marca]||'oficial del fabricante, gestionada por Kuranko en Lima')}. Armado y ajuste en nuestro taller.</div>
     ${m.specs&&m.specs.length?`<details class="specs"><summary>Especificaciones técnicas</summary><table>${m.specs.map(x=>`<tr><td>${esc(x.k)}</td><td>${esc(x.v)}</td></tr>`).join('')}</table></details>`:''}
     ${m.desc?`<div class="desc ${S.descFull?'full':''}" id="dDesc">${esc(m.desc)}</div>${S.descFull?'':'<button class="btn sec" id="dMas" style="justify-self:start;padding:4px 10px;font-size:13px">Leer más</button>'}`:''}

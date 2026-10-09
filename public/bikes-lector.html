@@ -12,12 +12,14 @@ h1{font-size:18px;margin:0 0 4px}.muted{color:var(--muted)}.card{background:var(
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}select,input{background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:7px 9px;font:inherit}
 button{background:var(--accent);color:#141414;border:0;border-radius:6px;padding:9px 14px;font-weight:700;cursor:pointer;font:inherit;font-weight:700}button:disabled{opacity:.5;cursor:default}
 table{width:100%;border-collapse:collapse;font-size:13px}td,th{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line);vertical-align:top}td input{width:100%}
-.ok{color:var(--ok)}.warn{color:var(--warn)}.err{color:var(--r)}.tbl{max-height:52vh;overflow:auto}
+.ok{color:var(--ok)}.chip{display:inline-block;font-size:11.5px;border-radius:999px;padding:1px 7px;margin:1px 0}.chip.si{background:rgba(110,229,154,.15);color:var(--ok)}.chip.no{background:rgba(247,154,154,.15);color:var(--r)}.chip small{opacity:.8}
+button.sec{background:transparent;color:var(--fg);border:1px solid var(--line);padding:5px 10px;font-weight:600}.warn{color:var(--warn)}.err{color:var(--r)}.tbl{max-height:52vh;overflow:auto}
 </style>
 </head>
 <body>
 <h1>Lector de fichas desde tu navegador</h1>
 <p class="muted" style="margin:0">Lee las páginas de la marca desde tu navegador (como una persona) y las envía al portal. No cierres la pestaña de la marca mientras trabaja.</p>
+<div class="card row" id="iaRow" style="margin-top:12px"><b>IA</b><select id="iaModelo"><option value="">Automático (el que funcione)</option></select><button class="sec" id="iaProbar">Probar</button><button class="sec" id="iaTodos">Probar todos</button><span id="iaMsg" class="muted" style="font-size:12.5px"></span></div>
 <div id="app" class="card">Esperando la página de la marca…</div>
 <script>
 const $=s=>document.querySelector(s);const esc=t=>String(t==null?'':t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -25,8 +27,19 @@ let TOKEN='';try{TOKEN=localStorage.getItem('admtoken')||''}catch(e){}
 const marca0=new URLSearchParams(location.search).get('marca')||'';
 async function api(ep,body){const r=await fetch(ep,{method:body?'POST':'GET',headers:{'Authorization':'Bearer '+TOKEN,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
   const j=await r.json().catch(()=>({}));if(r.status===401)throw new Error('Tu sesión del panel expiró. Vuelve a entrar al panel en este navegador.');if(!r.ok)throw new Error(j.error||('Error '+r.status));return j}
-const ST={origen:'',links:[],marcas:[],marca:marca0,pares:{},sin:[],estado:{},corriendo:false};
+const ST={origen:'',links:[],marcas:[],marca:marca0,pares:{},sin:[],estado:{},res:{},previo:{},completos:[],sel:null,corriendo:false};
 const pend=new Map();let idN=0;
+// Modelo de IA: se elige aquí mismo (es el mismo ajuste del panel)
+async function cargarIA(){if(!TOKEN)return;try{const j=await api('/api/bikes/admin/ia');const sel=$('#iaModelo');const ids=[...new Set([j.elegido,...j.lista.map(m=>m.id)].filter(Boolean))];
+  IA=j;pintarSelIA(sel,j);
+  $('#iaMsg').textContent=!j.clave?'Falta la clave de Gemini en el servidor':j.ultimo_ok?'Último que funcionó: '+j.ultimo_ok:''}catch(e){$('#iaMsg').textContent=e.message}}
+$('#iaModelo').onchange=async e=>{try{await api('/api/bikes/admin/ia',{modelo:e.target.value});$('#iaMsg').textContent=e.target.value?'Usará '+e.target.value+' (si falla, prueba otros)':'Modo automático'}catch(err){$('#iaMsg').textContent=err.message}};
+$('#iaProbar').onclick=async()=>{$('#iaMsg').textContent='Probando…';try{const j=await api('/api/bikes/admin/ia',{probar:true});$('#iaMsg').innerHTML=j.ok?`<span class="ok">Funciona: ${esc(j.modelo)} (${(j.ms/1000).toFixed(1)} s)</span>`:`<span class="err">${esc(j.error||'No respondió')}</span>`}catch(err){$('#iaMsg').textContent=err.message}};
+let IA=null;
+function pintarSelIA(sel,J){const pr={};((J.pruebas||{}).r||[]).forEach(x=>pr[x.id]=x);const ids=[...new Set([J.elegido,...J.lista.map(m=>m.id)].filter(Boolean))];
+  sel.innerHTML='<option value="">Automático (el que funcione)</option>'+ids.map(id=>{const x=pr[id];return `<option value="${esc(id)}" ${id===J.elegido?'selected':''}>${x?(x.ok?'✓ ':'✗ '):''}${esc((J.lista.find(m=>m.id===id)||{}).nombre||id)}${x?(x.ok?` · ${(x.ms/1000).toFixed(1)} s`:` · ${x.error}`):''}</option>`}).join('')}
+$('#iaTodos').onclick=async()=>{$('#iaMsg').textContent='Probando cada modelo…';try{const j=await api('/api/bikes/admin/ia',{probar_todos:true});IA.pruebas=j.pruebas;pintarSelIA($('#iaModelo'),IA);const n=(j.pruebas.r||[]).filter(x=>x.ok).length;$('#iaMsg').textContent=`${n} de ${(j.pruebas.r||[]).length} funcionan. Elige uno con ✓.`}catch(err){$('#iaMsg').textContent=err.message}};
+cargarIA();
 // Mensajes de la pestaña de la marca (solo de la ventana que abrió el lector)
 addEventListener('message',e=>{if(!window.opener||e.source!==window.opener)return;const d=e.data||{};
   if(d.tipo==='links'&&!ST.origen){ST.origen=String(d.origen||'');ST.links=(d.links||[]).slice(0,3000);clearInterval(ping);iniciar()}
@@ -39,25 +52,41 @@ async function iniciar(){
   try{const E=await api('/api/bikes/admin/estado');ST.marcas=[...new Set((E.skus||[]).map(s=>s.marca))].sort();
     if(!ST.marca){const h=ST.origen.toLowerCase();ST.marca=ST.marcas.find(m=>h.includes(m.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'')))||ST.marcas[0]||''}
     await emparejar()}catch(err){$('#app').innerHTML=`<span class="err">${esc(err.message)}</span>`}}
-async function emparejar(){const j=await api('/api/bikes/admin/lector/emparejar',{marca:ST.marca,origen:ST.origen,links:ST.links,sobrescribir:!!ST.sobre});ST.pares=j.pares;ST.sin=j.sin;ST.nLinks=j.links;pintar()}
-function pintar(){const P=Object.entries(ST.pares);
+async function emparejar(){const j=await api('/api/bikes/admin/lector/emparejar',{marca:ST.marca,origen:ST.origen,links:ST.links,sobrescribir:!!ST.sobre});ST.pares=j.pares;ST.sin=j.sin;ST.nLinks=j.links;ST.previo=j.previo||{};ST.completos=j.completos||[];pintar()}
+// Lista de lo que trae cada ficha (✓ / ✗)
+const ITEMS=[['fotos','Fotos',x=>x.fotos>0,x=>x.fotos],['descripcion','Descripción',x=>x.descripcion],['specs','Especificaciones',x=>x.specs>0,x=>x.specs],['geometria','Geometría',x=>x.geometria>0||x.geo_img,x=>x.geometria?x.geometria+' medidas':x.geo_img?'imagen':''],['recorrido','Recorrido',x=>x.recorrido],['material','Material',x=>x.material],['peso','Peso',x=>x.peso]];
+const completo=x=>!!x&&x.fotos>0&&x.specs>0&&x.descripcion&&(x.geometria>0||x.geo_img);
+function chk(x){if(!x)return '<span class="muted">sin datos todavía</span>';return ITEMS.map(([k,l,ok,det])=>`<span class="chip ${ok(x)?'si':'no'}">${ok(x)?'✓':'✗'} ${l}${det&&ok(x)&&det(x)!==true?` <small>${esc(det(x))}</small>`:''}</span>`).join(' ')+(x.ia?' <span class="chip si">IA</span>':'')+(x.ia_error?` <span class="chip no" title="${esc(x.ia_error)}">sin IA</span>`:'')}
+const idDe=m=>btoa(unescape(encodeURIComponent(m))).replace(/=/g,'');
+function pintar(){const P=Object.entries(ST.pares);const filas=[...P,...ST.sin.map(m=>[m,''])];
+  if(!ST.sel){ST.sel=new Set(P.filter(([m])=>!(ST.completos||[]).includes(m)).map(([m])=>m))}
+  const nInc=filas.filter(([m])=>!completo(ST.res[m]||ST.previo[m])).length;
   $('#app').innerHTML=`<div class="row"><b>Marca</b><select id="marca">${ST.marcas.map(m=>`<option ${m===ST.marca?'selected':''}>${esc(m)}</option>`).join('')}</select>
     <label class="muted"><input type="checkbox" id="sobre" ${ST.sobre?'checked':''}> Sobrescribir también las fichas editadas a mano</label></div>
-  <p class="muted">Página leída: ${esc(ST.origen)} · ${ST.nLinks} links · <b>${P.length}</b> modelos encontrados${ST.sin.length?`; sin link: ${ST.sin.map(esc).join(', ')} (puedes pegarlo abajo)`:''}.</p>
-  <div class="tbl"><table><thead><tr><th>Modelo</th><th>Link</th><th>Estado</th></tr></thead><tbody>${[...P,...ST.sin.map(m=>[m,''])].map(([m,u])=>`<tr><td><b>${esc(m)}</b></td><td><input data-par="${esc(m)}" value="${esc(u)}" placeholder="(sin link)"></td><td id="st-${btoa(unescape(encodeURIComponent(m))).replace(/=/g,'')}" class="muted">${esc(ST.estado[m]||'')}</td></tr>`).join('')}</tbody></table></div>
-  <div class="row" style="margin-top:10px"><button id="ir" ${ST.corriendo?'disabled':''}>Traer fichas</button><span id="prog" class="muted"></span></div>`;
-  $('#marca').onchange=async e=>{ST.marca=e.target.value;await emparejar()};$('#sobre').onchange=async e=>{ST.sobre=e.target.checked;await emparejar()};
-  $('#ir').onclick=traer}
-const celda=m=>document.getElementById('st-'+btoa(unescape(encodeURIComponent(m))).replace(/=/g,''));
-async function traer(){const lista=[...document.querySelectorAll('[data-par]')].map(i=>[i.dataset.par,i.value.trim()]).filter(([,u])=>/^https?:\/\//.test(u));
-  if(!lista.length)return;ST.corriendo=true;$('#ir').disabled=true;let ok=0;
-  for(const [k,[m,u]] of lista.entries()){$('#prog').textContent=`${k+1} de ${lista.length}…`;const c=celda(m);if(c){c.className='muted';c.textContent='leyendo…'}
-    const d=await leer(u);let txt,cls;
-    if(d.error){txt=d.error;cls='err'}else{try{const r=await api('/api/bikes/admin/lector/ficha',{marca:ST.marca,modelo:m,url:u,imgs:d.imgs,texto:d.texto});ok++;
-        txt=`${r.fotos} fotos · ${r.specs} especificaciones${r.descripcion?' · descripción':''}${r.ia?' · IA':''}${r.ia_error?' · '+r.ia_error:''}`;cls=r.fotos&&r.specs&&r.descripcion?'ok':'warn'}catch(err){txt=err.message;cls='err'}}
-    ST.estado[m]=txt;if(c){c.className=cls;c.textContent=txt}
+  <p class="muted">Página leída: ${esc(ST.origen)} · ${ST.nLinks} links · <b>${P.length}</b> modelos encontrados${ST.sin.length?`; sin link: ${ST.sin.length} (puedes pegarlo en la tabla)`:''} · <b>${filas.length-nInc}</b> completos, <b>${nInc}</b> por completar.</p>
+  <div class="row" style="margin:6px 0"><span class="muted">Marcar:</span><button class="sec" data-selq="todos">Todos</button><button class="sec" data-selq="ninguno">Ninguno</button><button class="sec" data-selq="inc">Solo incompletos</button></div>
+  <div class="tbl"><table><thead><tr><th></th><th>Modelo</th><th>Link</th><th>Qué tiene</th></tr></thead><tbody>${filas.map(([m,u])=>`<tr><td><input type="checkbox" data-sel="${esc(m)}" ${ST.sel.has(m)?'checked':''}></td><td><b>${esc(m)}</b>${completo(ST.res[m]||ST.previo[m])?'<br><span class="ok">completa</span>':''}</td><td><input data-par="${esc(m)}" value="${esc(u)}" placeholder="(sin link)"></td><td id="st-${idDe(m)}">${ST.estado[m]?`<span class="${ST.estado[m].cls}">${esc(ST.estado[m].txt)}</span><br>`:''}${chk(ST.res[m]||ST.previo[m])}</td></tr>`).join('')}</tbody></table></div>
+  <div class="row" style="margin-top:10px"><button id="ir" ${ST.corriendo?'disabled':''}>Traer fichas marcadas (${nSel()})</button><span id="prog" class="muted"></span></div>
+  <p class="muted" style="font-size:12px">Una ficha está completa cuando tiene fotos, descripción, especificaciones y geometría. Las completas quedan desmarcadas; vuelve a marcarlas si quieres actualizarlas.</p>`;
+  $('#marca').onchange=async e=>{ST.marca=e.target.value;ST.sel=null;await emparejar()};$('#sobre').onchange=async e=>{ST.sobre=e.target.checked;ST.sel=null;await emparejar()};
+  $('#ir').onclick=traer;
+  document.querySelectorAll('[data-sel]').forEach(c=>c.onchange=()=>{c.checked?ST.sel.add(c.dataset.sel):ST.sel.delete(c.dataset.sel);$('#ir').textContent=`Traer fichas marcadas (${nSel()})`});
+  document.querySelectorAll('[data-selq]').forEach(b=>b.onclick=()=>{const q=b.dataset.selq;ST.sel=new Set(q==='ninguno'?[]:filas.filter(([m])=>q==='todos'||!completo(ST.res[m]||ST.previo[m])).map(([m])=>m));guardarLinks();pintar()});
+  document.querySelectorAll('[data-par]').forEach(i=>i.onchange=()=>{ST.pares[i.dataset.par]=i.value.trim();if(i.value.trim())ST.sin=ST.sin.filter(x=>x!==i.dataset.par)})}
+const nSel=()=>[...ST.sel].filter(m=>/^https?:\/\//.test(ST.pares[m]||'')).length;
+function guardarLinks(){document.querySelectorAll('[data-par]').forEach(i=>{const v=i.value.trim();if(v){ST.pares[i.dataset.par]=v;ST.sin=ST.sin.filter(x=>x!==i.dataset.par)}})}
+async function traer(){guardarLinks();const lista=Object.entries(ST.pares).filter(([m,u])=>ST.sel.has(m)&&/^https?:\/\//.test(u));
+  if(!lista.length){$('#prog').textContent='Marca al menos un modelo con link.';return}
+  ST.corriendo=true;$('#ir').disabled=true;let ok=0,comp=0;
+  for(const [k,[m,u]] of lista.entries()){$('#prog').textContent=`${k+1} de ${lista.length}: ${m}…`;const c=document.getElementById('st-'+idDe(m));if(c)c.innerHTML='<span class="muted">leyendo…</span>';
+    const d=await leer(u);let txt,cls,r=null;
+    if(d.error){txt=d.error;cls='err'}else{try{r=await api('/api/bikes/admin/lector/ficha',{marca:ST.marca,modelo:m,url:u,imgs:d.imgs,texto:d.texto});ok++;
+        if(completo(r)){comp++;ST.sel.delete(m);txt='Guardada · completa';cls='ok'}else{txt='Guardada · le falta algo';cls='warn'}}catch(err){txt=err.message;cls='err'}}
+    ST.estado[m]={txt,cls};if(r)ST.res[m]=r;
+    if(c)c.innerHTML=`<span class="${cls}">${esc(txt)}</span><br>${chk(r||ST.previo[m])}`;
+    const cb=document.querySelector(`[data-sel="${CSS.escape(m)}"]`);if(cb)cb.checked=ST.sel.has(m);
     await new Promise(r=>setTimeout(r,800))}
-  ST.corriendo=false;$('#ir').disabled=false;$('#prog').innerHTML=`<span class="ok">Listo: ${ok} de ${lista.length} fichas guardadas.</span> Ya puedes cerrar esta ventana y recargar el panel.`}
+  ST.corriendo=false;pintar();$('#prog').innerHTML=`<span class="ok">Listo: ${ok} de ${lista.length} guardadas, ${comp} completas.</span>${ok>comp?' Las incompletas siguen marcadas: revisa qué les falta o completa a mano en el panel.':''} Luego recarga el panel.`}
 </script>
 </body>
 </html>

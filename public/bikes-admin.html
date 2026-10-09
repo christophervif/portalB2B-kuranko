@@ -129,6 +129,11 @@ tr.off td{opacity:.45}
         <button class="btn sec" id="exportar">⬇ Exportar Excel</button>
       </div>
       <div class="card" style="background:var(--surface3);margin-bottom:10px;padding:12px">
+        <div class="row" style="justify-content:space-between;align-items:center"><span><b>Stock de Kuranko (ERP)</b> <span class="muted" id="erpInfo">· se actualiza solo cada 15 minutos</span></span><button class="btn sec" id="erpSync">Sincronizar ahora</button></div>
+        <p class="desc" style="margin:4px 0 0">Las bicis que tienes en tus tiendas y almacenes (sin consignación ni exhibición) se ofrecen con <b>entrega inmediata</b> al mismo precio. Se emparejan por nombre: marca + modelo + talla + color.</p>
+        <div id="erpOut" style="margin-top:6px"></div>
+      </div>
+      <div class="card" style="background:var(--surface3);margin-bottom:10px;padding:12px">
         <b>Marcas en la tienda</b> <span class="muted">· al ocultar una marca desaparecen todas sus bicis y su botón de filtro en bikes.kuranko.pe (no se borra nada)</span>
         <div class="row" id="catMarcas" style="margin-top:8px"></div>
       </div>
@@ -307,11 +312,11 @@ function pintarCatalogo(){
   const ms=$('#catMarca'),v=ms.value;ms.innerHTML='<option value="">Todas las marcas</option>'+marcas.map(m=>`<option ${m===v?'selected':''}>${esc(m)}</option>`).join('');
   const q=$('#catQ').value.toLowerCase(),mk=ms.value,act=$('#catAct').value;
   const L=E.skus.filter(s=>(!mk||s.marca===mk)&&(act===''||String(s.activo)===act)&&(!q||[s.modelo,s.montaje,s.sku,s.talla,s.color].join(' ').toLowerCase().includes(q)));
-  $('#catTbl').innerHTML=`<table><thead><tr><th><input type="checkbox" id="selAll"></th><th>Marca</th><th>Modelo</th><th>Montaje</th><th>Talla</th><th>Color</th><th>SKU</th><th class="n">Costo</th><th class="n">Puesto US$</th><th class="n">Margen</th><th class="n">Precio S/</th><th class="n">PVP marca</th><th class="n">Stock</th><th class="n">Res.</th><th>Estado</th><th>Disponible</th><th>Actualizado</th></tr></thead><tbody>${
+  $('#catTbl').innerHTML=`<table><thead><tr><th><input type="checkbox" id="selAll"></th><th>Marca</th><th>Modelo</th><th>Montaje</th><th>Talla</th><th>Color</th><th>SKU</th><th class="n">Costo</th><th class="n">Puesto US$</th><th class="n">Margen</th><th class="n">Precio S/</th><th class="n">PVP marca</th><th class="n">Stock</th><th class="n" title="Unidades en tus tiendas/almacenes según el ERP">En tienda</th><th class="n">Res.</th><th>Estado</th><th>Disponible</th><th>Actualizado</th></tr></thead><tbody>${
     L.slice(0,1500).map(s=>{const d=s.pvp_pen?Math.round((s.precio/s.pvp_pen-1)*100):null;return `<tr class="${s.activo?'':'off'}"><td><input type="checkbox" data-sel="${s.id}" ${SEL.has(s.id)?'checked':''}></td><td>${esc(s.marca)}</td><td>${esc(s.modelo)}</td><td>${esc(s.montaje)}</td><td>${esc(s.talla)}</td><td>${esc(s.color)}</td><td class="muted">${esc(s.sku||'')}</td>
     <td class="n">${esc(s.moneda)} ${fmt(s.costo)}</td><td class="n">${fmt(s.puesto)}</td><td class="n" style="color:${s.margen_min<E.reglas.margen_minimo?'var(--fg-r)':'inherit'}">${rangoM(s.margen_min,s.margen_max)}</td><td class="n"><b>${soles(s.precio)}</b></td>
     <td class="n">${s.pvp_pen?soles(s.pvp_pen)+` <span class="${d>0?'err':'muted'}">${d>0?'+':''}${d}%</span>`:'—'}</td>
-    <td class="n">${s.stock<0?`<span class="pill p-b" title="Se pide a la marca">sin límite</span>`:`<input class="edit" type="number" min="0" data-sku="${s.id}" data-campo="stock" value="${s.stock||s.estado==='Stock Lima'?s.stock:''}" placeholder="sin límite" title="Vacío o 0 = sin límite (a pedido). Pon un número solo si la marca te da un cupo o es Stock Lima.">`}</td><td class="n">${s.reservado||0}</td>
+    <td class="n">${s.stock<0?`<span class="pill p-b" title="Se pide a la marca">sin límite</span>`:`<input class="edit" type="number" min="0" data-sku="${s.id}" data-campo="stock" value="${s.stock||s.estado==='Stock Lima'?s.stock:''}" placeholder="sin límite" title="Vacío o 0 = sin límite (a pedido). Pon un número solo si la marca te da un cupo o es Stock Lima.">`}</td><td class="n">${s.stock_kuranko?`<span class="pill p-ok">${s.stock_kuranko}</span>`:'<span class="muted">—</span>'}</td><td class="n">${s.reservado||0}</td>
     <td><select data-sku="${s.id}" data-campo="estado">${E.estados_sku.map(x=>`<option ${x===s.estado?'selected':''}>${x}</option>`).join('')}</select></td>
     <td><input type="date" data-sku="${s.id}" data-campo="fecha_disponible" value="${esc(s.fecha_disponible||'')}"></td><td class="muted">${esc(s.actualizado)}</td></tr>`}).join('')}</tbody></table>${L.length>1500?'<p class="muted" style="padding:8px">Mostrando 1500 de '+L.length+'. Usa los filtros.</p>':''}`;
   $('#catSel').textContent=SEL.size+' seleccionados';
@@ -574,6 +579,12 @@ function pintarSelIA(sel,J){const pr={};((J.pruebas||{}).r||[]).forEach(x=>pr[x.
   sel.innerHTML='<option value="">Automático (el que funcione)</option>'+ids.map(id=>{const x=pr[id];return `<option value="${esc(id)}" ${id===J.elegido?'selected':''}>${x?(x.ok?'✓ ':'✗ '):''}${esc((J.lista.find(m=>m.id===id)||{}).nombre||id)}${x?(x.ok?` · ${(x.ms/1000).toFixed(1)} s`:` · ${x.error}`):''}</option>`}).join('')}
 document.addEventListener('click',async e=>{if(e.target.id!=='iaTodos')return;const b=e.target;b.disabled=true;$('#iaMsg').textContent='Probando cada modelo…';
   try{const j=await api('/api/bikes/admin/ia',{method:'POST',body:JSON.stringify({probar_todos:true})});IA.pruebas=j.pruebas;pintarSelIA($('#iaModelo'),IA);const n=(j.pruebas.r||[]).filter(x=>x.ok).length;$('#iaMsg').textContent=`${n} de ${(j.pruebas.r||[]).length} modelos funcionan con tu clave. Elige uno de los marcados con ✓.`}catch(err){$('#iaMsg').textContent=err.message}b.disabled=false});
+/* ---------- Stock del ERP ---------- */
+function pintarERP(j){if(!$('#erpOut'))return;$('#erpInfo').textContent=j.t?`· última lectura ${new Date(j.t).toLocaleString('es-PE',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})} · ${j.en_tienda||0} bicis en tienda`:'· aún no se ha leído';
+  $('#erpOut').innerHTML=(j.error?`<p class="err">${esc(j.error)}</p>`:'')+((j.emparejadas||[]).length?`<details><summary class="muted">${j.emparejadas.length} bicis del ERP emparejadas con el catálogo</summary><table><tbody>${j.emparejadas.map(x=>`<tr><td>${esc(x.erp)}</td><td>→ ${esc(x.bici)}${x.dudoso?' <span class="pill p-w" title="Había varias opciones: revisa el color">revisar</span>':''}</td><td class="n">${x.qty}</td></tr>`).join('')}</tbody></table></details>`:'')
+    +((j.sin_emparejar||[]).length?`<details open><summary style="color:var(--fg-warn)">${j.sin_emparejar.length} bicis en tienda que no están en el catálogo a pedido</summary><table><tbody>${j.sin_emparejar.map(x=>`<tr><td>${esc(x.erp)}</td><td class="muted">${esc(x.locs)}</td><td class="n">${x.qty}</td></tr>`).join('')}</tbody></table><p class="desc">Para venderlas aquí, importa ese modelo en el Excel de la marca (con la misma talla y color) o revisa que el nombre en el ERP siga el formato «Marca - bicicleta - Modelo año, aro, color, talla».</p></details>`:'')}
+async function cargarERP(){try{pintarERP(await api('/api/bikes/admin/stock-erp'))}catch(e){}}
+document.addEventListener('click',async e=>{if(e.target.id!=='erpSync')return;const b=e.target;b.disabled=true;b.textContent='Leyendo el ERP…';try{const j=await api('/api/bikes/admin/stock-erp',{method:'POST',body:'{}'});pintarERP(j);toast(j.error||`Listo: ${j.en_tienda} bicis en tienda`);await cargar()}catch(err){toast(err.message)}b.disabled=false;b.textContent='Sincronizar ahora'});
 /* ---------- Simulador de precios ---------- */
 async function simular(body){const out=$('#simOut');out.innerHTML='<p class="muted">Calculando…</p>';
   try{const j=await api('/api/bikes/admin/simular',{method:'POST',body:JSON.stringify(body)});const u=v=>'US$ '+Math.round(v).toLocaleString('en-US');
@@ -672,7 +683,7 @@ async function cargar(){
     $('#tcInfo').textContent=`TC USD ${E.tc.usd.toFixed(3)} · EUR ${E.tc.eur.toFixed(3)} (${E.tc.fuente})`;
     pintarReservas();pintarLlamadas();pintarCatalogo();pintarReglas();pintarModelos();pintarPagina();
     const fm=$('#fmMarca');if(fm&&!fm.options.length){const ms=[...new Set(E.skus.map(x=>x.marca))].sort();fm.innerHTML=ms.map(m=>`<option>${esc(m)}</option>`).join('');fm.onchange=()=>{$('#fmUrl').value=((E.marcas_info||{})[fm.value]||{}).url_modelos||''}}pintarFmMarcas();prepararLector();
-    pintarPendientes();if(!IA)cargarIA();
+    pintarPendientes();if(!IA)cargarIA();cargarERP();
     const sm=$('#simMarca');if(sm&&!sm.options.length)sm.innerHTML=[...new Set([...E.marcas_base,...E.skus.map(x=>x.marca)])].map(m=>`<option>${esc(m)}</option>`).join('');
     const tabRes=$('#tabs [data-t="res"]');const n=E.reservas.filter(r=>r.estado==='Nueva').length;tabRes.textContent=n?`Reservas (${n} nuevas)`:'Reservas';
   }catch(e){if(e.message!=='401')$('#msg').innerHTML=`<div class="card"><p class="err">${esc(e.message)}</p></div>`}

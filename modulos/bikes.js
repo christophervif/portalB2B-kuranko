@@ -1097,10 +1097,14 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
         const mods = await leerModelos();
         if (R.solo_completos !== false) {
           const porMod = {}; skus.forEach(s => (porMod[s.marca + '|' + s.modelo] ||= []).push(s));
-          skus = skus.filter(s => !fichaCompleta(mods[s.marca + '|' + s.modelo], porMod[s.marca + '|' + s.modelo]).length);
+          skus = skus.filter(s => (mods[s.marca + '|' + s.modelo] || {}).etiqueta === 'proximamente' || !fichaCompleta(mods[s.marca + '|' + s.modelo], porMod[s.marca + '|' + s.modelo]).length); // «próximamente» no necesita ficha
         }
+        const modelos = armarCatalogo(skus, R, tc, hoyLima(), mods);
+        // «Próximamente»: la foto real no se publica (delataría el modelo); se sirve desde /api/bikes/silueta/:id y la página la convierte en silueta
+        siluetas.clear();
+        for (const m of modelos) if (m.tag === 'proximamente') { if (m.img) { siluetas.set(m.id, m.img); m.img = '/api/bikes/silueta/' + m.id; } else m.img = null; }
         catCache = { t: Date.now(), data: {
-          modelos: armarCatalogo(skus, R, tc, hoyLima(), mods),
+          modelos,
           cuotas: R.cuotas || {}, cuotas_bancos: R.cuotas_bancos || '', franjas: FRANJAS,
           grupos: await gruposPorMarca(R), grupo_min: Math.max(2, num(R.grupo_min) || 3),
           pagina: await (async () => { const pg = await leerPagina(); const f = pg.fotos || {};
@@ -1119,6 +1123,22 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       }
       return catCache.data;
   }
+  const siluetas = new Map(), siluetasBuf = new Map();
+  app.get('/api/bikes/silueta/:id', async (req, res) => {
+    try {
+      await catalogoPublico(); const u = siluetas.get(req.params.id); if (!u) return res.status(404).end();
+      let x = siluetasBuf.get(u);
+      if (!x) {
+        const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 15000);
+        const r = await fetch(u, { signal: ctrl.signal, headers: { 'User-Agent': 'Mozilla/5.0' } }); clearTimeout(to);
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const tipo = r.headers.get('content-type') || 'image/jpeg'; if (!/^image\//.test(tipo)) throw new Error('no es imagen');
+        x = { tipo, buf: Buffer.from(await r.arrayBuffer()) }; if (x.buf.length > 8e6) throw new Error('muy grande');
+        if (siluetasBuf.size > 30) siluetasBuf.clear(); siluetasBuf.set(u, x);
+      }
+      res.set({ 'Content-Type': x.tipo, 'Cache-Control': 'public, max-age=3600' }).send(x.buf);
+    } catch (e) { res.status(404).end(); }
+  });
   app.get('/api/bikes/catalogo', async (req, res) => {
     try {
       const data = await catalogoPublico();

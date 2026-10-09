@@ -129,7 +129,7 @@ nav.km a.on{background:#141414;color:#fff}
 [data-foto][hidden]{display:none!important}
 .o small.tk{color:var(--ok);font-weight:600}
 .dtit{font-size:22px;margin:4px 0 12px;text-transform:uppercase}.dgrid{margin-bottom:26px}
-.card.pronto .pic{background:linear-gradient(180deg,#f3f3f3,#e4e4e4)}.silueta{filter:brightness(0);opacity:.88}
+.card.pronto .pic{background:linear-gradient(180deg,#f3f3f3,#e4e4e4)}.silueta{opacity:0;transition:opacity .4s;max-width:100%;max-height:100%;object-fit:contain}.silueta.sil-ok{opacity:.92}
 .geo img{width:100%;background:#fff;border-radius:6px;margin-top:8px}
 .gtab{overflow-x:auto;margin-top:8px}.gtab table{width:100%;border-collapse:collapse;font-size:12.5px}.gtab th,.gtab td{padding:5px 6px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}.gtab td:first-child,.gtab th:first-child{text-align:left;white-space:normal}.gtab .on{background:var(--amber);color:var(--amber-ink);font-weight:700}
 .pago .o small{display:block}
@@ -528,9 +528,9 @@ const specLinea=m=>[m.aro?(m.aro==='Mullet'?'Mullet 29/27.5':'Aro '+m.aro):'',m.
 const maxCuotas=m=>Math.max(0,...m.skus.flatMap(x=>(x.op||[]).flatMap(o=>Object.keys(o.cq||{}).map(Number))));
 const TAGS={novedad:'Novedad',lanzamiento:'Lanzamiento'};
 function cardHTML({m,r}){
-  if(m.tag==='proximamente')return `<button class="card pronto" data-pronto="${esc(m.marca)}"><div class="pic" style="color:var(--ink)">${m.img?`<img class="silueta" src="${esc(m.img)}" alt="Próximo lanzamiento de ${esc(m.marca)}" loading="lazy">`:''}<span class="badge last">Próximamente</span></div>
+  if(m.tag==='proximamente')return `<button class="card pronto" data-pronto="${esc(m.marca)}"><div class="pic" style="color:var(--ink)"><img class="silueta" src="${esc(m.img||SIL_GEN)}" alt="Próximo lanzamiento de ${esc(m.marca)}" loading="lazy" onload="siluetear(this)" onerror="this.onerror=null;this.src=SIL_GEN"><span class="badge last">Próximamente</span></div>
     <div class="bd"><span class="br">${esc(m.marca)} · ${esc(m.cat||'')}</span><h3>Muy pronto</h3><span class="spec">Un nuevo modelo de ${esc(m.marca)} está por llegar.</span>
-    <div class="ft"><div class="price" style="font-size:16px">Precio al lanzamiento</div><div class="eta">Avísame<small>por WhatsApp</small></div></div></div></button>`;
+    <div class="ft"><div class="price" style="font-size:16px">Precio al lanzamiento</div><div class="eta">Avísame<small>deja tu celular</small></div></div></div></button>`;
   const col=COL[m.marca]||'#5a6285';
   const soloGrupo=m.skus.every(x=>(x.op||[]).length&&x.op.every(o=>o.k==='grupo'));
   const badge=r.agotado?'<span class="badge">Agotado</span>':TAGS[m.tag]?`<span class="badge last">${TAGS[m.tag]}</span>`:r.lima?'<span class="badge lima">En tienda Kuranko</span>':soloGrupo?'<span class="badge last">Envío en grupo</span>':m.conf?'<span class="badge lima">Stock confirmado</span>':r.tot<=2?'<span class="badge last">Últimas unidades</span>':'<span class="badge">A pedido</span>';
@@ -543,6 +543,29 @@ function cardHTML({m,r}){
       <div class="ft"><div class="price">${r.varios?'<span class="desde">desde </span>':''}${M(r.min.pm)}<small>${M2(r.min.pm)} · IGV incl.</small></div>
       <div class="eta">${r.pronto.e==='Stock Lima'||r.pronto.tk?'Entrega en '+dias(r.pronto.fm[0])+'–'+dias(r.pronto.fm[1])+' días':'Llega '+fD(r.pronto.fm[0])+'–'+fD(r.pronto.fm[1])}<small>${r.pronto.e==='Stock Lima'||r.pronto.tk?'Lista en tienda':'envío marítimo'}</small></div></div>
     </div></button>`}
+/* Silueta automática de «próximamente»: el fondo liso de la foto de estudio se vuelve transparente y la bici queda en negro.
+   Si la foto no tiene fondo liso (foto de ambiente) o no hay foto, se usa una silueta genérica de bici. */
+const SIL_GEN='data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 240"><g fill="none" stroke="#1b1b1b" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"><circle cx="95" cy="160" r="62"/><circle cx="305" cy="160" r="62"/><path d="M95 160 L165 92 L258 92 L305 160 M165 92 L200 160 L258 92 M200 160 L95 160 M150 70 L180 70 M165 92 L158 70 M258 92 L250 58 L282 50"/><circle cx="200" cy="160" r="12" fill="#1b1b1b"/></g></svg>');
+const SIL_CACHE=new Map();
+function siluetear(img){
+  if(img.dataset.sil)return;img.dataset.sil=1;
+  if(img.src.startsWith('data:')){img.classList.add('sil-ok');return}
+  if(SIL_CACHE.has(img.src)){img.src=SIL_CACHE.get(img.src);img.classList.add('sil-ok');return}
+  const orig=img.src;
+  try{
+    const W=Math.min(700,img.naturalWidth),H=Math.round(img.naturalHeight*W/img.naturalWidth);const c=document.createElement('canvas');c.width=W;c.height=H;
+    const x=c.getContext('2d',{willReadFrequently:true});x.drawImage(img,0,0,W,H);const d=x.getImageData(0,0,W,H),p=d.data;
+    // Color de fondo: promedio del borde; si el borde no es parejo, no es foto de estudio
+    const borde=[];for(let i=0;i<W;i+=4){borde.push((i)*4,((H-1)*W+i)*4)}for(let j=0;j<H;j+=4){borde.push((j*W)*4,(j*W+W-1)*4)}
+    const bg=[0,1,2].map(k=>borde.reduce((a,i)=>a+p[i+k],0)/borde.length);
+    const dist=i=>Math.abs(p[i]-bg[0])+Math.abs(p[i+1]-bg[1])+Math.abs(p[i+2]-bg[2]);
+    const parejo=borde.filter(i=>dist(i)<36).length/borde.length;
+    if(parejo<0.85)throw 0;
+    let tinta=0;for(let i=0;i<p.length;i+=4){const dd=dist(i);const a=dd<30?0:dd>70?235:Math.round((dd-30)/40*235);p[i]=p[i+1]=p[i+2]=27;p[i+3]=Math.min(p[i+3],a);if(a)tinta++}
+    if(tinta<W*H*0.02)throw 0;
+    x.putImageData(d,0,0);const u=c.toDataURL('image/png');SIL_CACHE.set(orig,u);img.src=u;
+  }catch(e){SIL_CACHE.set(orig,SIL_GEN);img.src=SIL_GEN}
+  img.classList.add('sil-ok')}
 function pintarGrid(){
   let L=D.modelos.map(m=>({m,r:resumen(m)}));
   const pronto=L.filter(x=>x.m.tag==='proximamente'&&(F.marca==='all'||x.m.marca===F.marca));L=L.filter(x=>x.m.tag!=='proximamente');

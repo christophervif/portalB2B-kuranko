@@ -524,7 +524,7 @@ function pintarFiltros(){
   $('#fMaxL').textContent=F.max>=60000?'sin límite':M(F.max);
 }
 // Línea de datos: aro, recorrido delantero/trasero y material
-const specLinea=m=>[m.aro?(m.aro==='Mullet'?'Mullet 29/27.5':'Aro '+m.aro):'',m.rd?(m.rt?m.rd+'/'+m.rt+' mm':m.rd+' mm'):m.rec,m.matx||m.mat,m.motor].filter(Boolean).map(esc).join(' · ');
+const specLinea=m=>[m.aro?(m.aro==='Mullet'?'Mullet 29/27.5':'Aro '+m.aro):'',m.rd?(m.rt?m.rd+'/'+m.rt+' mm':m.rd+' mm'):m.rt?m.rt+' mm atrás':m.rec,m.matx||m.mat,m.motor].filter(Boolean).map(esc).join(' · ');
 const maxCuotas=m=>Math.max(0,...m.skus.flatMap(x=>(x.op||[]).flatMap(o=>Object.keys(o.cq||{}).map(Number))));
 const TAGS={novedad:'Novedad',lanzamiento:'Lanzamiento'};
 function cardHTML({m,r}){

@@ -444,6 +444,7 @@ function armarCatalogo(skus, R, tc, hoy = hoyLima(), mods = {}) {
     const dt = { ...dSp, ...Object.fromEntries(Object.entries(md.datos || {}).filter(([, x]) => x)) };
     if (dSp.aro || (dt.aro && /mullet/i.test(dt.aro))) m.aro = 'Mullet'; // la ficha de la marca manda sobre el Excel
     if (dt.rec_del && !m.rd) { m.rd = dt.rec_del; if (dt.rec_tras) m.rt = dt.rec_tras; }
+    else if (dt.rec_tras && !m.rd && !m.rt) m.rt = dt.rec_tras; // frameset: solo el recorrido trasero
     if (dt.material && !m.matx) m.matx = dt.material;
     if (dt.geo && !m.geo) m.geo = dt.geo;
     if (dt.geometria && !m.geom) m.geom = dt.geometria;
@@ -698,9 +699,10 @@ function specsSimples(texto) {
 // Descripción sin IA (si la página no trae una): se arma con las especificaciones clave
 function descDeSpecs(nombre, specs) {
   const v = re => { const x = specs.find(s => re.test(s.k)); return x ? x.v.split(/[,.]/)[0].trim() : ''; };
-  const partes = [[/cuadro|frame/i, 'cuadro'], [/horquilla|fork/i, 'horquilla'], [/amortiguador|shock/i, 'amortiguador'], [/motor/i, 'motor'], [/bater/i, 'batería'], [/cambio|transmisi|derailleur/i, 'transmisión'], [/freno|brake/i, 'frenos']]
+  const partes = [[/cuadro|frame/i, 'cuadro'], [/horquilla|fork/i, 'horquilla'], [/amortiguador|shock/i, 'amortiguador'], [/motor/i, 'motor'], [/bater/i, 'batería'], [/cambio|transmisi|derailleur/i, 'transmisión'], [/freno|brake/i, 'frenos'], [/direcci[oó]n|headset/i, 'dirección'], [/potencia|stem/i, 'potencia']]
     .map(([re, n]) => { const x = v(re); return x ? `${n} ${x}` : ''; }).filter(Boolean).slice(0, 5);
-  return partes.length >= 2 ? `${nombre}: ${partes.join(', ')}.` : '';
+  // Los framesets traen solo cuadro (y a veces amortiguador, dirección o potencia): basta con una parte
+  return partes.length >= (/frameset|cuadro|frame\b/i.test(nombre) ? 1 : 2) ? `${nombre}: ${partes.join(', ')}.` : '';
 }
 // Con IA (Gemini): resumen de venta y datos clave a partir del texto de la página
 // Dónde empiezan las especificaciones: título, o la zona donde aparecen horquilla y frenos juntos
@@ -1028,6 +1030,24 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
     const out = {}, js = (t, d) => { try { return JSON.parse(t || '') ?? d; } catch (e) { return d; } };
     for (const r of rows) out[r.marca + '|' + r.modelo] = { desc: r.descripcion || '', imgs: js(r.imagenes, []), url_ficha: r.url_ficha || null, aereo: r.aereo, unidad: r.unidad,
       specs: js(r.specs, []), datos: js(r.datos, {}), manual: !!r.manual, imgc: js(r.img_colores, {}), confirmado: !!r.confirmado, destacado: !!r.destacado, etiqueta: r.etiqueta || '' };
+    // Framesets: si la marca no publica sus especificaciones o su geometría (ej. Anark XR Frameset), se toman las del
+    // cuadro de la bici completa del mismo modelo (cuadro, tallas, amortiguador, dirección…), solo para lo que falte
+    try {
+      const [fs] = await portalPool.query(`SELECT DISTINCT marca, modelo FROM bk_skus WHERE activo=1 AND (modelo LIKE '%frameset%' OR modelo LIKE '%cuadro%')`);
+      const DEL_CUADRO = /^(cuadro|frame|tallas?|sizes?|amortiguador|shock|ajuste del amortiguador|direcci[oó]n|headset|eje|pedalier|bottom bracket|tija|abrazadera|peso)/i;
+      for (const f of fs) {
+        const k = f.marca + '|' + f.modelo; const md = out[k] || (out[k] = { desc: '', imgs: [], specs: [], datos: {}, imgc: {} });
+        if ((md.specs || []).length && (md.datos || {}).geometria) continue;
+        const sin = tokensDe(f.modelo).filter(t => !['frameset', 'cuadro', 'frame'].includes(t)).join(' ');
+        const base = Object.keys(out).find(x => x.startsWith(f.marca + '|') && x !== k && !/frameset|cuadro/i.test(x) && tokensDe(x.split('|')[1]).join(' ') === sin && ((out[x].specs || []).length || (out[x].datos || {}).geometria));
+        if (!base) continue;
+        const b = out[base];
+        if (!(md.specs || []).length) md.specs = (b.specs || []).filter(x => DEL_CUADRO.test(x.k));
+        md.datos = { ...(md.datos || {}) };
+        for (const c of ['geometria', 'geo', 'rec_tras', 'material', 'aro', 'tallas']) if (!md.datos[c] && (b.datos || {})[c]) md.datos[c] = b.datos[c];
+        md.heredado = base.split('|')[1];
+      }
+    } catch (e) { console.warn('[bikes] framesets', e.message); }
     return out;
   }
   // Envíos en grupo (e-bikes): reservas activas con envío "grupo", por marca
@@ -1868,7 +1888,13 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
         previo[m] = { fotos: (md.imgs || []).length, specs: (md.specs || []).length, descripcion: !!String(md.desc || '').trim(), geometria: d.geometria ? d.geometria.filas.length : 0,
           geo_img: !!d.geo, recorrido: !!d.rec_del, material: !!d.material, peso: !!d.peso }; }
       const completo = p => p.fotos > 0 && p.specs > 0 && p.descripcion && (p.geometria > 0 || p.geo_img);
-      res.json({ pares, sin: modelos.filter(m => !pares[m]), total: modelos.length, links: links.length, previo,
+      // ¿La página donde se tocó el marcador es la ficha de un modelo? (para traer solo esa)
+      let actual = null;
+      try { const o = new URL(String(b.origen || '')); const sl = o.pathname.split('/').filter(Boolean).pop() || '';
+        const todos = mods.map(x => x.modelo); const pm = emparejarModelos(todos, [{ slug: sl, url: o.href }]);
+        const m1 = Object.keys(pm).sort((x, y) => tokensDe(y).length - tokensDe(x).length)[0];
+        if (m1) actual = { modelo: m1, url: o.href, manual: !!(existentes[marca + '|' + m1] || {}).manual }; } catch (e) {}
+      res.json({ actual, todos_modelos: mods.map(x => x.modelo), pares, sin: modelos.filter(m => !pares[m]), total: modelos.length, links: links.length, previo,
         completos: modelos.filter(m => completo(previo[m])) });
     } catch (e) { res.status(400).json({ error: e.message }); }
   });

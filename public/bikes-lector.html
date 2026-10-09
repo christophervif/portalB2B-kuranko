@@ -52,7 +52,10 @@ async function iniciar(){
   try{const E=await api('/api/bikes/admin/estado');ST.marcas=[...new Set((E.skus||[]).map(s=>s.marca))].sort();
     if(!ST.marca){const h=ST.origen.toLowerCase();ST.marca=ST.marcas.find(m=>h.includes(m.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'')))||ST.marcas[0]||''}
     await emparejar()}catch(err){$('#app').innerHTML=`<span class="err">${esc(err.message)}</span>`}}
-async function emparejar(){const j=await api('/api/bikes/admin/lector/emparejar',{marca:ST.marca,origen:ST.origen,links:ST.links,sobrescribir:!!ST.sobre});ST.pares=j.pares;ST.sin=j.sin;ST.nLinks=j.links;ST.previo=j.previo||{};ST.completos=j.completos||[];pintar()}
+async function emparejar(){const j=await api('/api/bikes/admin/lector/emparejar',{marca:ST.marca,origen:ST.origen,links:ST.links,sobrescribir:!!ST.sobre});ST.pares=j.pares;ST.sin=j.sin;ST.nLinks=j.links;ST.previo=j.previo||{};ST.completos=j.completos||[];ST.actual=j.actual;ST.todos=j.todos_modelos||[];
+  // Si se abrió desde la ficha de un modelo, por defecto se trae solo ese
+  if(ST.actual&&ST.sel===null){ST.sel=new Set([ST.actual.modelo]);ST.pares[ST.actual.modelo]=ST.actual.url;ST.sin=ST.sin.filter(x=>x!==ST.actual.modelo)}
+  pintar()}
 // Lista de lo que trae cada ficha (✓ / ✗)
 const ITEMS=[['fotos','Fotos',x=>x.fotos>0,x=>x.fotos],['descripcion','Descripción',x=>x.descripcion],['specs','Especificaciones',x=>x.specs>0,x=>x.specs],['geometria','Geometría',x=>x.geometria>0||x.geo_img,x=>x.geometria?x.geometria+' medidas':x.geo_img?'imagen':''],['recorrido','Recorrido',x=>x.recorrido],['material','Material',x=>x.material],['peso','Peso',x=>x.peso]];
 const completo=x=>!!x&&x.fotos>0&&x.specs>0&&x.descripcion&&(x.geometria>0||x.geo_img);
@@ -61,7 +64,10 @@ const idDe=m=>btoa(unescape(encodeURIComponent(m))).replace(/=/g,'');
 function pintar(){const P=Object.entries(ST.pares);const filas=[...P,...ST.sin.map(m=>[m,''])];
   if(!ST.sel){ST.sel=new Set(P.filter(([m])=>!(ST.completos||[]).includes(m)).map(([m])=>m))}
   const nInc=filas.filter(([m])=>!completo(ST.res[m]||ST.previo[m])).length;
-  $('#app').innerHTML=`<div class="row"><b>Marca</b><select id="marca">${ST.marcas.map(m=>`<option ${m===ST.marca?'selected':''}>${esc(m)}</option>`).join('')}</select>
+  const unaHTML=`<div class="card" style="margin:0 0 12px;border-color:var(--accent)"><b>Esta página</b> <span class="muted">${esc(ST.origen)}</span>
+    <div class="row" style="margin-top:8px"><span>corresponde a</span><select id="unaMod"><option value="">— elige el modelo —</option>${(ST.todos||[]).map(m=>`<option ${ST.actual&&ST.actual.modelo===m?'selected':''}>${esc(m)}</option>`).join('')}</select><button id="unaIr">Traer solo esta ficha</button></div>
+    ${ST.actual&&ST.actual.manual?'<p class="muted" style="font-size:12px;margin:6px 0 0">Ese modelo fue editado a mano: se reemplazará con lo que se lea aquí.</p>':''}</div>`;
+  $('#app').innerHTML=unaHTML+`<div class="row"><b>Marca</b><select id="marca">${ST.marcas.map(m=>`<option ${m===ST.marca?'selected':''}>${esc(m)}</option>`).join('')}</select>
     <label class="muted"><input type="checkbox" id="sobre" ${ST.sobre?'checked':''}> Sobrescribir también las fichas editadas a mano</label></div>
   <p class="muted">Página leída: ${esc(ST.origen)} · ${ST.nLinks} links · <b>${P.length}</b> modelos encontrados${ST.sin.length?`; sin link: ${ST.sin.length} (puedes pegarlo en la tabla)`:''} · <b>${filas.length-nInc}</b> completos, <b>${nInc}</b> por completar.</p>
   <div class="row" style="margin:6px 0"><span class="muted">Marcar:</span><button class="sec" data-selq="todos">Todos</button><button class="sec" data-selq="ninguno">Ninguno</button><button class="sec" data-selq="inc">Solo incompletos</button></div>
@@ -70,6 +76,8 @@ function pintar(){const P=Object.entries(ST.pares);const filas=[...P,...ST.sin.m
   <p class="muted" style="font-size:12px">Una ficha está completa cuando tiene fotos, descripción, especificaciones y geometría. Las completas quedan desmarcadas; vuelve a marcarlas si quieres actualizarlas.</p>`;
   $('#marca').onchange=async e=>{ST.marca=e.target.value;ST.sel=null;await emparejar()};$('#sobre').onchange=async e=>{ST.sobre=e.target.checked;ST.sel=null;await emparejar()};
   $('#ir').onclick=traer;
+  $('#unaIr').onclick=()=>{const m=$('#unaMod').value;if(!m){$('#prog').textContent='Elige a qué modelo corresponde esta página.';return}
+    ST.pares[m]=ST.origen;ST.sin=ST.sin.filter(x=>x!==m);ST.sel=new Set([m]);pintar();traer()};
   document.querySelectorAll('[data-sel]').forEach(c=>c.onchange=()=>{c.checked?ST.sel.add(c.dataset.sel):ST.sel.delete(c.dataset.sel);$('#ir').textContent=`Traer fichas marcadas (${nSel()})`});
   document.querySelectorAll('[data-selq]').forEach(b=>b.onclick=()=>{const q=b.dataset.selq;ST.sel=new Set(q==='ninguno'?[]:filas.filter(([m])=>q==='todos'||!completo(ST.res[m]||ST.previo[m])).map(([m])=>m));guardarLinks();pintar()});
   document.querySelectorAll('[data-par]').forEach(i=>i.onchange=()=>{ST.pares[i.dataset.par]=i.value.trim();if(i.value.trim())ST.sin=ST.sin.filter(x=>x!==i.dataset.par)})}

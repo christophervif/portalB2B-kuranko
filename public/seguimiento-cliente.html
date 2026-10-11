@@ -5,51 +5,52 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Seguimiento de tu pedido — Kuranko</title>
 <style>
-:root{--bg:#f1f5f9;--card:#fff;--border:#e2e8f0;--txt:#0f172a;--muted:#64748b;--acc:#0ea5e9;--ok:#16a34a;--warn:#d97706;--tra:#0284c7}
+:root{--navy:#000726;--amber:#FFB30D;--bg:#f4f6fb;--card:#fff;--border:#e6e9f2;--txt:#0b1020;--muted:#6b7280;--ok:#16a34a;--tra:#2563eb;--hub:#d97706;--emb:#0ea5e9}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-.wrap{max-width:720px;margin:0 auto;padding:18px 14px 48px}
-.head{display:flex;align-items:center;gap:10px;margin:8px 0 14px}
-.logo{font-weight:800;font-size:22px;letter-spacing:.5px}
-.logo span{color:var(--acc)}
-h1{font-size:18px;margin:14px 0 2px}
-.muted{color:var(--muted)}
-.sm{font-size:13px}
-.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,.04)}
-.item{display:flex;gap:12px;align-items:flex-start}
-.item+.item{border-top:1px solid var(--border);margin-top:14px;padding-top:14px}
-.dot{width:12px;height:12px;border-radius:50%;margin-top:5px;flex:0 0 auto}
-.d-transito{background:var(--tra)}.d-en_hub{background:var(--warn)}.d-embarcado{background:var(--acc)}.d-recibido{background:var(--ok)}.d-proceso{background:#94a3b8}
-.prod{font-weight:600}
-.estado{margin-top:3px}
-.badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700}
-.b-transito{background:rgba(2,132,199,.12);color:var(--tra)}
-.b-en_hub{background:rgba(217,119,6,.14);color:var(--warn)}
-.b-embarcado{background:rgba(14,165,233,.14);color:var(--acc)}
-.b-recibido{background:rgba(22,163,74,.14);color:var(--ok)}
-.b-proceso{background:#f1f5f9;color:#64748b}
-.eta{margin-top:4px;font-weight:600}
-.foot{margin-top:18px;text-align:center}
-.wa{display:inline-block;background:#25D366;color:#fff;text-decoration:none;font-weight:700;padding:10px 16px;border-radius:10px}
-.load{padding:30px;text-align:center;color:var(--muted)}
-.steps{display:flex;gap:4px;margin-top:8px;flex-wrap:wrap}
-.step{flex:1;min-width:60px;text-align:center;font-size:11px;color:#94a3b8}
-.step .bar{height:5px;border-radius:3px;background:#e2e8f0;margin-bottom:4px}
-.step.on .bar{background:var(--acc)}
-.step.on{color:var(--txt);font-weight:600}
+.top{background:var(--navy);color:#fff;padding:16px 0}
+.top .in{max-width:720px;margin:0 auto;padding:0 16px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.logo{font-weight:800;font-size:22px;letter-spacing:1px}
+.logo b{color:var(--amber)}
+.top .tag{font-size:12px;color:#c7cbe0}
+.wrap{max-width:720px;margin:0 auto;padding:16px 16px 48px}
+h1{font-size:19px;margin:16px 0 2px}
+.muted{color:var(--muted)}.sm{font-size:13px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:16px;margin-bottom:12px;box-shadow:0 1px 3px rgba(5,10,40,.05)}
+.item .prod{font-weight:700;font-size:16px}
+.item .qty{color:var(--muted);font-weight:500;font-size:13px}
+.estado{margin-top:7px}
+.badge{display:inline-block;padding:4px 11px;border-radius:999px;font-size:12.5px;font-weight:700}
+.b-transito{background:rgba(37,99,235,.12);color:var(--tra)}
+.b-en_hub{background:rgba(217,119,6,.15);color:var(--hub)}
+.b-embarcado{background:rgba(14,165,233,.14);color:var(--emb)}
+.b-recibido{background:rgba(22,163,74,.15);color:var(--ok)}
+.b-proceso{background:#eef0f6;color:#64748b}
+.eta{margin-top:10px;background:#fff8e8;border:1px solid #ffe4a3;border-radius:12px;padding:10px 12px;font-weight:700;color:#8a5a00}
+.eta .big{font-size:17px}
+.steps{display:flex;gap:4px;margin-top:12px}
+.step{flex:1;text-align:center;font-size:10.5px;color:#aab}
+.step .bar{height:6px;border-radius:4px;background:#e6e9f2;margin-bottom:5px}
+.step.on .bar{background:var(--amber)}
+.step.on{color:var(--txt);font-weight:700}
+.foot{margin-top:20px;text-align:center}
+.wa{display:inline-block;background:#25D366;color:#fff;text-decoration:none;font-weight:700;padding:11px 18px;border-radius:12px;margin-top:10px}
+.load{padding:34px;text-align:center;color:var(--muted)}
 </style>
 </head>
 <body>
+<div class="top"><div class="in">
+  <div class="logo">KU<b>RANKO</b></div>
+  <div class="tag">Seguimiento de pedido</div>
+</div></div>
+
 <div class="wrap">
-  <div class="head"><div class="logo">KU<span>RANKO</span></div></div>
-  <h1>Seguimiento de tu pedido</h1>
+  <h1 id="saludo">Tu pedido</h1>
   <div class="muted sm" id="sub">Cargando…</div>
-
   <div id="cont" class="load">Cargando tu pedido…</div>
-
   <div class="foot">
     <div class="muted sm" id="nota"></div>
-    <a class="wa" id="wa" href="#" target="_blank" style="margin-top:10px">Escríbenos por WhatsApp</a>
+    <a class="wa" id="wa" href="#" target="_blank">Escríbenos por WhatsApp</a>
   </div>
 </div>
 
@@ -59,11 +60,13 @@ function $(id){return document.getElementById(id);}
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]);});}
 function qp(n){try{return new URLSearchParams(location.search).get(n)||'';}catch(e){return '';}}
 function fISO(d){if(!d)return '';try{var p=String(d).slice(0,10).split('-');return p[2]+'/'+p[1]+'/'+p[0];}catch(e){return String(d);}}
+var DIAS=['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+function diaNombre(d){try{var x=new Date(String(d).slice(0,10)+'T00:00:00');return DIAS[x.getDay()];}catch(e){return '';}}
 function faseKey(txt){txt=(txt||'').toLowerCase();
   if(txt.indexOf('recibido')>=0)return 'recibido';
   if(txt.indexOf('camino a per')>=0)return 'embarcado';
-  if(txt.indexOf('preparando')>=0||txt.indexOf('almac')>=0&&txt.indexOf('camino al')<0)return 'en_hub';
-  if(txt.indexOf('camino al')>=0)return 'transito';
+  if(txt.indexOf('preparando')>=0||txt.indexOf('en el almac')>=0)return 'en_hub';
+  if(txt.indexOf('camino')>=0)return 'transito';
   return 'proceso';}
 function stepsHtml(k){
   var order=['transito','en_hub','embarcado','recibido'];
@@ -71,9 +74,6 @@ function stepsHtml(k){
   if(k==='proceso')return '';
   var idx=order.indexOf(k);
   return '<div class="steps">'+order.map(function(o,i){return '<div class="step '+(i<=idx?'on':'')+'"><div class="bar"></div>'+labels[o]+'</div>';}).join('')+'</div>';
-}
-function badge(k,txt){
-  return '<span class="badge b-'+k+'">'+esc(txt)+'</span>';
 }
 async function cargar(){
   var t=qp('t');
@@ -83,20 +83,20 @@ async function cargar(){
     var r=await fetch('/api/seg-publico/'+encodeURIComponent(t));
     var d=await r.json();
     if(!r.ok||!d.ok){throw new Error((d&&d.error)||'No se pudo cargar');}
-    $('sub').textContent='Hola '+ (d.cliente||'') +' 👋 — aquí está el estado de lo que estás esperando.';
+    $('saludo').textContent='Hola '+(d.cliente||'')+' 👋';
+    $('sub').textContent='Este es el estado de los productos que estás esperando.';
     $('nota').textContent=d.nota||'';
     var items=d.items||[];
     if(!items.length){$('cont').innerHTML='<div class="card">Por ahora no hay productos en seguimiento. Si crees que es un error, escríbenos por WhatsApp.</div>';return;}
     $('cont').innerHTML=items.map(function(it){
       var k=faseKey(it.estado);
-      var eta=it.eta?('<div class="eta">📦 Llegada estimada a Perú: '+fISO(it.eta)+'</div>'):'';
-      return '<div class="card"><div class="item">'+
-        '<div class="dot d-'+k+'"></div>'+
-        '<div style="flex:1">'+
-          '<div class="prod">'+esc(it.producto||'Producto')+ (it.cantidad?(' <span class="muted sm">× '+esc(it.cantidad)+'</span>'):'') +'</div>'+
-          '<div class="estado">'+badge(k,it.estado)+'</div>'+ eta +
-          stepsHtml(k)+
-        '</div></div></div>';
+      var eta='';
+      if(it.eta){ eta='<div class="eta">📦 <span class="big">Llegada estimada a Perú: '+fISO(it.eta)+'</span>'+(diaNombre(it.eta)?(' <span style="font-weight:600">('+diaNombre(it.eta)+')</span>'):'')+'</div>'; }
+      return '<div class="card item">'+
+          '<div class="prod">'+esc(it.producto||'Producto')+(it.cantidad?(' <span class="qty">× '+esc(it.cantidad)+'</span>'):'')+'</div>'+
+          '<div class="estado"><span class="badge b-'+k+'">'+esc(it.estado)+'</span></div>'+
+          eta+stepsHtml(k)+
+        '</div>';
     }).join('');
     if(d.actualizado){
       var au=document.createElement('div');au.className='muted sm';au.style.textAlign='center';au.style.marginTop='6px';

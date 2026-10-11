@@ -148,6 +148,18 @@ module.exports = function registrarSeguimiento({
     try { return JSON.parse(v); } catch (e) { return fb; }
   };
   const s = (v) => (v == null ? '' : String(v));
+  // Fecha → 'YYYY-MM-DD'. mysql2 devuelve columnas DATE como objeto Date, por lo que
+  // String(fecha).slice(0,10) daría "Mon Oct 12" (de ahí el undefined/undefined en la UI).
+  const isoDate = (v) => {
+    if (v == null || v === '') return null;
+    if (v instanceof Date) {
+      if (isNaN(v.getTime())) return null;
+      const y = v.getFullYear(), m = String(v.getMonth() + 1).padStart(2, '0'), d = String(v.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+    const mt = String(v).match(/\d{4}-\d{2}-\d{2}/);
+    return mt ? mt[0] : null;
+  };
   const numOrNull = (v) => (v === '' || v == null || isNaN(Number(v))) ? null : Number(v);
   const quienEs = (req) => (req.admin && (req.admin.usuario || (req.admin.maestro ? 'maestro' : ''))) || '';
   // Normaliza un SKU para comparar (mayúsculas, solo letras/números) — igual que el frontend.
@@ -274,11 +286,38 @@ module.exports = function registrarSeguimiento({
   }
   const paisAHub = (p) => (p === 'US' ? 'miami' : (p === 'ES' ? 'madrid' : ''));
 
+  // Imagen de referencia por SKU (del ERP, SOLO LECTURA). Igual criterio que el cotizador:
+  // product_images.path es la URL completa; la de la variación manda, si no la del padre.
+  async function imagenesPorSku(skus) {
+    const out = {};
+    const limpios = [...new Set((skus || []).map(x => s(x).trim()).filter(Boolean))];
+    if (!limpios.length) return out;
+    try {
+      const [vs] = await prodPool.query(
+        `SELECT TRIM(pv.sku) AS sku, pv.id AS vid, pv.product_id AS pid
+           FROM product_variations pv WHERE TRIM(pv.sku) IN (?)`, [limpios]);
+      if (!vs.length) return out;
+      const vids = vs.map(v => v.vid), pids = [...new Set(vs.map(v => v.pid))];
+      const imgVar = {}, imgProd = {};
+      const [imgs] = await prodPool.query(
+        `SELECT product_id, product_variation_id, path FROM product_images
+          WHERE deleted_at IS NULL AND path IS NOT NULL AND path <> ''
+            AND (product_variation_id IN (?) OR product_id IN (?))
+          ORDER BY is_primary DESC, sort_order ASC, id ASC`, [vids, pids]);
+      imgs.forEach(im => {
+        if (im.product_variation_id != null) { if (!imgVar[im.product_variation_id]) imgVar[im.product_variation_id] = im.path; }
+        else if (im.product_id != null && !imgProd[im.product_id]) imgProd[im.product_id] = im.path;
+      });
+      vs.forEach(v => { const img = imgVar[v.vid] || imgProd[v.pid] || ''; if (img) out[v.sku] = img; });
+    } catch (e) { console.warn('[seguimiento] imágenes por sku:', e.message); }
+    return out;
+  }
+
   // Estado del envío EN PALABRAS DEL CLIENTE (sin datos internos).
   const HUB_LABEL = { miami: 'almacén de Miami (EE.UU.)', madrid: 'almacén de Madrid (España)' };
   function estadoClienteEnvio(e) {
     const hubTxt = HUB_LABEL[e.hub] || 'almacén internacional';
-    const eta = e.eta ? String(e.eta).slice(0, 10) : null;
+    const eta = isoDate(e.eta);
     if (e.estado === 'recibido' || e.fase === 'recibido') return { clave: 'recibido', texto: 'Recibido en Perú', eta };
     if (e.fase === 'embarcado') return { clave: 'embarcado', texto: 'En camino a Perú', eta };
     if (e.fase === 'en_hub') return { clave: 'en_hub', texto: 'En el ' + hubTxt + ', preparando el envío a Perú', eta };
@@ -463,15 +502,15 @@ module.exports = function registrarSeguimiento({
       res.json(rows.map(r => ({
         id: r.id, tracking: r.tracking, courier: r.courier,
         proveedor: esMaestro ? r.proveedor : '', n_factura: r.n_factura,
-        estado: r.estado, fecha_estimada: r.fecha_estimada, archivado: r.archivado ? 1 : 0,
+        estado: r.estado, fecha_estimada: isoDate(r.fecha_estimada), archivado: r.archivado ? 1 : 0,
         hub: r.hub || '', fase: r.fase || 'transito',
-        fecha_salida: r.fecha_salida ? String(r.fecha_salida).slice(0,10) : null,
-        fecha_hub: r.fecha_hub ? String(r.fecha_hub).slice(0,10) : null,
-        eta: r.eta ? String(r.eta).slice(0,10) : null,
+        fecha_salida: isoDate(r.fecha_salida),
+        fecha_hub: isoDate(r.fecha_hub),
+        eta: isoDate(r.eta),
         api_resumen: r.api_resumen || '', api_estado: r.api_estado || '',
         api_at: r.api_at || null,
         api_eventos: asJson(r.api_eventos, []) || [],
-        api_entrega: r.api_entrega ? String(r.api_entrega).slice(0,10) : null,
+        api_entrega: isoDate(r.api_entrega),
         nota: r.nota || '', items: asJson(r.items, []) || [],
         creado_por: r.creado_por, creado_en: r.creado_en, actualizado_en: r.actualizado_en
       })));
@@ -913,8 +952,9 @@ module.exports = function registrarSeguimiento({
       if (!t.length) return res.status(404).json({ error: 'Enlace no válido' });
       const cliente = t[0].cliente;
       const [bo] = await portalPool.query(
-        `SELECT nombre AS producto, cantidad, cubierto, coberturas FROM seg_bo_items
+        `SELECT sku, nombre AS producto, cantidad, cubierto, coberturas FROM seg_bo_items
           WHERE cliente = ? AND archivado = 0 ORDER BY fecha ASC, creado_en ASC`, [cliente]);
+      const imgMap = await imagenesPorSku(bo.map(b => b.sku));
       const envioIds = new Set();
       bo.forEach(b => { (asJson(b.coberturas, []) || []).forEach(c => { if (c && c.envio_id) envioIds.add(c.envio_id); }); });
       const envMap = {};
@@ -935,7 +975,8 @@ module.exports = function registrarSeguimiento({
           const at = e.api_at || e.actualizado_en;
           if (at && (!ultima || at > ultima)) ultima = at;
         }
-        return { producto: b.producto || '', cantidad: b.cantidad, estado, eta };
+        const imagen = imgMap[s(b.sku).trim()] || '';
+        return { producto: b.producto || '', cantidad: b.cantidad, estado, eta, imagen };
       });
       res.json({ ok: true, cliente, items, actualizado: ultima, nota: 'Este seguimiento se actualiza cada 3 días.' });
     } catch (e) {

@@ -913,7 +913,7 @@ module.exports = function registrarSeguimiento({
       if (!t.length) return res.status(404).json({ error: 'Enlace no válido' });
       const cliente = t[0].cliente;
       const [bo] = await portalPool.query(
-        `SELECT producto, cantidad, cubierto, coberturas FROM seg_bo_items
+        `SELECT nombre AS producto, cantidad, cubierto, coberturas FROM seg_bo_items
           WHERE cliente = ? AND archivado = 0 ORDER BY fecha ASC, creado_en ASC`, [cliente]);
       const envioIds = new Set();
       bo.forEach(b => { (asJson(b.coberturas, []) || []).forEach(c => { if (c && c.envio_id) envioIds.add(c.envio_id); }); });

@@ -255,6 +255,18 @@ tr:hover td{background:var(--hover)}
       <div class="desc" style="margin-top:6px">Si llega tarde pero ese día completa sus horas (se queda más), la tardanza figura como <b>compensada</b>. Lo que falte o sobre se acumula en el <b>saldo de horas</b> del mes.</div>
     </div>
     <div class="card">
+      <div class="fila" style="justify-content:space-between">
+        <div><h3>Feriados</h3><div class="desc">Ese día no se cuenta como falta ni se exigen horas. Si alguien trabaja en feriado, todo lo trabajado va a su saldo a favor. Ya vienen cargados los feriados nacionales de Perú; agrega los que falten (p. ej. días no laborables que des) o quita los que no apliquen.</div></div>
+        <select id="fer-anio" onchange="cargarFeriados()"></select>
+      </div>
+      <div class="fila" style="margin-top:10px">
+        <label class="f">Fecha<input type="date" id="fer-fecha"></label>
+        <label class="f" style="flex:1;min-width:180px">Nombre<input id="fer-nombre" placeholder="Ej.: Día no laborable por aniversario"></label>
+        <button class="btn" onclick="agregarFeriado()">Agregar feriado</button>
+      </div>
+      <div class="tabla-wrap" style="margin-top:10px"><table><thead><tr><th>Fecha</th><th>Feriado</th><th></th></tr></thead><tbody id="fer-lista"></tbody></table></div>
+    </div>
+    <div class="card">
       <h3>Validación</h3>
       <div class="fila" style="margin-top:10px">
         <label class="f">Precisión GPS máxima (m)<input type="number" id="cfg-prec" style="width:120px"></label>
@@ -333,7 +345,7 @@ function leerHorario(id){
 const hoyLima=()=>new Date(Date.now()+OFFSET-5*3600e3).toISOString().slice(0,10);
 const sumarDias=(f,n)=>{const d=new Date(f+'T00:00:00Z');d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10);};
 const DIAS=['','Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
-const ESTADOS={completo:['Completo','ok'],en_curso:['En curso','neu'],sin_salida:['Sin salida','warn'],pendiente:['Pendiente','neu'],falta:['Falta','bad'],sin_entrada:['Sin entrada','warn']};
+const ESTADOS={completo:['Completo','ok'],en_curso:['En curso','neu'],sin_salida:['Sin salida','warn'],pendiente:['Pendiente','neu'],falta:['Falta','bad'],sin_entrada:['Sin entrada','warn'],feriado:['Feriado','neu']};
 const chipEstado=e=>{const x=ESTADOS[e]||[e,'neu'];return '<span class="chip '+x[1]+'">'+x[0]+'</span>';};
 const chipMarca=e=>e==='observada'?'<span class="chip warn">observada</span>':e==='rechazada'?'<span class="chip bad">rechazada</span>':e==='manual'?'<span class="chip neu">manual</span>':e==='aprobada'?'<span class="chip ok">aprobada</span>':'';
 
@@ -391,7 +403,7 @@ function pintarMiEstado(){
   const e=ESTADO;
   $('mi-saludo').textContent='Hola, '+(e.nombre||e.usuario);
   $('mi-fecha').textContent=new Date(e.hoy+'T12:00:00Z').toLocaleDateString('es-PE',{weekday:'long',day:'numeric',month:'long',timeZone:'UTC'});
-  let txtH=!e.controlar?'Tu usuario no tiene control de asistencia.':(e.horario?'Tu horario de hoy: '+e.horario.entrada+' – '+e.horario.salida:'Hoy no es día laborable');
+  let txtH=!e.controlar?'Tu usuario no tiene control de asistencia.':(e.horario?'Tu horario de hoy: '+e.horario.entrada+' – '+e.horario.salida:(e.feriado?'Hoy es feriado ('+e.feriado+')':'Hoy no es día laborable'));
   const sd=e.saldo;
   $('mi-horario').innerHTML=esc(txtH)+(sd?'<div style="margin-top:4px">Saldo · semana '+sgn(sd.semana)+' · mes '+sgn(sd.mes)+'</div>'+
     (sd.sabado&&sd.sabado.salida_sugerida!==sd.sabado.salida_base?'<div>Sábado: '+(sd.semana_lv<0?'quedarte':'puedes salir')+' hasta las <b>'+sd.sabado.salida_sugerida+'</b></div>':''):'');
@@ -500,6 +512,10 @@ const durTxt=m=>m<60?m+' min':Math.floor(m/60)+' h'+(m%60?' '+(m%60)+' min':'');
 const fechaTxt=f=>DIAS[f.dia]+' '+f.fecha.slice(8)+'/'+f.fecha.slice(5,7);
 function frasesDia(f){
   const L=[];
+  if(f.feriado){
+    if(f.entrada)L.push('<span class="bien">Feriado ('+esc(f.feriado)+') y vino a trabajar</span>: todo lo trabajado va a su saldo a favor');
+    else{L.push('Feriado: <b>'+esc(f.feriado)+'</b> — no se cuenta como falta');return L;}
+  }
   const hz=f.horario&&f.horario!=='—'?f.horario.split('–'):null;
   if(f.entrada){
     let t='Llegó a las <b>'+f.entrada+'</b>';
@@ -577,11 +593,12 @@ function resumenRevisadas(l){
   return out.join(' · ');
 }
 function tarjetaDia(f,i){
-  const acc=(f.estado==='falta'||f.estado==='sin_salida'||f.estado==='sin_entrada')
-    ?'<button class="btn btn-sec btn-sm" onclick="abrirManual(\''+esc(f.usuario)+'\',\''+f.fecha+'\',\''+(f.estado==='sin_salida'?'salida':'entrada')+'\')">Corregir</button>':'';
+  const acc=((f.estado==='falta'||f.estado==='sin_salida'||f.estado==='sin_entrada')
+    ?'<button class="btn btn-sec btn-sm" onclick="abrirManual(\''+esc(f.usuario)+'\',\''+f.fecha+'\',\''+(f.estado==='sin_salida'?'salida':'entrada')+'\')">Corregir</button>':'')+
+    (f.estado==='falta'?'<button class="btn btn-sec btn-sm" onclick="marcarFeriado(\''+f.fecha+'\')" title="Para todos los trabajadores">Era feriado</button>':'');
   const obs=(f.observaciones||[]);
   const pend=obs.filter(o=>o.estado==='observada'),rev=obs.filter(o=>o.estado!=='observada');
-  return '<div class="dia"><div class="dia-cab"><div><span class="t"><b>'+fechaTxt(f)+'</b> · '+esc(f.nombre)+'</span> <span class="sub">'+(f.laborable?'horario '+f.horario:'día no laborable')+'</span> '+chipEstado(f.estado)+'</div>'+
+  return '<div class="dia"><div class="dia-cab"><div><span class="t"><b>'+fechaTxt(f)+'</b> · '+esc(f.nombre)+'</span> <span class="sub">'+(f.feriado?esc(f.feriado):f.laborable?'horario '+f.horario:'día no laborable')+'</span> '+chipEstado(f.estado)+'</div>'+
     '<div style="display:flex;gap:6px">'+acc+'<button class="btn btn-sec btn-sm" onclick="verDia('+i+')">Ver historial</button></div></div>'+
     barraDia(f)+'<ul class="frases">'+frasesDia(f).map(x=>'<li>'+x+'</li>').join('')+'</ul>'+
     (pend.length?'<div class="obs pend">⚠ Por revisar ('+[...new Set(pend.map(o=>o.marca))].join(' y ')+'): '+agruparObs(pend)+'</div>':'')+
@@ -780,7 +797,31 @@ async function eliminarSede(id){
 }
 
 // ═════════ AJUSTES ═════════
+// ═════════ FERIADOS ═════════
+async function cargarFeriados(){
+  const sel=$('fer-anio');
+  if(!sel.options.length){const y=+hoyLima().slice(0,4);sel.innerHTML=[y-1,y,y+1].map(a=>'<option'+(a===y?' selected':'')+'>'+a+'</option>').join('');}
+  try{
+    const d=await api('/api/asistencia/admin/feriados?anio='+sel.value);
+    $('fer-lista').innerHTML=d.feriados.map(x=>'<tr><td>'+DIAS[x.dia]+' '+x.fecha.slice(8)+'/'+x.fecha.slice(5,7)+'/'+x.fecha.slice(0,4)+'</td><td>'+esc(x.nombre)+(x.creado_por&&x.creado_por!=='precarga'?' <span class="sub">(agregado por '+esc(x.creado_por)+')</span>':'')+'</td><td><button class="btn btn-bad btn-sm" onclick="quitarFeriado(\''+x.fecha+'\')">Quitar</button></td></tr>').join('')||'<tr><td colspan="3" class="vacio">Sin feriados en '+d.anio+'</td></tr>';
+  }catch(e){toast(e.message,true);}
+}
+async function agregarFeriado(){
+  try{await api('/api/asistencia/admin/feriados',{fecha:$('fer-fecha').value,nombre:$('fer-nombre').value});toast('Feriado agregado');$('fer-fecha').value='';$('fer-nombre').value='';cargarFeriados();cargadas.reporte=0;}
+  catch(e){toast(e.message,true);}
+}
+async function quitarFeriado(fecha){
+  if(!confirm('¿Quitar este feriado? Ese día volverá a contarse como laborable.'))return;
+  try{await api('/api/asistencia/admin/feriados/eliminar',{fecha});cargarFeriados();cargadas.reporte=0;}catch(e){toast(e.message,true);}
+}
+async function marcarFeriado(fecha){
+  const nombre=prompt('Nombre del feriado del '+fecha.slice(8)+'/'+fecha.slice(5,7)+' (aplica a todos los trabajadores):','Feriado');
+  if(nombre===null)return;
+  try{await api('/api/asistencia/admin/feriados',{fecha,nombre});toast('Marcado como feriado');cargarReporte();}catch(e){toast(e.message,true);}
+}
+
 async function cargarConfig(){
+  cargarFeriados();
   try{
     const c=await api('/api/asistencia/admin/config');
     $('cfg-horario').innerHTML=gridHorario('cfg-grid',c.horario);$('cfg-tol').value=c.tolerancia_min;

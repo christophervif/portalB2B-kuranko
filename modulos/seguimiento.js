@@ -119,6 +119,23 @@ module.exports = function registrarSeguimiento({
       )`);
     // Por si la tabla ya existía sin la columna de archivado.
     try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN archivado TINYINT(1) NOT NULL DEFAULT 0`); } catch (e) {}
+    // ── Logística de 2 tramos + estado del courier (tramo 1 por API) ──────────
+    try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN hub VARCHAR(20) NOT NULL DEFAULT ''`); } catch (e) {}          // miami | madrid | espana | otro
+    try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN fase VARCHAR(20) NOT NULL DEFAULT 'transito'`); } catch (e) {} // transito | en_hub | embarcado | recibido
+    try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN fecha_salida DATE NULL`); } catch (e) {}                      // salida del hub hacia Perú
+    try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN eta DATE NULL`); } catch (e) {}                               // llegada estimada a Perú
+    try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN api_resumen VARCHAR(255) NOT NULL DEFAULT ''`); } catch (e) {}// resumen legible del courier
+    try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN api_estado VARCHAR(40) NOT NULL DEFAULT ''`); } catch (e) {}  // estado crudo del courier
+    try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN api_at DATETIME NULL`); } catch (e) {}                        // última lectura por API
+
+    // Token de seguimiento público por CLIENTE (link que se comparte al cliente).
+    await portalPool.query(`
+      CREATE TABLE IF NOT EXISTS seg_cliente_token (
+        token     VARCHAR(40) PRIMARY KEY,
+        cliente   VARCHAR(255) NOT NULL,
+        creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX (cliente)
+      )`);
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────────
@@ -132,6 +149,69 @@ module.exports = function registrarSeguimiento({
   const quienEs = (req) => (req.admin && (req.admin.usuario || (req.admin.maestro ? 'maestro' : ''))) || '';
   // Normaliza un SKU para comparar (mayúsculas, solo letras/números) — igual que el frontend.
   const cleanSku = (v) => String(v == null ? '' : v).normalize('NFKD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+  // ── Logística tramo 2 (hub → Perú): salidas martes/viernes, tránsito 3 días
+  //    (EE.UU./Miami) ó 4 días (España/Madrid). Fechas de calendario (simple).
+  const HUB_DIAS = (hub) => (hub === 'madrid' || hub === 'espana') ? 4 : 3;
+  const hoyISO = () => new Date().toISOString().slice(0, 10);
+  const isISO = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
+  function proximaSalida(fromStr) {               // próximo martes(2) o viernes(5) ≥ fecha dada
+    const base = isISO(fromStr) ? new Date(fromStr + 'T00:00:00') : new Date();
+    for (let i = 0; i < 10; i++) {
+      const x = new Date(base); x.setDate(base.getDate() + i);
+      const dw = x.getDay();
+      if (dw === 2 || dw === 5) return x.toISOString().slice(0, 10);
+    }
+    return hoyISO();
+  }
+  function etaDesdeSalida(hub, fechaSalida) {      // llegada = salida + días de tránsito
+    if (!isISO(fechaSalida)) return null;
+    const d = new Date(fechaSalida + 'T00:00:00');
+    d.setDate(d.getDate() + HUB_DIAS(hub));
+    return d.toISOString().slice(0, 10);
+  }
+  const tokenRnd = () => (Date.now().toString(36) + Math.random().toString(36).slice(2, 12)).slice(0, 32);
+
+  // ── 17TRACK (opcional): lee el estado del courier del tramo 1 (origen→hub).
+  //    Si no hay TRACK17_API_KEY, el módulo funciona 100% manual.
+  const TRACK17_KEY = process.env.TRACK17_API_KEY || '';
+  async function track17Consultar(numeros) {
+    // numeros: ['TRK1','TRK2',...] → { 'TRK1': { estado, resumen } }
+    const out = {};
+    if (!TRACK17_KEY || !numeros.length) return out;
+    const body = JSON.stringify(numeros.slice(0, 40).map(n => ({ number: String(n) })));
+    const headers = { 'Content-Type': 'application/json', '17token': TRACK17_KEY };
+    try {
+      // 1) registrar (idempotente; si ya están, igual responde)
+      await fetch('https://api.17track.net/track/v2.2/register', { method: 'POST', headers, body }).catch(() => {});
+      // 2) consultar estado
+      const r = await fetch('https://api.17track.net/track/v2.2/gettrackinfo', { method: 'POST', headers, body });
+      const j = await r.json().catch(() => null);
+      const acc = (j && j.data && j.data.accepted) || [];
+      acc.forEach(it => {
+        const num = String(it.number || '');
+        const ti = it.track_info || {};
+        const ls = (ti.latest_status || {});
+        const le = (ti.latest_event || {});
+        const estado = s(ls.status || '').slice(0, 40);               // InfoReceived|InTransit|Delivered|...
+        const resumen = s(le.description || ls.sub_status || estado).slice(0, 255);
+        if (num) out[num] = { estado, resumen };
+      });
+    } catch (e) { console.error('[seguimiento] 17track', e.message); }
+    return out;
+  }
+
+  // Estado del envío EN PALABRAS DEL CLIENTE (sin datos internos).
+  const HUB_LABEL = { miami: 'almacén de Miami (EE.UU.)', madrid: 'almacén de Madrid (España)', espana: 'almacén en España', otro: 'almacén internacional' };
+  function estadoClienteEnvio(e) {
+    const hubTxt = HUB_LABEL[e.hub] || 'almacén internacional';
+    const eta = e.eta ? String(e.eta).slice(0, 10) : null;
+    if (e.fase === 'recibido' || e.estado === 'recibido') return { clave: 'recibido', texto: 'Recibido en Perú', eta };
+    if (e.fase === 'embarcado') return { clave: 'embarcado', texto: 'En camino a Perú', eta };
+    if (e.fase === 'en_hub') return { clave: 'en_hub', texto: 'En el ' + hubTxt + ', preparando el envío a Perú', eta: null };
+    const ap = s(e.api_resumen);
+    return { clave: 'transito', texto: 'En camino al ' + hubTxt + (ap ? (' · ' + ap) : ''), eta: null };
+  }
 
   // Backorders EN VIVO del ERP (SOLO LECTURA). Se usa para traerlos y para sincronizar.
   async function erpBackorders() {
@@ -310,6 +390,11 @@ module.exports = function registrarSeguimiento({
         id: r.id, tracking: r.tracking, courier: r.courier,
         proveedor: esMaestro ? r.proveedor : '', n_factura: r.n_factura,
         estado: r.estado, fecha_estimada: r.fecha_estimada, archivado: r.archivado ? 1 : 0,
+        hub: r.hub || '', fase: r.fase || 'transito',
+        fecha_salida: r.fecha_salida ? String(r.fecha_salida).slice(0,10) : null,
+        eta: r.eta ? String(r.eta).slice(0,10) : null,
+        api_resumen: r.api_resumen || '', api_estado: r.api_estado || '',
+        api_at: r.api_at || null,
         nota: r.nota || '', items: asJson(r.items, []) || [],
         creado_por: r.creado_por, creado_en: r.creado_en, actualizado_en: r.actualizado_en
       })));
@@ -655,6 +740,106 @@ module.exports = function registrarSeguimiento({
     } catch (e) {
       console.error('[seguimiento] envio estado', e.message);
       res.status(500).json({ error: 'No se pudo cambiar el estado' });
+    }
+  });
+
+  // ── Logística del envío: hub destino, fase y salida/ETA (solo maestro) ─────
+  app.put('/api/seguimiento/envio/:id/logistica', authAdmin, mSeg, soloMaestroSeg, async (req, res) => {
+    try {
+      const b = req.body || {};
+      const hub = ['miami', 'madrid', 'espana', 'otro'].includes(s(b.hub)) ? s(b.hub) : '';
+      const fase = ['transito', 'en_hub', 'embarcado', 'recibido'].includes(s(b.fase)) ? s(b.fase) : 'transito';
+      let fsal = isISO(b.fecha_salida) ? String(b.fecha_salida).slice(0, 10) : null;
+      let eta = null;
+      if (fase === 'embarcado') { if (!fsal) fsal = proximaSalida(hoyISO()); eta = etaDesdeSalida(hub, fsal); }
+      const estado = fase === 'recibido' ? 'recibido' : 'en_transito';
+      await portalPool.query(
+        `UPDATE seg_envios SET hub=?, fase=?, fecha_salida=?, eta=?, estado=? WHERE id=?`,
+        [hub, fase, fsal, eta, estado, req.params.id]);
+      res.json({ ok: true, hub, fase, fecha_salida: fsal, eta });
+    } catch (e) {
+      console.error('[seguimiento] logistica', e.message);
+      res.status(500).json({ error: 'No se pudo guardar la logística' });
+    }
+  });
+
+  // ── Actualizar estado del courier (tramo 1) vía 17TRACK — throttle 3 días ──
+  //    Si no hay API configurada, responde modo manual. El botón manda force:true.
+  let _lastTrack = 0; const TRACK_TTL = 3 * 24 * 60 * 60 * 1000;
+  app.post('/api/seguimiento/track-refresh', authAdmin, mSeg, soloMaestroSeg, async (req, res) => {
+    try {
+      if (!TRACK17_KEY) return res.json({ ok: true, api: false, msg: 'Sin API de tracking configurada (modo manual).' });
+      const forzar = !!(req.body && req.body.force);
+      if (!forzar && (Date.now() - _lastTrack) < TRACK_TTL) return res.json({ ok: true, api: true, throttled: true });
+      const [rows] = await portalPool.query(
+        `SELECT id, tracking FROM seg_envios WHERE archivado = 0 AND fase = 'transito' AND tracking <> ''`);
+      const nums = [...new Set(rows.map(r => s(r.tracking)).filter(Boolean))];
+      const info = await track17Consultar(nums);
+      let n = 0;
+      for (const r of rows) {
+        const d = info[s(r.tracking)];
+        if (!d) continue;
+        await portalPool.query(`UPDATE seg_envios SET api_estado=?, api_resumen=?, api_at=NOW() WHERE id=?`, [d.estado, d.resumen, r.id]);
+        n++;
+      }
+      _lastTrack = Date.now();
+      res.json({ ok: true, api: true, actualizados: n, total: nums.length });
+    } catch (e) {
+      console.error('[seguimiento] track-refresh', e.message);
+      res.status(500).json({ error: 'No se pudo actualizar el tracking' });
+    }
+  });
+
+  // ── Link de seguimiento público por CLIENTE (lo genera el maestro) ─────────
+  app.get('/api/seguimiento/cliente-link', authAdmin, mSeg, async (req, res) => {
+    try {
+      const cliente = s(req.query.cliente).trim();
+      if (!cliente) return res.status(400).json({ error: 'Falta el cliente' });
+      const [ex] = await portalPool.query(`SELECT token FROM seg_cliente_token WHERE cliente = ? LIMIT 1`, [cliente]);
+      let token = ex.length ? ex[0].token : tokenRnd();
+      if (!ex.length) await portalPool.query(`INSERT INTO seg_cliente_token (token, cliente) VALUES (?,?)`, [token, cliente]);
+      res.json({ ok: true, token, cliente, path: '/seguimiento-cliente.html?t=' + encodeURIComponent(token) });
+    } catch (e) {
+      console.error('[seguimiento] cliente-link', e.message);
+      res.status(500).json({ error: 'No se pudo generar el link' });
+    }
+  });
+
+  // ── PÚBLICO (SIN login): el cliente ve el estado de SU pedido por su token ──
+  app.get('/api/seg-publico/:token', async (req, res) => {
+    try {
+      const [t] = await portalPool.query(`SELECT cliente FROM seg_cliente_token WHERE token = ? LIMIT 1`, [req.params.token]);
+      if (!t.length) return res.status(404).json({ error: 'Enlace no válido' });
+      const cliente = t[0].cliente;
+      const [bo] = await portalPool.query(
+        `SELECT producto, cantidad, cubierto, coberturas FROM seg_bo_items
+          WHERE cliente = ? AND archivado = 0 ORDER BY fecha ASC, creado_en ASC`, [cliente]);
+      const envioIds = new Set();
+      bo.forEach(b => { (asJson(b.coberturas, []) || []).forEach(c => { if (c && c.envio_id) envioIds.add(c.envio_id); }); });
+      const envMap = {};
+      if (envioIds.size) {
+        const [envs] = await portalPool.query(
+          `SELECT id, hub, fase, estado, eta, api_resumen, api_at, actualizado_en FROM seg_envios WHERE id IN (?)`, [[...envioIds]]);
+        envs.forEach(e => { envMap[e.id] = e; });
+      }
+      let ultima = null;
+      const items = bo.map(b => {
+        const cob = asJson(b.coberturas, []) || [];
+        const prim = cob.find(c => c && c.envio_id && envMap[c.envio_id]);
+        let estado = 'En proceso de compra', eta = null;
+        if (prim) {
+          const e = envMap[prim.envio_id];
+          const info = estadoClienteEnvio(e);
+          estado = info.texto; eta = info.eta;
+          const at = e.api_at || e.actualizado_en;
+          if (at && (!ultima || at > ultima)) ultima = at;
+        }
+        return { producto: b.producto || '', cantidad: b.cantidad, estado, eta };
+      });
+      res.json({ ok: true, cliente, items, actualizado: ultima, nota: 'Este seguimiento se actualiza cada 3 días.' });
+    } catch (e) {
+      console.error('[seguimiento] publico', e.message);
+      res.status(500).json({ error: 'No se pudo cargar el seguimiento' });
     }
   });
 

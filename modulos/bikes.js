@@ -1860,6 +1860,51 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
+  // Datos del modelo editables a mano: nombre, tallas, colores, aro, recorrido, material, motor, año y peso (en todas sus variantes)
+  app.post('/api/bikes/admin/modelo-datos', authAdmin, mBikes, async (req, res) => {
+    const b = req.body || {}; const marca = String(b.marca || '').slice(0, 60), modelo = String(b.modelo || '').slice(0, 120);
+    const nuevo = String(b.nuevo_nombre || modelo).trim().toUpperCase().replace(/\s+/g, ' ').slice(0, 120);
+    const lista = (x, may) => [...new Set((Array.isArray(x) ? x : String(x || '').split(',')).map(t => String(t).trim()).filter(Boolean).map(t => may ? t.toUpperCase().replace(/\s+/g, '') : t))].slice(0, 15);
+    const tallas = lista(b.tallas, true), colores = lista(b.colores, false);
+    if (!marca || !modelo || nuevo.length < 2) return res.status(400).json({ error: 'Falta el nombre del modelo' });
+    if (!tallas.length || !colores.length) return res.status(400).json({ error: 'Deja al menos una talla y un color' });
+    const conn = await portalPool.getConnection();
+    try {
+      await prepararTablas(); await conn.beginTransaction();
+      const [skus] = await conn.query(`SELECT * FROM bk_skus WHERE marca=? AND modelo=?`, [marca, modelo]);
+      if (!skus.length) throw new Error('No encontré ese modelo');
+      if (nuevo !== modelo) {
+        const [[x]] = await conn.query('SELECT COUNT(*) n FROM bk_skus WHERE marca=? AND modelo=?', [marca, nuevo]);
+        if (x.n) throw new Error(`Ya existe otro modelo llamado ${nuevo} en ${marca}`);
+      }
+      const act = skus.filter(k => k.activo), base = act[0] || skus[0];
+      const tAct = [...new Set(act.map(k => k.talla))], cAct = [...new Set(act.map(k => k.color))], montajes = [...new Set((act.length ? act : skus).map(k => k.montaje))];
+      // Tallas o colores nuevos: se crean copiando los datos de una variante existente (costo, PVP, estado…); los quitados se ocultan (no se borran)
+      const crear = [];
+      for (const mo of montajes) for (const t of tallas) for (const c of colores) {
+        if (tAct.includes(t) && cAct.includes(c)) continue; // combinación ya existente (o que nunca existió en el Excel): no se toca
+        const e = skus.find(k => k.montaje === mo && k.talla === t && k.color === c);
+        if (e) await conn.query('UPDATE bk_skus SET activo=1, actualizado=NOW() WHERE id=?', [e.id]); else crear.push([mo, t, c]);
+      }
+      const COPIA = ['anio', 'categoria', 'aro', 'recorrido', 'material', 'motor', 'costo', 'moneda', 'pvp', 'estado', 'fecha_disponible', 'peso', 'url_ficha', 'costo_puesto'];
+      for (const [mo, t, c] of crear) await conn.query(`INSERT INTO bk_skus (marca, modelo, montaje, talla, color, stock, notas, ${COPIA.join(', ')}) VALUES (?,?,?,?,?,0,?,${COPIA.map(() => '?').join(',')})`,
+        [marca, modelo, mo, t, c, 'Creada desde la web de la marca', ...COPIA.map(k => base[k])]);
+      const quitar = act.filter(k => !tallas.includes(k.talla) || !colores.includes(k.color)).map(k => k.id);
+      if (quitar.length) await conn.query('UPDATE bk_skus SET activo=0, actualizado=NOW() WHERE id IN (?)', [quitar]);
+      const campos = { aro: [b.aro, 20], recorrido: [b.recorrido, 40], material: [b.material, 60], motor: [b.motor, 120], peso: [b.peso, 20] }, sets = [], vals = [];
+      for (const [k, [v, n]] of Object.entries(campos)) if (v !== undefined) { sets.push(k + '=?'); vals.push(String(v).trim().slice(0, n) || null); }
+      if (b.anio !== undefined) { sets.push('anio=?'); vals.push(num(b.anio) > 2000 ? num(b.anio) : null); }
+      if (sets.length) await conn.query(`UPDATE bk_skus SET ${sets.join(', ')}, actualizado=NOW() WHERE marca=? AND modelo=?`, [...vals, marca, modelo]);
+      if (nuevo !== modelo) {
+        await conn.query('UPDATE bk_skus SET modelo=?, actualizado=NOW() WHERE marca=? AND modelo=?', [nuevo, marca, modelo]);
+        await conn.query('DELETE FROM bk_modelos WHERE marca=? AND modelo=?', [marca, nuevo]);
+        await conn.query('UPDATE bk_modelos SET modelo=? WHERE marca=? AND modelo=?', [nuevo, marca, modelo]);
+      }
+      await conn.commit(); limpiarCache();
+      res.json({ ok: true, modelo: nuevo, creadas: crear.length, ocultas: quitar.length });
+    } catch (e) { await conn.rollback(); res.status(400).json({ error: e.message }); } finally { conn.release(); }
+  });
+
   // Vitrina del modelo: destacado, etiqueta (novedad / lanzamiento / próximamente) y stock confirmado
   app.post('/api/bikes/admin/modelo-vitrina', authAdmin, mBikes, async (req, res) => {
     const b = req.body || {};

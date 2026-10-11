@@ -122,7 +122,8 @@ module.exports = function registrarSeguimiento({
     // ── Logística de 2 tramos + estado del courier (tramo 1 por API) ──────────
     try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN hub VARCHAR(20) NOT NULL DEFAULT ''`); } catch (e) {}          // miami | madrid | espana | otro
     try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN fase VARCHAR(20) NOT NULL DEFAULT 'transito'`); } catch (e) {} // transito | en_hub | embarcado | recibido
-    try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN fecha_salida DATE NULL`); } catch (e) {}                      // salida del hub hacia Perú
+    try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN fecha_salida DATE NULL`); } catch (e) {}                      // (legado) salida del hub
+    try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN fecha_hub DATE NULL`); } catch (e) {}                         // fecha en que llegó al hub (base del ETA)
     try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN eta DATE NULL`); } catch (e) {}                               // llegada estimada a Perú
     try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN api_resumen VARCHAR(255) NOT NULL DEFAULT ''`); } catch (e) {}// resumen legible del courier
     try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN api_estado VARCHAR(40) NOT NULL DEFAULT ''`); } catch (e) {}  // estado crudo del courier
@@ -150,67 +151,97 @@ module.exports = function registrarSeguimiento({
   // Normaliza un SKU para comparar (mayúsculas, solo letras/números) — igual que el frontend.
   const cleanSku = (v) => String(v == null ? '' : v).normalize('NFKD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-  // ── Logística tramo 2 (hub → Perú): salidas martes/viernes, tránsito 3 días
-  //    (EE.UU./Miami) ó 4 días (España/Madrid). Fechas de calendario (simple).
-  const HUB_DIAS = (hub) => (hub === 'madrid' || hub === 'espana') ? 4 : 3;
+  // ── Logística tramo 2 (hub → Perú). Hub: miami | madrid | '' (directo a Perú).
+  //    Llegada tentativa a Perú según el día que el paquete llega al HUB:
+  //    MIAMI  (llegadas a Perú martes/viernes): Lun–Mié → próx. MARTES; Jue–Dom → próx. VIERNES.
+  //    MADRID (llegadas a Perú lunes/miércoles): Lun–Mié → próx. MIÉRCOLES; Jue–Dom → próx. LUNES.
   const hoyISO = () => new Date().toISOString().slice(0, 10);
   const isISO = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
-  function proximaSalida(fromStr) {               // próximo martes(2) o viernes(5) ≥ fecha dada
-    const base = isISO(fromStr) ? new Date(fromStr + 'T00:00:00') : new Date();
-    for (let i = 0; i < 10; i++) {
-      const x = new Date(base); x.setDate(base.getDate() + i);
-      const dw = x.getDay();
-      if (dw === 2 || dw === 5) return x.toISOString().slice(0, 10);
-    }
-    return hoyISO();
+  function proximoDow(fromISO, dow) {             // próxima fecha con ese día de semana, ESTRICTAMENTE después
+    const base = isISO(fromISO) ? new Date(fromISO + 'T00:00:00') : new Date();
+    for (let i = 1; i <= 14; i++) { const x = new Date(base); x.setDate(base.getDate() + i); if (x.getDay() === dow) return x.toISOString().slice(0, 10); }
+    return null;
   }
-  function etaDesdeSalida(hub, fechaSalida) {      // llegada = salida + días de tránsito
-    if (!isISO(fechaSalida)) return null;
-    const d = new Date(fechaSalida + 'T00:00:00');
-    d.setDate(d.getDate() + HUB_DIAS(hub));
-    return d.toISOString().slice(0, 10);
+  function etaPeruDesdeHub(hub, fechaHubISO) {     // fecha tentativa de llegada a Perú
+    if (!isISO(fechaHubISO) || !(hub === 'miami' || hub === 'madrid')) return null; // directo: sin cálculo
+    const dw = new Date(fechaHubISO + 'T00:00:00').getDay(); // 0=Dom..6=Sáb
+    let target;
+    if (hub === 'miami') target = (dw >= 1 && dw <= 3) ? 2 /*Mar*/ : 5 /*Vie*/;
+    else { target = (dw >= 1 && dw <= 3) ? 3 /*Mié*/ : 1 /*Lun*/; } // Madrid: Lun–Mié → miércoles; Jue–Dom → lunes
+    return proximoDow(fechaHubISO, target);
   }
   const tokenRnd = () => (Date.now().toString(36) + Math.random().toString(36).slice(2, 12)).slice(0, 32);
 
-  // ── 17TRACK (opcional): lee el estado del courier del tramo 1 (origen→hub).
-  //    Si no hay TRACK17_API_KEY, el módulo funciona 100% manual.
+  // ── Lectura del courier (tramo 1 origen→hub). Proveedor INTERCAMBIABLE:
+  //    TRACK_PROVIDER = ship24 (por defecto) | 17track. Cada uno con su API key.
+  //    Devuelve { numero: { estado, resumen, delivered, destPais } }. Autodetecta courier.
   const TRACK17_KEY = process.env.TRACK17_API_KEY || '';
+  const SHIP24_KEY  = process.env.SHIP24_API_KEY || '';
+  const TRACK_PROV  = (process.env.TRACK_PROVIDER || 'ship24').toLowerCase();
+  const trackDisponible = () => !!(SHIP24_KEY || TRACK17_KEY);
+
+  async function ship24Consultar(numeros) {
+    const out = {};
+    if (!SHIP24_KEY) return out;
+    const headers = { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SHIP24_KEY };
+    for (const n of numeros.slice(0, 40)) {
+      try {
+        const r = await fetch('https://api.ship24.com/public/v1/trackers/track', { method: 'POST', headers, body: JSON.stringify({ trackingNumber: String(n) }) });
+        const j = await r.json().catch(() => null);
+        const tr = (j && j.data && j.data.trackings && j.data.trackings[0]) || null;
+        if (!tr) continue;
+        const sh = tr.shipment || {}; const ev = (tr.events && tr.events[0]) || {};
+        const mile = s(sh.statusMilestone || '');
+        const resumen = s(ev.status || mile).slice(0, 255);
+        const delivered = mile === 'delivered';
+        const destPais = s(sh.destinationCountryCode || (sh.recipient && sh.recipient.countryCode) || '').toUpperCase().slice(0, 2);
+        out[String(n)] = { estado: mile, resumen, delivered, destPais };
+      } catch (e) { /* una falla no corta las demás */ }
+    }
+    return out;
+  }
   async function track17Consultar(numeros) {
-    // numeros: ['TRK1','TRK2',...] → { 'TRK1': { estado, resumen } }
     const out = {};
     if (!TRACK17_KEY || !numeros.length) return out;
     const body = JSON.stringify(numeros.slice(0, 40).map(n => ({ number: String(n) })));
     const headers = { 'Content-Type': 'application/json', '17token': TRACK17_KEY };
     try {
-      // 1) registrar (idempotente; si ya están, igual responde)
       await fetch('https://api.17track.net/track/v2.2/register', { method: 'POST', headers, body }).catch(() => {});
-      // 2) consultar estado
       const r = await fetch('https://api.17track.net/track/v2.2/gettrackinfo', { method: 'POST', headers, body });
       const j = await r.json().catch(() => null);
       const acc = (j && j.data && j.data.accepted) || [];
       acc.forEach(it => {
         const num = String(it.number || '');
         const ti = it.track_info || {};
-        const ls = (ti.latest_status || {});
-        const le = (ti.latest_event || {});
-        const estado = s(ls.status || '').slice(0, 40);               // InfoReceived|InTransit|Delivered|...
+        const ls = (ti.latest_status || {}); const le = (ti.latest_event || {});
+        const estado = s(ls.status || '').slice(0, 40);
         const resumen = s(le.description || ls.sub_status || estado).slice(0, 255);
-        if (num) out[num] = { estado, resumen };
+        const delivered = /deliver/i.test(estado);
+        const destPais = s((ti.misc_info && (ti.misc_info.destination_country || ti.misc_info.destination_country_iso2)) || '').toUpperCase().slice(0, 2);
+        if (num) out[num] = { estado, resumen, delivered, destPais };
       });
     } catch (e) { console.error('[seguimiento] 17track', e.message); }
     return out;
   }
+  async function trackConsultar(numeros) {
+    if (TRACK_PROV === '17track' && TRACK17_KEY) return track17Consultar(numeros);
+    if (SHIP24_KEY) return ship24Consultar(numeros);
+    if (TRACK17_KEY) return track17Consultar(numeros);
+    return {};
+  }
+  const paisAHub = (p) => (p === 'US' ? 'miami' : (p === 'ES' ? 'madrid' : ''));
 
   // Estado del envío EN PALABRAS DEL CLIENTE (sin datos internos).
-  const HUB_LABEL = { miami: 'almacén de Miami (EE.UU.)', madrid: 'almacén de Madrid (España)', espana: 'almacén en España', otro: 'almacén internacional' };
+  const HUB_LABEL = { miami: 'almacén de Miami (EE.UU.)', madrid: 'almacén de Madrid (España)' };
   function estadoClienteEnvio(e) {
     const hubTxt = HUB_LABEL[e.hub] || 'almacén internacional';
     const eta = e.eta ? String(e.eta).slice(0, 10) : null;
-    if (e.fase === 'recibido' || e.estado === 'recibido') return { clave: 'recibido', texto: 'Recibido en Perú', eta };
+    if (e.estado === 'recibido' || e.fase === 'recibido') return { clave: 'recibido', texto: 'Recibido en Perú', eta };
     if (e.fase === 'embarcado') return { clave: 'embarcado', texto: 'En camino a Perú', eta };
-    if (e.fase === 'en_hub') return { clave: 'en_hub', texto: 'En el ' + hubTxt + ', preparando el envío a Perú', eta: null };
+    if (e.fase === 'en_hub') return { clave: 'en_hub', texto: 'En el ' + hubTxt + ', preparando el envío a Perú', eta };
     const ap = s(e.api_resumen);
-    return { clave: 'transito', texto: 'En camino al ' + hubTxt + (ap ? (' · ' + ap) : ''), eta: null };
+    const dest = e.hub ? ('al ' + hubTxt) : 'a Perú';
+    return { clave: 'transito', texto: 'En camino ' + dest + (ap ? (' · ' + ap) : ''), eta: null };
   }
 
   // Backorders EN VIVO del ERP (SOLO LECTURA). Se usa para traerlos y para sincronizar.
@@ -392,6 +423,7 @@ module.exports = function registrarSeguimiento({
         estado: r.estado, fecha_estimada: r.fecha_estimada, archivado: r.archivado ? 1 : 0,
         hub: r.hub || '', fase: r.fase || 'transito',
         fecha_salida: r.fecha_salida ? String(r.fecha_salida).slice(0,10) : null,
+        fecha_hub: r.fecha_hub ? String(r.fecha_hub).slice(0,10) : null,
         eta: r.eta ? String(r.eta).slice(0,10) : null,
         api_resumen: r.api_resumen || '', api_estado: r.api_estado || '',
         api_at: r.api_at || null,
@@ -743,47 +775,69 @@ module.exports = function registrarSeguimiento({
     }
   });
 
-  // ── Logística del envío: hub destino, fase y salida/ETA (solo maestro) ─────
+  // ── Logística del envío: hub (miami|madrid|'' directo), fase y ETA (maestro) ─
+  //    hub vacío = va directo a Perú (sin tramo intermedio, se guía por el courier).
+  //    El ETA a Perú se calcula de la FECHA EN QUE LLEGA AL HUB (regla martes/viernes
+  //    para Miami, lunes/miércoles para Madrid). No hay botón "recibido": eso lo
+  //    cubre marcar el envío como recibido.
   app.put('/api/seguimiento/envio/:id/logistica', authAdmin, mSeg, soloMaestroSeg, async (req, res) => {
     try {
       const b = req.body || {};
-      const hub = ['miami', 'madrid', 'espana', 'otro'].includes(s(b.hub)) ? s(b.hub) : '';
-      const fase = ['transito', 'en_hub', 'embarcado', 'recibido'].includes(s(b.fase)) ? s(b.fase) : 'transito';
-      let fsal = isISO(b.fecha_salida) ? String(b.fecha_salida).slice(0, 10) : null;
+      const hub = ['miami', 'madrid'].includes(s(b.hub)) ? s(b.hub) : '';
+      const fase = ['transito', 'en_hub', 'embarcado'].includes(s(b.fase)) ? s(b.fase) : 'transito';
+      let fhub = isISO(b.fecha_hub) ? String(b.fecha_hub).slice(0, 10) : null;
       let eta = null;
-      if (fase === 'embarcado') { if (!fsal) fsal = proximaSalida(hoyISO()); eta = etaDesdeSalida(hub, fsal); }
-      const estado = fase === 'recibido' ? 'recibido' : 'en_transito';
+      if (fase === 'en_hub' || fase === 'embarcado') {
+        if (!fhub) fhub = hoyISO();                 // si no se indicó, asumir que llegó al hub hoy
+        eta = etaPeruDesdeHub(hub, fhub);
+      } else { fhub = null; }
       await portalPool.query(
-        `UPDATE seg_envios SET hub=?, fase=?, fecha_salida=?, eta=?, estado=? WHERE id=?`,
-        [hub, fase, fsal, eta, estado, req.params.id]);
-      res.json({ ok: true, hub, fase, fecha_salida: fsal, eta });
+        `UPDATE seg_envios SET hub=?, fase=?, fecha_hub=?, eta=? WHERE id=?`,
+        [hub, fase, fhub, eta, req.params.id]);
+      res.json({ ok: true, hub, fase, fecha_hub: fhub, eta });
     } catch (e) {
       console.error('[seguimiento] logistica', e.message);
       res.status(500).json({ error: 'No se pudo guardar la logística' });
     }
   });
 
-  // ── Actualizar estado del courier (tramo 1) vía 17TRACK — throttle 3 días ──
-  //    Si no hay API configurada, responde modo manual. El botón manda force:true.
+  // ── Actualizar estado del courier (tramo 1) — throttle 3 días ──────────────
+  //    Lee el courier (Ship24/17track) y de paso: autodetecta el hub por país de
+  //    destino, y si el courier dice "entregado" marca solo "en almacén" (en_hub)
+  //    calculando el ETA a Perú. Sin API configurada → modo manual.
   let _lastTrack = 0; const TRACK_TTL = 3 * 24 * 60 * 60 * 1000;
   app.post('/api/seguimiento/track-refresh', authAdmin, mSeg, soloMaestroSeg, async (req, res) => {
     try {
-      if (!TRACK17_KEY) return res.json({ ok: true, api: false, msg: 'Sin API de tracking configurada (modo manual).' });
+      if (!trackDisponible()) return res.json({ ok: true, api: false, msg: 'Sin API de tracking configurada (modo manual).' });
       const forzar = !!(req.body && req.body.force);
       if (!forzar && (Date.now() - _lastTrack) < TRACK_TTL) return res.json({ ok: true, api: true, throttled: true });
+      // Envíos aún en tramo 1 (en tránsito al hub) con número de tracking.
       const [rows] = await portalPool.query(
-        `SELECT id, tracking FROM seg_envios WHERE archivado = 0 AND fase = 'transito' AND tracking <> ''`);
+        `SELECT id, tracking, hub, fase FROM seg_envios WHERE archivado = 0 AND fase = 'transito' AND tracking <> ''`);
       const nums = [...new Set(rows.map(r => s(r.tracking)).filter(Boolean))];
-      const info = await track17Consultar(nums);
-      let n = 0;
+      const info = await trackConsultar(nums);
+      let n = 0, avanzados = 0;
       for (const r of rows) {
         const d = info[s(r.tracking)];
         if (!d) continue;
-        await portalPool.query(`UPDATE seg_envios SET api_estado=?, api_resumen=?, api_at=NOW() WHERE id=?`, [d.estado, d.resumen, r.id]);
+        let hub = s(r.hub);
+        if (!hub && d.destPais) hub = paisAHub(d.destPais);        // autodetectar hub por país destino
+        if (d.delivered && hub) {                                   // llegó al hub → marcar en almacén + ETA
+          const fhub = hoyISO();
+          const eta = etaPeruDesdeHub(hub, fhub);
+          await portalPool.query(
+            `UPDATE seg_envios SET api_estado=?, api_resumen=?, api_at=NOW(), hub=?, fase='en_hub', fecha_hub=?, eta=? WHERE id=?`,
+            [d.estado, d.resumen, hub, fhub, eta, r.id]);
+          avanzados++;
+        } else {
+          await portalPool.query(
+            `UPDATE seg_envios SET api_estado=?, api_resumen=?, api_at=NOW(), hub=? WHERE id=?`,
+            [d.estado, d.resumen, hub, r.id]);
+        }
         n++;
       }
       _lastTrack = Date.now();
-      res.json({ ok: true, api: true, actualizados: n, total: nums.length });
+      res.json({ ok: true, api: true, actualizados: n, total: nums.length, a_almacen: avanzados });
     } catch (e) {
       console.error('[seguimiento] track-refresh', e.message);
       res.status(500).json({ error: 'No se pudo actualizar el tracking' });

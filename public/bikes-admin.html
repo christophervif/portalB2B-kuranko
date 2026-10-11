@@ -129,11 +129,12 @@ tr.off td{opacity:.45}
         <select id="catAct"><option value="1">Activos</option><option value="0">Ocultos</option><option value="">Todos</option></select>
         <button class="btn sec" id="exportar">⬇ Exportar Excel</button>
       </div>
-      <div class="card" style="background:var(--surface3);margin-bottom:10px;padding:12px">
-        <div class="row" style="justify-content:space-between;align-items:center"><span><b>Stock de Kuranko (ERP)</b> <span class="muted" id="erpInfo">· se actualiza solo cada 15 minutos</span></span><button class="btn sec" id="erpSync">Sincronizar ahora</button></div>
+      <details class="card" style="background:var(--surface3);margin-bottom:10px;padding:12px">
+        <summary style="cursor:pointer"><b>Stock de Kuranko (ERP)</b> <span class="muted" id="erpInfo">· se actualiza solo cada 15 minutos</span> <span class="muted">· toca para ver y corregir</span></summary>
+        <div class="row" style="justify-content:flex-end;margin-top:6px"><button class="btn sec" id="erpSync">Sincronizar ahora</button></div>
         <p class="desc" style="margin:4px 0 0">Las bicis que tienes en tus tiendas y almacenes (sin consignación ni exhibición) se ofrecen con <b>entrega inmediata</b> al mismo precio. Se emparejan por nombre (marca + modelo + talla + color) y puedes corregir cualquier emparejamiento abajo.</p>
         <div id="erpOut" style="margin-top:6px"></div>
-      </div>
+      </details>
       <div class="card" style="background:var(--surface3);margin-bottom:10px;padding:12px">
         <b>Marcas en la tienda</b> <span class="muted">· al ocultar una marca desaparecen todas sus bicis y su botón de filtro en bikes.kuranko.pe (no se borra nada)</span>
         <div class="row" id="catMarcas" style="margin-top:8px"></div>
@@ -176,12 +177,12 @@ tr.off td{opacity:.45}
           </ol>
         </div>
         <div class="card" style="background:var(--surface3);margin:0">
-          <h3>Opción B · Desde el portal</h3>
-          <p class="desc">Para marcas que no bloquean. El link queda guardado por marca.</p>
-          <div class="row" style="margin-top:8px"><select id="fmMarca"></select><input id="fmUrl" style="flex:1;min-width:200px" placeholder="Link de la página de modelos (varios separados por espacio)"><button class="btn" id="fmBuscar">Buscar modelos</button></div>
-          <div class="row" style="margin-top:8px;align-items:center"><button class="btn sec" id="fmTodas">Completar todas las marcas</button><span class="desc" style="margin:0">solo las fichas que faltan</span></div>
+          <h3>Crear una bici nueva</h3>
+          <p class="desc">¿No está en el Excel de la marca? Créala desde su página: con el <b>Lector Kuranko</b> (en «Esta página» → «Crear como bici nueva») o pegando aquí el link (marcas que no bloquean al portal).</p>
+          <div class="row" style="margin-top:8px"><input id="crMarca" list="crMarcas" placeholder="Marca" style="width:140px"><datalist id="crMarcas"></datalist><input id="crUrl" style="flex:1;min-width:200px" placeholder="Link de la página de la bici"><button class="btn" id="crLeer">Leer página</button></div>
         </div>
       </div>
+      <div id="crOut"></div>
       <div id="fmOut" style="margin-top:10px"></div>
       <details style="margin-top:10px"><summary class="muted">Datos por marca: link de modelos y garantía</summary><div id="fmMarcas" class="tbl" style="margin-top:8px"></div></details>
     </div>
@@ -201,7 +202,9 @@ tr.off td{opacity:.45}
     <div class="card" id="simCard">
       <h3>Simulador de precio y descuentos</h3>
       <p class="desc">Pon el costo y el PVP de una bici (o toca «Cálculo» en un modelo) y verás paso a paso el costo puesto en Lima, el peor caso, el precio de contado y el de cada forma de pago con su margen. Pon un % de descuento para ver cuánto ganas en cada forma de pago. El margen siempre se mide sobre el precio de lista (PVP × factor): (precio cobrado − comisión − costo) ÷ lista. Usa las reglas guardadas en «Reglas de precio».</p>
-      <div class="row" style="margin-top:8px"><select id="simMarca"></select><label class="muted">Costo US$ <input id="simCosto" type="number" style="width:100px" value="1250"></label><label class="muted">PVP US$ <input id="simPvp" type="number" style="width:100px" value="2990"></label><label class="muted"><input type="checkbox" id="simEb"> e-bike</label><label class="muted">Descuento % <input id="simDesc" type="number" min="0" max="90" step="0.5" style="width:70px" value="0"></label><button class="btn" id="simIr">Calcular</button></div>
+      <div class="row" style="margin-top:8px"><select id="simBici" style="min-width:260px;flex:1"></select><button class="btn" id="simBiciIr">Simular esta bici</button></div>
+      <p class="desc" style="margin:6px 0 0">o con datos a mano:</p>
+      <div class="row" style="margin-top:4px"><select id="simMarca"></select><label class="muted">Costo US$ <input id="simCosto" type="number" style="width:100px" value="1250"></label><label class="muted">PVP US$ <input id="simPvp" type="number" style="width:100px" value="2990"></label><label class="muted"><input type="checkbox" id="simEb"> e-bike</label><label class="muted">Descuento % <input id="simDesc" type="number" min="0" max="90" step="0.5" style="width:70px" value="0"></label><button class="btn" id="simIr">Calcular</button></div>
       <div id="simOut" style="margin-top:10px"></div>
     </div>
   </section>
@@ -592,6 +595,36 @@ function pintarSelIA(sel,J){const pr={};((J.pruebas||{}).r||[]).forEach(x=>pr[x.
   sel.innerHTML='<option value="">Automático (el que funcione)</option>'+ids.map(id=>{const x=pr[id];return `<option value="${esc(id)}" ${id===J.elegido?'selected':''}>${x?(x.ok?'✓ ':'✗ '):''}${esc((J.lista.find(m=>m.id===id)||{}).nombre||id)}${x?(x.ok?` · ${(x.ms/1000).toFixed(1)} s`:` · ${x.error}`):''}</option>`}).join('')}
 document.addEventListener('click',async e=>{if(e.target.id!=='iaTodos')return;const b=e.target;b.disabled=true;$('#iaMsg').textContent='Probando cada modelo…';
   try{const j=await api('/api/bikes/admin/ia',{method:'POST',body:JSON.stringify({probar_todos:true})});IA.pruebas=j.pruebas;pintarSelIA($('#iaModelo'),IA);const n=(j.pruebas.r||[]).filter(x=>x.ok).length;$('#iaMsg').textContent=`${n} de ${(j.pruebas.r||[]).length} modelos funcionan con tu clave. Elige uno de los marcados con ✓.`}catch(err){$('#iaMsg').textContent=err.message}b.disabled=false});
+/* ---------- Crear bici nueva desde la página de la marca ---------- */
+let CR=null;
+function formCrear(j){const v=(k,x)=>esc(x??'');const cats=['MTB','E-MTB','Gravel','Ruta','Urbana','Niños'];
+  return `<div class="card" style="border-color:var(--accent);margin-top:10px"><div class="row" style="gap:12px;align-items:flex-start">${j.foto?`<img src="${esc(j.foto)}" style="width:150px;height:100px;object-fit:contain;background:#fff;border-radius:8px">`:''}
+    <div><h3 style="margin:0">Nueva bici de ${esc(j.marca)}</h3><p class="desc" style="margin:4px 0">Leído: ${j.fotos} fotos · ${j.specs} especificaciones · ${j.descripcion?'descripción':'sin descripción'} · ${j.geometria?'geometría':'sin geometría'}. Revisa y completa lo que falte; el costo y el PVP los pones tú.</p></div></div>
+    <div class="dos" style="margin-top:8px">
+      <label>Nombre del modelo<input id="crModelo" value="${v(0,j.modelo)}"></label>
+      <label>Categoría<select id="crCat">${cats.map(c=>`<option ${c===j.categoria?'selected':''}>${c}</option>`).join('')}</select></label>
+      <label>Tallas (separadas por coma)<input id="crTallas" value="${v(0,(j.tallas||[]).join(', '))}" placeholder="S, M, L, XL"></label>
+      <label>Colores (separados por coma)<input id="crColores" value="${v(0,(j.colores||[]).join(', '))}" placeholder="Ej. Black, Raw Alloy"></label>
+      <label>Aro<input id="crAro" value="${v(0,j.aro)}" placeholder="29 · 27.5 · Mullet"></label>
+      <label>Recorrido<input id="crRec" value="${v(0,j.recorrido)}" placeholder="150 mm"></label>
+      <label>Material<input id="crMat" value="${v(0,j.material)}" placeholder="Carbono · Aluminio"></label>
+      <label>Motor (solo e-bikes)<input id="crMotor" value="${v(0,j.motor)}"></label>
+      <label>Año<input id="crAnio" type="number" value="${v(0,j.anio)}"></label>
+      <label>Peso<input id="crPeso" value="${v(0,j.peso)}"></label>
+      <label>Costo (precio de compra) <b>*</b><input id="crCosto" type="number" step="0.01"></label>
+      <label>Moneda<select id="crMon"><option>USD</option><option>EUR</option></select></label>
+      <label>PVP de la marca<input id="crPvp" type="number" step="0.01"></label>
+      <label>Stock en la marca (0 = a pedido sin límite)<input id="crStock" type="number" value="0"></label>
+    </div>
+    <div class="row" style="margin-top:10px"><button class="btn" id="crCrear">Crear bici</button><span class="muted" id="crMsg"></span></div>
+    <p class="desc">Se crea una variante por cada talla × color. Si la bici ya existe con ese nombre, se actualiza. La próxima importación del Excel de la marca no la apaga.</p></div>`}
+document.addEventListener('click',async e=>{const t=e.target;
+  if(t.id==='crLeer'){const marca=$('#crMarca').value.trim(),url=$('#crUrl').value.trim();if(!marca||!/^https?:\/\//.test(url))return toast('Pon la marca y el link de la bici');
+    t.disabled=true;t.textContent='Leyendo…';$('#crOut').innerHTML='<p class="muted">Leyendo la página (puede tardar si usa IA)…</p>';
+    try{CR=await api('/api/bikes/admin/crear/leer',{method:'POST',body:JSON.stringify({marca,url})});CR.marca=marca;$('#crOut').innerHTML=formCrear(CR)}catch(err){$('#crOut').innerHTML=`<p class="err">${esc(err.message)}</p>`}
+    t.disabled=false;t.textContent='Leer página'}
+  if(t.id==='crCrear'&&CR){const b={token:CR.token,marca:CR.marca,modelo:$('#crModelo').value,categoria:$('#crCat').value,tallas:$('#crTallas').value,colores:$('#crColores').value,aro:$('#crAro').value,recorrido:$('#crRec').value,material:$('#crMat').value,motor:$('#crMotor').value,anio:$('#crAnio').value,peso:$('#crPeso').value,costo:+$('#crCosto').value,moneda:$('#crMon').value,pvp:+$('#crPvp').value,stock:+$('#crStock').value};
+    t.disabled=true;try{const j=await api('/api/bikes/admin/crear',{method:'POST',body:JSON.stringify(b)});$('#crOut').innerHTML=`<p class="ok" style="margin-top:8px">Listo: ${esc(j.marca)} ${esc(j.modelo)} creada con ${j.skus} variantes (${j.nuevas} nuevas${j.actualizadas?', '+j.actualizadas+' actualizadas':''}). Ya aparece en «Tus modelos» y en la tienda si cumple el margen.</p>`;CR=null;await cargar()}catch(err){$('#crMsg').innerHTML=`<span class="err">${esc(err.message)}</span>`;t.disabled=false}}});
 /* ---------- Stock del ERP ---------- */
 let ERP={};
 function pintarERP(j){if(j)ERP=j;j=ERP;if(!$('#erpOut'))return;$('#erpInfo').textContent=j.t?`· última lectura ${new Date(j.t).toLocaleString('es-PE',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})} · ${j.en_tienda||0} bicis en tienda`:'· aún no se ha leído';
@@ -636,8 +669,9 @@ async function simPrecio(body){SIM_ULT=body;body={...body,descuento:+(($('#simDe
     <details style="margin-top:10px"><summary><b>¿El modelo acierta?</b> Comparación con tus importaciones reales</summary><table style="margin-top:6px"><thead><tr><th>Bici</th><th class="n">EXW</th><th class="n">Costo real</th><th class="n">Modelo</th><th class="n">Diferencia</th></tr></thead><tbody>${j.validacion.map(v=>`<tr><td>${esc(v.nombre)}</td><td class="n">${u(v.exw)}</td><td class="n">${u(v.real)}</td><td class="n">${u(v.modelo)}</td><td class="n" style="color:${Math.abs(v.dif)<=5?'var(--fg-ok)':'var(--fg-warn)'}">${v.dif>0?'+':''}${v.dif}%</td></tr>`).join('')}</tbody></table><p class="desc">Costo real = costo sin impuestos deducibles de tu archivo de Compras. Positivo = el modelo es más conservador (cobra un poco más).</p></details>
     <p class="desc" style="margin-top:8px">Ganancia = precio de venta con IGV − costo con IGV (el IGV de la importación es crédito fiscal, por eso se compara todo con IGV). Margen = ganancia ÷ precio de lista. Incluye el armado (S/ ${j.armado_pen??150}). En «Arancel / ad valorem» pon solo los impuestos que <b>no</b> recuperas.</p>`}
   catch(err){out.innerHTML=`<p class="err">${esc(err.message)}</p>`}}
-document.addEventListener('change',e=>{if(e.target.id==='simDesc'&&SIM_ULT)simPrecio(SIM_ULT)});
+document.addEventListener('change',e=>{if(e.target.id==='simDesc'&&SIM_ULT)simPrecio(SIM_ULT);if(e.target.id==='simBici'&&e.target.value)simPrecio({sku_id:+e.target.value})});
 document.addEventListener('click',e=>{const t=e.target;
+  if(t.id==='simBiciIr'){const id=+$('#simBici').value;if(!id)return toast('Elige una bici');simPrecio({sku_id:id})}
   if(t.id==='simIr')simPrecio({marca:$('#simMarca').value,costo:+$('#simCosto').value,pvp:+$('#simPvp').value,ebike:$('#simEb').checked});
   if(t.dataset&&t.dataset.calc){tab('sim');simPrecio({sku_id:+t.dataset.calc});$('#simCard').scrollIntoView({behavior:'smooth'})}});
 
@@ -718,6 +752,9 @@ async function cargar(){
   try{E=await api('/api/bikes/admin/estado');$('#msg').innerHTML='';
     $('#tcInfo').textContent=`TC USD ${E.tc.usd.toFixed(3)} · EUR ${E.tc.eur.toFixed(3)} (${E.tc.fuente})`;
     pintarReservas();pintarLlamadas();pintarCatalogo();pintarReglas();pintarModelos();pintarPagina();
+    {const dl=$('#crMarcas');if(dl)dl.innerHTML=[...new Set([...(E.marcas_base||[]),...E.skus.map(x=>x.marca)])].sort().map(m=>`<option value="${esc(m)}">`).join('');
+     const sb=$('#simBici');if(sb){const g=new Map();E.skus.filter(x=>x.activo).forEach(x=>{const k=x.marca+'|'+x.modelo;if(!g.has(k))g.set(k,x)});const v=sb.value;
+       sb.innerHTML='<option value="">— Elige una bici del catálogo —</option>'+[...g.values()].sort((a,b)=>(a.marca+a.modelo).localeCompare(b.marca+b.modelo)).map(x=>`<option value="${x.id}">${esc(x.marca)} · ${esc(x.modelo)}</option>`).join('');sb.value=v}}
     const fm=$('#fmMarca');if(fm&&!fm.options.length){const ms=[...new Set(E.skus.map(x=>x.marca))].sort();fm.innerHTML=ms.map(m=>`<option>${esc(m)}</option>`).join('');fm.onchange=()=>{$('#fmUrl').value=((E.marcas_info||{})[fm.value]||{}).url_modelos||''}}pintarFmMarcas();prepararLector();
     pintarPendientes();if(!IA)cargarIA();cargarERP();
     const sm=$('#simMarca');if(sm&&!sm.options.length)sm.innerHTML=[...new Set([...E.marcas_base,...E.skus.map(x=>x.marca)])].map(m=>`<option>${esc(m)}</option>`).join('');

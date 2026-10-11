@@ -1441,12 +1441,18 @@ ${fila(`Saldo al recibir la bicicleta${usdM ? ' (fijo en dólares)' : ''}`, $(nu
   async function sincronizarStockERP() {
     const db = erp(); if (!db) return { error: 'Sin conexión al ERP (PROD_URL)' };
     await prepararTablas();
-    const [filas] = await db.query(`
-      SELECT pv.id AS vid, pv.sku, pv.name AS variacion, p.name AS producto, l.name AS loc, l.type AS tipo, ls.quantity AS q, IFNULL(ls.reserved_quantity, 0) AS r
+    // Solo productos de la subcategoría «Bicicletas» (o «Bicicletas …», ej. eléctricas) del ERP; así no entran accesorios como «Fidlock … para bicicleta»
+    const SEL = `SELECT pv.id AS vid, pv.sku, pv.name AS variacion, p.name AS producto, l.name AS loc, l.type AS tipo, ls.quantity AS q, IFNULL(ls.reserved_quantity, 0) AS r
       FROM location_stocks ls JOIN locations l ON l.id = ls.location_id
       JOIN product_variations pv ON pv.id = ls.product_variation_id LEFT JOIN products p ON p.id = pv.product_id
-      WHERE ls.quantity > 0 AND pv.deleted_at IS NULL AND (p.deleted_at IS NULL OR p.id IS NULL)
-        AND (p.name LIKE '%bicicleta%' OR pv.name LIKE '%bicicleta%' OR p.name LIKE '%e-bike%' OR p.name LIKE '%ebike%')`);
+      WHERE ls.quantity > 0 AND pv.deleted_at IS NULL AND (p.deleted_at IS NULL OR p.id IS NULL)`;
+    let filas;
+    try {
+      [filas] = await db.query(SEL + ` AND EXISTS (SELECT 1 FROM product_product_category ppc JOIN product_categories c ON c.id = ppc.product_category_id LEFT JOIN product_categories pa ON pa.id = c.parent_id
+        WHERE ppc.product_id = p.id AND (c.name LIKE 'bicicleta%' OR c.name LIKE 'e-bike%' OR c.name LIKE 'ebike%' OR pa.name LIKE 'bicicleta%'))`);
+    } catch (e) { // ERP sin tabla de categorías: por nombre
+      [filas] = await db.query(SEL + ` AND (p.name LIKE '%bicicleta%' OR pv.name LIKE '%bicicleta%' OR p.name LIKE '%e-bike%' OR p.name LIKE '%ebike%')`);
+    }
     const porVid = new Map();
     for (const f of filas) {
       if (f.tipo === 'consignment' || NO_VENDIBLES.has(norm(f.loc))) continue;
@@ -1702,12 +1708,12 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
     try {
       const R = await leerReglas(); const tc = await tcEfectivo(R);
       await prepararTablas();
-      const [exist] = marcas.length ? await portalPool.query(`SELECT id, marca, modelo, montaje, talla, color, sku, activo, reservado FROM bk_skus WHERE marca IN (?)`, [marcas]) : [[]];
+      const [exist] = marcas.length ? await portalPool.query(`SELECT id, marca, modelo, montaje, talla, color, sku, activo, reservado, notas FROM bk_skus WHERE marca IN (?)`, [marcas]) : [[]];
       const mapa = new Map(exist.map(e => [claveSku(e), e]));
       const nuevas = filas.filter(f => !mapa.has(claveSku(f))).length;
       const actualizadas = filas.length - nuevas;
       const vistas = new Set(filas.map(claveSku));
-      const desactivar = modo === 'reemplazar' ? exist.filter(e => e.activo && !vistas.has(claveSku(e))) : [];
+      const desactivar = modo === 'reemplazar' ? exist.filter(e => e.activo && !vistas.has(claveSku(e)) && !String(e.notas || '').startsWith('Creada desde la web')) : []; // las creadas a mano no se apagan
       if (b.simular) {
         return res.json({ simulacion: true, total: crudas.length, validas: filas.length, nuevas, actualizadas, desactivadas: desactivar.length, marcas,
           errores: conErrores.slice(0, 200), marcas_nuevas: marcas.filter(m => !MARCAS_BASE.includes(m)),
@@ -1979,6 +1985,69 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
       res.json({ ok: true, fotos: f.imagenes.length, specs: (f.specs || []).length, descripcion: !!f.descripcion, ia: !!f.ia, ia_error: f.ia_error || null,
         geometria: d.geometria ? d.geometria.filas.length : 0, geo_img: !!d.geo, recorrido: !!d.rec_del, material: !!d.material, tallas: Array.isArray(d.tallas) && d.tallas.length > 0, peso: !!d.peso });
     } catch (e) { res.status(400).json({ error: e.message }); }
+  });
+
+  // ── Crear una bici nueva desde una página de la marca (link o Lector) ──
+  // 1) /crear/leer lee la página y propone nombre, tallas, aro, recorrido, material, motor y colores; 2) /crear guarda los SKU (talla × color) y la ficha.
+  const borradores = new Map();
+  function propuestaDe(f, marca, url) {
+    const d = { ...datosDeSpecs(f.specs || []), ...Object.fromEntries(Object.entries(f.datos || {}).filter(([, x]) => x)) };
+    const slugUrl = decodeURIComponent(String(url).split('?')[0].split('/').filter(Boolean).pop() || '').replace(/[0-9a-f]{13}$/i, '').replace(/[-_]+/g, ' ');
+    const limpiar = t => String(t || '').split(/\s[|–—]\s|\s-\s/)[0].replace(new RegExp(marca.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'ig'), '').replace(/\b(19|20)\d{2}\b/g, '').replace(/\s+/g, ' ').trim();
+    const nombre = (limpiar(f.titulo) && limpiar(f.titulo).length >= 3 && !/^(bikes?|bicicletas?|home|inicio)$/i.test(limpiar(f.titulo)) ? limpiar(f.titulo) : limpiar(slugUrl)).toUpperCase().slice(0, 120);
+    const geo = d.geometria || {};
+    let tallas = (Array.isArray(geo.tallas) && geo.tallas.length ? geo.tallas : Array.isArray(d.tallas) ? d.tallas.map(x => x && x.t) : []).filter(Boolean).map(t => String(t).toUpperCase().replace(/\s+/g, '')).slice(0, 10);
+    const sp = re => ((f.specs || []).find(x => re.test(x.k)) || {}).v || '';
+    const motor = d.motor || sp(/^(motor|drive unit|unidad motriz)/i);
+    const colores = sp(/^(colou?r(es|s)?|acabado|finish)/i).split(/\s*[\/,;]\s*|\s+y\s+|\s+and\s+/).map(x => x.trim()).filter(x => x && x.length < 40).slice(0, 4);
+    const aro = d.aro === 'Mullet' ? 'Mullet' : (/(^|\D)29(?!\d)/.test(sp(/^(neum[aá]tico|tire|rueda|wheel|llanta)/i)) ? '29' : /27[.,]5/.test(sp(/^(neum[aá]tico|tire|rueda|wheel|llanta)/i)) ? '27.5' : d.aro || '');
+    return { modelo: nombre, categoria: motor ? 'E-MTB' : 'MTB', aro: String(aro || ''), recorrido: d.rec_tras ? d.rec_tras + ' mm' : d.rec_del ? d.rec_del + ' mm' : '', material: d.material || '', motor: String(motor || '').slice(0, 120),
+      peso: d.peso || '', tallas, colores, anio: (String(url + ' ' + (f.titulo || '')).match(/\b(20[2-3]\d)\b/) || [])[1] || '',
+      fotos: (f.imagenes || []).length, specs: (f.specs || []).length, descripcion: !!f.descripcion, geometria: !!(d.geometria && d.geometria.filas), foto: (f.imagenes || [])[0] || null };
+  }
+  app.post('/api/bikes/admin/crear/leer', authAdmin, mBikes, async (req, res) => {
+    const b = req.body || {}; const marca = String(b.marca || '').trim().slice(0, 60), url = String(b.url || '').trim().slice(0, 500);
+    if (!marca || !/^https?:\/\//i.test(url)) return res.status(400).json({ error: 'Elige la marca y pega el link de la bici' });
+    try {
+      const f = Array.isArray(b.imgs) || b.texto ? await fichaDesdeNavegador(url, b.imgs, b.texto, '') : await leerFicha(url, { nombre: marca });
+      if (!(f.imagenes || []).length && !(f.specs || []).length) throw new Error('No se encontraron fotos ni especificaciones en esa página' + (b.texto ? '' : '. Si la marca bloquea al portal, usa el Lector Kuranko'));
+      const token = require('crypto').randomBytes(8).toString('hex'); if (borradores.size > 50) borradores.clear();
+      borradores.set(token, { f, url, marca, t: Date.now() });
+      const [[ex]] = await portalPool.query('SELECT COUNT(*) n FROM bk_skus WHERE marca=? AND activo=1', [marca]);
+      res.json({ token, ...propuestaDe(f, marca, url), skus_marca: ex.n });
+    } catch (e) { res.status(400).json({ error: e.message + (b.texto || /Lector/.test(e.message) ? '' : '. Si la marca bloquea al portal, ábrela en tu navegador y usa el Lector Kuranko → «Crear como bici nueva».') }); }
+  });
+  app.post('/api/bikes/admin/crear', authAdmin, mBikes, async (req, res) => {
+    const b = req.body || {}; const br = borradores.get(String(b.token || ''));
+    const marca = String(b.marca || (br && br.marca) || '').trim().slice(0, 60), modelo = String(b.modelo || '').trim().toUpperCase().slice(0, 120);
+    const tallas = [...new Set((Array.isArray(b.tallas) ? b.tallas : String(b.tallas || '').split(/[,\s]+/)).map(t => String(t).trim().toUpperCase()).filter(Boolean))].slice(0, 12);
+    const colores = [...new Set((Array.isArray(b.colores) ? b.colores : String(b.colores || '').split(',')).map(c => String(c).trim()).filter(Boolean))].slice(0, 6);
+    const costo = num(b.costo), pvp = num(b.pvp), moneda = b.moneda === 'EUR' ? 'EUR' : 'USD';
+    if (!marca || modelo.length < 2) return res.status(400).json({ error: 'Falta la marca o el nombre del modelo' });
+    if (!tallas.length) return res.status(400).json({ error: 'Pon al menos una talla (ej. S, M, L, XL)' });
+    if (!(costo > 0)) return res.status(400).json({ error: 'Pon el costo (precio de compra a la marca)' });
+    if (!colores.length) colores.push('Único');
+    const cat = ['MTB', 'E-MTB', 'Gravel', 'Ruta', 'Urbana', 'Niños'].includes(b.categoria) ? b.categoria : 'MTB';
+    const corto = (x, n) => String(x || '').trim().slice(0, n) || null;
+    try {
+      await prepararTablas();
+      const f = br ? br.f : null, url = br ? br.url : (/^https?:\/\//i.test(b.url || '') ? String(b.url).slice(0, 500) : null);
+      let nuevas = 0, act = 0;
+      for (const talla of tallas) for (const color of colores) {
+        const fila = { categoria: cat, aro: corto(b.aro, 20), recorrido: corto(b.recorrido, 40), material: corto(b.material, 60), motor: cat === 'E-MTB' ? corto(b.motor, 120) || 'sí' : null,
+          anio: num(b.anio) > 2000 ? num(b.anio) : null, costo, moneda, pvp: pvp > 0 ? pvp : null, stock: Math.round(num(b.stock)), estado: 'A pedido', peso: corto(b.peso, 20), url_ficha: url, notas: 'Creada desde la web de la marca' };
+        const [[e]] = await portalPool.query('SELECT id FROM bk_skus WHERE marca=? AND modelo=? AND talla=? AND color=? LIMIT 1', [marca, modelo, talla, color]);
+        const c = Object.keys(fila);
+        if (e) { await portalPool.query(`UPDATE bk_skus SET ${c.map(k => k + '=?').join(', ')}, activo=1, actualizado=NOW() WHERE id=?`, [...c.map(k => fila[k]), e.id]); act++; }
+        else { await portalPool.query(`INSERT INTO bk_skus (marca, modelo, montaje, talla, color, ${c.join(', ')}) VALUES (?,?,?,?,?,${c.map(() => '?').join(',')})`, [marca, modelo, 'Base', talla, color, ...c.map(k => fila[k])]); nuevas++; }
+      }
+      if (f) await portalPool.query(`INSERT INTO bk_modelos (marca, modelo, descripcion, imagenes, url_ficha, specs, datos, manual) VALUES (?,?,?,?,?,?,?,0)
+        ON DUPLICATE KEY UPDATE descripcion=VALUES(descripcion), imagenes=IF(VALUES(imagenes)='[]', imagenes, VALUES(imagenes)), url_ficha=VALUES(url_ficha), specs=VALUES(specs), datos=VALUES(datos), manual=0, actualizado=NOW()`,
+        [marca, modelo, String(f.descripcion || '').slice(0, 4000), JSON.stringify(f.imagenes || []), url, JSON.stringify(f.specs || []), JSON.stringify(f.datos || {})]);
+      if (br) borradores.delete(String(b.token));
+      limpiarCache();
+      res.json({ ok: true, nuevas, actualizadas: act, skus: tallas.length * colores.length, modelo, marca });
+    } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
   // Lee cada ficha con IA y la guarda. lista = [[marca, modelo, url]]

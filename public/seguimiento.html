@@ -139,6 +139,7 @@ td.n,th.n{text-align:right}
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
       <h3 style="margin:0">Envíos</h3>
       <div class="row" style="align-items:center">
+        <button id="btnTrack" class="ghost sm" onclick="actualizarTracking()" title="Lee el estado del courier (tramo origen→almacén). Se actualiza cada 3 días.">🚚 Actualizar tracking</button>
         <select id="filtroEnv" onchange="pintarEnvios()">
           <option value="">Activos</option>
           <option value="en_transito">En tránsito</option>
@@ -263,7 +264,7 @@ async function init(){
   // La barra de backorders la ven ambos (para agrupar y notas); el botón de
   // sincronizar solo el maestro.
   $('boTools').classList.remove('hide');
-  if(!ES_MAESTRO){const b=$('btnSync');if(b)b.style.display='none';}
+  if(!ES_MAESTRO){const b=$('btnSync');if(b)b.style.display='none';const t=$('btnTrack');if(t)t.style.display='none';}
   try{CATALOG=await api('/catalogo');initCat();}catch(e){CATALOG=[];}
   // 1) Pinta de inmediato lo YA guardado en el portal (rápido, pocas consultas).
   await Promise.all([cargarEnvios(),cargarBackorders()]);
@@ -316,6 +317,8 @@ function pintarEnvios(){
     const head=`<div class="env-h" onclick="this.parentNode.classList.toggle('open')">
       <b>📦 ${esc(e.tracking||'(sin tracking)')}</b>
       ${badgeEstado(e.estado)}
+      ${(e.fase&&e.fase!=='transito'&&e.fase!=='recibido')?`<span class="chip">${FASE_LBL[e.fase]||''}</span>`:''}
+      ${e.eta&&e.fase!=='recibido'?`<span class="chip">🇵🇪 ~${esc(String(e.eta).slice(0,10))}</span>`:''}
       ${e.archivado?'<span class="chip">🗄️ archivado</span>':''}
       ${e.courier?`<span class="chip">${esc(e.courier)}</span>`:''}
       <span class="muted sm">${ES_MAESTRO&&e.proveedor?esc(e.proveedor):''}${e.n_factura?((ES_MAESTRO&&e.proveedor?' · ':'')+'Fact. '+esc(e.n_factura)):''}</span>
@@ -350,9 +353,41 @@ function pintarEnvios(){
     return `<div class="env">${head}<div class="env-body">
       ${e.nota?`<div class="muted sm" style="margin-bottom:6px">📝 ${esc(e.nota)}</div>`:''}
       <div class="tw"><table><thead><tr><th>Código</th><th>Descripción (español)</th><th>SKU en sistema</th><th class="n">Cant</th><th>Confianza</th><th>Cubre backorder / sobra</th></tr></thead><tbody>${rows||'<tr><td colspan=6 class="muted">Sin ítems</td></tr>'}</tbody></table></div>
+      ${panelLogistica(e)}
       ${acciones}
     </div></div>`;
   }).join('');
+}
+const FASE_LBL={transito:'En camino al almacén',en_hub:'En almacén',embarcado:'Embarcado a Perú',recibido:'Recibido en Perú'};
+function panelLogistica(e){
+  if(!ES_MAESTRO) return '';
+  const hubOpt=(v,t)=>`<option value="${v}" ${(e.hub||'')===v?'selected':''}>${t}</option>`;
+  const fb=(f,t)=>`<button class="sm ${(e.fase||'transito')===f?'ok':'ghost'}" onclick="setFase('${e.id}','${f}')">${t}</button>`;
+  const eta=e.eta?`<span class="badge b-tra" style="margin-left:6px">🇵🇪 llega aprox. ${esc(String(e.eta).slice(0,10))}</span>`:'';
+  const courier=e.api_resumen?`<div class="muted sm" style="margin-top:5px">🚚 Courier: ${esc(e.api_resumen)}${e.api_at?(' · '+esc(String(e.api_at).slice(0,10))):''}</div>`:'';
+  const salida=(e.fase==='embarcado')?`<div class="f" style="margin-top:6px;max-width:200px"><label>Fecha de salida del hub</label><input type="date" value="${e.fecha_salida?esc(String(e.fecha_salida).slice(0,10)):''}" onchange="setSalida('${e.id}',this.value)"></div>`:'';
+  return `<div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">
+    <div class="muted sm" style="margin-bottom:5px">Logística (lo que ve el cliente en su seguimiento)</div>
+    <div class="row" style="align-items:flex-end">
+      <div class="f"><label>Almacén destino (tramo 1)</label><select onchange="setHub('${e.id}',this.value)">${hubOpt('','— elegir —')}${hubOpt('miami','Miami (EE.UU.)')}${hubOpt('madrid','Madrid (España)')}${hubOpt('espana','España')}${hubOpt('otro','Otro')}</select></div>
+      <div class="f"><label>Estado del envío</label><div class="row">${fb('transito','En camino al almacén')}${fb('en_hub','En almacén')}${fb('embarcado','Embarcado a Perú')}${fb('recibido','Recibido')}</div></div>
+      ${eta}
+    </div>
+    ${salida}${courier}
+  </div>`;
+}
+async function putLog(id,payload){try{await api('/envio/'+encodeURIComponent(id)+'/logistica','PUT',payload);await cargarEnvios();}catch(e){toast(e.message);}}
+function setHub(id,hub){const e=ENVIOS.find(x=>x.id===id)||{};putLog(id,{hub,fase:e.fase||'transito',fecha_salida:e.fecha_salida});}
+function setFase(id,fase){const e=ENVIOS.find(x=>x.id===id)||{};putLog(id,{hub:e.hub||'',fase,fecha_salida:e.fecha_salida});}
+function setSalida(id,fecha){const e=ENVIOS.find(x=>x.id===id)||{};putLog(id,{hub:e.hub||'',fase:'embarcado',fecha_salida:fecha});}
+async function actualizarTracking(){
+  const b=$('btnTrack'); if(b){b.disabled=true;b.textContent='Actualizando…';}
+  try{const r=await api('/track-refresh','POST',{force:true});
+    if(r.api===false)toast('Tracking en modo manual (sin API configurada).');
+    else toast('Tracking actualizado'+(r.actualizados!=null?(': '+r.actualizados+'/'+r.total):''));
+    await cargarEnvios();
+  }catch(e){toast(e.message);}
+  finally{if(b){b.disabled=false;b.textContent='🚚 Actualizar tracking';}}
 }
 
 /* leer factura con IA */
@@ -588,7 +623,7 @@ function filaBo(b){
     <td style="text-align:center">${chk}</td>
     <td>${esc(b.sku||'')}</td>
     <td>${esc(b.nombre||'')}${arch}${cov}</td>
-    <td>${esc(b.cliente||'')}</td>
+    <td>${esc(b.cliente||'')}${(ES_MAESTRO&&b.cliente)?` <button class="ghost sm" title="Compartir seguimiento con el cliente" onclick="compartirCliente('${jsq(b.cliente)}')">🔗</button>`:''}</td>
     <td>${esc(b.venta||'')}</td>
     <td class="sm" style="white-space:nowrap">${b.fecha?esc(b.fecha):'—'}</td>
     <td class="n">${cantCell}</td>
@@ -639,6 +674,23 @@ async function borrarGrupo(id){if(!confirm('¿Eliminar el grupo? Sus ítems qued
 /* modal helpers */
 function showModal(html){$('modalHost').innerHTML=`<div class="modal-bg" onclick="if(event.target===this)cerrarModal()"><div class="modal">${html}</div></div>`;}
 function cerrarModal(){$('modalHost').innerHTML='';}
+// Compartir el seguimiento público con el cliente (link por cliente).
+async function compartirCliente(cliente){
+  try{
+    const r=await api('/cliente-link?cliente='+encodeURIComponent(cliente),'GET');
+    const url=location.origin+r.path;
+    const wa='https://wa.me/?text='+encodeURIComponent('Hola '+cliente+', puedes seguir el estado de tu pedido aquí: '+url);
+    showModal(`<h3>Seguimiento para ${esc(cliente)}</h3>
+      <div class="hint">Comparte este enlace. El cliente verá SOLO el estado de su pedido (sin precios, proveedor ni datos internos).</div>
+      <input id="shareUrl" value="${esc(url)}" readonly style="width:100%" onclick="this.select()">
+      <div class="row" style="margin-top:12px;justify-content:flex-end;align-items:center">
+        <button class="ghost" onclick="copiarLink()">Copiar enlace</button>
+        <a href="${esc(wa)}" target="_blank" style="text-decoration:none;background:#25D366;color:#fff;border-radius:8px;padding:8px 12px;font-weight:600">Enviar por WhatsApp</a>
+        <button class="ghost" onclick="cerrarModal()">Cerrar</button>
+      </div>`);
+  }catch(e){toast(e.message);}
+}
+function copiarLink(){const i=$('shareUrl');if(!i)return;i.select();try{document.execCommand('copy');toast('Enlace copiado');}catch(e){try{navigator.clipboard.writeText(i.value);toast('Enlace copiado');}catch(_){}}}
 
 init();
 </script>

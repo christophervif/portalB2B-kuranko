@@ -30,6 +30,10 @@
 //  horario). Con eso el reporte arma la línea de tiempo del día: en el local /
 //  fuera / sin señal, y un mapa con el recorrido.
 //
+//  Feriados: los días marcados como feriado no cuentan como falta ni exigen
+//  horas; si trabaja ese día, todo lo trabajado va a su saldo a favor. Se
+//  precargan los feriados nacionales de Perú (2026 y 2027) y se editan en Ajustes.
+//
 //  Control cruzado (pasivo): lee del sistema principal (solo lectura) la primera
 //  y la última acción de cada usuario en el día (ventas, movimientos de stock…)
 //  para comparar "marcó a las 8:55" con "empezó a trabajar a las 9:30".
@@ -45,7 +49,20 @@ const MAX_EQUIPOS = 3;
 const MAX_DIAS_REPORTE = 93;
 const MIN_FUERA = 5;
 const GAP_SENAL_MIN = 30;     // con ubicación periódica: más de 30 min sin datos = "sin señal"
-const MARGEN_UBIC_MIN = 60;   // la ubicación periódica solo se guarda dentro de la jornada (± margen)          // salidas más cortas se ignoran (rebote del GPS en el borde)
+const MARGEN_UBIC_MIN = 60;
+// Feriados nacionales de Perú (Ley 31301 y modificatorias). Se precargan una vez.
+const FERIADOS_PERU = [
+  ['2026-01-01', 'Año Nuevo'], ['2026-04-02', 'Jueves Santo'], ['2026-04-03', 'Viernes Santo'], ['2026-05-01', 'Día del Trabajo'],
+  ['2026-06-07', 'Batalla de Arica y Día de la Bandera'], ['2026-06-29', 'San Pedro y San Pablo'], ['2026-07-23', 'Día de la Fuerza Aérea del Perú'],
+  ['2026-07-28', 'Fiestas Patrias'], ['2026-07-29', 'Fiestas Patrias'], ['2026-08-06', 'Batalla de Junín'], ['2026-08-30', 'Santa Rosa de Lima'],
+  ['2026-10-08', 'Combate de Angamos'], ['2026-11-01', 'Día de Todos los Santos'], ['2026-12-08', 'Inmaculada Concepción'],
+  ['2026-12-09', 'Batalla de Ayacucho'], ['2026-12-25', 'Navidad'],
+  ['2027-01-01', 'Año Nuevo'], ['2027-03-25', 'Jueves Santo'], ['2027-03-26', 'Viernes Santo'], ['2027-05-01', 'Día del Trabajo'],
+  ['2027-06-07', 'Batalla de Arica y Día de la Bandera'], ['2027-06-29', 'San Pedro y San Pablo'], ['2027-07-23', 'Día de la Fuerza Aérea del Perú'],
+  ['2027-07-28', 'Fiestas Patrias'], ['2027-07-29', 'Fiestas Patrias'], ['2027-08-06', 'Batalla de Junín'], ['2027-08-30', 'Santa Rosa de Lima'],
+  ['2027-10-08', 'Combate de Angamos'], ['2027-11-01', 'Día de Todos los Santos'], ['2027-12-08', 'Inmaculada Concepción'],
+  ['2027-12-09', 'Batalla de Ayacucho'], ['2027-12-25', 'Navidad']
+];   // la ubicación periódica solo se guarda dentro de la jornada (± margen)          // salidas más cortas se ignoran (rebote del GPS en el borde)
 
 // ── Fechas / horas ─────────────────────────────────────────────────────────
 const p2 = n => String(n).padStart(2, '0');
@@ -153,6 +170,19 @@ module.exports = function registrarAsistencia({
     // Horario por día (JSON {"1":["09:00","18:00"],…,"6":["09:00","13:00"]})
     for (const t of ['asist_config', 'asist_personal'])
       try { await portalPool.query(`ALTER TABLE ${t} ADD COLUMN horario_json TEXT NULL`); } catch (e) { /* ya existe */ }
+    // Feriados (se precargan los nacionales una sola vez; luego los maneja el administrador)
+    await portalPool.query(`
+      CREATE TABLE IF NOT EXISTS asist_feriados (
+        fecha DATE PRIMARY KEY,
+        nombre VARCHAR(120) NOT NULL,
+        creado_por VARCHAR(80) NULL
+      )`);
+    try { await portalPool.query(`ALTER TABLE asist_config ADD COLUMN feriados_ini TINYINT NOT NULL DEFAULT 0`); } catch (e) { /* ya existe */ }
+    const [[ini]] = await portalPool.query(`SELECT feriados_ini FROM asist_config WHERE id=1`);
+    if (ini && !ini.feriados_ini) {
+      for (const [f, n] of FERIADOS_PERU) await portalPool.query(`INSERT IGNORE INTO asist_feriados (fecha, nombre, creado_por) VALUES (?,?,'precarga')`, [f, n]);
+      await portalPool.query(`UPDATE asist_config SET feriados_ini=1 WHERE id=1`);
+    }
     // Para quien ya tenía la tabla creada (versión anterior del módulo)
     try { await portalPool.query(`ALTER TABLE asist_personal ADD COLUMN geo_token VARCHAR(48) NULL, ADD UNIQUE KEY uq_geo (geo_token)`); } catch (e) { /* ya existe */ }
     await portalPool.query(`
@@ -268,6 +298,7 @@ module.exports = function registrarAsistencia({
     const hoy = fechaLimaDe(new Date());
     const lunes = lunesDe(hoy), mes1 = hoy.slice(0, 8) + '01';
     const r = await construirResumen(lunes < mes1 ? lunes : mes1, hoy, { usuario, conActividad: false });
+    const ferSab = await feriadosEntre(sumarDias(lunes, 5), sumarDias(lunes, 5));
     const out = {};
     r.totales.forEach(t => { out[t.usuario] = { usuario: t.usuario, nombre: t.nombre, semana: 0, mes: 0, dias_semana: 0 }; });
     r.filas.forEach(f => {
@@ -280,7 +311,7 @@ module.exports = function registrarAsistencia({
     const sab = sumarDias(lunes, 5);
     for (const t of r.totales) {
       const o = out[t.usuario], hs = r.horarios[t.usuario] || {};
-      const hd = hs[6];
+      const hd = ferSab[sab] ? null : hs[6];
       if (hd && sab >= hoy) {
         const sug = aMin(hd.salida) - (o.semana_lv || 0); // debe (saldo negativo) → sale más tarde
         const fmt = m => p2(Math.floor(((m % 1440) + 1440) % 1440 / 60)) + ':' + p2(((m % 60) + 60) % 60);
@@ -288,6 +319,11 @@ module.exports = function registrarAsistencia({
       }
     }
     return Object.values(out);
+  }
+
+  async function feriadosEntre(desde, hasta) {
+    const [r] = await portalPool.query(`SELECT DATE_FORMAT(fecha,'%Y-%m-%d') AS f, nombre FROM asist_feriados WHERE fecha BETWEEN ? AND ?`, [desde, hasta]);
+    const m = {}; r.forEach(x => { m[x.f] = x.nombre; }); return m;
   }
 
   async function marcasDelDia(usuario, fecha) {
@@ -321,7 +357,11 @@ module.exports = function registrarAsistencia({
         maestro: !!(req.admin && req.admin.maestro), puede_controlar: puedeControlar(req.admin),
         hoy, servidor_ts: ahora.getTime(),
         entrada: marcas.entrada || null, salida: marcas.salida || null, siguiente,
-        horario: horarioDe(p, c)[diaSemana(hoy)] || null, laborable: !!horarioDe(p, c)[diaSemana(hoy)],
+        ...(await (async () => {
+          const fer = (await feriadosEntre(hoy, hoy))[hoy] || null;
+          const hd = fer ? null : (horarioDe(p, c)[diaSemana(hoy)] || null);
+          return { horario: hd, laborable: !!hd, feriado: fer };
+        })()),
         saldo: p.controlar ? ((await saldosActuales(usuario))[0] || null) : null,
         ip, ip_local: !!sedeIp, sede_ip: sedeIp ? sedeIp.nombre : null,
         hay_sedes: sedes.length > 0
@@ -571,13 +611,14 @@ module.exports = function registrarAsistencia({
   // Línea de tiempo de un día: tramos "local" / "fuera" / "incierto" / "sin_senal" / "desconocido"
   //   eventos: geo del trabajador (ordenados) {e:'salida'|'entrada'|'pos', t:Date, dentro, dist}
   //   evidencias de marcas: [{t:Date}] cuando la marca prueba que estaba en el local
-  function lineaDia(eventos, marcasLocal, desdeT, hastaT) {
+  function lineaDia(eventos, marcasLocal, desdeT, hastaT, iniDiaT = null) {
     if (!(hastaT > desdeT)) return { tramos: [], conUbicacion: false };
     const conUbicacion = eventos.some(x => x.e === 'pos' && x.t.getTime() >= desdeT && x.t.getTime() <= hastaT);
     const lugarDe = x => x.e === 'salida' ? 'fuera' : x.e === 'entrada' ? 'local' : (x.dentro == null ? null : (x.dentro ? 'local' : 'fuera'));
     // Estado al inicio: último evento anterior (de geocerca o ubicación)
     let estado = 'desconocido', fuente = null;
-    for (const x of eventos) { if (x.t.getTime() > desdeT) break; const l = lugarDe(x); if (l) { estado = l; fuente = x.e === 'pos' ? 'gps' : 'geocerca'; } }
+    // (solo eventos del mismo día: lo de la noche anterior no dice nada de hoy)
+    for (const x of eventos) { const t = x.t.getTime(); if (t > desdeT) break; if (iniDiaT != null && t < iniDiaT) continue; const l = lugarDe(x); if (l) { estado = l; fuente = x.e === 'pos' ? 'gps' : 'geocerca'; } }
     const ev = [];
     eventos.forEach(x => { const t = x.t.getTime(); const l = lugarDe(x); if (l && t > desdeT && t <= hastaT) ev.push({ t, lugar: l, fuente: x.e === 'pos' ? 'gps' : 'geocerca', dist: x.dist }); });
     marcasLocal.forEach(t => { const tt = t.getTime(); if (tt >= desdeT && tt <= hastaT) ev.push({ t: tt, lugar: 'local', fuente: 'marca' }); });
@@ -649,6 +690,7 @@ module.exports = function registrarAsistencia({
 
   async function construirResumen(desde, hasta, { usuario = null, conActividad = true } = {}) {
     const c = await leerConfig();
+    const feriados = await feriadosEntre(desde, hasta);
     const [pers] = await portalPool.query(
       `SELECT *, DATE_FORMAT(creado,'%Y-%m-%d') AS creado_f FROM asist_personal ${usuario ? 'WHERE usuario=?' : 'WHERE controlar=1'} ORDER BY nombre, usuario`,
       usuario ? [usuario] : []);
@@ -674,16 +716,18 @@ module.exports = function registrarAsistencia({
       horarios[p.usuario] = h;
       const t = { usuario: p.usuario, nombre: p.nombre || p.usuario, dias_lab: 0, asistidos: 0, faltas: 0, tardanzas: 0, min_tardanza: 0, min_trabajados: 0, sin_salida: 0, observadas: 0, salidas: 0, min_fuera: 0, saldo: 0, compensadas: 0 };
       for (let f = desde; f <= hasta && f <= hoy; f = sumarDias(f, 1)) {
-        const hd = h[diaSemana(f)] || null;
+        const fer = feriados[f] || null;
+        const hdBase = h[diaSemana(f)] || null;
+        const hd = fer ? null : hdBase;   // feriado: no se exigen horas
         const lab = !!hd;
         const en = idx[p.usuario + '|' + f + '|entrada'], sa = idx[p.usuario + '|' + f + '|salida'];
-        if (!en && !sa && (!lab || (p.creado_f && f < p.creado_f))) continue; // sin faltas antes de entrar al control
+        if (!en && !sa && (!(lab || (fer && hdBase)) || (p.creado_f && f < p.creado_f))) continue; // sin faltas antes de entrar al control
         const valida = m => m && m.estado !== 'rechazada' ? m : null;
         const e = valida(en), s = valida(sa);
         const de = e ? deUtcSql(e.ts) : null, ds = s ? deUtcSql(s.ts) : null;
         const fila = {
           fecha: f, dia: diaSemana(f), usuario: p.usuario, nombre: p.nombre || p.usuario, laborable: lab,
-          horario: hd ? hd.entrada + '–' + hd.salida : '—',
+          horario: hd ? hd.entrada + '–' + hd.salida : '—', feriado: fer,
           entrada: de ? horaLimaDe(de) : null, salida: ds ? horaLimaDe(ds) : null,
           entrada_estado: en ? en.estado : null, salida_estado: sa ? sa.estado : null,
           entrada_id: en ? en.id : null, salida_id: sa ? sa.id : null,
@@ -707,6 +751,7 @@ module.exports = function registrarAsistencia({
         if (e && s) fila.estado = 'completo';
         else if (e && !s) fila.estado = f === hoy ? 'en_curso' : 'sin_salida';
         else if (!e && lab) fila.estado = (f === hoy && minAhora < aMin(hd.salida)) ? 'pendiente' : 'falta';
+        else if (!e && !s && fer) fila.estado = 'feriado';
         else fila.estado = 'sin_entrada';
         if ([en, sa].some(m => m && m.estado === 'observada')) fila.observada = true;
         // Dónde estuvo durante la jornada (celular de empresa: geocerca y/o ubicación periódica)
@@ -716,7 +761,10 @@ module.exports = function registrarAsistencia({
             const ev = [];
             if (marcaEnLocal(e)) ev.push(de);
             if (marcaEnLocal(s)) ev.push(ds);
-            const { tramos, conUbicacion } = lineaDia(geo[p.usuario], ev, desdeT, hastaT);
+            const iniDiaT = Date.parse(f + 'T00:00:00Z') + OFFSET_LIMA_MS;
+            // Sin marca de entrada, solo se dibuja si ese día hubo avisos del celular
+            const hayDelDia = geo[p.usuario].some(x => x.t.getTime() >= iniDiaT && x.t.getTime() <= hastaT);
+            const { tramos, conUbicacion } = (e || hayDelDia) ? lineaDia(geo[p.usuario], ev, desdeT, hastaT, iniDiaT) : { tramos: [], conUbicacion: false };
             fila.tramos = tramos.map(tramoJson);
             fila.con_ubicacion = conUbicacion;
             fila.fuera = fila.tramos.filter(x => x.estado === 'fuera' || x.estado === 'incierto');
@@ -747,7 +795,7 @@ module.exports = function registrarAsistencia({
       totales.push(t);
     }
     filas.sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0) || a.nombre.localeCompare(b.nombre));
-    return { filas, totales, horarios, config: c };
+    return { filas, totales, horarios, feriados, config: c };
   }
 
   function rangoDe(q) {
@@ -1070,6 +1118,37 @@ module.exports = function registrarAsistencia({
     catch (e) { res.status(500).json({ error: e.message }); }
   });
 
+  // ── Feriados ──
+  app.get('/api/asistencia/admin/feriados', authAdmin, mAsis, async (req, res) => {
+    try {
+      await asegurarTablas();
+      const anio = /^\d{4}$/.test(req.query.anio || '') ? req.query.anio : fechaLimaDe(new Date()).slice(0, 4);
+      const [r] = await portalPool.query(
+        `SELECT DATE_FORMAT(fecha,'%Y-%m-%d') AS fecha, nombre, creado_por FROM asist_feriados WHERE YEAR(fecha)=? ORDER BY fecha`, [anio]);
+      res.json({ anio, feriados: r.map(x => ({ ...x, dia: diaSemana(x.fecha) })) });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+  app.post('/api/asistencia/admin/feriados', authAdmin, mAsis, async (req, res) => {
+    try {
+      await asegurarTablas();
+      const { fecha, nombre } = req.body || {};
+      if (!fechaValida(fecha)) return res.status(400).json({ error: 'Fecha inválida' });
+      await portalPool.query(
+        `INSERT INTO asist_feriados (fecha, nombre, creado_por) VALUES (?,?,?) ON DUPLICATE KEY UPDATE nombre=VALUES(nombre), creado_por=VALUES(creado_por)`,
+        [fecha, recortar(nombre, 120) || 'Feriado', quien(req)]);
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+  app.post('/api/asistencia/admin/feriados/eliminar', authAdmin, mAsis, async (req, res) => {
+    try {
+      await asegurarTablas();
+      const { fecha } = req.body || {};
+      if (!fechaValida(fecha)) return res.status(400).json({ error: 'Fecha inválida' });
+      await portalPool.query(`DELETE FROM asist_feriados WHERE fecha=?`, [fecha]);
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
   // ── Configuración general ──
   app.get('/api/asistencia/admin/config', authAdmin, mAsis, async (req, res) => {
     try { await asegurarTablas(); const c = await leerConfig(); res.json({ ...c, horario: horarioGeneral(c) }); }
@@ -1111,7 +1190,7 @@ module.exports = function registrarAsistencia({
       };
       const hhmm = m => m == null ? '' : `${Math.floor(m / 60)}:${p2(m % 60)}`;
       const sgn = m => m == null ? '' : (m < 0 ? '-' : '+') + hhmm(Math.abs(m));
-      const ESTADO = { completo: 'Completo', en_curso: 'En curso', sin_salida: 'Sin salida', pendiente: 'Pendiente', falta: 'Falta', sin_entrada: 'Sin entrada' };
+      const ESTADO = { completo: 'Completo', en_curso: 'En curso', sin_salida: 'Sin salida', pendiente: 'Pendiente', falta: 'Falta', sin_entrada: 'Sin entrada', feriado: 'Feriado' };
       const DIAS = ['', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
       const ws1 = wb.addWorksheet('Resumen');
@@ -1126,7 +1205,7 @@ module.exports = function registrarAsistencia({
       const h2 = cabecera(ws2, [['Fecha', 11], ['Día', 6], ['Trabajador', 24], ['Horario', 12], ['Entrada', 9], ['Salida', 9],
         ['Horas', 8], ['Saldo', 8], ['Tardanza (min)', 13], ['Salió antes (min)', 15], ['Estado', 12], ['1ª acción sistema', 15],
         ['Últ. acción sistema', 16], ['Min. hasta 1ª acción', 17], ['Acciones', 9], ['Fuera del local', 26], ['Observaciones', 40], ['Nota trabajador', 30]]);
-      r.filas.forEach(f => ws2.addRow([f.fecha, DIAS[f.dia], f.nombre, f.horario, f.entrada || '', f.salida || '',
+      r.filas.forEach(f => ws2.addRow([f.fecha, DIAS[f.dia], f.nombre, f.feriado ? 'Feriado: ' + f.feriado : f.horario, f.entrada || '', f.salida || '',
         hhmm(f.min_trabajados), sgn(f.saldo), f.min_tardanza ? f.min_tardanza + (f.tardanza_compensada ? ' (compensada)' : '') : '', f.min_salida_antes || '', ESTADO[f.estado] || f.estado,
         f.act_primera || '', f.act_ultima || '', f.min_hasta_actividad == null ? '' : f.min_hasta_actividad, f.act_acciones || '',
         (f.fuera || []).map(x => x.estado === 'incierto' ? `${x.desde}–? (sin aviso de regreso; en el local a las ${x.hasta})` : `${x.desde}–${x.hasta} (${x.min} min)`).join(', '),

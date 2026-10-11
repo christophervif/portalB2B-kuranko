@@ -381,7 +381,7 @@ function panelLogistica(e){
                     : [['transito','En camino a Perú']];
   const fb=(f,t)=>`<button class="sm ${fase===f?'ok':'ghost'}" onclick="setFase('${e.id}','${f}')">${t}</button>`;
   const eta=e.eta?`<span class="badge b-tra" style="margin-left:6px">🇵🇪 llega aprox. ${esc(fFecha(e.eta))}</span>`:'';
-  const courier=e.api_resumen?`<div class="muted sm" style="margin-top:5px">🚚 Courier: ${esc(e.api_resumen)}${e.api_at?(' · '+esc(String(e.api_at).slice(0,10))):''}</div>`:'';
+  const courier=histCourier(e);
   // Fecha en que llegó al hub (base del cálculo). Editable cuando ya está en almacén/embarcado.
   const fhub=((fase==='en_hub'||fase==='embarcado')&&hub)?`<div class="f" style="margin-top:6px;max-width:220px"><label>Llegó al almacén el</label><input type="date" value="${e.fecha_hub?esc(String(e.fecha_hub).slice(0,10)):''}" onchange="setFechaHub('${e.id}',this.value)"></div>`:'';
   return `<div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">
@@ -395,6 +395,21 @@ function panelLogistica(e){
   </div>`;
 }
 function fFecha(d){if(!d)return '';const p=String(d).slice(0,10).split('-');return p.length===3?(p[2]+'/'+p[1]+'/'+p[0]):String(d);}
+// Historial del courier: última novedad visible + desplegable con todo, en español, con fecha de llegada si la hay.
+function histCourier(e){
+  const evs=Array.isArray(e.api_eventos)?e.api_eventos:[];
+  const leido=e.api_at?(' · leído '+esc(String(e.api_at).slice(0,10))):'';
+  const entrega=e.api_entrega?`<div class="muted sm" style="margin-top:3px">🇵🇪 Fecha de llegada: <b>${esc(fFecha(e.api_entrega))}</b></div>`:'';
+  if(!evs.length){
+    if(!e.api_resumen)return entrega;
+    return `<div class="muted sm" style="margin-top:5px">🚚 ${esc(e.api_resumen)}${leido}</div>${entrega}`;
+  }
+  const uno=(ev)=>`<div style="display:flex;gap:8px;font-size:12.5px;padding:2px 0"><span class="muted" style="min-width:74px;flex:none">${ev.fecha?esc(fFecha(ev.fecha)):'—'}</span><span>${esc(ev.desc||'')}</span></div>`;
+  const ultimo=evs[0];
+  const resto=evs.slice(1);
+  const detalle=resto.length?`<details style="margin-top:4px"><summary style="cursor:pointer;color:var(--amber);font-size:12.5px">Ver historial completo (${evs.length})</summary><div style="margin-top:4px;border-left:2px solid var(--border);padding-left:8px">${evs.map(uno).join('')}</div></details>`:'';
+  return `<div style="margin-top:6px"><div class="muted sm" style="margin-bottom:2px">🚚 Última novedad${leido}</div>${uno(ultimo)}${detalle}${entrega}</div>`;
+}
 async function putLog(id,payload){try{await api('/envio/'+encodeURIComponent(id)+'/logistica','PUT',payload);await cargarEnvios();}catch(e){toast(e.message);}}
 function setHub(id,hub){const e=ENVIOS.find(x=>x.id===id)||{};let fase=e.fase||'transito';if(!hub&&(fase==='en_hub'||fase==='embarcado'))fase='transito';putLog(id,{hub,fase,fecha_hub:e.fecha_hub});}
 function setFase(id,fase){const e=ENVIOS.find(x=>x.id===id)||{};putLog(id,{hub:e.hub||'',fase,fecha_hub:e.fecha_hub});}

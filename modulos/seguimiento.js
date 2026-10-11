@@ -128,6 +128,8 @@ module.exports = function registrarSeguimiento({
     try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN api_resumen VARCHAR(255) NOT NULL DEFAULT ''`); } catch (e) {}// resumen legible del courier
     try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN api_estado VARCHAR(40) NOT NULL DEFAULT ''`); } catch (e) {}  // estado crudo del courier
     try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN api_at DATETIME NULL`); } catch (e) {}                        // última lectura por API
+    try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN api_eventos JSON NULL`); } catch (e) {}                      // historial completo de eventos del courier (traducido)
+    try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN api_entrega DATE NULL`); } catch (e) {}                       // fecha de entrega real según el courier
 
     // Token de seguimiento público por CLIENTE (link que se comparte al cliente).
     await portalPool.query(`
@@ -180,6 +182,24 @@ module.exports = function registrarSeguimiento({
   const TRACK_PROV  = (process.env.TRACK_PROVIDER || 'ship24').toLowerCase();
   const trackDisponible = () => !!(SHIP24_KEY || TRACK17_KEY);
 
+  // Traducción al español de los estados/eventos del courier (vienen en inglés).
+  const MILE_ES = { pending:'Pendiente', info_received:'Información recibida', in_transit:'En tránsito', out_for_delivery:'En reparto', failed_attempt:'Intento de entrega fallido', available_for_pickup:'Disponible para recojo', delivered:'Entregado', exception:'Incidencia', expired:'Vencido' };
+  const COURIER_ES = [
+    [/out for delivery/ig,'en reparto'], [/delivered/ig,'entregado'], [/in transit/ig,'en tránsito'],
+    [/arrived at/ig,'llegó a'], [/departed from/ig,'salió de'], [/departed/ig,'salió de'],
+    [/picked up/ig,'recogido'], [/customs clearance/ig,'despacho aduanero'], [/clearance/ig,'despacho aduanero'],
+    [/customs/ig,'aduana'], [/processed/ig,'procesado'], [/processing/ig,'en proceso'],
+    [/shipment information received|information received|info received|label created|shipping label created/ig,'información recibida'],
+    [/available for pickup/ig,'disponible para recojo'], [/on hold|held/ig,'retenido'],
+    [/exception|failed attempt/ig,'incidencia'], [/sort facility|sorting center|sorting|facility/ig,'centro de distribución'],
+    [/warehouse/ig,'almacén'], [/origin/ig,'origen'], [/destination/ig,'destino'],
+    [/your (item|package|parcel|shipment)/ig,'tu envío'], [/the (item|package|parcel|shipment)/ig,'el envío'],
+    [/delivery/ig,'entrega'], [/returned/ig,'devuelto'], [/accepted/ig,'aceptado'], [/received/ig,'recibido'],
+  ];
+  function traducirCourier(t){ let x=String(t||''); COURIER_ES.forEach(p=>{ x=x.replace(p[0],p[1]); }); return x.slice(0,255); }
+  function labelEstado(mile, resumen){ return MILE_ES[String(mile||'').toLowerCase()] || traducirCourier(resumen) || ''; }
+  const fechaCorta = (v) => { const m=String(v||'').match(/\d{4}-\d{2}-\d{2}/); return m?m[0]:''; };
+
   async function ship24Consultar(numeros) {
     const out = {};
     if (!SHIP24_KEY) return out;
@@ -190,12 +210,23 @@ module.exports = function registrarSeguimiento({
         const j = await r.json().catch(() => null);
         const tr = (j && j.data && j.data.trackings && j.data.trackings[0]) || null;
         if (!tr) continue;
-        const sh = tr.shipment || {}; const ev = (tr.events && tr.events[0]) || {};
+        const sh = tr.shipment || {};
         const mile = s(sh.statusMilestone || '');
-        const resumen = s(ev.status || mile).slice(0, 255);
+        // Eventos completos ordenados por fecha (más reciente primero), traducidos al español.
+        const evsRaw = Array.isArray(tr.events) ? tr.events.slice() : [];
+        evsRaw.sort((a, b) => String(b.occurrenceDatetime || '').localeCompare(String(a.occurrenceDatetime || '')));
+        const eventos = evsRaw.map(ev => ({
+          fecha: fechaCorta(ev.occurrenceDatetime || ev.datetime || ''),
+          desc: traducirCourier([s(ev.status || ''), s(ev.location || '')].filter(Boolean).join(' · ')),
+        })).filter(e => e.fecha || e.desc).slice(0, 60);
+        const ev0 = evsRaw[0] || {};
+        const resumen = (labelEstado(mile, ev0.status) || s(ev0.status || mile)).slice(0, 255);
         const delivered = mile === 'delivered';
+        // Fecha de entrega real = fecha del evento "delivered" si existe.
+        const evEntrega = evsRaw.find(e => s(e.statusMilestone || '') === 'delivered') || (delivered ? ev0 : null);
+        const entrega = evEntrega ? fechaCorta(evEntrega.occurrenceDatetime || '') : '';
         const destPais = s(sh.destinationCountryCode || (sh.recipient && sh.recipient.countryCode) || '').toUpperCase().slice(0, 2);
-        out[String(n)] = { estado: mile, resumen, delivered, destPais };
+        out[String(n)] = { estado: mile, resumen, delivered, destPais, eventos, entrega };
       } catch (e) { /* una falla no corta las demás */ }
     }
     return out;
@@ -215,10 +246,22 @@ module.exports = function registrarSeguimiento({
         const ti = it.track_info || {};
         const ls = (ti.latest_status || {}); const le = (ti.latest_event || {});
         const estado = s(ls.status || '').slice(0, 40);
-        const resumen = s(le.description || ls.sub_status || estado).slice(0, 255);
         const delivered = /deliver/i.test(estado);
+        // Eventos: en v2.2 vienen en tracking.providers[].events; fallback al último evento.
+        let evsRaw = [];
+        const prov = (ti.tracking && Array.isArray(ti.tracking.providers)) ? ti.tracking.providers : [];
+        prov.forEach(p => { if (Array.isArray(p.events)) evsRaw = evsRaw.concat(p.events); });
+        if (!evsRaw.length && le && (le.description || le.time_iso)) evsRaw = [le];
+        evsRaw.sort((a, b) => String(b.time_iso || b.time_utc || '').localeCompare(String(a.time_iso || a.time_utc || '')));
+        const eventos = evsRaw.map(ev => ({
+          fecha: fechaCorta(ev.time_iso || ev.time_utc || ev.time_raw || ''),
+          desc: traducirCourier([s(ev.description || ''), s(ev.location || '')].filter(Boolean).join(' · ')),
+        })).filter(e => e.fecha || e.desc).slice(0, 60);
+        const resumen = (traducirCourier(le.description || ls.sub_status) || estado).slice(0, 255);
+        const evEntrega = evsRaw.find(e => /deliver/i.test(s(e.stage || e.sub_status || e.description || ''))) || (delivered ? evsRaw[0] : null);
+        const entrega = evEntrega ? fechaCorta(evEntrega.time_iso || evEntrega.time_utc || '') : '';
         const destPais = s((ti.misc_info && (ti.misc_info.destination_country || ti.misc_info.destination_country_iso2)) || '').toUpperCase().slice(0, 2);
-        if (num) out[num] = { estado, resumen, delivered, destPais };
+        if (num) out[num] = { estado, resumen, delivered, destPais, eventos, entrega };
       });
     } catch (e) { console.error('[seguimiento] 17track', e.message); }
     return out;
@@ -427,6 +470,8 @@ module.exports = function registrarSeguimiento({
         eta: r.eta ? String(r.eta).slice(0,10) : null,
         api_resumen: r.api_resumen || '', api_estado: r.api_estado || '',
         api_at: r.api_at || null,
+        api_eventos: asJson(r.api_eventos, []) || [],
+        api_entrega: r.api_entrega ? String(r.api_entrega).slice(0,10) : null,
         nota: r.nota || '', items: asJson(r.items, []) || [],
         creado_por: r.creado_por, creado_en: r.creado_en, actualizado_en: r.actualizado_en
       })));
@@ -822,17 +867,19 @@ module.exports = function registrarSeguimiento({
         if (!d) continue;
         let hub = s(r.hub);
         if (!hub && d.destPais) hub = paisAHub(d.destPais);        // autodetectar hub por país destino
+        const evJSON = JSON.stringify(Array.isArray(d.eventos) ? d.eventos : []);
+        const entrega = d.entrega || null;
         if (d.delivered && hub) {                                   // llegó al hub → marcar en almacén + ETA
-          const fhub = hoyISO();
+          const fhub = d.entrega || hoyISO();                       // usar la fecha real de entrega del courier si existe
           const eta = etaPeruDesdeHub(hub, fhub);
           await portalPool.query(
-            `UPDATE seg_envios SET api_estado=?, api_resumen=?, api_at=NOW(), hub=?, fase='en_hub', fecha_hub=?, eta=? WHERE id=?`,
-            [d.estado, d.resumen, hub, fhub, eta, r.id]);
+            `UPDATE seg_envios SET api_estado=?, api_resumen=?, api_at=NOW(), api_eventos=?, api_entrega=?, hub=?, fase='en_hub', fecha_hub=?, eta=? WHERE id=?`,
+            [d.estado, d.resumen, evJSON, entrega, hub, fhub, eta, r.id]);
           avanzados++;
         } else {
           await portalPool.query(
-            `UPDATE seg_envios SET api_estado=?, api_resumen=?, api_at=NOW(), hub=? WHERE id=?`,
-            [d.estado, d.resumen, hub, r.id]);
+            `UPDATE seg_envios SET api_estado=?, api_resumen=?, api_at=NOW(), api_eventos=?, api_entrega=?, hub=? WHERE id=?`,
+            [d.estado, d.resumen, evJSON, entrega, hub, r.id]);
         }
         n++;
       }

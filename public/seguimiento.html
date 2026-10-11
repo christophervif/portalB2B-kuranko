@@ -354,37 +354,56 @@ function pintarEnvios(){
       ${e.nota?`<div class="muted sm" style="margin-bottom:6px">📝 ${esc(e.nota)}</div>`:''}
       <div class="tw"><table><thead><tr><th>Código</th><th>Descripción (español)</th><th>SKU en sistema</th><th class="n">Cant</th><th>Confianza</th><th>Cubre backorder / sobra</th></tr></thead><tbody>${rows||'<tr><td colspan=6 class="muted">Sin ítems</td></tr>'}</tbody></table></div>
       ${panelLogistica(e)}
+      ${clientesEnvio(e)}
       ${acciones}
     </div></div>`;
   }).join('');
 }
+// Clientes incluidos en el envío (desde el reparto) → botón de compartir seguimiento.
+function clientesEnvio(e){
+  if(!ES_MAESTRO) return '';
+  const set=new Map();
+  (e.items||[]).forEach(i=>(i.bo_alloc||[]).forEach(a=>{ if(a.cliente) set.set(a.cliente,true); }));
+  const cl=[...set.keys()];
+  if(!cl.length) return '';
+  return `<div style="margin-top:8px;border-top:1px dashed var(--border);padding-top:8px">
+    <span class="muted sm">🔗 Compartir seguimiento con: </span>`+
+    cl.map(c=>`<button class="ghost sm" style="margin:2px" onclick="compartirCliente('${jsq(c)}')">${esc(c)}</button>`).join('')+`</div>`;
+}
 const FASE_LBL={transito:'En camino al almacén',en_hub:'En almacén',embarcado:'Embarcado a Perú',recibido:'Recibido en Perú'};
 function panelLogistica(e){
   if(!ES_MAESTRO) return '';
-  const hubOpt=(v,t)=>`<option value="${v}" ${(e.hub||'')===v?'selected':''}>${t}</option>`;
-  const fb=(f,t)=>`<button class="sm ${(e.fase||'transito')===f?'ok':'ghost'}" onclick="setFase('${e.id}','${f}')">${t}</button>`;
-  const eta=e.eta?`<span class="badge b-tra" style="margin-left:6px">🇵🇪 llega aprox. ${esc(String(e.eta).slice(0,10))}</span>`:'';
+  const hub=e.hub||'';
+  const fase=e.fase||'transito';
+  const hubOpt=(v,t)=>`<option value="${v}" ${hub===v?'selected':''}>${t}</option>`;
+  // Con hub (Miami/Madrid) hay paso "En almacén"; sin hub (directo a Perú) no.
+  const fases = hub ? [['transito','En camino al almacén'],['en_hub','En almacén'],['embarcado','Embarcado a Perú']]
+                    : [['transito','En camino a Perú']];
+  const fb=(f,t)=>`<button class="sm ${fase===f?'ok':'ghost'}" onclick="setFase('${e.id}','${f}')">${t}</button>`;
+  const eta=e.eta?`<span class="badge b-tra" style="margin-left:6px">🇵🇪 llega aprox. ${esc(fFecha(e.eta))}</span>`:'';
   const courier=e.api_resumen?`<div class="muted sm" style="margin-top:5px">🚚 Courier: ${esc(e.api_resumen)}${e.api_at?(' · '+esc(String(e.api_at).slice(0,10))):''}</div>`:'';
-  const salida=(e.fase==='embarcado')?`<div class="f" style="margin-top:6px;max-width:200px"><label>Fecha de salida del hub</label><input type="date" value="${e.fecha_salida?esc(String(e.fecha_salida).slice(0,10)):''}" onchange="setSalida('${e.id}',this.value)"></div>`:'';
+  // Fecha en que llegó al hub (base del cálculo). Editable cuando ya está en almacén/embarcado.
+  const fhub=((fase==='en_hub'||fase==='embarcado')&&hub)?`<div class="f" style="margin-top:6px;max-width:220px"><label>Llegó al almacén el</label><input type="date" value="${e.fecha_hub?esc(String(e.fecha_hub).slice(0,10)):''}" onchange="setFechaHub('${e.id}',this.value)"></div>`:'';
   return `<div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">
-    <div class="muted sm" style="margin-bottom:5px">Logística (lo que ve el cliente en su seguimiento)</div>
+    <div class="muted sm" style="margin-bottom:5px">Logística (lo que ve el cliente). Si no eliges almacén, se asume <b>directo a Perú</b>.</div>
     <div class="row" style="align-items:flex-end">
-      <div class="f"><label>Almacén destino (tramo 1)</label><select onchange="setHub('${e.id}',this.value)">${hubOpt('','— elegir —')}${hubOpt('miami','Miami (EE.UU.)')}${hubOpt('madrid','Madrid (España)')}${hubOpt('espana','España')}${hubOpt('otro','Otro')}</select></div>
-      <div class="f"><label>Estado del envío</label><div class="row">${fb('transito','En camino al almacén')}${fb('en_hub','En almacén')}${fb('embarcado','Embarcado a Perú')}${fb('recibido','Recibido')}</div></div>
+      <div class="f"><label>Almacén intermedio</label><select onchange="setHub('${e.id}',this.value)">${hubOpt('','— directo a Perú —')}${hubOpt('miami','Miami (EE.UU.)')}${hubOpt('madrid','Madrid (España)')}</select></div>
+      <div class="f"><label>Estado del envío</label><div class="row">${fases.map(f=>fb(f[0],f[1])).join('')}</div></div>
       ${eta}
     </div>
-    ${salida}${courier}
+    ${fhub}${courier}
   </div>`;
 }
+function fFecha(d){if(!d)return '';const p=String(d).slice(0,10).split('-');return p.length===3?(p[2]+'/'+p[1]+'/'+p[0]):String(d);}
 async function putLog(id,payload){try{await api('/envio/'+encodeURIComponent(id)+'/logistica','PUT',payload);await cargarEnvios();}catch(e){toast(e.message);}}
-function setHub(id,hub){const e=ENVIOS.find(x=>x.id===id)||{};putLog(id,{hub,fase:e.fase||'transito',fecha_salida:e.fecha_salida});}
-function setFase(id,fase){const e=ENVIOS.find(x=>x.id===id)||{};putLog(id,{hub:e.hub||'',fase,fecha_salida:e.fecha_salida});}
-function setSalida(id,fecha){const e=ENVIOS.find(x=>x.id===id)||{};putLog(id,{hub:e.hub||'',fase:'embarcado',fecha_salida:fecha});}
+function setHub(id,hub){const e=ENVIOS.find(x=>x.id===id)||{};let fase=e.fase||'transito';if(!hub&&(fase==='en_hub'||fase==='embarcado'))fase='transito';putLog(id,{hub,fase,fecha_hub:e.fecha_hub});}
+function setFase(id,fase){const e=ENVIOS.find(x=>x.id===id)||{};putLog(id,{hub:e.hub||'',fase,fecha_hub:e.fecha_hub});}
+function setFechaHub(id,fecha){const e=ENVIOS.find(x=>x.id===id)||{};putLog(id,{hub:e.hub||'',fase:(e.fase==='embarcado'?'embarcado':'en_hub'),fecha_hub:fecha});}
 async function actualizarTracking(){
   const b=$('btnTrack'); if(b){b.disabled=true;b.textContent='Actualizando…';}
   try{const r=await api('/track-refresh','POST',{force:true});
     if(r.api===false)toast('Tracking en modo manual (sin API configurada).');
-    else toast('Tracking actualizado'+(r.actualizados!=null?(': '+r.actualizados+'/'+r.total):''));
+    else toast('Tracking actualizado'+(r.actualizados!=null?(': '+r.actualizados+'/'+r.total):'')+(r.a_almacen?(' · '+r.a_almacen+' llegaron al almacén'):''));
     await cargarEnvios();
   }catch(e){toast(e.message);}
   finally{if(b){b.disabled=false;b.textContent='🚚 Actualizar tracking';}}
@@ -623,7 +642,7 @@ function filaBo(b){
     <td style="text-align:center">${chk}</td>
     <td>${esc(b.sku||'')}</td>
     <td>${esc(b.nombre||'')}${arch}${cov}</td>
-    <td>${esc(b.cliente||'')}${(ES_MAESTRO&&b.cliente)?` <button class="ghost sm" title="Compartir seguimiento con el cliente" onclick="compartirCliente('${jsq(b.cliente)}')">🔗</button>`:''}</td>
+    <td>${esc(b.cliente||'')}</td>
     <td>${esc(b.venta||'')}</td>
     <td class="sm" style="white-space:nowrap">${b.fecha?esc(b.fecha):'—'}</td>
     <td class="n">${cantCell}</td>

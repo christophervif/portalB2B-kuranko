@@ -554,6 +554,14 @@ function pintarModelos(){
       <div class="row" style="gap:4px;margin-top:4px;flex-wrap:nowrap">${i>0?`<button class="btn sec" style="padding:2px 6px;font-size:11px" data-medpri="${i}" title="Usar como foto principal">★ Principal</button>`:''}<button class="btn sec" style="padding:2px 6px;font-size:11px" data-medizq="${i}" title="Mover a la izquierda" ${i===0?'disabled':''}>◀</button><button class="btn sec" style="padding:2px 6px;font-size:11px;color:var(--fg-r)" data-meddel="${i}" title="Quitar esta foto">✕</button></div>${MOD_ED.cols.length>1?`<select data-medcol="${i}" title="Color de esta foto" style="width:100%;margin-top:4px;font-size:12px;padding:4px"><option value="__auto" ${MOD_ED.imgc[u]===undefined?'selected':''}>Color: automático</option><option value="" ${MOD_ED.imgc[u]===''?'selected':''}>Todos los colores</option>${MOD_ED.cols.map(c=>`<option ${MOD_ED.imgc[u]===c?'selected':''}>${esc(c)}</option>`).join('')}</select>`:''}</div>`).join('')||'<span class="muted">Sin fotos todavía.</span>'}</div>
     <div class="row" style="margin-bottom:8px"><input id="medAdd" style="flex:1;min-width:240px" placeholder="O pega aquí el link de una foto"><button class="btn sec" id="medAddB">Agregar foto</button></div>
     ${(MOD_ED.specs||md.specs||[]).length?`<details style="margin-bottom:8px"><summary class="muted">${(MOD_ED.specs||md.specs).length} especificaciones</summary><table>${(MOD_ED.specs||md.specs).map(x=>`<tr><td class="muted">${esc(x.k)}</td><td style="white-space:normal">${esc(x.v)}</td></tr>`).join('')}</table></details>`:''}
+    ${(()=>{const sk=E.skus.filter(x=>x.marca+'|'+x.modelo===MOD_ED.k);const s0=sk[0]||{};const M=MOD_ED.prec||(MOD_ED.prec={cat:s0.categoria||'MTB',costo:s0.costo,mon:s0.moneda||'USD',pvp:s0.pvp||'',puesto:!!+s0.costo_puesto});const distinto=new Set(sk.map(x=>x.costo+'|'+x.pvp)).size>1;
+      return `<div class="card" style="background:var(--surface3);margin:0 0 10px;padding:10px"><b>Datos de venta</b> <span class="muted">(se aplican a las ${sk.length} variantes: tallas × colores)</span>
+      <div class="row" style="gap:10px;margin-top:6px;align-items:flex-end"><label class="muted" style="display:grid;gap:3px">Categoría<select id="medCat">${(E.categorias||['MTB']).concat(E.categorias&&E.categorias.includes(M.cat)?[]:[M.cat]).map(c=>`<option ${c===M.cat?'selected':''}>${esc(c)}</option>`).join('')}</select></label>
+      <label class="muted" style="display:grid;gap:3px">${M.puesto?'Costo puesto en Perú (sin IGV)':'Costo (compra a la marca)'}<input id="medCosto" type="number" step="0.01" value="${esc(M.costo??'')}" style="width:110px"></label>
+      <label class="muted" style="display:grid;gap:3px">Moneda<select id="medMon">${['USD','EUR'].map(m=>`<option ${m===M.mon?'selected':''}>${m}</option>`).join('')}</select></label>
+      <label class="muted" style="display:grid;gap:3px">PVP de la marca<input id="medPvp" type="number" step="0.01" value="${esc(M.pvp??'')}" style="width:110px"></label>
+      <label class="muted" title="Para bicis que ya están en Perú: el costo ya incluye flete, aduana y ad valorem; no se suma importación"><input type="checkbox" id="medPuesto" ${M.puesto?'checked':''}> El costo ya está puesto en Perú</label></div>
+      ${distinto?'<p class="desc" style="margin:4px 0 0">Ojo: las variantes tienen costos o PVP distintos; al guardar quedan todas con estos valores.</p>':''}</div>`})()}
     <label class="muted" style="display:grid;gap:4px">Descripción<textarea id="medDesc" style="min-height:110px">${esc(MOD_ED.desc??md.desc??'')}</textarea></label>
     ${MOD_ED.ebike?`<label class="muted" style="display:block;margin-top:8px">Envío marítimo individual <select id="medUni">${['auto','si','no'].map(v=>`<option value="${v}" ${(md.unidad||'auto')===v?'selected':''}>${{auto:'Automático (si el margen alcanza)',si:'Siempre ofrecer',no:'Solo en grupo'}[v]}</option>`).join('')}</select></label>`:''}
     <div class="row" style="margin-top:12px"><button class="btn" id="medGuardar">Guardar</button><button class="btn sec" id="medCerrar">Cerrar</button></div></div>`;
@@ -586,7 +594,8 @@ document.addEventListener('click',async e=>{const t=e.target;
     pintarModelos();return}
   if(t.id==='medAddB'){const u=$('#medAdd').value.trim();if(!/^https?:\/\//.test(u))return toast('Pega un link que empiece con https://');if(MOD_ED.imgs.includes(u))return toast('Esa foto ya está');MOD_ED.imgs.push(u);MOD_ED.sel.add(u);MOD_ED.desc=$('#medDesc').value;MOD_ED.url=$('#medUrl').value;pintarModelos()}
   if(t.id==='medGuardar'){const [marca,modelo]=MOD_ED.k.split('|');const md=E.modelos[MOD_ED.k]||{};
-    try{await api('/api/bikes/admin/modelo',{method:'POST',body:JSON.stringify({marca,modelo,descripcion:$('#medDesc').value,imagenes:MOD_ED.imgs.filter(u=>MOD_ED.sel.has(u)),url_ficha:$('#medUrl').value.trim(),aereo:md.aereo||'auto',unidad:($('#medUni')||{}).value||md.unidad||'auto',specs:MOD_ED.specs||md.specs||null,img_colores:MOD_ED.imgc})});
+    try{const M=MOD_ED.prec,ids=E.skus.filter(x=>x.marca+'|'+x.modelo===MOD_ED.k).map(x=>x.id);
+      if(M&&ids.length){const b={ids,categoria:$('#medCat').value,moneda:$('#medMon').value,pvp:+$('#medPvp').value||0,costo_puesto:$('#medPuesto').checked};if(+$('#medCosto').value>0)b.costo=+$('#medCosto').value;await api('/api/bikes/admin/sku',{method:'POST',body:JSON.stringify(b)})}await api('/api/bikes/admin/modelo',{method:'POST',body:JSON.stringify({marca,modelo,descripcion:$('#medDesc').value,imagenes:MOD_ED.imgs.filter(u=>MOD_ED.sel.has(u)),url_ficha:$('#medUrl').value.trim(),aereo:md.aereo||'auto',unidad:($('#medUni')||{}).value||md.unidad||'auto',specs:MOD_ED.specs||md.specs||null,img_colores:MOD_ED.imgc})});
       toast('Modelo guardado. Ya se ve en la tienda.');MOD_ED=null;await cargar()}catch(err){toast(err.message)}}
 });
 
@@ -595,9 +604,11 @@ function pintarSelIA(sel,J){const pr={};((J.pruebas||{}).r||[]).forEach(x=>pr[x.
   sel.innerHTML='<option value="">Automático (el que funcione)</option>'+ids.map(id=>{const x=pr[id];return `<option value="${esc(id)}" ${id===J.elegido?'selected':''}>${x?(x.ok?'✓ ':'✗ '):''}${esc((J.lista.find(m=>m.id===id)||{}).nombre||id)}${x?(x.ok?` · ${(x.ms/1000).toFixed(1)} s`:` · ${x.error}`):''}</option>`}).join('')}
 document.addEventListener('click',async e=>{if(e.target.id!=='iaTodos')return;const b=e.target;b.disabled=true;$('#iaMsg').textContent='Probando cada modelo…';
   try{const j=await api('/api/bikes/admin/ia',{method:'POST',body:JSON.stringify({probar_todos:true})});IA.pruebas=j.pruebas;pintarSelIA($('#iaModelo'),IA);const n=(j.pruebas.r||[]).filter(x=>x.ok).length;$('#iaMsg').textContent=`${n} de ${(j.pruebas.r||[]).length} modelos funcionan con tu clave. Elige uno de los marcados con ✓.`}catch(err){$('#iaMsg').textContent=err.message}b.disabled=false});
+document.addEventListener('change',e=>{if(!MOD_ED||!MOD_ED.prec)return;const id=e.target.id,M=MOD_ED.prec;
+  if(id==='medCat')M.cat=e.target.value;if(id==='medCosto')M.costo=e.target.value;if(id==='medMon')M.mon=e.target.value;if(id==='medPvp')M.pvp=e.target.value;if(id==='medPuesto'){M.puesto=e.target.checked;MOD_ED.desc=$('#medDesc').value;pintarModelos()}});
 /* ---------- Crear bici nueva desde la página de la marca ---------- */
 let CR=null;
-function formCrear(j){const v=(k,x)=>esc(x??'');const cats=['MTB','E-MTB','Gravel','Ruta','Urbana','Niños'];
+function formCrear(j){const v=(k,x)=>esc(x??'');const cats=j.categorias||E.categorias||['MTB','E-MTB'];
   return `<div class="card" style="border-color:var(--accent);margin-top:10px"><div class="row" style="gap:12px;align-items:flex-start">${j.foto?`<img src="${esc(j.foto)}" style="width:150px;height:100px;object-fit:contain;background:#fff;border-radius:8px">`:''}
     <div><h3 style="margin:0">Nueva bici de ${esc(j.marca)}</h3><p class="desc" style="margin:4px 0">Leído: ${j.fotos} fotos · ${j.specs} especificaciones · ${j.descripcion?'descripción':'sin descripción'} · ${j.geometria?'geometría':'sin geometría'}. Revisa y completa lo que falte; el costo y el PVP los pones tú.</p></div></div>
     <div class="dos" style="margin-top:8px">
@@ -611,19 +622,22 @@ function formCrear(j){const v=(k,x)=>esc(x??'');const cats=['MTB','E-MTB','Grave
       <label>Motor (solo e-bikes)<input id="crMotor" value="${v(0,j.motor)}"></label>
       <label>Año<input id="crAnio" type="number" value="${v(0,j.anio)}"></label>
       <label>Peso<input id="crPeso" value="${v(0,j.peso)}"></label>
-      <label>Costo (precio de compra) <b>*</b><input id="crCosto" type="number" step="0.01"></label>
+      <label style="grid-column:1/-1"><span><input type="checkbox" id="crStockPe"> <b>Ya la tengo en stock en Perú</b> (no se calcula importación; se vende con entrega inmediata)</span></label>
+      <label><span id="crCostoL">Costo (precio de compra a la marca)</span> <b>*</b><input id="crCosto" type="number" step="0.01"></label>
       <label>Moneda<select id="crMon"><option>USD</option><option>EUR</option></select></label>
       <label>PVP de la marca<input id="crPvp" type="number" step="0.01"></label>
-      <label>Stock en la marca (0 = a pedido sin límite)<input id="crStock" type="number" value="0"></label>
+      <label><span id="crStockL">Stock en la marca (0 = a pedido sin límite)</span><input id="crStock" type="number" value="0"></label>
     </div>
     <div class="row" style="margin-top:10px"><button class="btn" id="crCrear">Crear bici</button><span class="muted" id="crMsg"></span></div>
-    <p class="desc">Se crea una variante por cada talla × color. Si la bici ya existe con ese nombre, se actualiza. La próxima importación del Excel de la marca no la apaga.</p></div>`}
+    <p class="desc">Se crea una variante por cada talla × color. Si la bici ya existe con ese nombre, se actualiza. La próxima importación del Excel de la marca no la apaga. Costo y PVP pueden ser referenciales: los cambias luego en «Editar ficha» → Datos de venta. El precio nunca baja del margen mínimo (${E.reglas?E.reglas.margen_minimo:20}% en el peor caso).</p></div>`}
+document.addEventListener('change',e=>{if(e.target.id!=='crStockPe')return;const on=e.target.checked;
+  $('#crCostoL').textContent=on?'Costo puesto en Perú, sin IGV (con flete, aduana y ad valorem)':'Costo (precio de compra a la marca)';$('#crStockL').textContent=on?'Unidades en stock':'Stock en la marca (0 = a pedido sin límite)';if(on&&!(+$('#crStock').value))$('#crStock').value=1});
 document.addEventListener('click',async e=>{const t=e.target;
   if(t.id==='crLeer'){const marca=$('#crMarca').value.trim(),url=$('#crUrl').value.trim();if(!marca||!/^https?:\/\//.test(url))return toast('Pon la marca y el link de la bici');
     t.disabled=true;t.textContent='Leyendo…';$('#crOut').innerHTML='<p class="muted">Leyendo la página (puede tardar si usa IA)…</p>';
     try{CR=await api('/api/bikes/admin/crear/leer',{method:'POST',body:JSON.stringify({marca,url})});CR.marca=marca;$('#crOut').innerHTML=formCrear(CR)}catch(err){$('#crOut').innerHTML=`<p class="err">${esc(err.message)}</p>`}
     t.disabled=false;t.textContent='Leer página'}
-  if(t.id==='crCrear'&&CR){const b={token:CR.token,marca:CR.marca,modelo:$('#crModelo').value,categoria:$('#crCat').value,tallas:$('#crTallas').value,colores:$('#crColores').value,aro:$('#crAro').value,recorrido:$('#crRec').value,material:$('#crMat').value,motor:$('#crMotor').value,anio:$('#crAnio').value,peso:$('#crPeso').value,costo:+$('#crCosto').value,moneda:$('#crMon').value,pvp:+$('#crPvp').value,stock:+$('#crStock').value};
+  if(t.id==='crCrear'&&CR){const b={token:CR.token,marca:CR.marca,modelo:$('#crModelo').value,categoria:$('#crCat').value,tallas:$('#crTallas').value,colores:$('#crColores').value,aro:$('#crAro').value,recorrido:$('#crRec').value,material:$('#crMat').value,motor:$('#crMotor').value,anio:$('#crAnio').value,peso:$('#crPeso').value,costo:+$('#crCosto').value,moneda:$('#crMon').value,pvp:+$('#crPvp').value,stock:+$('#crStock').value,en_stock:$('#crStockPe').checked};
     t.disabled=true;try{const j=await api('/api/bikes/admin/crear',{method:'POST',body:JSON.stringify(b)});$('#crOut').innerHTML=`<p class="ok" style="margin-top:8px">Listo: ${esc(j.marca)} ${esc(j.modelo)} creada con ${j.skus} variantes (${j.nuevas} nuevas${j.actualizadas?', '+j.actualizadas+' actualizadas':''}). Ya aparece en «Tus modelos» y en la tienda si cumple el margen.</p>`;CR=null;await cargar()}catch(err){$('#crMsg').innerHTML=`<span class="err">${esc(err.message)}</span>`;t.disabled=false}}});
 /* ---------- Stock del ERP ---------- */
 let ERP={};
@@ -631,7 +645,7 @@ function pintarERP(j){if(j)ERP=j;j=ERP;if(!$('#erpOut'))return;$('#erpInfo').tex
   if(!j.todas){$('#erpOut').innerHTML=(j.error?`<p class="err">${esc(j.error)}</p>`:'')+'<p class="desc">Pulsa «Sincronizar ahora» para ver todas las bicis del sistema con sus tallas.</p>';return}
   const nm=x=>String(x||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').trim();
   const q=nm(($('#erpQ')||{}).value),fil=($('#erpF')||{}).value||'';
-  const L=j.todas.filter(x=>(!q||nm([x.erp,x.bici,x.locs].join(' ')).includes(q))&&(!fil||(fil==='sin'?!x.sku_id&&x.modo!=='manual':fil==='rev'?x.modo==='dudoso':x.modo===fil)));
+  const L=j.todas.filter(x=>(!q||nm([x.erp,x.bici,x.locs,x.ciudad].join(' ')).includes(q))&&(!fil||(fil==='sin'?!x.sku_id&&x.modo!=='manual':fil==='rev'?x.modo==='dudoso':x.modo===fil)));
   const act=E.skus.filter(s=>s.activo),porMarca={};act.forEach(s=>(porMarca[nm(s.marca)]=porMarca[nm(s.marca)]||[]).push(s));
   const opciones=x=>{const lista=porMarca[nm(x.marca)]||act;const g={};lista.forEach(s=>(g[s.marca+' '+s.modelo]=g[s.marca+' '+s.modelo]||[]).push(s));
     return `<option value="">${x.modo==='manual'?'↺ Volver a automático':'— elegir —'}</option><option value="0" ${x.modo==='manual'&&!x.sku_id?'selected':''}>✕ No está en el catálogo</option>`+Object.keys(g).sort().map(k=>`<optgroup label="${esc(k)}">${g[k].map(s=>`<option value="${s.id}" ${s.id===x.sku_id?'selected':''}>${esc(s.modelo)} · ${esc(s.talla)} · ${esc(s.color)}</option>`).join('')}</optgroup>`).join('')};
@@ -639,7 +653,7 @@ function pintarERP(j){if(j)ERP=j;j=ERP;if(!$('#erpOut'))return;$('#erpInfo').tex
   const c=k=>j.todas.filter(k).length;
   $('#erpOut').innerHTML=(j.error?`<p class="err">${esc(j.error)}</p>`:'')+`<div class="row" style="gap:8px;margin:6px 0"><input id="erpQ" placeholder="Buscar bici, talla, tienda…" value="${esc(($('#erpQ')||{}).value||'')}" style="flex:1;min-width:180px">
     <select id="erpF"><option value="">Todas (${j.todas.length})</option><option value="sin" ${fil==='sin'?'selected':''}>Sin emparejar (${c(x=>!x.sku_id&&x.modo!=='manual')})</option><option value="rev" ${fil==='rev'?'selected':''}>Revisar (${c(x=>x.modo==='dudoso')})</option><option value="auto" ${fil==='auto'?'selected':''}>Automáticas (${c(x=>x.modo==='auto')})</option><option value="manual" ${fil==='manual'?'selected':''}>Corregidas a mano (${c(x=>x.modo==='manual')})</option></select></div>
-    <div style="max-height:520px;overflow:auto"><table><thead><tr><th>Bici en el sistema (ERP)</th><th>Talla</th><th class="n">Cant.</th><th>Tienda</th><th>Es esta bici del catálogo</th><th></th></tr></thead><tbody>${L.map(x=>`<tr><td>${esc(x.erp)}</td><td><b>${esc(x.talla||'—')}</b></td><td class="n">${x.qty}</td><td class="muted">${esc(x.locs)}</td>
+    <div style="max-height:520px;overflow:auto"><table><thead><tr><th>Bici en el sistema (ERP)</th><th>Talla</th><th class="n">Cant.</th><th>Ubicación</th><th>Es esta bici del catálogo</th><th></th></tr></thead><tbody>${L.map(x=>`<tr><td>${esc(x.erp)}</td><td><b>${esc(x.talla||'—')}</b></td><td class="n">${x.qty}</td><td><b>${esc(x.ciudad||'')}</b><br><span class="muted" style="font-size:12px">${esc(x.locs)}</span></td>
     <td><select data-erpvid="${x.vid}" style="max-width:320px">${opciones(x)}</select></td><td>${est(x)}</td></tr>`).join('')||'<tr><td colspan="6" class="muted">Nada con ese filtro.</td></tr>'}</tbody></table></div>
     <p class="desc">Si el emparejamiento automático se equivoca, elige la bici correcta (modelo · talla · color) y se guarda al momento. Tu corrección se respeta en cada sincronización.</p>`}
 document.addEventListener('input',e=>{if(e.target.id==='erpQ'){const p=e.target.selectionStart;pintarERP();const i=$('#erpQ');i.focus();i.setSelectionRange(p,p)}});

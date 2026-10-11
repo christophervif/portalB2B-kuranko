@@ -88,7 +88,7 @@ let CR=null;
 async function crearLeer(){const box=$('#crBox');box.innerHTML='<p class="muted">Leyendo esta página…</p>';
   const d=await leer(ST.origen);if(d.error){box.innerHTML=`<p class="err">${esc(d.error)}</p>`;return}
   try{CR=await api('/api/bikes/admin/crear/leer',{marca:ST.marca,url:ST.origen,imgs:d.imgs,texto:d.texto});CR.marca=ST.marca}catch(err){box.innerHTML=`<p class="err">${esc(err.message)}</p>`;return}
-  const v=x=>esc(x??''),cats=['MTB','E-MTB','Gravel','Ruta','Urbana','Niños'],f=(l,id,val,ph='')=>`<label style="display:grid;gap:3px;font-size:12px;color:var(--muted)">${l}<input id="${id}" value="${v(val)}" placeholder="${ph}"></label>`;
+  const v=x=>esc(x??''),cats=CR.categorias||['MTB','E-MTB'],f=(l,id,val,ph='')=>`<label style="display:grid;gap:3px;font-size:12px;color:var(--muted)">${l}<input id="${id}" value="${v(val)}" placeholder="${ph}"></label>`;
   box.innerHTML=`<div style="margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:8px">
     <div class="row" style="gap:10px">${CR.foto?`<img src="${esc(CR.foto)}" style="width:120px;height:80px;object-fit:contain;background:#fff;border-radius:6px">`:''}<div><b>Nueva bici de ${esc(CR.marca)}</b><br><span class="muted" style="font-size:12px">${CR.fotos} fotos · ${CR.specs} especificaciones · ${CR.descripcion?'descripción':'sin descripción'} · ${CR.geometria?'geometría':'sin geometría'}</span></div></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
@@ -96,12 +96,12 @@ async function crearLeer(){const box=$('#crBox');box.innerHTML='<p class="muted"
       <label style="display:grid;gap:3px;font-size:12px;color:var(--muted)">Categoría<select id="crCat">${cats.map(c=>`<option ${c===CR.categoria?'selected':''}>${c}</option>`).join('')}</select></label>
       ${f('Tallas (coma)','crTallas',(CR.tallas||[]).join(', '),'S, M, L, XL')}${f('Colores (coma)','crColores',(CR.colores||[]).join(', '),'Black, Raw Alloy')}
       ${f('Aro','crAro',CR.aro,'29 · 27.5 · Mullet')}${f('Recorrido','crRec',CR.recorrido,'150 mm')}${f('Material','crMat',CR.material)}${f('Motor (e-bike)','crMotor',CR.motor)}
-      ${f('Año','crAnio',CR.anio)}${f('Peso','crPeso',CR.peso)}${f('Costo (compra) *','crCosto','')}
+      ${f('Año','crAnio',CR.anio)}${f('Peso','crPeso',CR.peso)}<label style="grid-column:1/-1;font-size:12px"><input type="checkbox" id="crStockPe"> <b>Ya la tengo en stock en Perú</b> (costo puesto en Perú sin IGV; sin cálculo de importación)</label>${f('Costo *','crCosto','','compra a la marca, o puesto en Perú si ya está aquí')}
       <label style="display:grid;gap:3px;font-size:12px;color:var(--muted)">Moneda<select id="crMon"><option>USD</option><option>EUR</option></select></label>
-      ${f('PVP de la marca','crPvp','')}${f('Stock en la marca (0 = a pedido)','crStock',0)}
+      ${f('PVP de la marca','crPvp','')}${f('Stock (0 = a pedido sin límite)','crStock',0)}
     </div>
     <div class="row" style="margin-top:8px"><button id="crCrear">Crear bici</button><span id="crMsg" class="muted"></span></div></div>`;
-  $('#crCrear').onclick=async()=>{const g=id=>$('#'+id).value;const b={token:CR.token,marca:CR.marca,modelo:g('crModelo'),categoria:g('crCat'),tallas:g('crTallas'),colores:g('crColores'),aro:g('crAro'),recorrido:g('crRec'),material:g('crMat'),motor:g('crMotor'),anio:g('crAnio'),peso:g('crPeso'),costo:+g('crCosto'),moneda:g('crMon'),pvp:+g('crPvp'),stock:+g('crStock')};
+  $('#crCrear').onclick=async()=>{const g=id=>$('#'+id).value;const b={token:CR.token,marca:CR.marca,modelo:g('crModelo'),categoria:g('crCat'),tallas:g('crTallas'),colores:g('crColores'),aro:g('crAro'),recorrido:g('crRec'),material:g('crMat'),motor:g('crMotor'),anio:g('crAnio'),peso:g('crPeso'),costo:+g('crCosto'),moneda:g('crMon'),pvp:+g('crPvp'),stock:+g('crStock'),en_stock:$('#crStockPe').checked};
     $('#crCrear').disabled=true;try{const j=await api('/api/bikes/admin/crear',b);box.innerHTML=`<p class="ok">Listo: ${esc(j.marca)} ${esc(j.modelo)} creada con ${j.skus} variantes. Recarga el panel para verla.</p>`;CR=null}catch(err){$('#crMsg').innerHTML=`<span class="err">${esc(err.message)}</span>`;$('#crCrear').disabled=false}}}
 const nSel=()=>[...ST.sel].filter(m=>/^https?:\/\//.test(ST.pares[m]||'')).length;
 function guardarLinks(){document.querySelectorAll('[data-par]').forEach(i=>{const v=i.value.trim();if(v){ST.pares[i.dataset.par]=v;ST.sin=ST.sin.filter(x=>x!==i.dataset.par)}})}

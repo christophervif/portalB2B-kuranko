@@ -23,6 +23,7 @@
 const ESTADOS_SKU = ['A pedido', 'Pre-orden', 'Stock Lima'];
 // Sin límite: stock -1, o 0 en una bici a pedido/pre-orden (se pide a la marca). Solo «Stock Lima» o un cupo > 0 limita.
 const sinLimite = s => num(s.stock) < 0 || (num(s.stock) === 0 && s.estado !== 'Stock Lima');
+const CATEGORIAS = ['MTB', 'XC', 'Trail', 'Enduro', 'Downhill', 'Dirt / Pump', 'E-MTB', 'Gravel', 'Ruta', 'Urbana', 'Niños'];
 const ESTADOS_RESERVA = ['Nueva', 'Confirmada con marca', 'Adelanto pagado', 'En tránsito', 'En Lima', 'Entregada', 'Cancelada'];
 const MARCAS_BASE = ['Mondraker', 'Forestal', 'Atherton', 'Thömus', 'Crestline', 'Forbidden', 'Megamo', 'Steppenwolf', 'Revel'];
 const TALLAS_ORDEN = ['XXS', 'XS', 'S', 'S/M', 'M', 'M/L', 'L', 'L/XL', 'XL', 'XXL', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6'];
@@ -122,16 +123,17 @@ function calcularPrecio(sku, envio, R, tc, margenForzado = null) {
   const lima = sku.estado === 'Stock Lima';
   const costoUSD = sku.moneda === 'EUR' ? num(sku.costo) * tc.eur / tc.usd : num(sku.costo);
   const ebike = esEbike(sku), aereo = envio === 'aereo';
-  const flete = lima ? 0 : num(aereo ? R.flete_aereo : R.flete_maritimo);
-  const av = num(ebike && R.arancel_ebike != null ? R.arancel_ebike : R.arancel) / 100;
+  const yaPuesto = !!num(sku.costo_puesto); // costo ya puesto en Perú (sin IGV): no se suma importación
+  const flete = lima || yaPuesto ? 0 : num(aereo ? R.flete_aereo : R.flete_maritimo);
+  const av = yaPuesto ? 0 : num(ebike && R.arancel_ebike != null ? R.arancel_ebike : R.arancel) / 100;
   // Gastos fijos del envío marítimo repartidos por bici; el recargo IMO de las e-bikes se reparte entre las e-bikes del envío
   const nEnv = Math.max(1, num(R.mar_bicis_envio) || 1);
   // Reparto como en el cotizador: 40% igual por bici y 60% según su valor (una bici cara absorbe más que una barata)
   const pesoValor = num(R.mar_exw_ref) > 0 ? 0.4 + 0.6 * costoUSD / num(R.mar_exw_ref) : 1;
-  const fijos = lima ? 0 : num(R.aduana) + (aereo ? 0 : num(R.mar_fijos_envio) / nEnv * pesoValor + (ebike ? num(R.imo_envio) / (envio === 'grupo' ? Math.max(1, num(R.grupo_min) || 1) : 1) : 0));
+  const fijos = lima || yaPuesto ? 0 : num(R.aduana) + (aereo ? 0 : num(R.mar_fijos_envio) / nEnv * pesoValor + (ebike ? num(R.imo_envio) / (envio === 'grupo' ? Math.max(1, num(R.grupo_min) || 1) : 1) : 0));
   const igv = 1 + num(R.igv) / 100;
   const armado = num(R.armado_pen ?? 150) / igv / tc.usd; // S/ 150 con IGV → US$ sin IGV (así ganancia con IGV = precio − costo con IGV)
-  const puesto = (costoUSD * (1 + num(R.seguro) / 100) + flete) * (1 + av) + fijos + armado;
+  const puesto = (costoUSD * (1 + (yaPuesto ? 0 : num(R.seguro)) / 100) + flete) * (1 + av) + fijos + armado;
   const modo = (R.modos && R.modos[sku.marca]) || 'costo';
   let pen;
   if (margenForzado != null) {
@@ -472,7 +474,7 @@ function armarCatalogo(skus, R, tc, hoy = hoyLima(), mods = {}) {
       continue;
     }
     const base = ops.reduce((a, o) => o.p < a.p ? o : a, ops[0]);
-    const it = { id: s.id, mo: s.montaje, t: s.talla, c: s.color, d: sinLimite(s) ? 99 : Math.max(0, num(s.stock) - num(s.reservado)), e: s.estado, ...(num(s.stock_kuranko) > 0 ? { tk: num(s.stock_kuranko) } : {}),
+    const it = { id: s.id, mo: s.montaje, t: s.talla, c: s.color, d: sinLimite(s) ? 99 : Math.max(0, num(s.stock) - num(s.reservado)), e: s.estado, ...(num(s.stock_kuranko) > 0 ? { tk: num(s.stock_kuranko), ...(s.stock_ciudad && s.stock_ciudad !== 'Lima' ? { tkc: s.stock_ciudad } : {}) } : {}),
       pm: base.p, fm: base.f, op: ops.map(o => ({ k: o.k, p: o.p, f: o.f, cu: o.cu, cq: o.cq, ...(o.tj ? { tj: o.tj } : {}), ...(o.pp ? { pp: o.ppp } : {}), ...(o.adicional ? { ad: 1 } : {}) })) };
     if (s.pvp > 0) it.ref = Math.ceil(s.pvp * (s.moneda === 'EUR' ? tc.eur : tc.usd) / 10) * 10; // PVP de la marca en soles, referencia
     m.skus.push(it);
@@ -1003,6 +1005,8 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
         await portalPool.query(`ALTER TABLE bk_modelos ADD COLUMN ${col}`).catch(() => {}); // ya existe
       await portalPool.query(`ALTER TABLE bk_reservas ADD COLUMN pago VARCHAR(4) NULL`).catch(() => {});
       await portalPool.query(`ALTER TABLE bk_skus ADD COLUMN stock_kuranko INT NOT NULL DEFAULT 0`).catch(() => {});
+      await portalPool.query(`ALTER TABLE bk_skus ADD COLUMN stock_ciudad VARCHAR(120) NULL`).catch(() => {});
+      await portalPool.query(`ALTER TABLE bk_skus ADD COLUMN costo_puesto TINYINT(1) NOT NULL DEFAULT 0`).catch(() => {});
       try { const [[ia]] = await portalPool.query(`SELECT valor FROM bk_config WHERE clave='ia'`); if (ia) modeloIAelegido = (JSON.parse(ia.valor) || {}).modelo || ''; } catch (e) {}
       await portalPool.query(`CREATE TABLE IF NOT EXISTS bk_llamadas (id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY, creado DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
           nombre VARCHAR(120) NOT NULL, tel VARCHAR(15) NOT NULL, fecha DATE NULL, franja VARCHAR(30) NULL, tema VARCHAR(300) NULL, ref VARCHAR(60) NULL,
@@ -1024,7 +1028,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
     return mezclarReglas(g);
   }
   const COLS = `id, marca, modelo, montaje, anio, categoria, aro, recorrido, material, motor, talla, color, color_hex, sku,
-    costo, moneda, pvp, stock, reservado, stock_kuranko, estado, DATE_FORMAT(fecha_disponible,'%Y-%m-%d') AS fecha_disponible, peso, url_imagen, url_ficha, notas, activo,
+    costo, moneda, pvp, stock, reservado, stock_kuranko, stock_ciudad, costo_puesto, estado, DATE_FORMAT(fecha_disponible,'%Y-%m-%d') AS fecha_disponible, peso, url_imagen, url_ficha, notas, activo,
     DATE_FORMAT(actualizado,'%Y-%m-%d %H:%i') AS actualizado`;
   async function leerSkus(soloActivos = true) {
     await prepararTablas();
@@ -1442,37 +1446,46 @@ ${fila(`Saldo al recibir la bicicleta${usdM ? ' (fijo en dólares)' : ''}`, $(nu
     const db = erp(); if (!db) return { error: 'Sin conexión al ERP (PROD_URL)' };
     await prepararTablas();
     // Solo productos de la subcategoría «Bicicletas» (o «Bicicletas …», ej. eléctricas) del ERP; así no entran accesorios como «Fidlock … para bicicleta»
-    const SEL = `SELECT pv.id AS vid, pv.sku, pv.name AS variacion, p.name AS producto, l.name AS loc, l.type AS tipo, ls.quantity AS q, IFNULL(ls.reserved_quantity, 0) AS r
+    const SEL0 = `SELECT pv.id AS vid, pv.sku, pv.name AS variacion, p.name AS producto, l.name AS loc, l.type AS tipo, ls.quantity AS q, IFNULL(ls.reserved_quantity, 0) AS r__CIU__
       FROM location_stocks ls JOIN locations l ON l.id = ls.location_id
       JOIN product_variations pv ON pv.id = ls.product_variation_id LEFT JOIN products p ON p.id = pv.product_id
       WHERE ls.quantity > 0 AND pv.deleted_at IS NULL AND (p.deleted_at IS NULL OR p.id IS NULL)`;
+    const SEL_ = () => SEL0.replace('__CIU__', colCiudad ? `, l.\`${colCiudad}\` AS ciu` : '');
+    // Ciudad de cada ubicación: columna de ciudad del ERP si existe; si no, se reconoce en el nombre (ej. «Puntobike Cusco» → Cusco); por defecto Lima
+    let colCiudad = null;
+    try { const [cols] = await db.query('SHOW COLUMNS FROM locations'); const n = cols.map(c => String(c.Field || '')); colCiudad = ['city', 'ciudad', 'province', 'provincia', 'department', 'departamento', 'region'].map(x => n.find(y => y.toLowerCase() === x)).find(Boolean) || null; } catch (e) {}
+    const CIUDADES = ['Lima', 'Cusco', 'Arequipa', 'Trujillo', 'Piura', 'Chiclayo', 'Huaraz', 'Cajamarca', 'Ica', 'Tacna', 'Puno', 'Juliaca', 'Huancayo', 'Ayacucho', 'Iquitos', 'Tarapoto', 'Pucallpa', 'Chachapoyas', 'Moquegua', 'Tumbes', 'Abancay', 'Huánuco', 'Chimbote', 'Oxapampa', 'Urubamba', 'Callao'];
+    const ciudadDe = (nombre, col) => { const c = String(col || '').trim(); if (c) return c.charAt(0).toUpperCase() + c.slice(1).toLowerCase(); const n = sinTildes(nombre); return CIUDADES.find(x => new RegExp('\\b' + sinTildes(x) + '\\b').test(n)) || 'Lima'; };
     let filas;
     try {
-      [filas] = await db.query(SEL + ` AND EXISTS (SELECT 1 FROM product_product_category ppc JOIN product_categories c ON c.id = ppc.product_category_id LEFT JOIN product_categories pa ON pa.id = c.parent_id
+      [filas] = await db.query(SEL_() + ` AND EXISTS (SELECT 1 FROM product_product_category ppc JOIN product_categories c ON c.id = ppc.product_category_id LEFT JOIN product_categories pa ON pa.id = c.parent_id
         WHERE ppc.product_id = p.id AND (c.name LIKE 'bicicleta%' OR c.name LIKE 'e-bike%' OR c.name LIKE 'ebike%' OR pa.name LIKE 'bicicleta%'))`);
     } catch (e) { // ERP sin tabla de categorías: por nombre
-      [filas] = await db.query(SEL + ` AND (p.name LIKE '%bicicleta%' OR pv.name LIKE '%bicicleta%' OR p.name LIKE '%e-bike%' OR p.name LIKE '%ebike%')`);
+      [filas] = await db.query(SEL_() + ` AND (p.name LIKE '%bicicleta%' OR pv.name LIKE '%bicicleta%' OR p.name LIKE '%e-bike%' OR p.name LIKE '%ebike%')`);
     }
     const porVid = new Map();
     for (const f of filas) {
-      if (f.tipo === 'consignment' || NO_VENDIBLES.has(norm(f.loc))) continue;
+      if (NO_VENDIBLES.has(norm(f.loc))) continue; // las consignadas sí cuentan (se indica la ciudad)
       const nombre = f.variacion && String(f.variacion).toLowerCase().startsWith(String(f.producto || '').toLowerCase()) ? f.variacion : [f.producto, f.variacion].filter(Boolean).join(', ');
-      const x = porVid.get(f.vid) || { vid: f.vid, sku: f.sku, nombre, qty: 0, locs: [] };
-      x.qty += Math.max(0, num(f.q) - num(f.r)); if (!x.locs.includes(f.loc)) x.locs.push(f.loc); porVid.set(f.vid, x);
+      const x = porVid.get(f.vid) || { vid: f.vid, sku: f.sku, nombre, qty: 0, locs: [], ciudades: [] };
+      const q = Math.max(0, num(f.q) - num(f.r)); if (q <= 0) continue;
+      const ciu = ciudadDe(f.loc, f.ciu), et = f.loc + (f.tipo === 'consignment' ? ' (consignación)' : '');
+      x.qty += q; if (!x.locs.includes(et)) x.locs.push(et); if (!x.ciudades.includes(ciu)) x.ciudades.push(ciu); porVid.set(f.vid, x);
     }
     const [skus] = await portalPool.query('SELECT id, marca, modelo, talla, color, sku FROM bk_skus WHERE activo=1');
     // Correcciones a mano: { id de variación del ERP: id del SKU del catálogo, o 0 = «no está en el catálogo» }
     const [[cm]] = await portalPool.query(`SELECT valor FROM bk_config WHERE clave='erp_map'`); let mapa = {}; try { mapa = JSON.parse(cm ? cm.valor : '{}') || {}; } catch (e) {}
-    const stock = new Map(), emparejadas = [], sin = [], todas = [];
+    const stock = new Map(), ciuSku = new Map(), emparejadas = [], sin = [], todas = [];
     for (const x of porVid.values()) {
       if (x.qty <= 0) continue;
       const n = leerNombreERP(x.nombre);
-      const fila = { vid: x.vid, erp: x.nombre, marca: n ? n.marca : '', modelo: n ? n.modelo : '', talla: n ? n.talla : '', color: n ? n.color : '', qty: x.qty, locs: x.locs.join(', '), sku_id: null, modo: '' };
+      const fila = { vid: x.vid, erp: x.nombre, marca: n ? n.marca : '', modelo: n ? n.modelo : '', talla: n ? n.talla : '', color: n ? n.color : '', qty: x.qty, locs: x.locs.join(', '), ciudad: x.ciudades.join(', '), sku_id: null, modo: '' };
+      const sumar = id => { stock.set(id, (stock.get(id) || 0) + x.qty); const c = ciuSku.get(id) || new Set(); x.ciudades.forEach(z => c.add(z)); ciuSku.set(id, c); };
       todas.push(fila);
       if (mapa[x.vid] !== undefined) {
         const s = skus.find(k => k.id === num(mapa[x.vid]));
         fila.modo = 'manual';
-        if (s) { fila.sku_id = s.id; fila.bici = `${s.marca} ${s.modelo} · ${s.talla} · ${s.color}`; stock.set(s.id, (stock.get(s.id) || 0) + x.qty); emparejadas.push({ erp: x.nombre, qty: x.qty, sku_id: s.id, bici: fila.bici, manual: true }); }
+        if (s) { fila.sku_id = s.id; fila.bici = `${s.marca} ${s.modelo} · ${s.talla} · ${s.color}`; sumar(s.id); emparejadas.push({ erp: x.nombre, qty: x.qty, sku_id: s.id, bici: fila.bici, manual: true }); }
         else sin.push({ erp: x.nombre, qty: x.qty, locs: fila.locs });
         continue;
       }
@@ -1487,13 +1500,13 @@ ${fila(`Saldo al recibir la bicicleta${usdM ? ' (fijo en dólares)' : ''}`, $(nu
         cand = modelo ? deMarca.filter(s => s.modelo === modelo && (!n.talla || tallaNorm(s.talla) === n.talla)) : [];
         if (cand.length > 1 && n.color) { const tc = new Set(sinTildes(n.color).split(/[^a-z0-9]+/).filter(t => t.length > 2)); const c2 = cand.filter(s => sinTildes(s.color).split(/[^a-z0-9]+/).some(t => tc.has(t))); if (c2.length) cand = c2; }
       }
-      if (cand.length) { const s = cand[0]; stock.set(s.id, (stock.get(s.id) || 0) + x.qty); fila.sku_id = s.id; fila.bici = `${s.marca} ${s.modelo} · ${s.talla} · ${s.color}`; fila.modo = cand.length > 1 ? 'dudoso' : 'auto';
+      if (cand.length) { const s = cand[0]; sumar(s.id); fila.sku_id = s.id; fila.bici = `${s.marca} ${s.modelo} · ${s.talla} · ${s.color}`; fila.modo = cand.length > 1 ? 'dudoso' : 'auto';
         emparejadas.push({ erp: x.nombre, qty: x.qty, sku_id: s.id, bici: fila.bici, dudoso: cand.length > 1 }); }
       else sin.push({ erp: x.nombre, qty: x.qty, locs: x.locs.join(', ') });
     }
     todas.sort((a, b) => (a.marca + a.modelo + a.erp).localeCompare(b.marca + b.modelo + b.erp));
-    await portalPool.query('UPDATE bk_skus SET stock_kuranko=0 WHERE stock_kuranko<>0');
-    for (const [id, q] of stock) await portalPool.query('UPDATE bk_skus SET stock_kuranko=? WHERE id=?', [q, id]);
+    await portalPool.query('UPDATE bk_skus SET stock_kuranko=0, stock_ciudad=NULL WHERE stock_kuranko<>0 OR stock_ciudad IS NOT NULL');
+    for (const [id, q] of stock) await portalPool.query('UPDATE bk_skus SET stock_kuranko=?, stock_ciudad=? WHERE id=?', [q, [...(ciuSku.get(id) || [])].join(', ').slice(0, 120) || null, id]);
     const estado = { t: Date.now(), en_tienda: [...stock.values()].reduce((a, b) => a + b, 0), emparejadas, sin_emparejar: sin, todas };
     await portalPool.query(`INSERT INTO bk_config (clave, valor, actualizado_por) VALUES ('erp_stock', ?, 'sistema') ON DUPLICATE KEY UPDATE valor=VALUES(valor), actualizado=NOW()`, [JSON.stringify(estado)]);
     limpiarCache();
@@ -1533,7 +1546,7 @@ ${fila(`Saldo al recibir la bicicleta${usdM ? ' (fijo en dólares)' : ''}`, $(nu
       const igv = 1 + num(R.igv) / 100, usd = pen => Math.round(pen / tc.usd);
       const ops = opcionesEnvio(sku, R, tc, md).map(o => {
         const p = calcularPrecio(sku, o.k, R, tc, o.adicional ? num(R.margen_minimo) : null);
-        const seguro = p.costoUSD * num(RM.seguro) / 100, arancel = (p.costoUSD + seguro + p.flete) * p.av / 100;
+        const seguro = num(sku.costo_puesto) ? 0 : p.costoUSD * num(RM.seguro) / 100, arancel = (p.costoUSD + seguro + p.flete) * p.av / 100;
         // Margen sobre el precio de lista (PVP × factor): (precio cobrado − comisión − costo) / lista. Ganancia en US$ con IGV (precio con IGV − costo con IGV).
         const L = p.pen / igv / tc.usd, desc = Math.min(90, Math.max(0, num(b.descuento))) / 100;
         const margenCon = (precio, pct) => { const sin = precio / igv / tc.usd; return { real: Math.round((sin * (1 - pct) - p.puesto) / L * 1000) / 10, peor: Math.round((sin * (1 - pct) - p.cw) / L * 1000) / 10, ganancia: Math.round((sin * (1 - pct) - p.puesto) * igv) }; };
@@ -1609,7 +1622,7 @@ ${fila(`Saldo al recibir la bicicleta${usdM ? ' (fijo en dólares)' : ''}`, $(nu
           creado: horaLima(r.creado), actualizado: horaLima(r.actualizado), valido_hasta: horaLima(r.valido_hasta), vencida: r.estado === 'Nueva' && r.valido_hasta && r.valido_hasta * 1000 < Date.now() })),
         modelos: mods, marcas_info: await leerMarcas(), pagina: await leerPagina(),
         llamadas: (await portalPool.query(`SELECT id, UNIX_TIMESTAMP(creado) creado, nombre, tel, DATE_FORMAT(fecha,'%Y-%m-%d') fecha, franja, tema, ref, estado, nota FROM bk_llamadas ORDER BY (estado='Pendiente') DESC, fecha, id DESC LIMIT 200`))[0].map(l => ({ ...l, creado: horaLima(l.creado) })), grupos: await gruposPorMarca(R),
-        imports: imports.map(i => ({ ...i, creado: horaLima(i.creado) })), estados_reserva: ESTADOS_RESERVA, estados_sku: ESTADOS_SKU, marcas_base: MARCAS_BASE });
+        imports: imports.map(i => ({ ...i, creado: horaLima(i.creado) })), estados_reserva: ESTADOS_RESERVA, categorias: CATEGORIAS, estados_sku: ESTADOS_SKU, marcas_base: MARCAS_BASE });
     } catch (e) { console.error('[bikes] estado', e.message); res.status(500).json({ error: e.message }); }
   });
 
@@ -1750,6 +1763,10 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
     if (b.estado !== undefined && ESTADOS_SKU.includes(b.estado)) { sets.push('estado=?'); vals.push(b.estado); }
     if (b.fecha_disponible !== undefined && /^\d{4}-\d{2}-\d{2}$/.test(b.fecha_disponible)) { sets.push('fecha_disponible=?'); vals.push(b.fecha_disponible); }
     if (b.costo !== undefined && +b.costo > 0) { sets.push('costo=?'); vals.push(+b.costo); }
+    if (b.pvp !== undefined) { sets.push('pvp=?'); vals.push(+b.pvp > 0 ? +b.pvp : null); }
+    if (b.moneda !== undefined && ['USD', 'EUR'].includes(b.moneda)) { sets.push('moneda=?'); vals.push(b.moneda); }
+    if (b.costo_puesto !== undefined) { sets.push('costo_puesto=?'); vals.push(b.costo_puesto ? 1 : 0); }
+    if (b.categoria !== undefined && CATEGORIAS.includes(b.categoria)) { sets.push('categoria=?'); vals.push(b.categoria); }
     if (b.url_imagen !== undefined) { sets.push('url_imagen=?'); vals.push(/^https?:\/\//i.test(b.url_imagen) ? String(b.url_imagen).slice(0, 500) : null); }
     if (!sets.length) return res.status(400).json({ error: 'Nada que cambiar' });
     try {
@@ -2001,7 +2018,9 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
     const motor = d.motor || sp(/^(motor|drive unit|unidad motriz)/i);
     const colores = sp(/^(colou?r(es|s)?|acabado|finish)/i).split(/\s*[\/,;]\s*|\s+y\s+|\s+and\s+/).map(x => x.trim()).filter(x => x && x.length < 40).slice(0, 4);
     const aro = d.aro === 'Mullet' ? 'Mullet' : (/(^|\D)29(?!\d)/.test(sp(/^(neum[aá]tico|tire|rueda|wheel|llanta)/i)) ? '29' : /27[.,]5/.test(sp(/^(neum[aá]tico|tire|rueda|wheel|llanta)/i)) ? '27.5' : d.aro || '');
-    return { modelo: nombre, categoria: motor ? 'E-MTB' : 'MTB', aro: String(aro || ''), recorrido: d.rec_tras ? d.rec_tras + ' mm' : d.rec_del ? d.rec_del + ' mm' : '', material: d.material || '', motor: String(motor || '').slice(0, 120),
+    const txt = (f.titulo || '') + ' ' + url + ' ' + (f.descripcion || '').slice(0, 300);
+    const catAd = motor ? 'E-MTB' : /downhill|\bdh\b|descenso/i.test(txt) ? 'Downhill' : /enduro/i.test(txt) ? 'Enduro' : /\btrail\b/i.test(txt) ? 'Trail' : /cross.?country|\bxc\b/i.test(txt) ? 'XC' : /gravel/i.test(txt) ? 'Gravel' : /dirt|pump/i.test(txt) ? 'Dirt / Pump' : 'MTB';
+    return { modelo: nombre, categoria: catAd, aro: String(aro || ''), recorrido: d.rec_tras ? d.rec_tras + ' mm' : d.rec_del ? d.rec_del + ' mm' : '', material: d.material || '', motor: String(motor || '').slice(0, 120),
       peso: d.peso || '', tallas, colores, anio: (String(url + ' ' + (f.titulo || '')).match(/\b(20[2-3]\d)\b/) || [])[1] || '',
       fotos: (f.imagenes || []).length, specs: (f.specs || []).length, descripcion: !!f.descripcion, geometria: !!(d.geometria && d.geometria.filas), foto: (f.imagenes || [])[0] || null };
   }
@@ -2014,7 +2033,7 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
       const token = require('crypto').randomBytes(8).toString('hex'); if (borradores.size > 50) borradores.clear();
       borradores.set(token, { f, url, marca, t: Date.now() });
       const [[ex]] = await portalPool.query('SELECT COUNT(*) n FROM bk_skus WHERE marca=? AND activo=1', [marca]);
-      res.json({ token, ...propuestaDe(f, marca, url), skus_marca: ex.n });
+      res.json({ token, ...propuestaDe(f, marca, url), skus_marca: ex.n, categorias: CATEGORIAS });
     } catch (e) { res.status(400).json({ error: e.message + (b.texto || /Lector/.test(e.message) ? '' : '. Si la marca bloquea al portal, ábrela en tu navegador y usa el Lector Kuranko → «Crear como bici nueva».') }); }
   });
   app.post('/api/bikes/admin/crear', authAdmin, mBikes, async (req, res) => {
@@ -2027,7 +2046,8 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
     if (!tallas.length) return res.status(400).json({ error: 'Pon al menos una talla (ej. S, M, L, XL)' });
     if (!(costo > 0)) return res.status(400).json({ error: 'Pon el costo (precio de compra a la marca)' });
     if (!colores.length) colores.push('Único');
-    const cat = ['MTB', 'E-MTB', 'Gravel', 'Ruta', 'Urbana', 'Niños'].includes(b.categoria) ? b.categoria : 'MTB';
+    const cat = CATEGORIAS.includes(b.categoria) ? b.categoria : 'MTB';
+    const enStock = !!b.en_stock; // ya está en Perú: el costo es el costo puesto (sin IGV) y se vende como entrega inmediata
     const corto = (x, n) => String(x || '').trim().slice(0, n) || null;
     try {
       await prepararTablas();
@@ -2035,7 +2055,7 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
       let nuevas = 0, act = 0;
       for (const talla of tallas) for (const color of colores) {
         const fila = { categoria: cat, aro: corto(b.aro, 20), recorrido: corto(b.recorrido, 40), material: corto(b.material, 60), motor: cat === 'E-MTB' ? corto(b.motor, 120) || 'sí' : null,
-          anio: num(b.anio) > 2000 ? num(b.anio) : null, costo, moneda, pvp: pvp > 0 ? pvp : null, stock: Math.round(num(b.stock)), estado: 'A pedido', peso: corto(b.peso, 20), url_ficha: url, notas: 'Creada desde la web de la marca' };
+          anio: num(b.anio) > 2000 ? num(b.anio) : null, costo, moneda, pvp: pvp > 0 ? pvp : null, stock: enStock ? Math.max(1, Math.round(num(b.stock))) : Math.round(num(b.stock)), estado: enStock ? 'Stock Lima' : 'A pedido', costo_puesto: enStock ? 1 : 0, peso: corto(b.peso, 20), url_ficha: url, notas: 'Creada desde la web de la marca' };
         const [[e]] = await portalPool.query('SELECT id FROM bk_skus WHERE marca=? AND modelo=? AND talla=? AND color=? LIMIT 1', [marca, modelo, talla, color]);
         const c = Object.keys(fila);
         if (e) { await portalPool.query(`UPDATE bk_skus SET ${c.map(k => k + '=?').join(', ')}, activo=1, actualizado=NOW() WHERE id=?`, [...c.map(k => fila[k]), e.id]); act++; }

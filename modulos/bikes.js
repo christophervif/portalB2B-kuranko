@@ -2036,7 +2036,7 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
     const sets = [], vals = [];
     if (b.destacado !== undefined) { sets.push('destacado'); vals.push(b.destacado ? 1 : 0); }
     if (b.confirmado !== undefined) { sets.push('confirmado'); vals.push(b.confirmado ? 1 : 0); }
-    if (b.etiqueta !== undefined) { sets.push('etiqueta'); vals.push(['novedad', 'lanzamiento', 'proximamente'].includes(b.etiqueta) ? b.etiqueta : ''); }
+    if (b.etiqueta !== undefined) { sets.push('etiqueta'); vals.push(['novedad', 'lanzamiento', 'proximamente', 'usado'].includes(b.etiqueta) ? b.etiqueta : ''); }
     if (!sets.length) return res.status(400).json({ error: 'Nada que cambiar' });
     try {
       await prepararTablas();

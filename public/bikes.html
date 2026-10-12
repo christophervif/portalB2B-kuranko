@@ -436,7 +436,7 @@ document.getElementById('kScrim').onclick=()=>abrirPanel(false);
 document.getElementById('kMenuMovil').addEventListener('click',e=>{const b=e.target.closest('[data-acc]');if(!b)return;const li=b.closest('li');li.classList.toggle('abierto');b.textContent=li.classList.contains('abierto')?'−':'+'});
 // Buscador: busca primero en las bicis de esta tienda; abajo, el enlace para buscar repuestos y accesorios en kuranko.pe
 const normQ=t=>String(t||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9/.]+/g,' ').trim();
-const hayDe=m=>m._hay||(m._hay=normQ([m.marca,m.modelo,m.cat,m.aro==='Mullet'?'mullet':m.aro&&'aro '+m.aro,m.rec,m.mat,m.matx,m.motor,(m.colores||[]).map(c=>c.n).join(' '),(m.specs||[]).map(x=>x.v).join(' '),m.tag==='proximamente'?'':m.desc].filter(Boolean).join(' ')));
+const hayDe=m=>m._hay||(m._hay=normQ([m.marca,m.modelo,m.cat,m.tag==='usado'?'usado':'',m.aro==='Mullet'?'mullet':m.aro&&'aro '+m.aro,m.rec,m.mat,m.matx,m.motor,(m.colores||[]).map(c=>c.n).join(' '),(m.specs||[]).map(x=>x.v).join(' '),m.tag==='proximamente'?'':m.desc].filter(Boolean).join(' ')));
 function buscarBicis(q){const ts=normQ(q).split(' ').filter(Boolean);if(!ts.length||!D)return [];
   return D.modelos.filter(m=>m.tag!=='proximamente').map(m=>{const h=hayDe(m),n=normQ(m.marca+' '+m.modelo);if(!ts.every(t=>h.includes(t)))return null;return {m,s:ts.filter(t=>n.includes(t)).length}}).filter(Boolean).sort((a,b)=>b.s-a.s).map(x=>x.m)}
 function pintarBusqueda(){const q=document.getElementById('kBusQ').value.trim(),out=document.getElementById('kBusRes');if(!q){out.innerHTML='';return}
@@ -535,7 +535,7 @@ function pintarFiltros(){
 // Línea de datos: aro, recorrido delantero/trasero y material
 const specLinea=m=>[m.aro?(m.aro==='Mullet'?'Mullet 29/27.5':'Aro '+m.aro):'',m.rd?(m.rt?m.rd+'/'+m.rt+' mm':m.rd+' mm'):m.rt?m.rt+' mm atrás':m.rec,m.matx||m.mat,m.motor].filter(Boolean).map(esc).join(' · ');
 const maxCuotas=m=>Math.max(0,...m.skus.flatMap(x=>(x.op||[]).flatMap(o=>Object.keys(o.cq||{}).map(Number))));
-const TAGS={novedad:'Novedad',lanzamiento:'Lanzamiento'};
+const TAGS={novedad:'Novedad',lanzamiento:'Lanzamiento',usado:'Usado'};
 function cardHTML({m,r}){
   if(m.tag==='proximamente')return `<button class="card pronto" data-pronto="${esc(m.marca)}"><div class="pic" style="color:var(--ink)"><img class="silueta" src="${esc(m.img||SIL_GEN)}" alt="Próximo lanzamiento de ${esc(m.marca)}" loading="lazy" onload="siluetear(this)" onerror="this.onerror=null;this.src=SIL_GEN"><span class="badge last">Próximamente</span></div>
     <div class="bd"><span class="br">${esc(m.marca)} · ${esc(m.cat||'')}</span><h3>Muy pronto</h3><span class="spec">Un nuevo modelo de ${esc(m.marca)} está por llegar.</span>

@@ -1122,7 +1122,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
     if (req.query.lang === 'en' && menu) { // menú de kuranko.pe en inglés (palabras frecuentes)
       const M = [[/tecnolog[ií]as/gi, 'Technologies'], [/\bnaves\b/gi, 'Bikes'], [/bicicletas?/gi, 'Bikes'], [/componentes/gi, 'Components'], [/accesorios/gi, 'Accessories'], [/\btaller\b/gi, 'Workshop'], [/\bropa\b/gi, 'Apparel'], [/a pedido/gi, 'To order'],
         [/repuestos/gi, 'Parts'], [/ofertas/gi, 'Deals'], [/contacto/gi, 'Contact'], [/nosotros/gi, 'About us'], [/servicios?/gi, 'Service'], [/zapatillas/gi, 'Shoes'], [/cascos/gi, 'Helmets'], [/llantas/gi, 'Tires'], [/ruedas/gi, 'Wheels'], [/frenos/gi, 'Brakes'], [/suspensi[oó]n/gi, 'Suspension'], [/transmisi[oó]n/gi, 'Drivetrain'], [/herramientas/gi, 'Tools'], [/nutrici[oó]n/gi, 'Nutrition'], [/el[eé]ctricas/gi, 'Electric'], [/monta[ñn]a/gi, 'Mountain'], [/ni[ñn]os/gi, 'Kids']];
-      const tr = t => M.reduce((a, [re, en]) => a.replace(re, en), String(t));
+      const tr = t => { const o = String(t), x = M.reduce((a, [re, en]) => a.replace(re, en), o); return o === o.toUpperCase() ? x.toUpperCase() : x; }; // respeta las mayúsculas del menú original
       const rec = x => Array.isArray(x) ? x.map(rec) : x && typeof x === 'object' ? Object.fromEntries(Object.entries(x).map(([k, v]) => [k, /^(t|texto|nombre|label|titulo|name)$/i.test(k) && typeof v === 'string' ? tr(v) : rec(v)])) : x;
       menu = rec(menu);
     }

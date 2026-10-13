@@ -37,8 +37,12 @@ function nombreTrazable(base) {
 
 // Fragmento SQL para filtrar por rango de fechas (BETWEEN desde y hasta)
 // campo: la columna de fecha (por defecto s.created_at)
+// Solo acepta fechas AAAA-MM-DD: cualquier otro texto se descarta para que nunca
+// llegue al SQL (evita inyección SQL desde la URL).
+const FECHA_SQL = /^\d{4}-\d{2}-\d{2}$/;
 const rango = (desde, hasta, campo = 's.created_at') =>
-  desde && hasta ? `AND ${campo} BETWEEN '${desde}' AND '${hasta} 23:59:59'` : '';
+  FECHA_SQL.test(String(desde || '')) && FECHA_SQL.test(String(hasta || ''))
+    ? `AND ${campo} BETWEEN '${desde}' AND '${hasta} 23:59:59'` : '';
 
 // Inserta la cabecera informativa (título, fecha de exportación, filtros) en las
 // primeras filas de una hoja Excel. Devuelve cuántas filas ocupó (para congelar).

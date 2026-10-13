@@ -400,7 +400,7 @@ function normalizarFila(r, def = {}, hoy = hoyLima()) {
   if (!r.talla && mTalla) r.talla = ({ SM: 'S/M', ML: 'M/L', LXL: 'L/XL' })[mTalla[1].toUpperCase()] || mTalla[1];
   if (!r.modelo && nombre) r.modelo = mTalla ? nombre.slice(0, -mTalla[0].length) : nombre;
   const f = {
-    marca, modelo: String(r.modelo || '').trim().slice(0, 120), montaje: String(r.montaje || '').trim().slice(0, 80) || 'Base',
+    marca, modelo: String(r.modelo || '').trim().slice(0, 120), montaje: String(r.montaje || '').trim().slice(0, 160) || 'Base',
     anio: Math.round(aNumero(r.anio)) || null, categoria: aCategoria(r.categoria, motor), aro: String(r.aro || (/mullet|\bMX\b/i.test(nombre + ' ' + (r.modelo || '')) ? 'Mullet' : '29')).replace(/["”'']/g, '').trim().slice(0, 20) || '29',
     recorrido: String(r.recorrido || '').trim().slice(0, 40), material: String(r.material || '').trim().slice(0, 60), motor,
     talla: aTalla(r.talla) || 'Única', color: String(r.color || '').trim().slice(0, 80) || 'Único',
@@ -1039,6 +1039,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       await portalPool.query(`ALTER TABLE bk_reservas ADD COLUMN pago VARCHAR(4) NULL`).catch(() => {});
       await portalPool.query(`ALTER TABLE bk_skus ADD COLUMN stock_kuranko INT NOT NULL DEFAULT 0`).catch(() => {});
       await portalPool.query(`ALTER TABLE bk_skus ADD COLUMN stock_ciudad VARCHAR(120) NULL`).catch(() => {});
+      await portalPool.query(`ALTER TABLE bk_skus MODIFY montaje VARCHAR(160) NOT NULL DEFAULT 'Base'`).catch(() => {}); // montajes con opciones «Grupo: valor · Grupo: valor»
       await portalPool.query(`ALTER TABLE bk_modelos ADD COLUMN descripcion_en TEXT NULL`).catch(() => {});
       await portalPool.query(`ALTER TABLE bk_modelos ADD COLUMN descuento DECIMAL(5,2) NULL`).catch(() => {});
       await portalPool.query(`ALTER TABLE bk_modelos ADD COLUMN descuento_hasta DATE NULL`).catch(() => {});
@@ -1242,10 +1243,11 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
         const MAT_EN = t => String(t || '').replace(/Carbono/g, 'Carbon').replace(/Aluminio/g, 'Aluminum');
         const GAR_EN = t => String(t || '').replace(/Cuadro/gi, 'Frame').replace(/Componentes/gi, 'Components').replace(/Amortiguador(es)?/gi, 'Shock').replace(/Motor/gi, 'Motor').replace(/Bater[ií]a/gi, 'Battery').replace(/de por vida|vitalicia/gi, 'lifetime').replace(/años/g, 'years').replace(/año/g, 'year').replace(/\by\b/g, 'and');
         const EXT_EN = { 'Armado, ajuste de suspensión y fitting básico': 'Assembly, suspension setup and basic fitting', 'Pedales de plataforma': 'Flat pedals', 'Mantenimiento prepagado 12 meses (3 servicios)': 'Prepaid 12-month maintenance (3 services)' };
+        const MO_EN = t => String(t || '').replace(/Transmisión:/g, 'Drivetrain:').replace(/Amortiguador:/g, 'Shock:').replace(/Pedalier /g, 'Bottom bracket ').replace(/Para caja Pinion \(no incluida\)/g, 'For Pinion gearbox (not included)').replace(/Sin amortiguador/g, 'No shock');
         const pg = data.pagina || {};
         data = { ...data, extras: (data.extras || []).map(e => ({ ...e, nombre: EXT_EN[e.nombre] || e.nombre })), pagina: { ...pg, asesor_cargo: pg.asesor_cargo === 'Asesor de bicicletas' ? 'Bike advisor' : pg.asesor_cargo },
           garantias: Object.fromEntries(Object.entries(data.garantias || {}).map(([k, v]) => [k, GAR_EN(v)])),
-          modelos: data.modelos.map(m => ({ ...m, desc: m.desc_en || m.desc, cat: CAT_EN[m.cat] || m.cat, specs: (m.specs || []).map(x => ({ ...x, k: specEn(x.k) })),
+          modelos: data.modelos.map(m => ({ ...m, montajes: (m.montajes || []).map(MO_EN), skus: (m.skus || []).map(x => ({ ...x, mo: MO_EN(x.mo) })), desc: m.desc_en || m.desc, cat: CAT_EN[m.cat] || m.cat, specs: (m.specs || []).map(x => ({ ...x, k: specEn(x.k) })),
           ...(m.mat ? { mat: MAT_EN(m.mat) } : {}), ...(m.matx ? { matx: MAT_EN(m.matx) } : {}), ...(m.gar ? { gar: GAR_EN(m.gar) } : {}),
           ...(m.modelo === 'Próximamente' ? { modelo: 'Coming soon' } : {}) })) };
       }

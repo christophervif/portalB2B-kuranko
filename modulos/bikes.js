@@ -90,6 +90,20 @@ const REGLAS_BASE = {
   ]
 };
 
+// ── Fotos optimizadas (opcional) ─────────────────────────────────────────────
+// Con «sharp» instalado las fotos se reducen al tamaño en que se muestran y se envían en WebP.
+// Sin él, todo sigue funcionando con las fotos originales.
+let sharp = null;
+try { sharp = require('sharp'); sharp.cache(false); sharp.concurrency(2); }
+catch (e) { console.warn('[bikes] sharp no instalado: las fotos se sirven originales (npm i sharp)'); }
+const ANCHOS_IMG = [160, 480, 960, 1400];
+const ANCHO_FOTO_PAGINA = { hero: 960, taller: 960, taller2: 960, asesor: 160 };
+async function optimizarImg(buf, w, webp) {
+  const t = sharp(buf, { failOn: 'none' }).rotate().resize({ width: w, withoutEnlargement: true });
+  return webp ? { buf: await t.webp({ quality: 78 }).toBuffer(), tipo: 'image/webp' }
+    : { buf: await t.jpeg({ quality: 80, mozjpeg: true }).toBuffer(), tipo: 'image/jpeg' };
+}
+
 // ── Utilidades puras ──────────────────────────────────────────────────────────
 const num = v => { const n = Number(v); return isFinite(n) ? n : 0; };
 const ceil10 = x => Math.ceil(x / 10) * 10;
@@ -462,6 +476,23 @@ function colorDeFoto(url, colores) {
     if (n > pts) { pts = n; mejor = c; } else if (n && n === pts) mejor = ''; // empate: no adivina
   }
   return mejor;
+}
+
+// Versión compacta del catálogo para la página: las opciones de envío/pago se repiten casi iguales en
+// cada talla y color (921 SKU → ~80 combinaciones distintas). Se mandan una vez por modelo en «ops» y cada
+// SKU apunta con «oi»; el montaje va como índice «mi» en m.montajes. bikes.html lo reconstruye al cargar.
+// (646 KB → ~370 KB sin comprimir: menos datos que el celular tiene que leer.)
+function compactarCatalogo(data) {
+  return { ...data, compacto: 1, modelos: data.modelos.map(m => {
+    const ops = [], idx = new Map();
+    const skus = (m.skus || []).map(x => {
+      const { op, mo, ...r } = x, k = JSON.stringify(op || []);
+      if (!idx.has(k)) { idx.set(k, ops.length); ops.push(op || []); }
+      const mi = (m.montajes || []).indexOf(mo);
+      return { ...r, oi: idx.get(k), ...(mi >= 0 ? { mi } : { mo }) };
+    });
+    return { ...m, ops, skus };
+  }) };
 }
 
 // Agrupa SKUs (ya con precios) en modelos para la tienda pública.
@@ -996,6 +1027,8 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
   const usuarioDe = req => (req.admin && req.admin.usuario) || 'admin';
 
   let _listo = null;
+  // En los ALTER TABLE del arranque solo se ignora «la columna ya existe»; cualquier otro error queda en el log
+  const colYaExiste = e => { if (!/ER_DUP_FIELDNAME|Duplicate column/i.test(`${e.code} ${e.message}`)) console.warn('[bikes] preparar tablas:', e.message); };
   function prepararTablas() {
     if (_listo) return _listo;
     _listo = (async () => {
@@ -1038,16 +1071,16 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
           specs MEDIUMTEXT NULL, datos TEXT NULL, manual TINYINT(1) NOT NULL DEFAULT 0,
           actualizado DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (marca, modelo)) DEFAULT CHARSET=utf8mb4`);
       for (const col of ['specs MEDIUMTEXT NULL', 'datos TEXT NULL', 'manual TINYINT(1) NOT NULL DEFAULT 0', 'img_colores MEDIUMTEXT NULL', 'confirmado TINYINT(1) NOT NULL DEFAULT 0', 'destacado TINYINT(1) NOT NULL DEFAULT 0', "etiqueta VARCHAR(15) NOT NULL DEFAULT ''"])
-        await portalPool.query(`ALTER TABLE bk_modelos ADD COLUMN ${col}`).catch(() => {}); // ya existe
-      await portalPool.query(`ALTER TABLE bk_reservas ADD COLUMN pago VARCHAR(4) NULL`).catch(() => {});
-      await portalPool.query(`ALTER TABLE bk_skus ADD COLUMN stock_kuranko INT NOT NULL DEFAULT 0`).catch(() => {});
-      await portalPool.query(`ALTER TABLE bk_skus ADD COLUMN stock_ciudad VARCHAR(120) NULL`).catch(() => {});
-      await portalPool.query(`ALTER TABLE bk_skus MODIFY montaje VARCHAR(160) NOT NULL DEFAULT 'Base'`).catch(() => {});
-      await portalPool.query(`ALTER TABLE bk_reservas MODIFY montaje VARCHAR(240) NOT NULL`).catch(() => {}); // montaje + opciones sin costo elegidas (ej. Dropout) // montajes con opciones «Grupo: valor · Grupo: valor»
-      await portalPool.query(`ALTER TABLE bk_modelos ADD COLUMN descripcion_en TEXT NULL`).catch(() => {});
-      await portalPool.query(`ALTER TABLE bk_modelos ADD COLUMN descuento DECIMAL(5,2) NULL`).catch(() => {});
-      await portalPool.query(`ALTER TABLE bk_modelos ADD COLUMN descuento_hasta DATE NULL`).catch(() => {});
-      await portalPool.query(`ALTER TABLE bk_skus ADD COLUMN costo_puesto TINYINT(1) NOT NULL DEFAULT 0`).catch(() => {});
+        await portalPool.query(`ALTER TABLE bk_modelos ADD COLUMN ${col}`).catch(colYaExiste);
+      await portalPool.query(`ALTER TABLE bk_reservas ADD COLUMN pago VARCHAR(4) NULL`).catch(colYaExiste);
+      await portalPool.query(`ALTER TABLE bk_skus ADD COLUMN stock_kuranko INT NOT NULL DEFAULT 0`).catch(colYaExiste);
+      await portalPool.query(`ALTER TABLE bk_skus ADD COLUMN stock_ciudad VARCHAR(120) NULL`).catch(colYaExiste);
+      await portalPool.query(`ALTER TABLE bk_skus MODIFY montaje VARCHAR(160) NOT NULL DEFAULT 'Base'`).catch(colYaExiste);
+      await portalPool.query(`ALTER TABLE bk_reservas MODIFY montaje VARCHAR(240) NOT NULL`).catch(colYaExiste); // montaje + opciones sin costo elegidas (ej. Dropout) // montajes con opciones «Grupo: valor · Grupo: valor»
+      await portalPool.query(`ALTER TABLE bk_modelos ADD COLUMN descripcion_en TEXT NULL`).catch(colYaExiste);
+      await portalPool.query(`ALTER TABLE bk_modelos ADD COLUMN descuento DECIMAL(5,2) NULL`).catch(colYaExiste);
+      await portalPool.query(`ALTER TABLE bk_modelos ADD COLUMN descuento_hasta DATE NULL`).catch(colYaExiste);
+      await portalPool.query(`ALTER TABLE bk_skus ADD COLUMN costo_puesto TINYINT(1) NOT NULL DEFAULT 0`).catch(colYaExiste);
       try { const [[ia]] = await portalPool.query(`SELECT valor FROM bk_config WHERE clave='ia'`); if (ia) modeloIAelegido = (JSON.parse(ia.valor) || {}).modelo || ''; } catch (e) {}
       await portalPool.query(`CREATE TABLE IF NOT EXISTS bk_llamadas (id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY, creado DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
           nombre VARCHAR(120) NOT NULL, tel VARCHAR(15) NOT NULL, fecha DATE NULL, franja VARCHAR(30) NULL, tema VARCHAR(300) NULL, ref VARCHAR(60) NULL,
@@ -1162,6 +1195,12 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
     if (!catCache || catCache.data !== data) return { ...data, modelos: data.modelos.map(({ desc_en, ...m }) => m) };
     return catCache.es || (catCache.es = { ...data, modelos: data.modelos.map(({ desc_en, ...m }) => m) });
   }
+  // Lo que recibe la página en español: sin desc_en y compacto (se calcula una vez por caché)
+  async function catalogoPaginaEs() {
+    const es = await catalogoPublicoEs();
+    if (!catCache || catCache.es !== es) return compactarCatalogo(es);
+    return catCache.esC || (catCache.esC = compactarCatalogo(es));
+  }
   async function armarCatalogoPublico() {
       {
         const R = await leerReglas(); const tc = await tcEfectivo(R);
@@ -1188,7 +1227,8 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
           pagina: await (async () => { const pg = await leerPagina(); const f = pg.fotos || {};
             return { asesor_nombre: pg.asesor_nombre || 'Jean Pierre', asesor_cargo: pg.asesor_cargo || 'Asesor de bicicletas', asesor_whatsapp: (pg.asesor_whatsapp || '').replace(/\D/g, '') || null,
               soporte_url: pg.soporte_url || null, soporte_texto: pg.soporte_texto || null,
-              fotos: Object.fromEntries(CLAVES_FOTO.map(k => [k, f[k] ? `/api/bikes/foto/${k}?v=${f[k]}` : null])) }; })(),
+              fotos: Object.fromEntries(CLAVES_FOTO.map(k => [k, f[k] ? `/api/bikes/foto/${k}?v=${f[k]}${sharp ? '&w=' + ANCHO_FOTO_PAGINA[k] : ''}` : null])) }; })(),
+          img_proxy: !!sharp, // la página pide las fotos de producto por /api/bikes/img en el tamaño que necesita
           logos: Object.fromEntries(Object.entries(infoMarcas).filter(([, v]) => v && v.logo).map(([k, v]) => [k, v.logo])),
           marcas: [...new Set([...MARCAS_BASE, ...skus.map(s => s.marca)])].filter(m => skus.some(s => s.marca === m)),
           moneda: R.moneda_principal, garantias: Object.fromEntries(Object.entries(infoMarcas).filter(([, v]) => v && v.garantia).map(([k, v]) => [k, v.garantia])),
@@ -1254,8 +1294,9 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
   });
   app.get('/api/bikes/catalogo', async (req, res) => {
     try {
-      let data = req.query.lang === 'en' ? await catalogoPublico() : await catalogoPublicoEs();
-      if (req.query.lang === 'en') {
+      if (req.query.lang !== 'en') { res.set('Cache-Control', 'public, max-age=30'); return res.json(await catalogoPaginaEs()); }
+      let data = await catalogoPublico();
+      {
         traducirDescripciones();
         const MAT_EN = t => String(t || '').replace(/Carbono/g, 'Carbon').replace(/Aluminio/g, 'Aluminum');
         const GAR_EN = t => String(t || '').replace(/Cuadro/gi, 'Frame').replace(/Componentes/gi, 'Components').replace(/Amortiguador(es)?/gi, 'Shock').replace(/Motor/gi, 'Motor').replace(/Bater[ií]a/gi, 'Battery').replace(/de por vida|vitalicia/gi, 'lifetime').replace(/años/g, 'years').replace(/año/g, 'year').replace(/\by\b/g, 'and');
@@ -1269,7 +1310,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
           ...(m.modelo === 'Próximamente' ? { modelo: 'Coming soon' } : {}) })) };
       }
       res.set('Cache-Control', 'public, max-age=30');
-      res.json(data);
+      res.json(compactarCatalogo(data));
     } catch (e) { console.error('[bikes] catalogo', e.message); res.status(500).json({ error: 'No se pudo cargar el catálogo. Intenta en un momento.' }); }
   });
 
@@ -2377,6 +2418,52 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
       limpiarCache(); res.json({ ok: true, pagina: pg });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
+  // ── Fotos de producto desde el propio dominio, reducidas (/api/bikes/img?u=<foto de la marca>&w=480) ──
+  //    Solo se aceptan fotos que están en el catálogo publicado (no es un proxy abierto).
+  //    Caché en memoria de hasta 60 MB (las menos usadas salen primero) + 30 días en el navegador.
+  const imgCache = new Map(), imgEnCurso = new Map(); let imgBytes = 0;
+  const IMG_MAX_BYTES = 60e6;
+  function leerImg(k) { const x = imgCache.get(k); if (x) { imgCache.delete(k); imgCache.set(k, x); } return x; }
+  function guardarImg(k, x) {
+    if (imgCache.has(k)) return; imgCache.set(k, x); imgBytes += x.buf.length;
+    while (imgBytes > IMG_MAX_BYTES && imgCache.size) { const [k0, v0] = imgCache.entries().next().value; imgCache.delete(k0); imgBytes -= v0.buf.length; }
+  }
+  async function imgsPermitidas() {
+    const D = await catalogoPublico();
+    const armar = () => { const set = new Set(); for (const m of D.modelos) for (const u of [m.img, ...(m.gal || [])]) if (/^https?:\/\//i.test(u || '')) set.add(u); return set; };
+    if (catCache && catCache.data === D) return catCache.imgs || (catCache.imgs = armar());
+    return armar();
+  }
+  app.get('/api/bikes/img', async (req, res) => {
+    const u = String(req.query.u || '').slice(0, 1000), w = ANCHOS_IMG.includes(+req.query.w) ? +req.query.w : 480;
+    let permitida = false;
+    try {
+      permitida = /^https?:\/\//i.test(u) && (await imgsPermitidas()).has(u);
+      if (!permitida) return res.status(404).end();
+      if (!sharp) return res.redirect(302, u);
+      const webp = /image\/webp/.test(req.headers.accept || ''), k = `${w}|${webp ? 'w' : 'j'}|${u}`;
+      let x = leerImg(k);
+      if (!x) {
+        if (!imgEnCurso.has(k)) imgEnCurso.set(k, (async () => {
+          const ctrl = new AbortController(), to = setTimeout(() => ctrl.abort(), 15000);
+          try {
+            const r = await fetch(u, { signal: ctrl.signal, headers: { 'User-Agent': 'Mozilla/5.0 (KurankoBikes)' } });
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            if (!/^image\//i.test(r.headers.get('content-type') || '')) throw new Error('no es imagen');
+            const orig = Buffer.from(await r.arrayBuffer()); if (orig.length > 20e6) throw new Error('muy grande');
+            const o = await optimizarImg(orig, w, webp); guardarImg(k, o); return o;
+          } finally { clearTimeout(to); }
+        })().finally(() => imgEnCurso.delete(k)));
+        x = await imgEnCurso.get(k);
+      }
+      res.set({ 'Content-Type': x.tipo, 'Cache-Control': 'public, max-age=2592000', Vary: 'Accept' }).send(x.buf);
+    } catch (e) {
+      console.warn('[bikes] img', e.message);
+      if (res.headersSent) return;
+      if (permitida) res.redirect(302, u); else res.status(404).end(); // si falla, la foto original (nunca se rompe)
+    }
+  });
+
   // Foto pública (se sirve como imagen, con caché)
   app.get('/api/bikes/foto/:clave', async (req, res) => {
     if (!CLAVES_FOTO.includes(req.params.clave)) return res.status(404).end();
@@ -2386,7 +2473,15 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
       const m = row && String(row.valor).match(/^data:(image\/[a-z+]+);base64,(.+)$/i);
       if (!m) return res.status(404).end();
       // Con ?v= (cambia al subir otra foto) la URL nunca se reutiliza: caché de un año
-      res.set({ 'Content-Type': m[1], 'Cache-Control': req.query.v ? 'public, max-age=31536000, immutable' : 'public, max-age=86400' }).send(Buffer.from(m[2], 'base64'));
+      const cc = req.query.v ? 'public, max-age=31536000, immutable' : 'public, max-age=86400';
+      const w = ANCHOS_IMG.includes(+req.query.w) ? +req.query.w : 0;
+      if (sharp && w) { // reducida al ancho en que se muestra, en WebP si el navegador lo acepta
+        const webp = /image\/webp/.test(req.headers.accept || ''), k = `foto|${req.params.clave}|${req.query.v || ''}|${w}|${webp ? 'w' : 'j'}`;
+        let x = leerImg(k);
+        if (!x) { try { x = await optimizarImg(Buffer.from(m[2], 'base64'), w, webp); guardarImg(k, x); } catch (e) { x = null; } }
+        if (x) return res.set({ 'Content-Type': x.tipo, 'Cache-Control': cc, Vary: 'Accept' }).send(x.buf);
+      }
+      res.set({ 'Content-Type': m[1], 'Cache-Control': cc }).send(Buffer.from(m[2], 'base64'));
     } catch (e) { res.status(500).end(); }
   });
 

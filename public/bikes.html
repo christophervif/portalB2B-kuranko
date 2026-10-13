@@ -484,7 +484,7 @@ function buscarBicis(q){const ts=normQ(q).split(' ').filter(Boolean);if(!ts.leng
   return D.modelos.filter(m=>m.tag!=='proximamente').map(m=>{const h=hayDe(m),n=normQ(m.marca+' '+m.modelo);if(!ts.every(t=>h.includes(t)))return null;return {m,s:ts.filter(t=>n.includes(t)).length}}).filter(Boolean).sort((a,b)=>b.s-a.s).map(x=>x.m)}
 function pintarBusqueda(){const q=document.getElementById('kBusQ').value.trim(),out=document.getElementById('kBusRes');if(!q){out.innerHTML='';return}
   const L=buscarBicis(q);
-  out.innerHTML=L.slice(0,8).map(m=>{const r=resumen(m);return `<button class="r" data-bus="${esc(m.id)}">${m.img?`<img src="${esc(m.img)}" alt="">`:'<span></span>'}<span><b>${esc(m.marca)} ${esc(m.modelo)}</b><small>${esc(m.cat||'')}${specLinea(m)?' · '+specLinea(m):''}${r.lima?' · <span class="tk">en tienda</span>':''}</small></span><span class="p">${M(r.min.pm)}</span></button>`}).join('')
+  out.innerHTML=L.slice(0,8).map(m=>{const r=resumen(m);return `<button class="r" data-bus="${esc(m.id)}">${m.img?`<img src="${esc(IMG(m.img,160))}" alt="">`:'<span></span>'}<span><b>${esc(m.marca)} ${esc(m.modelo)}</b><small>${esc(m.cat||'')}${specLinea(m)?' · '+specLinea(m):''}${r.lima?' · <span class="tk">en tienda</span>':''}</small></span><span class="p">${M(r.min.pm)}</span></button>`}).join('')
     +(L.length>8?`<a class="mas" href="#" data-busver="1">Ver las ${L.length} bicis que coinciden →</a>`:'')
     +(L.length?'':'<p style="color:#aaa;margin:6px 4px">No hay bicis a pedido con ese nombre.</p>')
     +`<a class="mas" href="https://kuranko.pe/?s=${encodeURIComponent(q)}&post_type=product">Buscar «${esc(q)}» en kuranko.pe (componentes, accesorios, ropa) →</a>`}
@@ -542,7 +542,11 @@ function bike(color,cat){
   ${e?'<rect x="146" y="80" width="54" height="20" rx="6" fill="currentColor" transform="rotate(-41 173 90)"/><circle cx="154" cy="128" r="15" fill="currentColor"/>':'<circle cx="150" cy="132" r="9" fill="currentColor"/>'}
   <g stroke="currentColor" stroke-linecap="round"><path d="M218 58 L250 128" stroke-width="7"/><path d="M214 40 L222 60" stroke-width="7"/><path d="M200 38 L240 34" stroke-width="5"/><path d="M122 52 L117 30" stroke-width="6"/><path d="M100 27 L134 27" stroke-width="8"/></g></svg>`;
 }
-const foto=(m,col,i=99)=>m.img?`<img src="${esc(m.img)}" alt="${esc(m.marca+' '+m.modelo)}" width="640" height="400" decoding="async" ${i<4?'fetchpriority="high"':'loading="lazy"'} onerror="this.replaceWith(document.createRange().createContextualFragment(window._bk('${esc(col)}','${esc(m.cat)}')))">`:bike(col,m.cat);
+// Fotos de producto por el propio servidor, reducidas al tamaño en que se muestran (WebP). Si el servidor
+// no tiene «sharp» (D.img_proxy falso), se usan las originales de la marca.
+const IMG=(u,w)=>D&&D.img_proxy&&/^https?:\/\//.test(u||'')?'/api/bikes/img?w='+w+'&u='+encodeURIComponent(u):u;
+const IMGS=(u,a,b)=>D&&D.img_proxy&&/^https?:\/\//.test(u||'')?` srcset="${esc(IMG(u,a))} ${a}w, ${esc(IMG(u,b))} ${b}w"`:'';
+const foto=(m,col,i=99)=>m.img?`<img src="${esc(IMG(m.img,480))}"${IMGS(m.img,480,960)} sizes="(max-width:640px) 92vw, 320px" alt="${esc(m.marca+' '+m.modelo)}" width="640" height="400" decoding="async" ${i<4?'fetchpriority="high"':'loading="lazy"'} onerror="this.replaceWith(document.createRange().createContextualFragment(window._bk('${esc(col)}','${esc(m.cat)}')))">`:bike(col,m.cat);
 window._bk=bike;
 
 /* ---- resumen por modelo ---- */
@@ -759,8 +763,8 @@ function pintarCfg(){
   $('#drawer').innerHTML=`
   <div class="dhead"><div>${(D.logos||{})[m.marca]?`<img class="blogo" src="${esc(D.logos[m.marca])}" alt="${esc(m.marca)}"><br>`:''}<span class="br">${esc(m.marca)} · <span>${catsDe(m).map(esc).join(' · ')}</span>${m.anio?' · '+m.anio:''}</span><h2 style="font-size:30px;line-height:1">${esc(m.modelo)}</h2></div><div style="display:flex;gap:8px;align-items:center"><button class="btn sec comp" id="compartir">Compartir</button><button class="x" id="xClose" aria-label="Cerrar">×</button></div></div>
   <div class="dbody"><div class="izq">
-    <div class="dpic" style="color:var(--ink)">${gal.length?`<img src="${esc(gal[S.img||0])}" alt="${esc(m.marca+' '+m.modelo+' '+(S.c||''))}">`:m.img?foto(m,col):bike(colHex||col,m.cat)}</div>
-    ${gal.length>1?`<div class="gal">${gal.map((u,i)=>`<button data-img="${i}" aria-pressed="${(S.img||0)===i}" aria-label="Foto ${i+1}"><img src="${esc(u)}" alt="" loading="lazy"></button>`).join('')}</div>`:''}
+    <div class="dpic" style="color:var(--ink)">${gal.length?`<img src="${esc(IMG(gal[S.img||0],960))}"${IMGS(gal[S.img||0],960,1400)} sizes="(max-width:900px) 100vw, 640px" alt="${esc(m.marca+' '+m.modelo+' '+(S.c||''))}">`:m.img?foto(m,col):bike(colHex||col,m.cat)}</div>
+    ${gal.length>1?`<div class="gal">${gal.map((u,i)=>`<button data-img="${i}" aria-pressed="${(S.img||0)===i}" aria-label="Foto ${i+1}"><img src="${esc(IMG(u,160))}" alt="" loading="lazy"></button>`).join('')}</div>`:''}
     <div class="spec">${specHTML(m)}${m.peso?' · '+esc(m.peso+(/kg/i.test(m.peso)?'':' kg')):''}${m.ficha?` · <a href="${esc(m.ficha)}" target="_blank" rel="noopener">Ficha técnica</a>`:''}</div>
     ${m.geo||m.geom?`<details class="specs geo"><summary>Geometría</summary>${m.geo?`<a href="${esc(m.geo)}" target="_blank" rel="noopener"><img src="${esc(m.geo)}" alt="Geometría ${esc(m.marca+' '+m.modelo)}" loading="lazy"></a>`:''}
       ${m.geom?`<div class="gtab"><table><thead><tr><th></th>${m.geom.tallas.map(t=>`<th class="${t===S.t?'on':''}">${esc(t)}</th>`).join('')}</tr></thead><tbody>${m.geom.filas.map(f=>`<tr><td>${f.l?`<b>${esc(f.l)}</b> `:''}${esc(f.n)}</td>${f.v.map((v,i)=>`<td class="${m.geom.tallas[i]===S.t?'on':''}">${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`:''}</details>`:''}
@@ -773,7 +777,7 @@ function pintarCfg(){
     <div class="opt"><div class="lbl">Talla</div><div class="opts">${m.tallas.map(t=>{const n=m.skus.filter(x=>x.mo===S.mo&&x.t===t).reduce((a,x)=>a+x.d,0),tk=m.skus.filter(x=>x.mo===S.mo&&x.t===t).reduce((a,x)=>a+(x.tk||0),0);return `<button class="o" aria-pressed="${S.t===t}" data-t="${esc(t)}" ${n>0?'':'disabled'}><b>${esc(t)}</b>${tk?`<small class="tk">${tk} en ${esc((m.skus.find(x=>x.mo===S.mo&&x.t===t&&x.tkc)||{}).tkc||'tienda')}</small>`:n>=90?'':`<small>${n>0?n+' en tienda':'agotada'}</small>`}</button>`}).join('')}</div>
       ${m.tt?`<div class="tfind"><label>¿Qué talla soy?<input type="number" id="altura" inputmode="numeric" min="120" max="215" placeholder="Tu altura en cm" value="${esc(S.alt||'')}"></label><span id="tRec">${recTalla(m)}</span></div>`:''}
       <div class="note" style="margin-top:6px"><a href="#" id="tPrueba">Pruébate la talla en tienda o pide asesoría por videollamada</a></div></div>
-    <div class="opt"><div class="lbl">Color</div><div class="opts">${m.colores.map(c=>`<button class="o" aria-pressed="${S.c===c.n}" data-c="${esc(c.n)}" ${disp(x=>x.mo===S.mo&&x.t===S.t&&x.c===c.n)?'':'disabled'}><span>${m.gc&&m.gc.includes(c.n)?`<img class="swf" src="${esc(m.gal[m.gc.indexOf(c.n)])}" alt="">`:c.h?`<span class="sw" style="background:${esc(c.h)}"></span>`:''}${esc(c.n)}</span></button>`).join('')}</div></div>
+    <div class="opt"><div class="lbl">Color</div><div class="opts">${m.colores.map(c=>`<button class="o" aria-pressed="${S.c===c.n}" data-c="${esc(c.n)}" ${disp(x=>x.mo===S.mo&&x.t===S.t&&x.c===c.n)?'':'disabled'}><span>${m.gc&&m.gc.includes(c.n)?`<img class="swf" src="${esc(IMG(m.gal[m.gc.indexOf(c.n)],160))}" alt="">`:c.h?`<span class="sw" style="background:${esc(c.h)}"></span>`:''}${esc(c.n)}</span></button>`).join('')}</div></div>
     <div class="opt"><div class="lbl">Envío a Lima</div>${m.conf&&T.env!=='lima'?'<div class="note" style="margin:-2px 0 8px;color:var(--ok)">✓ La marca confirmó que tiene unidades de este modelo.</div>':''}${ship}</div>
     <div class="opt pago"><div class="lbl">Forma de pago</div>${(()=>{const ns=Object.keys(T.cq).map(Number).sort((a,b)=>a-b),enCuotas=ns.includes(+S.pago),mas=v=>v>T.base?' · <span class="masT">+'+M(v-T.base)+'</span>':'';
       return `<div class="opts">
@@ -942,7 +946,10 @@ document.addEventListener('submit',e=>{e.preventDefault();if(e.target.id==='agFo
 async function recargar(silencioso){
   try{
     const r=await fetch('/api/bikes/catalogo',silencioso?{cache:'no-cache'}:{});const j=await r.json();if(!r.ok)throw new Error(j.error);
-    D=j;tsInit();
+    D=j;
+    // Catálogo compacto (ver compactarCatalogo en modulos/bikes.js): se vuelve a armar op y mo de cada SKU
+    if(D.compacto)D.modelos.forEach(m=>{const t=m.ops||[];m.skus.forEach(x=>{if(x.oi!==undefined){x.op=t[x.oi];delete x.oi}if(x.mi!==undefined){x.mo=m.montajes[x.mi];delete x.mi}});delete m.ops});
+    tsInit();
     aplicarPagina();
     D.modelos.forEach(m=>m.skus.forEach(x=>{const a=(x.op||[]).find(o=>o.k==='aereo');if(a){x.pa=a.p;x.fa=a.f}else{delete x.pa;delete x.fa}}));
     $('#depHero').textContent=D.adelanto;if($('#depTerm'))$('#depTerm').textContent=D.adelanto;$('#valH').textContent=D.validez_horas;

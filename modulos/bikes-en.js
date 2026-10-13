@@ -1,6 +1,7 @@
 // Traducción al inglés de la tienda (bikes.kuranko.pe/en), para mostrar la propuesta a las marcas.
 // Pares [texto exacto en bikes.html, inglés]; se aplican de la frase más larga a la más corta.
 module.exports = [
+  ['Filtrar y ordenar', 'Filter and sort'], ['aria-label="Cómo funciona"', 'aria-label="How it works"'],
   ['Bicis de montaña y eléctricas de las mejores marcas, armadas a tu medida. Antes de reservar ves el precio final, con envío, aduana, IGV y armado incluidos, y la fecha estimada de llegada.', 'Mountain and electric bikes from the best brands, built to your spec. Before you reserve you see the final price, with shipping, customs, VAT and assembly included, and the estimated arrival date.'],
   ['Solicitar la reserva es gratis y no te compromete. Confirmamos la disponibilidad con la marca, normalmente en menos de 24 horas hábiles, y te escribimos por WhatsApp.', 'Requesting a reservation is free and non-binding. We confirm availability with the brand, usually within 24 business hours, and message you on WhatsApp.'],
   ['No pagas nada ahora. Te escribimos por WhatsApp para confirmar la unidad y, si sigues interesado, la separas con el adelanto.', 'You pay nothing now. We message you on WhatsApp to confirm the unit and, if you are still interested, you secure it with the deposit.'],

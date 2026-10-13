@@ -1149,8 +1149,21 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
     } catch (e) { console.warn('[bikes] activo', req.params.archivo, e.message); res.redirect(302, K + a[0]); }
   });
 
+  // Si la caché venció y llegan varias visitas a la vez, todas esperan el mismo cálculo (no lo repiten)
+  let catEnCurso = null;
   async function catalogoPublico() {
-      if (!catCache || Date.now() - catCache.t > 60000) {
+    if (catCache && Date.now() - catCache.t <= 60000) return catCache.data;
+    if (!catEnCurso) catEnCurso = armarCatalogoPublico().finally(() => { catEnCurso = null; });
+    return catEnCurso;
+  }
+  // Versión en español sin descripciones en inglés (ahorra peso en cada visita)
+  async function catalogoPublicoEs() {
+    const data = await catalogoPublico();
+    if (!catCache || catCache.data !== data) return { ...data, modelos: data.modelos.map(({ desc_en, ...m }) => m) };
+    return catCache.es || (catCache.es = { ...data, modelos: data.modelos.map(({ desc_en, ...m }) => m) });
+  }
+  async function armarCatalogoPublico() {
+      {
         const R = await leerReglas(); const tc = await tcEfectivo(R);
         const infoMarcas = await leerMarcas();
         let skus = (await leerSkus(true)).filter(s => (infoMarcas[s.marca] || {}).visible !== false);
@@ -1176,7 +1189,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
             return { asesor_nombre: pg.asesor_nombre || 'Jean Pierre', asesor_cargo: pg.asesor_cargo || 'Asesor de bicicletas', asesor_whatsapp: (pg.asesor_whatsapp || '').replace(/\D/g, '') || null,
               soporte_url: pg.soporte_url || null, soporte_texto: pg.soporte_texto || null,
               fotos: Object.fromEntries(CLAVES_FOTO.map(k => [k, f[k] ? `/api/bikes/foto/${k}?v=${f[k]}` : null])) }; })(),
-          logos: Object.fromEntries(Object.entries(await leerMarcas()).filter(([, v]) => v && v.logo).map(([k, v]) => [k, v.logo])),
+          logos: Object.fromEntries(Object.entries(infoMarcas).filter(([, v]) => v && v.logo).map(([k, v]) => [k, v.logo])),
           marcas: [...new Set([...MARCAS_BASE, ...skus.map(s => s.marca)])].filter(m => skus.some(s => s.marca === m)),
           moneda: R.moneda_principal, garantias: Object.fromEntries(Object.entries(infoMarcas).filter(([, v]) => v && v.garantia).map(([k, v]) => [k, v.garantia])),
           adelanto: num(R.adelanto), tc_usd: tc.usd, aereo: !!R.aereo_activo, validez_horas: num(R.validez_horas),
@@ -1241,7 +1254,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
   });
   app.get('/api/bikes/catalogo', async (req, res) => {
     try {
-      let data = await catalogoPublico();
+      let data = req.query.lang === 'en' ? await catalogoPublico() : await catalogoPublicoEs();
       if (req.query.lang === 'en') {
         traducirDescripciones();
         const MAT_EN = t => String(t || '').replace(/Carbono/g, 'Carbon').replace(/Aluminio/g, 'Aluminum');
@@ -1268,11 +1281,12 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
     if (intentos.size > 5000) intentos.clear();
     return lista.length > max;
   }
-  const ipDe = req => String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim().slice(0, 45);
+  // IP real del cliente: index.js activa «trust proxy», así que req.ip no se puede falsear con X-Forwarded-For
+  const ipDe = req => String(req.ip || (req.socket && req.socket.remoteAddress) || '').slice(0, 45);
 
   async function nuevoCodigo(conn) {
     for (let i = 0; i < 8; i++) {
-      const c = 'KB-' + Math.random().toString(36).slice(2, 8).toUpperCase().padEnd(6, '7');
+      const c = 'KB-' + Array.from({ length: 6 }, () => '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'[require('crypto').randomInt(36)]).join('');
       const [[x]] = await conn.query('SELECT id FROM bk_reservas WHERE codigo=?', [c]);
       if (!x) return c;
     }
@@ -1456,26 +1470,55 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
   });
 
   // ── Link propio por bici (/bici/<id>) con la foto y el precio para compartir por WhatsApp ──
+  //    Reemplaza las meta de la portada (no las duplica) y agrega datos estructurados Product
+  //    para que Google muestre el precio y la disponibilidad.
   let htmlTienda = null;
+  const SIN_META_PORTADA = /<meta (?:name="description"|property="og:[a-z:_]+"|name="twitter:[a-z:_]+")[^>]*>\s*|<link rel="canonical"[^>]*>\s*/g;
   app.get('/bici/:id', async (req, res) => {
     try {
       if (!htmlTienda) htmlTienda = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'bikes.html'), 'utf8');
-      const D = await catalogoPublico();
-      const m = D.modelos.find(x => x.id === String(req.params.id || '').slice(0, 160));
+      const D = await catalogoPublicoEs();
+      const m = D.modelos.find(x => x.id === String(req.params.id || '').slice(0, 160) && x.tag !== 'proximamente');
       let h = htmlTienda;
       if (m) {
-        const min = Math.min(...m.skus.map(x => x.pm));
-        const precio = D.moneda === 'PEN' ? soles(min) : `US$ ${Math.round(min / D.tc_usd).toLocaleString('en-US')}`;
-        const titulo = `${m.marca} ${m.modelo} · desde ${precio} · Kuranko`;
-        const desc = (m.desc || `${m.marca} ${m.modelo} a pedido, precio final en Lima con envío, aduana e IGV.`).slice(0, 200);
-        const url = `https://${req.hostname}/bici/${m.id}`;
-        const meta = `<meta property="og:type" content="product"><meta property="og:title" content="${escH(titulo)}"><meta property="og:description" content="${escH(desc)}">` +
+        const precios = m.skus.map(x => x.pm).filter(x => x > 0);
+        const min = precios.length ? Math.min(...precios) : 0;
+        const usdM = D.moneda !== 'PEN';
+        const precio = !min ? '' : usdM ? `US$ ${Math.round(min / D.tc_usd).toLocaleString('en-US')}` : soles(min);
+        const titulo = `${m.marca} ${m.modelo}${precio ? ' · desde ' + precio : ''} · Kuranko`;
+        const desc = String(m.desc || `${m.marca} ${m.modelo} a pedido, precio final en Lima con envío, aduana e IGV.`).replace(/\s+/g, ' ').slice(0, 200);
+        const url = `https://${req.hostname}/bici/${encodeURIComponent(m.id)}`;
+        const enTienda = m.skus.some(x => x.d > 0 && (x.e === 'Stock Lima' || x.tk > 0));
+        const ld = { '@context': 'https://schema.org', '@type': 'Product', name: `${m.marca} ${m.modelo}`, brand: { '@type': 'Brand', name: m.marca },
+          description: desc, url, ...(m.img ? { image: [m.img] } : {}), ...(m.cat ? { category: m.cat } : {}),
+          ...(min ? { offers: { '@type': 'Offer', url, priceCurrency: usdM ? 'USD' : 'PEN', price: usdM ? Math.round(min / D.tc_usd) : Math.round(min),
+            availability: enTienda ? 'https://schema.org/InStock' : 'https://schema.org/PreOrder', itemCondition: 'https://schema.org/NewCondition',
+            seller: { '@type': 'Organization', name: 'Kuranko' } } } : {}) };
+        const meta = `<meta name="description" content="${escH(desc)}"><link rel="canonical" href="${escH(url)}">` +
+          `<meta property="og:type" content="product"><meta property="og:title" content="${escH(titulo)}"><meta property="og:description" content="${escH(desc)}">` +
           `${m.img ? `<meta property="og:image" content="${escH(m.img)}">` : ''}<meta property="og:url" content="${escH(url)}"><meta name="twitter:card" content="summary_large_image">` +
-          `<meta name="description" content="${escH(desc)}"><link rel="canonical" href="${escH(url)}">`;
-        h = h.replace(/<title>[^<]*<\/title>/, `<title>${escH(titulo)}</title>${meta}`);
-      }
+          `<script type="application/ld+json">${JSON.stringify(ld).replace(/</g, '\\u003c')}</script>`;
+        h = h.replace(SIN_META_PORTADA, '').replace(/<title>[^<]*<\/title>/, `<title>${escH(titulo)}</title>${meta}`);
+      } else res.status(404);
       res.set('Cache-Control', 'no-cache').type('html').send(h);
     } catch (e) { res.status(500).send('No se pudo cargar'); }
+  });
+
+  // ── robots.txt y sitemap.xml: la tienda se indexa; el portal y el panel, no ──
+  app.get('/robots.txt', (req, res) => {
+    res.type('text/plain').set('Cache-Control', 'public, max-age=86400');
+    if (!/^bikes\./i.test(req.hostname || '')) return res.send('User-agent: *\nDisallow: /\n');
+    res.send(`User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /bikes/proforma/\nDisallow: /admin\nDisallow: /bikes-admin.html\nDisallow: /en\n\nSitemap: https://${req.hostname}/sitemap.xml\n`);
+  });
+  app.get('/sitemap.xml', async (req, res) => {
+    if (!/^bikes\./i.test(req.hostname || '')) return res.status(404).end();
+    try {
+      const D = await catalogoPublico(), base = `https://${req.hostname}`;
+      const urls = [`<url><loc>${base}/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>`,
+        ...D.modelos.filter(m => m.tag !== 'proximamente').map(m => `<url><loc>${base}/bici/${escH(encodeURIComponent(m.id))}</loc><changefreq>weekly</changefreq></url>`)];
+      res.type('application/xml').set('Cache-Control', 'public, max-age=3600')
+        .send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>\n`);
+    } catch (e) { res.status(500).end(); }
   });
 
   // ── Proforma imprimible / PDF de una reserva (código + DNI/RUC) ──
@@ -2342,7 +2385,8 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
       const [[row]] = await portalPool.query(`SELECT valor FROM bk_config WHERE clave=?`, ['foto_' + req.params.clave]);
       const m = row && String(row.valor).match(/^data:(image\/[a-z+]+);base64,(.+)$/i);
       if (!m) return res.status(404).end();
-      res.set({ 'Content-Type': m[1], 'Cache-Control': 'public, max-age=86400' }).send(Buffer.from(m[2], 'base64'));
+      // Con ?v= (cambia al subir otra foto) la URL nunca se reutiliza: caché de un año
+      res.set({ 'Content-Type': m[1], 'Cache-Control': req.query.v ? 'public, max-age=31536000, immutable' : 'public, max-age=86400' }).send(Buffer.from(m[2], 'base64'));
     } catch (e) { res.status(500).end(); }
   });
 

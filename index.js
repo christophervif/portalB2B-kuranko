@@ -1,38 +1,89 @@
 // ============================================================================
 // PORTAL B2B KURANKO — Backend (clientes + panel de administración)
 // Todo en la nube. Cada cliente ve SOLO sus datos. Admin protegido por login.
+// Las rutas viven en modulos/*.js; este archivo solo arma la app y los registra.
 // ============================================================================
 const express = require('express');
 const mysql = require('mysql2/promise');
-const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const cors = require('cors');
+const crypto = require('crypto');
 const path = require('path');
-// Funciones compartidas (antes duplicadas en este archivo)
-const { EMPRESAS_BI, fechaHoraLima, fechaLima, nombreTrazable, rango, cabeceraExcel } = require('./modulos/comunes');
 
 const app = express();
+// Railway pone un proxy delante: así req.ip es la IP real del cliente (y no el
+// primer valor de X-Forwarded-For, que lo puede escribir cualquiera).
+// Si se agrega Cloudflare delante de Railway, cambiar a 2 (o TRUST_PROXY=2).
+app.set('trust proxy', Number(process.env.TRUST_PROXY || 1));
+app.disable('x-powered-by');
+
 // Compresión gzip: reduce MUCHO el egress de Railway (las páginas pesan cientos
 // de KB). Si el paquete no está instalado, sigue funcionando sin comprimir.
 try { const compression = require('compression'); app.use(compression()); }
 catch (e) { console.warn('[perf] compression no disponible (npm i compression):', e.message); }
+
+// ─── Cabeceras de seguridad (sin dependencias) ───────────────────────────────
+const esBikes = req => /^bikes\./i.test(req.hostname || '');
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  if (req.secure) res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains');
+  // El panel no debe poder incrustarse en sitios ajenos (clickjacking). La tienda
+  // pública sí puede incrustarse (por si kuranko.pe la muestra en un iframe).
+  const publicoBikes = /^\/($|index\.html$|bikes\.html$|bici\/|en\/?$|bikes\/proforma\/|bikes-assets\/|api\/bikes\/(?!admin\/))/;
+  if (!(esBikes(req) && publicoBikes.test(req.path))) res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  next();
+});
+
 app.use(cors({ origin: '*' }));
 // Límite amplio: el módulo de Importaciones reenvía PDFs (base64) a la IA.
 app.use(express.json({ limit: '25mb' }));
+
+// ─── Filtros de fecha: solo AAAA-MM-DD o AAAA-MM ─────────────────────────────
+// Varios reportes arman el SQL con estas fechas; si llega otra cosa se corta
+// aquí (protección contra inyección SQL para todos los módulos a la vez).
+const FECHA_O_MES = /^\d{4}-\d{2}(-\d{2})?$/;
+app.use('/api', (req, res, next) => {
+  for (const k of ['desde', 'hasta']) {
+    const v = req.query[k];
+    if (v === undefined || v === '') continue;
+    if (typeof v !== 'string' || !FECHA_O_MES.test(v))
+      return res.status(400).json({ error: `Fecha «${k}» inválida (usa AAAA-MM-DD)` });
+  }
+  next();
+});
+
+// ─── No mostrar errores internos de MySQL al navegador ───────────────────────
+// Muchos endpoints responden { error: e.message }. Si el mensaje es de la base
+// de datos o de la red, se registra en el log y el cliente ve un texto genérico.
+const ERROR_INTERNO = /\bER_[A-Z_]+|SQL syntax|sqlMessage|Unknown column|Unknown table|doesn't exist|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|PROTOCOL_|Access denied for user|Too many connections|Deadlock/i;
+app.use((req, res, next) => {
+  const json = res.json.bind(res);
+  res.json = body => {
+    if (res.statusCode >= 500 && body && typeof body.error === 'string' && ERROR_INTERNO.test(body.error)) {
+      console.error(`[500] ${req.method} ${req.originalUrl}: ${body.error}`);
+      body = { ...body, error: 'Error interno del servidor. Intenta de nuevo en un momento.' };
+    }
+    return json(body);
+  };
+  next();
+});
+
 // bikes.kuranko.pe → tienda pública de bicis a pedido (public/bikes.html).
 // El resto de rutas (/api, /admin.html…) funciona igual en ese dominio.
 app.use((req, res, next) => {
-  if (/^bikes\./i.test(req.hostname || '') && (req.path === '/' || req.path === '/index.html'))
+  if (esBikes(req) && (req.path === '/' || req.path === '/index.html'))
     return res.set('Cache-Control', 'no-cache').sendFile(path.join(__dirname, 'public', 'bikes.html'));
   next();
 });
 // Estáticos: el HTML SIEMPRE revalida (no-cache + etag) para no servir versiones
-// viejas tras un deploy; los demás recursos sí se cachean 1h. La compresión gzip
-// (arriba) es la que ahorra egress, no la caché.
+// viejas tras un deploy; los demás recursos sí se cachean 1h. Lo que va en
+// /vendor no cambia nunca de nombre de versión: 30 días.
 app.use(express.static(path.join(__dirname, 'public'), {
   etag: true,
   setHeaders: (res, filePath) => {
     if (/\.html?$/i.test(filePath)) res.setHeader('Cache-Control', 'no-cache');
+    else if (/[\\/]vendor[\\/]/.test(filePath)) res.setHeader('Cache-Control', 'public, max-age=2592000');
     else res.setHeader('Cache-Control', 'public, max-age=3600');
   }
 }));
@@ -60,23 +111,14 @@ const erpWritePool = ERP_ESCRITURA_URL ? poolDesdeUrl(ERP_ESCRITURA_URL, 3) : nu
 const JWT_SECRET = process.env.JWT_SECRET;
 const ADMIN_USER = process.env.ADMIN_USER;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD; // contraseña admin (variable Railway, encriptada)
-const VENTAS_VALIDAS = "('paid','confirmed','pending_payment')";
+// Duración de la sesión del panel. Se puede acortar con la variable ADMIN_SESION (ej. 12h, 3d).
+const ADMIN_SESION = process.env.ADMIN_SESION || '7d';
+// Estados de venta que cuentan como venta válida (se pasa a los módulos)
+const VV = "('paid','confirmed','pending_payment')";
 
 // ════════════════════════════════════════════════════════════════════════════
-// HELPERS
+// AUTENTICACIÓN ADMIN
 // ════════════════════════════════════════════════════════════════════════════
-
-// Devuelve el correo de empresa registrado en el ERP, o null si no tiene.
-// Lee de producción en SOLO LECTURA. Si la columna en tu ERP no es
-// `parties.email`, cámbiala únicamente aquí (ej: email_address).
-
-// ════════════════════════════════════════════════════════════════════════════
-// AUTENTICACIÓN
-// ════════════════════════════════════════════════════════════════════════════
-
-// Cliente B2B: el customer_id/location_id viven en el token firmado (no manipulable)
-
-// Admin: token con rol admin
 function authAdmin(req, res, next) {
   const h = req.headers['authorization'];
   if (!h || !h.startsWith('Bearer ')) return res.status(401).json({ error: 'No autorizado' });
@@ -107,29 +149,6 @@ function soloMaestro(req, res, next) {
   next();
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// LOGIN CLIENTE
-// ════════════════════════════════════════════════════════════════════════════
-
-// ════════════════════════════════════════════════════════════════════════════
-// ENDPOINTS CLIENTE (solo sus datos)
-// ════════════════════════════════════════════════════════════════════════════
-
-
-
-
-// Detalle de una venta: productos + boletas/facturas (validando que sea del cliente)
-
-// Consignación enriquecida: disponible + precio regular + vendido histórico + indicadores recientes
-
-// Pestaña Transferencias: entregadas (04) y devueltas (03) con detalle de items
-
-// Detalle de items de una transferencia (validando que sea de la consignación del cliente)
-
-
-// ════════════════════════════════════════════════════════════════════════════
-// LOGIN ADMIN
-// ════════════════════════════════════════════════════════════════════════════
 // Lista de módulos (pestañas) del admin. Debe coincidir con las pestañas del HTML.
 const MODULOS_ADMIN = ['clientes_gestion', 'sync', 'auditoria', 'resumen', 'rentabilidad', 'inventario', 'restock', 'clientes_bi', 'caja_bi', 'crm', 'reportes', 'pagos', 'importaciones', 'recepciones', 'seguimiento', 'conciliacion', 'cuentas_cobrar', 'saldo_favor', 'cotizador', 'precio_importado', 'asistencia', 'facturacion', 'bikes', 'gastos', 'rendimiento'];
 
@@ -150,59 +169,59 @@ function leerAdminsSecundarios() {
   return lista;
 }
 
+// Comparación de textos en tiempo constante (no revela cuántas letras coinciden)
+function igualesSeguro(a, b) {
+  const x = crypto.createHash('sha256').update(String(a == null ? '' : a)).digest();
+  const y = crypto.createHash('sha256').update(String(b == null ? '' : b)).digest();
+  return crypto.timingSafeEqual(x, y) && b != null && b !== '';
+}
+
+// Límite de intentos de login por IP: 8 fallidos cada 15 minutos
+const fallosLogin = new Map();
+const VENTANA_LOGIN = 15 * 60 * 1000, MAX_FALLOS_LOGIN = 8;
+function loginBloqueado(ip) {
+  const ahora = Date.now(), l = (fallosLogin.get(ip) || []).filter(t => ahora - t < VENTANA_LOGIN);
+  fallosLogin.set(ip, l);
+  return l.length >= MAX_FALLOS_LOGIN;
+}
+function registrarFallo(ip) {
+  if (fallosLogin.size > 5000) fallosLogin.clear();
+  fallosLogin.set(ip, [...(fallosLogin.get(ip) || []), Date.now()]);
+}
+
 app.post('/admin/login', async (req, res) => {
-  const { usuario, password } = req.body;
+  const { usuario, password } = req.body || {};
   if (!usuario || !password) return res.status(400).json({ error: 'Ingresa usuario y contraseña' });
+  const ip = req.ip || '';
+  if (loginBloqueado(ip)) return res.status(429).json({ error: 'Demasiados intentos. Espera 15 minutos e intenta de nuevo.' });
   try {
+    const u = String(usuario).trim(), p = String(password);
     // 1) Admin maestro (acceso total + gestión de accesos)
-    if (usuario.trim() === ADMIN_USER && password === ADMIN_PASSWORD) {
+    if (ADMIN_USER && igualesSeguro(u, ADMIN_USER) & igualesSeguro(p, ADMIN_PASSWORD)) {
+      fallosLogin.delete(ip);
       const token = jwt.sign(
         { rol: 'admin', usuario: ADMIN_USER, maestro: true, modulos: MODULOS_ADMIN },
-        JWT_SECRET, { expiresIn: '7d' });
+        JWT_SECRET, { expiresIn: ADMIN_SESION });
       return res.json({ token, maestro: true, modulos: MODULOS_ADMIN });
     }
     // 2) Admin secundario (definido en variables de Railway) — sin tocar la base de datos
-    const secundarios = leerAdminsSecundarios();
-    const match = secundarios.find(a => a.usuario === usuario.trim() && a.password === password);
+    const match = leerAdminsSecundarios().find(a => igualesSeguro(u, a.usuario) & igualesSeguro(p, a.password));
     if (match) {
+      fallosLogin.delete(ip);
       const token = jwt.sign(
         { rol: 'admin', usuario: match.usuario, maestro: false, modulos: match.modulos },
-        JWT_SECRET, { expiresIn: '7d' });
+        JWT_SECRET, { expiresIn: ADMIN_SESION });
       return res.json({ token, maestro: false, modulos: match.modulos });
     }
+    registrarFallo(ip);
     return res.status(401).json({ error: 'Credenciales de administrador incorrectas' });
   } catch (e) { res.status(500).json({ error: 'Error del servidor' }); }
 });
 
 // ════════════════════════════════════════════════════════════════════════════
-// ENDPOINTS ADMIN
+// MÓDULOS
 // ════════════════════════════════════════════════════════════════════════════
-
-// Lista de clientes empresa de producción (para elegir y vincular)
-// ── Módulo Accesos (gestión de usuarios) en modulos/accesos.js ──
-// Se carga más abajo, tras definir las piezas de login.
-
-// ─── Reporte de venta de consignación (NO toca la BD, solo notifica) ─────────
-
-// ─── Métodos de pago (el admin los edita, el cliente los ve) ─────────────────
-// Se guardan en la base del portal (no toca el ERP). Una sola fila de config.
-
-// Cliente: leer métodos de pago (solo lectura)
-
-// Admin: leer métodos de pago (para el formulario de edición)
-
-// Admin: guardar métodos de pago
-
-
-// ============================================================================
-const https = require('https');
-const VV = "('paid','confirmed','pending_payment')";
-
-// Arma "Producto — extra" evitando repetir el nombre cuando la variación ya lo contiene.
-// Ej: producto "Crafty Carbon RR 2026" + variación "Crafty Carbon RR 2026, Admiral Blue, M/L"
-//     → "Crafty Carbon RR 2026 — Admiral Blue, M/L"
-
-// Referencia a módulos que exponen funciones de arranque (se asigna dentro de la IIFE)
+// Referencia a módulos que exponen funciones de arranque
 let modSync = null;
 let modAuditoria = null;
 let modPortal = null;
@@ -213,33 +232,15 @@ let modAsistencia = null;
 let modGestion = null;
 let modBikes = null;
 
-// Registro de endpoints del dashboard (inyectado directamente)
-(function(){
-
+(function () {
   const mResumen = requiereModulo('resumen');
   const mRent = requiereModulo('rentabilidad');
   const mInv = requiereModulo('inventario');
   const mRestock = requiereModulo('restock');
-
-
-
   const mClientes = requiereModulo('clientes_bi');
   const mCxc = requiereModulo('cuentas_cobrar');   // Cuentas por cobrar (deudas), módulo aislado
   const mSaldo = requiereModulo('saldo_favor');    // Saldo a favor (créditos), módulo aislado
   const mConc = requiereModulo('conciliacion');    // Conciliación de pagos online, módulo aislado
-
-  // ── CRÉDITOS A FAVOR DEL CLIENTE (saldo a favor / anticipos) ──
-  // Se guardan en la base del PORTAL (no en el ERP de Renzo). Cada crédito nace
-  // de una venta cancelada que recibió pago (ese pago quedó a favor del cliente).
-
-  // Buscar ventas canceladas que recibieron pago (candidatas a generar crédito)
-
-  // Registrar un crédito a partir de una venta cancelada
-
-  // Listar créditos registrados (con su saldo disponible)
-
-  // Anular un crédito (solo el maestro, deja rastro de quién y cuándo)
-
   const mCaja = requiereModulo('caja_bi');
   const mCrm = requiereModulo('crm');
 
@@ -265,19 +266,15 @@ let modBikes = null;
     serieAgrupada: modVentasBI.serieAgrupada, gastosMensuales: modGastos.gastosMensuales });
 
   // ── Módulo Inventario (foto del stock: salud, antigüedad, ubicaciones, capital parado) ──
-  //    Frontend propio en public/inventario.html (iframe dentro del panel).
   require('./modulos/inventario')({ app, authAdmin, mInv, prodPool, VV });
 
   // ── Módulo Restock (qué reponer y cuánto) ──
-  //    Frontend propio en public/restock.html (iframe dentro del panel).
   require('./modulos/restock')({ app, authAdmin, mRestock, prodPool, portalPool, VV });
 
   // ── Módulo Promociones recomendadas (candidatos a descuento/liquidación) ──
-  //    Frontend propio en public/promociones.html (iframe dentro del panel).
   require('./modulos/promociones')({ app, authAdmin, mInv, prodPool, VV });
 
   // ── Módulo Clientes BI (retención, estados, top, riesgo) ──
-  //    Frontend propio en public/clientes-bi.html (iframe dentro del panel).
   require('./modulos/clientes-bi')({ app, authAdmin, mClientes, mResumen, prodPool, VV, grupos: modGestion });
 
   // ── Módulo Cuentas por cobrar (deudas) — public/cuentas-por-cobrar.html ──
@@ -297,25 +294,19 @@ let modBikes = null;
   });
 
   // ── Módulo Contabilidad (kardex + reporte de pagos + comprobantes SUNAT vs sistema) ──
-  //    (portalPool: guarda los listados de SUNAT y sus marcas de "anotado")
   require('./modulos/contabilidad')({ app, authAdmin, requiereModulo, prodPool, portalPool, VV });
 
   // ── Módulo Facturación electrónica (emitir facturas/boletas/NC vía NubeFacT) ──
-  //    Frontend en public/facturacion.html. El vendedor elige qué ventas facturar.
   //    Variables: NUBEFACT_RUTA_<empresa>, NUBEFACT_TOKEN_<empresa>, ERP_ESCRITURA_URL (opcional, cuenta portal_erp).
   require('./modulos/facturacion')({ app, authAdmin, requiereModulo, prodPool, portalPool, erpWritePool, grupos: modGestion });
 
   // ── Módulo Importaciones (costeo / landed cost) ──
-  // Catálogo desde producción (Renzo, solo lectura); tasas/importaciones/memoria
-  // en la base del portal; IA (Gemini) con la clave protegida en el servidor.
   modImportacion = require('./modulos/importacion')({ app, authAdmin, requiereModulo, prodPool, portalPool });
 
   // ── Módulo Recepción de mercadería (paso intermedio compra: almacén valida) ──
   modRecepciones = require('./modulos/recepciones')({ app, authAdmin, requiereModulo, prodPool, portalPool });
 
   // ── Módulo Seguimiento (trackings de envíos + gestión de backorders) ──
-  //    El maestro sube facturas (IA lee y traduce), asigna tracking y gestiona
-  //    backorders; el supervisor con el módulo 'seguimiento' solo visualiza.
   modSeguimiento = require('./modulos/seguimiento')({ app, authAdmin, requiereModulo, prodPool, portalPool });
 
   // ── Módulo Cotizador rápido (vendedores: buscador + precio mínimo FIFO) ──
@@ -326,7 +317,6 @@ let modBikes = null;
     buscarInternet: modCotizador._test && modCotizador._test.buscarInternet });
 
   // ── Módulo Asistencia (entrada/salida del personal) — public/asistencia.html ──
-  //    Todos los usuarios marcan su jornada; el módulo 'asistencia' da acceso al control.
   modAsistencia = require('./modulos/asistencia')({ app, authAdmin, requiereModulo, prodPool, portalPool, leerAdminsSecundarios });
 
   // ── Módulo Bikes a pedido (bikes.kuranko.pe) — public/bikes.html (tienda) + public/bikes-admin.html (panel) ──
@@ -336,50 +326,20 @@ let modBikes = null;
   modSync = require('./modulos/sincronizacion')({ app, authAdmin, requiereModulo, prodPool, portalPool });
 
   // ── Módulo Auditoría de catálogo + chequeo de empresa en ventas ──
-  //    Frontend propio en public/auditoria.html (iframe dentro del panel).
   modAuditoria = require('./modulos/auditoria')({ app, authAdmin, requiereModulo, prodPool, portalPool });
-  const rango = (desde, hasta, campo='s.created_at') =>
-    desde && hasta ? `AND ${campo} BETWEEN '${desde}' AND '${hasta} 23:59:59'` : '';
 
-  // ── RESUMEN / KPIs ──
-
-  // ── INVENTARIO ──
-
-  // ── ANÁLISIS DE CAPITAL INMOVILIZADO (Inventario) ──
-  // Solo stock, capital y rotación. NO incluye márgenes ni ganancias:
-  // esta pestaña la ve el supervisor y esos datos son de Rentabilidad.
-
-
-
-  // ── CLIENTES ──
-
-
-
-  // ── CLIENTES QUE DEBEN (cuentas por cobrar) ──
-
-
-
-  // Envío de correos de cobranza a deudores seleccionados (con CC a info@kuranko.pe)
-
-
-
-  // Pagos del sistema agrupados por empresa + código de método (para conciliar con el Sheet)
-
-
-  // ── PAGOS Y CAJA ──
-
+  // ── PAGOS Y CAJA: cierres de caja (fechas como parámetros, nunca pegadas en el SQL) ──
   app.get('/api/cierres-caja', authAdmin, mCaja, async (req, res) => {
     const { desde, hasta } = req.query;
-    const f = desde && hasta ? `WHERE closure_date BETWEEN '${desde}' AND '${hasta}'`
-      : `WHERE closure_date >= DATE_SUB(NOW(), INTERVAL 30 DAY)`;
+    const conRango = /^\d{4}-\d{2}-\d{2}$/.test(desde || '') && /^\d{4}-\d{2}-\d{2}$/.test(hasta || '');
+    const f = conRango ? 'WHERE closure_date BETWEEN ? AND ?' : 'WHERE closure_date >= DATE_SUB(NOW(), INTERVAL 30 DAY)';
     try {
       const [rows] = await prodPool.query(`
         SELECT id, closure_date, status, total_general, totals, notes
-        FROM cash_closures ${f} ORDER BY closure_date DESC LIMIT 30`);
+        FROM cash_closures ${f} ORDER BY closure_date DESC LIMIT 30`, conRango ? [desde, hasta] : []);
       res.json(rows);
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
-
 })();
 
 // ─── Health ──────────────────────────────────────────────────────────────────

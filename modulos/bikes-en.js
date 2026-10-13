@@ -240,7 +240,7 @@ module.exports = [
   ["${sel?'elegido':d>0?'+ '+M(d):d<0?'− '+M(-d):'mismo precio'}", "${sel?'selected':d>0?'+ '+M(d):d<0?'− '+M(-d):'same price'}"],
   ['<b>Cuotas sin intereses</b><small>hasta ${ns[ns.length-1]} cuotas</small><small class="num">desde ${', '<b>Interest-free installments</b><small>up to ${ns[ns.length-1]} installments</small><small class="num">from ${'],
   ['<b>Powerpay</b><small>cualquier tarjeta</small>', '<b>Powerpay</b><small>any card</small>'],
-  ["` · ${M(T.cq[+S.pago]-T.base)} más que al contado`:' · mismo precio que al contado'}. Sin intereses con ${esc(D.cuotas_bancos||'tarjeta de crédito')}.", "` · ${M(T.cq[+S.pago]-T.base)} more than full payment`:' · same price as full payment'}. Interest-free with ${esc(D.cuotas_bancos||'credit card')}."],
+  ["` · <span class=\"masT\">${M(T.cq[+S.pago]-T.base)} más que al contado</span>`:' · mismo precio que al contado'}. Sin intereses con ${esc(D.cuotas_bancos||'tarjeta de crédito')}.", "` · <span class=\"masT\">${M(T.cq[+S.pago]-T.base)} more than full payment</span>`:' · same price as full payment'}. Interest-free with ${esc(D.cuotas_bancos||'credit card')}."],
   ["`<div class=\"note\" style=\"margin-top:6px\">Hasta ${T.cu} cuotas sin intereses al mismo precio con ${esc(D.cuotas_bancos||'tarjeta de crédito')}. El adelanto también puede ir en cuotas.</div>`", "`<div class=\"note\" style=\"margin-top:6px\">Up to ${T.cu} interest-free installments at the same price with ${esc(D.cuotas_bancos||'credit card')}. The deposit can also be paid in installments.</div>`"],
 
   ['<small class="num">${M(T.cq[n]/n)}/mes</small>', '<small class="num">${M(T.cq[n]/n)}/mo</small>'], ['/ns[ns.length-1])}/mes</small>', '/ns[ns.length-1])}/mo</small>'],

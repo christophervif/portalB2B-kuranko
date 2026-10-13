@@ -128,6 +128,9 @@ nav.km a.on{background:#141414;color:#fff}
 /* confianza, galería, grupo, logos */
 [data-foto][hidden]{display:none!important}
 .o small.tk{color:var(--ok);font-weight:600}
+.spec .sa{color:#1d5fd0;font-weight:600}.spec .sr{color:#16884a;font-weight:600}.spec .sm{color:#c2410c;font-weight:600}.spec .se{color:#7c3aed;font-weight:600}.spec .sep{font-style:normal;color:var(--muted)}
+.br .cat{color:#e84e0e}.masT{color:#c2410c;font-weight:600}.o small.mas{color:#c2410c;font-weight:600}.o small.ok{color:var(--ok);font-weight:600}
+@media (prefers-color-scheme:dark){.spec .sa{color:#7fb0ff}.spec .sr{color:#5fd28f}.spec .sm{color:#ff9a5c}.spec .se{color:#b794ff}.o small.mas{color:#ff9a5c}}
 .cuotas{margin-top:8px;padding:10px;border:1px dashed var(--line);border-radius:10px}.cuotas .o{min-width:86px}
 s.antes{color:var(--muted,#888);font-weight:400;font-size:.8em;margin-right:6px}.price s.antes{display:block;font-size:14px;line-height:1.2;margin:0}.dto{display:inline-block;background:#e84e0e;color:#fff;font:700 12px/1 var(--body);padding:3px 6px;border-radius:4px;margin-left:6px;vertical-align:middle}
 .dtit{font-size:22px;margin:4px 0 12px;text-transform:uppercase}.dgrid{margin-bottom:26px}
@@ -193,7 +196,7 @@ input[type=range]{width:100%;accent-color:var(--amber)}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);display:flex;flex-direction:column;overflow:hidden;text-align:left;padding:0;transition:border-color .15s,transform .15s;color:var(--ink)}
 .card:hover{border-color:var(--ink);transform:translateY(-2px)}
 .pic{background:var(--surface-2);aspect-ratio:16/10;display:grid;place-items:center;position:relative;max-width:100%;overflow:hidden}
-.pic svg{width:82%;height:auto}.pic img{width:100%;height:100%;object-fit:contain;background:#fff}
+.pic svg{width:82%;height:auto}.pic img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#fff}
 .badge{position:absolute;top:10px;left:10px;font-size:11.5px;font-weight:700;padding:3px 8px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--ink)}
 .badge.lima{background:var(--ok);color:#fff;border-color:var(--ok)}
 .badge.last{background:var(--amber);color:var(--amber-ink);border-color:var(--amber)}
@@ -534,7 +537,10 @@ function pintarFiltros(){
   $('#fMaxL').textContent=F.max>=60000?'sin límite':M(F.max);
 }
 // Línea de datos: aro, recorrido delantero/trasero y material
-const specLinea=m=>[m.aro?(m.aro==='Mullet'?'Mullet 29/27.5':'Aro '+m.aro):'',m.rd?(m.rt?m.rd+'/'+m.rt+' mm':m.rd+' mm'):m.rt?m.rt+' mm atrás':m.rec,m.matx||m.mat,m.motor].filter(Boolean).map(esc).join(' · ');
+const specPartes=m=>[['sa',m.aro?(m.aro==='Mullet'?'Mullet 29/27.5':'Aro '+m.aro):''],['sr',m.rd?(m.rt?m.rd+'/'+m.rt+' mm':m.rd+' mm'):m.rt?m.rt+' mm atrás':m.rec],['sm',m.matx||m.mat],['se',m.motor]].filter(x=>x[1]);
+const specLinea=m=>specPartes(m).map(x=>esc(x[1])).join(' · ');
+// En tarjetas y ficha: cada dato con su color (aro, recorrido, material, motor) para leerlo de un vistazo
+const specHTML=m=>specPartes(m).map(([c,t])=>`<span class="${c}">${esc(t)}</span>`).join('<i class="sep"> · </i>');
 const maxCuotas=m=>Math.max(0,...m.skus.flatMap(x=>(x.op||[]).flatMap(o=>Object.keys(o.cq||{}).map(Number))));
 const TAGS={novedad:'Novedad',lanzamiento:'Lanzamiento',usado:'Usado'};
 function cardHTML({m,r}){
@@ -546,8 +552,8 @@ function cardHTML({m,r}){
   const badge=r.agotado?'<span class="badge">Agotado</span>':TAGS[m.tag]?`<span class="badge last">${TAGS[m.tag]}</span>`:r.lima?'<span class="badge lima">En tienda Kuranko</span>':soloGrupo?'<span class="badge last">Envío en grupo</span>':m.conf?'<span class="badge lima">Stock confirmado</span>':r.tot<=2?'<span class="badge last">Últimas unidades</span>':'<span class="badge">A pedido</span>';
   const mc=maxCuotas(m);
   return `<button class="card" data-id="${esc(m.id)}"><div class="pic" style="color:var(--ink)">${foto(m,col)}${badge}</div>
-    <div class="bd"><span class="br">${esc(m.marca)} · ${esc(m.cat)}</span><h3>${esc(m.modelo)}</h3>
-      <span class="spec">${specLinea(m)}</span>
+    <div class="bd"><span class="br">${esc(m.marca)} · <span class="cat">${esc(m.cat)}</span></span><h3>${esc(m.modelo)}</h3>
+      <span class="spec">${specHTML(m)}</span>
       <div class="envs">${[...new Set(m.skus.flatMap(x=>(x.op||[]).map(o=>o.k)))].map(k=>`<span>${ENVL[k]||k}</span>`).join('')}${mc?`<span class="cu">Hasta ${mc} cuotas sin intereses</span>`:''}</div>
       <div class="sizes">${m.tallas.map(t=>`<span class="${m.skus.some(s=>s.t===t&&s.d>0)?'':'no'}">${esc(t)}</span>`).join('')}</div>
       <div class="ft"><div class="price">${r.varios?'<span class="desde">desde </span>':''}${r.min.pml?`<s class="antes">${M(r.min.pml)}</s>`:''}${M(r.min.pm)}${r.min.dc?`<span class="dto">−${r.min.dc}%</span>`:''}<small>${M2(r.min.pm)} · IGV incl.</small></div>
@@ -627,7 +633,7 @@ function montajeHTML(m,disp){if(!(m.montajes.length>1||m.montajes[0]!=='Base'))r
   const cur=partesMo(S.mo).map(x=>x[1]),pc=pm(S.mo);
   return P[0].map(([g],k)=>{const minV=v=>Math.min(...m.montajes.filter((x,i)=>P[i][k][1]===v).map(pm));const vals=[...new Set(P.map(x=>x[k][1]))].sort((a,b)=>minV(a)-minV(b));
     return `<div class="opt"><div class="lbl">${esc(g)}</div><div class="opts">${vals.map(v=>{const alt=cur.slice();alt[k]=v;const mo=m.montajes.find(x=>partesMo(x).map(y=>y[1]).join('|')===alt.join('|'))||m.montajes.find(x=>partesMo(x)[k][1]===v);
-      const d=pm(mo)-pc,sel=cur[k]===v;return `<button class="o" aria-pressed="${sel}" data-mo="${esc(mo)}" ${disp(x=>x.mo===mo)?'':'disabled'}><b>${esc(v)}</b><small class="num">${sel?'elegido':d>0?'+ '+M(d):d<0?'− '+M(-d):'mismo precio'}</small></button>`}).join('')}</div></div>`}).join('')}
+      const d=pm(mo)-pc,sel=cur[k]===v;return `<button class="o" aria-pressed="${sel}" data-mo="${esc(mo)}" ${disp(x=>x.mo===mo)?'':'disabled'}><b>${esc(v)}</b><small class="num ${sel?'ok':d>0?'mas':''}">${sel?'elegido':d>0?'+ '+M(d):d<0?'− '+M(-d):'mismo precio'}</small></button>`}).join('')}</div></div>`}).join('')}
 function marHTML(marca,o,eb){if(!o||!o.nb)return '';const g=(D.mar||{})[marca]||{van:0};const n=Math.min(o.nb,12),van=g.van||0,con=van+1,ok=con>=n,completa=ok&&van<n,ya=van?(van===1?'Ya hay 1 bici reservada':'Ya hay '+van+' bicis reservadas')+' de '+esc(marca)+' para este envío. ':'';const sale=g.fecha?' (sale aprox. el '+fD(g.fecha)+')':'';
   if(n<=1)return eb?`<div class="grp"><b>✓ Esta e-bike puede viajar en el próximo envío marítimo</b><span>Las e-bikes no pueden ir por avión por sus baterías: viaja por mar con las demás bicis de ${esc(marca)}${sale}.</span></div>`:'';
   const tit=completa?'✓ Tu reserva completa el envío marítimo de '+esc(marca):ok?'✓ El próximo envío marítimo de '+esc(marca)+' ya junta bicis suficientes':eb?'Las e-bikes solo viajan por mar: esta sale a cuenta desde '+n+' bicis de '+esc(marca)+' en el mismo envío':'Envío marítimo compartido: sale a cuenta desde '+n+' bicis de '+esc(marca);
@@ -678,11 +684,11 @@ function pintarCfg(){
       if(T.env==='maritimo'&&!(s.op||[]).some(x=>x.k==='aereo'))return marHTML(m.marca,o,false); // bicis sin aéreo disponible
       return ''})()}`;
   $('#drawer').innerHTML=`
-  <div class="dhead"><div>${(D.logos||{})[m.marca]?`<img class="blogo" src="${esc(D.logos[m.marca])}" alt="${esc(m.marca)}"><br>`:''}<span class="br">${esc(m.marca)} · ${esc(m.cat)}${m.anio?' · '+m.anio:''}</span><h2 style="font-size:30px;line-height:1">${esc(m.modelo)}</h2></div><div style="display:flex;gap:8px;align-items:center"><button class="btn sec comp" id="compartir">Compartir</button><button class="x" id="xClose" aria-label="Cerrar">×</button></div></div>
+  <div class="dhead"><div>${(D.logos||{})[m.marca]?`<img class="blogo" src="${esc(D.logos[m.marca])}" alt="${esc(m.marca)}"><br>`:''}<span class="br">${esc(m.marca)} · <span class="cat">${esc(m.cat)}</span>${m.anio?' · '+m.anio:''}</span><h2 style="font-size:30px;line-height:1">${esc(m.modelo)}</h2></div><div style="display:flex;gap:8px;align-items:center"><button class="btn sec comp" id="compartir">Compartir</button><button class="x" id="xClose" aria-label="Cerrar">×</button></div></div>
   <div class="dbody"><div class="izq">
     <div class="dpic" style="color:var(--ink)">${gal.length?`<img src="${esc(gal[S.img||0])}" alt="${esc(m.marca+' '+m.modelo+' '+(S.c||''))}">`:m.img?foto(m,col):bike(colHex||col,m.cat)}</div>
     ${gal.length>1?`<div class="gal">${gal.map((u,i)=>`<button data-img="${i}" aria-pressed="${(S.img||0)===i}" aria-label="Foto ${i+1}"><img src="${esc(u)}" alt="" loading="lazy"></button>`).join('')}</div>`:''}
-    <div class="spec">${specLinea(m)}${m.peso?' · '+esc(m.peso+(/kg/i.test(m.peso)?'':' kg')):''}${m.ficha?` · <a href="${esc(m.ficha)}" target="_blank" rel="noopener">Ficha técnica</a>`:''}</div>
+    <div class="spec">${specHTML(m)}${m.peso?' · '+esc(m.peso+(/kg/i.test(m.peso)?'':' kg')):''}${m.ficha?` · <a href="${esc(m.ficha)}" target="_blank" rel="noopener">Ficha técnica</a>`:''}</div>
     ${m.geo||m.geom?`<details class="specs geo"><summary>Geometría</summary>${m.geo?`<a href="${esc(m.geo)}" target="_blank" rel="noopener"><img src="${esc(m.geo)}" alt="Geometría ${esc(m.marca+' '+m.modelo)}" loading="lazy"></a>`:''}
       ${m.geom?`<div class="gtab"><table><thead><tr><th></th>${m.geom.tallas.map(t=>`<th class="${t===S.t?'on':''}">${esc(t)}</th>`).join('')}</tr></thead><tbody>${m.geom.filas.map(f=>`<tr><td>${f.l?`<b>${esc(f.l)}</b> `:''}${esc(f.n)}</td>${f.v.map((v,i)=>`<td class="${m.geom.tallas[i]===S.t?'on':''}">${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`:''}</details>`:''}
     <div class="gar"><b>Garantía:</b> ${esc(m.gar||(D.garantias||{})[m.marca]||'oficial del fabricante, gestionada por Kuranko en Lima')}. Armado y ajuste en nuestro taller.</div>
@@ -695,14 +701,14 @@ function pintarCfg(){
       <div class="note" style="margin-top:6px"><a href="#" id="tPrueba">Pruébate la talla en tienda o pide asesoría por videollamada</a></div></div>
     <div class="opt"><div class="lbl">Color</div><div class="opts">${m.colores.map(c=>`<button class="o" aria-pressed="${S.c===c.n}" data-c="${esc(c.n)}" ${disp(x=>x.mo===S.mo&&x.t===S.t&&x.c===c.n)?'':'disabled'}><span>${m.gc&&m.gc.includes(c.n)?`<img class="swf" src="${esc(m.gal[m.gc.indexOf(c.n)])}" alt="">`:c.h?`<span class="sw" style="background:${esc(c.h)}"></span>`:''}${esc(c.n)}</span></button>`).join('')}</div></div>
     <div class="opt"><div class="lbl">Envío a Lima</div>${m.conf&&T.env!=='lima'?'<div class="note" style="margin:-2px 0 8px;color:var(--ok)">✓ La marca confirmó que tiene unidades de este modelo.</div>':''}${ship}</div>
-    <div class="opt pago"><div class="lbl">Forma de pago</div>${(()=>{const ns=Object.keys(T.cq).map(Number).sort((a,b)=>a-b),enCuotas=ns.includes(+S.pago),mas=v=>v>T.base?' · +'+M(v-T.base):'';
+    <div class="opt pago"><div class="lbl">Forma de pago</div>${(()=>{const ns=Object.keys(T.cq).map(Number).sort((a,b)=>a-b),enCuotas=ns.includes(+S.pago),mas=v=>v>T.base?' · <span class="masT">+'+M(v-T.base)+'</span>':'';
       return `<div class="opts">
       <button class="o" aria-pressed="${S.pago==='0'}" data-pago="0"><b>Contado</b><small>Yape o transferencia</small><small class="num">${M(T.base)}</small></button>
       ${T.o.tj?`<button class="o" aria-pressed="${S.pago==='t'}" data-pago="t"><b>Tarjeta</b><small>1 pago, crédito o débito</small><small class="num">${M(T.o.tj)}${mas(T.o.tj)}</small></button>`:''}
       ${ns.length?`<button class="o" aria-pressed="${enCuotas}" data-pago="${enCuotas?S.pago:(T.cu||ns[0])}"><b>Cuotas sin intereses</b><small>hasta ${ns[ns.length-1]} cuotas</small><small class="num">desde ${M(T.cq[ns[ns.length-1]]/ns[ns.length-1])}/mes</small></button>`:''}
       ${T.pp?`<button class="o" aria-pressed="${S.pago==='pp'}" data-pago="pp"><b>Powerpay</b><small>cualquier tarjeta</small><small class="num">${M(T.o.pp)}${mas(T.o.pp)}</small></button>`:''}
       </div>${enCuotas?`<div class="cuotas"><div class="opts">${ns.map(n=>`<button class="o" aria-pressed="${S.pago===String(n)}" data-pago="${n}"><b>${n}</b><small class="num">${M(T.cq[n]/n)}/mes</small></button>`).join('')}</div>
-        <div class="note" style="margin-top:6px"><b>${S.pago} × ${M(T.cq[+S.pago]/+S.pago)}${enUSD()?' ('+soles(T.cq[+S.pago]/+S.pago)+')':''}</b> = ${M(T.cq[+S.pago])}${T.cq[+S.pago]>T.base?` · ${M(T.cq[+S.pago]-T.base)} más que al contado`:' · mismo precio que al contado'}. Sin intereses con ${esc(D.cuotas_bancos||'tarjeta de crédito')}.</div></div>`:''}`})()}
+        <div class="note" style="margin-top:6px"><b>${S.pago} × ${M(T.cq[+S.pago]/+S.pago)}${enUSD()?' ('+soles(T.cq[+S.pago]/+S.pago)+')':''}</b> = ${M(T.cq[+S.pago])}${T.cq[+S.pago]>T.base?` · <span class="masT">${M(T.cq[+S.pago]-T.base)} más que al contado</span>`:' · mismo precio que al contado'}. Sin intereses con ${esc(D.cuotas_bancos||'tarjeta de crédito')}.</div></div>`:''}`})()}
     ${T.cu&&!Object.keys(T.cq).includes(S.pago)?`<div class="note" style="margin-top:6px">Hasta ${T.cu} cuotas sin intereses al mismo precio con ${esc(D.cuotas_bancos||'tarjeta de crédito')}. El adelanto también puede ir en cuotas.</div>`:S.pago==='pp'?'<div class="note" style="margin-top:6px">Powerpay aplica su propio interés al cliente.</div>':''}</div>
     ${D.extras.length?`<div class="opt"><div class="lbl">Extras</div><div class="extras">${D.extras.map(e=>`<label><input type="checkbox" data-x="${esc(e.id)}" ${e.incluido?'checked disabled':S.extras[e.id]?'checked':''}><span>${esc(e.nombre)}</span><span>${e.incluido||!e.precio?'incluido':'+ '+M(e.precio)}</span></label>`).join('')}</div></div>`:''}
     <div class="sum"><table>

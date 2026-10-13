@@ -128,10 +128,11 @@ nav.km a.on{background:#141414;color:#fff}
 /* confianza, galería, grupo, logos */
 [data-foto][hidden]{display:none!important}
 .o small.tk{color:var(--ok);font-weight:600}
-.spec .sa{color:#1d5fd0;font-weight:600}.spec .sr{color:#16884a;font-weight:600}.spec .sm{color:#c2410c;font-weight:600}.spec .se{color:#7c3aed;font-weight:600}.spec .sep{font-style:normal;color:var(--muted)}
-.br .cat{color:#e84e0e}.masT{color:#c2410c;font-weight:600}.o small.mas{color:#c2410c;font-weight:600}.o small.ok{color:var(--ok);font-weight:600}
-@media (prefers-color-scheme:dark){.spec .sa{color:#7fb0ff}.spec .sr{color:#5fd28f}.spec .sm{color:#ff9a5c}.spec .se{color:#b794ff}.o small.mas{color:#ff9a5c}}
-.cuotas{margin-top:8px;padding:10px;border:1px dashed var(--line);border-radius:10px}.cuotas .o{min-width:86px}
+/* Lenguaje de color: tinta para los datos, verde = a favor (elegido, mismo precio, entrega), naranja Kuranko apagado = lo que suma al precio */
+.spec span{color:var(--ink);font-weight:500}.spec .sep{font-style:normal;color:var(--muted)}
+.o small.mas,.masT{color:#b4532a;font-weight:600}.o small.ok{color:var(--ok);font-weight:600}
+@media (prefers-color-scheme:dark){.o small.mas,.masT{color:#f0a070}}
+.cuotasSel{margin-top:8px;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2)}.cuotasSel .o{min-width:86px}
 s.antes{color:var(--muted,#888);font-weight:400;font-size:.8em;margin-right:6px}.price s.antes{display:block;font-size:14px;line-height:1.2;margin:0}.dto{display:inline-block;background:#e84e0e;color:#fff;font:700 12px/1 var(--body);padding:3px 6px;border-radius:4px;margin-left:6px;vertical-align:middle}
 .dtit{font-size:22px;margin:4px 0 12px;text-transform:uppercase}.dgrid{margin-bottom:26px}
 .card.pronto .pic{background:linear-gradient(180deg,#f3f3f3,#e4e4e4)}.silueta{opacity:0;transition:opacity .4s;max-width:100%;max-height:100%;object-fit:contain}.silueta.sil-ok{opacity:.92}
@@ -227,7 +228,7 @@ input[type=range]{width:100%;accent-color:var(--amber)}
 .dbody .dpic{aspect-ratio:4/3}
 @media (max-width:900px){.dbody{grid-template-columns:1fr;padding:16px 16px 30px}.dbody>.izq{position:static}.drawer{width:100%}}
 .dpic{background:var(--surface-2);border-radius:var(--r);display:grid;place-items:center;overflow:hidden;aspect-ratio:16/10}
-.dpic svg{width:78%}.dpic img{width:100%;height:100%;object-fit:contain;background:#fff}
+.dpic svg{width:78%}.dpic{position:relative}.dpic img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#fff}
 .opt{display:grid;gap:8px}
 .opt>.lbl{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600;display:flex;justify-content:space-between;gap:8px}
 .opts{display:flex;flex-wrap:wrap;gap:8px}
@@ -252,6 +253,7 @@ input[type=range]{width:100%;accent-color:var(--amber)}
 .pagos{list-style:none;margin:12px 0 0;padding:0;display:grid;gap:0;border-top:1px solid var(--line)}
 .pagos li{display:flex;justify-content:space-between;gap:10px;padding:8px 2px;border-bottom:1px solid var(--line);font-size:13.5px;color:var(--muted)}
 .pagos li b{color:var(--ink)}.pagos li:first-child b.num{color:var(--ok)}
+.sum{border-top:4px solid #e84e0e}.pagos li:nth-child(2) b.num{color:#b4532a}
 .btn.wa{background:#25d366;color:#fff;font-size:15px}.ok1{display:block!important;max-width:620px;margin-inline:auto}
 .dep{display:flex;justify-content:space-between;gap:8px;background:var(--amber);color:var(--amber-ink);border-radius:var(--r);padding:9px 12px;margin-top:10px;font-size:14px;font-weight:600}
 .dep b{font-family:var(--mono)}
@@ -552,7 +554,7 @@ function cardHTML({m,r}){
   const badge=r.agotado?'<span class="badge">Agotado</span>':TAGS[m.tag]?`<span class="badge last">${TAGS[m.tag]}</span>`:r.lima?'<span class="badge lima">En tienda Kuranko</span>':soloGrupo?'<span class="badge last">Envío en grupo</span>':m.conf?'<span class="badge lima">Stock confirmado</span>':r.tot<=2?'<span class="badge last">Últimas unidades</span>':'<span class="badge">A pedido</span>';
   const mc=maxCuotas(m);
   return `<button class="card" data-id="${esc(m.id)}"><div class="pic" style="color:var(--ink)">${foto(m,col)}${badge}</div>
-    <div class="bd"><span class="br">${esc(m.marca)} · <span class="cat">${esc(m.cat)}</span></span><h3>${esc(m.modelo)}</h3>
+    <div class="bd"><span class="br">${esc(m.marca)} · <span>${esc(m.cat)}</span></span><h3>${esc(m.modelo)}</h3>
       <span class="spec">${specHTML(m)}</span>
       <div class="envs">${[...new Set(m.skus.flatMap(x=>(x.op||[]).map(o=>o.k)))].map(k=>`<span>${ENVL[k]||k}</span>`).join('')}${mc?`<span class="cu">Hasta ${mc} cuotas sin intereses</span>`:''}</div>
       <div class="sizes">${m.tallas.map(t=>`<span class="${m.skus.some(s=>s.t===t&&s.d>0)?'':'no'}">${esc(t)}</span>`).join('')}</div>
@@ -684,7 +686,7 @@ function pintarCfg(){
       if(T.env==='maritimo'&&!(s.op||[]).some(x=>x.k==='aereo'))return marHTML(m.marca,o,false); // bicis sin aéreo disponible
       return ''})()}`;
   $('#drawer').innerHTML=`
-  <div class="dhead"><div>${(D.logos||{})[m.marca]?`<img class="blogo" src="${esc(D.logos[m.marca])}" alt="${esc(m.marca)}"><br>`:''}<span class="br">${esc(m.marca)} · <span class="cat">${esc(m.cat)}</span>${m.anio?' · '+m.anio:''}</span><h2 style="font-size:30px;line-height:1">${esc(m.modelo)}</h2></div><div style="display:flex;gap:8px;align-items:center"><button class="btn sec comp" id="compartir">Compartir</button><button class="x" id="xClose" aria-label="Cerrar">×</button></div></div>
+  <div class="dhead"><div>${(D.logos||{})[m.marca]?`<img class="blogo" src="${esc(D.logos[m.marca])}" alt="${esc(m.marca)}"><br>`:''}<span class="br">${esc(m.marca)} · <span>${esc(m.cat)}</span>${m.anio?' · '+m.anio:''}</span><h2 style="font-size:30px;line-height:1">${esc(m.modelo)}</h2></div><div style="display:flex;gap:8px;align-items:center"><button class="btn sec comp" id="compartir">Compartir</button><button class="x" id="xClose" aria-label="Cerrar">×</button></div></div>
   <div class="dbody"><div class="izq">
     <div class="dpic" style="color:var(--ink)">${gal.length?`<img src="${esc(gal[S.img||0])}" alt="${esc(m.marca+' '+m.modelo+' '+(S.c||''))}">`:m.img?foto(m,col):bike(colHex||col,m.cat)}</div>
     ${gal.length>1?`<div class="gal">${gal.map((u,i)=>`<button data-img="${i}" aria-pressed="${(S.img||0)===i}" aria-label="Foto ${i+1}"><img src="${esc(u)}" alt="" loading="lazy"></button>`).join('')}</div>`:''}
@@ -707,7 +709,7 @@ function pintarCfg(){
       ${T.o.tj?`<button class="o" aria-pressed="${S.pago==='t'}" data-pago="t"><b>Tarjeta</b><small>1 pago, crédito o débito</small><small class="num">${M(T.o.tj)}${mas(T.o.tj)}</small></button>`:''}
       ${ns.length?`<button class="o" aria-pressed="${enCuotas}" data-pago="${enCuotas?S.pago:(T.cu||ns[0])}"><b>Cuotas sin intereses</b><small>hasta ${ns[ns.length-1]} cuotas</small><small class="num">desde ${M(T.cq[ns[ns.length-1]]/ns[ns.length-1])}/mes</small></button>`:''}
       ${T.pp?`<button class="o" aria-pressed="${S.pago==='pp'}" data-pago="pp"><b>Powerpay</b><small>cualquier tarjeta</small><small class="num">${M(T.o.pp)}${mas(T.o.pp)}</small></button>`:''}
-      </div>${enCuotas?`<div class="cuotas"><div class="opts">${ns.map(n=>`<button class="o" aria-pressed="${S.pago===String(n)}" data-pago="${n}"><b>${n}</b><small class="num">${M(T.cq[n]/n)}/mes</small></button>`).join('')}</div>
+      </div>${enCuotas?`<div class="cuotasSel"><div class="opts">${ns.map(n=>`<button class="o" aria-pressed="${S.pago===String(n)}" data-pago="${n}"><b>${n}</b><small class="num">${M(T.cq[n]/n)}/mes</small></button>`).join('')}</div>
         <div class="note" style="margin-top:6px"><b>${S.pago} × ${M(T.cq[+S.pago]/+S.pago)}${enUSD()?' ('+soles(T.cq[+S.pago]/+S.pago)+')':''}</b> = ${M(T.cq[+S.pago])}${T.cq[+S.pago]>T.base?` · <span class="masT">${M(T.cq[+S.pago]-T.base)} más que al contado</span>`:' · mismo precio que al contado'}. Sin intereses con ${esc(D.cuotas_bancos||'tarjeta de crédito')}.</div></div>`:''}`})()}
     ${T.cu&&!Object.keys(T.cq).includes(S.pago)?`<div class="note" style="margin-top:6px">Hasta ${T.cu} cuotas sin intereses al mismo precio con ${esc(D.cuotas_bancos||'tarjeta de crédito')}. El adelanto también puede ir en cuotas.</div>`:S.pago==='pp'?'<div class="note" style="margin-top:6px">Powerpay aplica su propio interés al cliente.</div>':''}</div>
     ${D.extras.length?`<div class="opt"><div class="lbl">Extras</div><div class="extras">${D.extras.map(e=>`<label><input type="checkbox" data-x="${esc(e.id)}" ${e.incluido?'checked disabled':S.extras[e.id]?'checked':''}><span>${esc(e.nombre)}</span><span>${e.incluido||!e.precio?'incluido':'+ '+M(e.precio)}</span></label>`).join('')}</div></div>`:''}

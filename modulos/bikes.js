@@ -497,6 +497,7 @@ function armarCatalogo(skus, R, tc, hoy = hoyLima(), mods = {}) {
     if (!m.img && s.url_imagen) m.img = s.url_imagen;
     if (s.url_imagen) { m._ci = m._ci || {}; m._ci[s.url_imagen] = m._ci[s.url_imagen] || s.color; }
     m._md = md;
+    (m._cats = m._cats || new Set()).add(s.categoria || ''); // un modelo puede estar en varias categorías (ej. Kavenz VHP X: Trail, Enduro y Downhill)
     if (!m.ficha && s.url_ficha) m.ficha = s.url_ficha;
     if (!m.motor && s.motor) m.motor = s.motor;
     if (!m.montajes.includes(s.montaje)) m.montajes.push(s.montaje);
@@ -509,7 +510,7 @@ function armarCatalogo(skus, R, tc, hoy = hoyLima(), mods = {}) {
     }
     const base = ops.reduce((a, o) => o.p < a.p ? o : a, ops[0]);
     const it = { id: s.id, mo: s.montaje, t: s.talla, c: s.color, d: sinLimite(s) ? 99 : Math.max(0, num(s.stock) - num(s.reservado)), e: s.estado, ...(num(s.stock_kuranko) > 0 ? { tk: num(s.stock_kuranko), ...(s.stock_ciudad && s.stock_ciudad !== 'Lima' ? { tkc: s.stock_ciudad } : {}) } : {}),
-      pm: base.p, fm: base.f, ...(base.pl ? { pml: base.pl, dc: base.dc } : {}), op: ops.map(o => ({ k: o.k, p: o.p, f: o.f, cu: o.cu, cq: o.cq, ...(o.tj ? { tj: o.tj } : {}), ...(o.pp ? { pp: o.ppp } : {}), ...(o.adicional ? { ad: 1 } : {}), ...(o.pl ? { pl: o.pl, dc: o.dc } : {}), ...(o.nb ? { nb: o.nb } : {}) })) };
+      ...(s.categoria ? { ct: s.categoria } : {}), pm: base.p, fm: base.f, ...(base.pl ? { pml: base.pl, dc: base.dc } : {}), op: ops.map(o => ({ k: o.k, p: o.p, f: o.f, cu: o.cu, cq: o.cq, ...(o.tj ? { tj: o.tj } : {}), ...(o.pp ? { pp: o.ppp } : {}), ...(o.adicional ? { ad: 1 } : {}), ...(o.pl ? { pl: o.pl, dc: o.dc } : {}), ...(o.nb ? { nb: o.nb } : {}) })) };
     if (s.pvp > 0) it.ref = Math.ceil(s.pvp * (s.moneda === 'EUR' ? tc.eur : tc.usd) / 10) * 10; // PVP de la marca en soles, referencia
     m.skus.push(it);
   }
@@ -527,7 +528,8 @@ function armarCatalogo(skus, R, tc, hoy = hoyLima(), mods = {}) {
     }
     const tt = tablaTallas(m.tallas, (m._md && m._md.datos) || {}); if (tt) m.tt = tt;
     if (m._md && m._md.datos && m._md.datos.garantia) m.gar = String(m._md.datos.garantia).slice(0, 200);
-    delete m._ci; delete m._md;
+    { const cs = [...(m._cats || [])].filter(Boolean); if (cs.length > 1) m.cats = cs; else m.skus.forEach(x => delete x.ct); }
+    delete m._ci; delete m._md; delete m._cats;
     // «Próximamente»: solo la silueta de la foto principal, sin nombre, precio ni ficha (no se puede reservar)
     if (m.tag === 'proximamente') return { id: 'pronto-' + slug(m.marca) + '-' + m.id.length + m.skus.length, marca: m.marca, cat: m.cat, aro: m.aro, tag: m.tag, img: (m.gal || [])[0] || m.img || null,
       modelo: 'Próximamente', montajes: [], colores: [], tallas: [], skus: [{ id: 0, mo: '', t: '', c: '', d: 0, pm: 0, fm: [hoy, hoy], op: [] }] };
@@ -1245,11 +1247,11 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
         const MAT_EN = t => String(t || '').replace(/Carbono/g, 'Carbon').replace(/Aluminio/g, 'Aluminum');
         const GAR_EN = t => String(t || '').replace(/Cuadro/gi, 'Frame').replace(/Componentes/gi, 'Components').replace(/Amortiguador(es)?/gi, 'Shock').replace(/Motor/gi, 'Motor').replace(/Bater[ií]a/gi, 'Battery').replace(/de por vida|vitalicia/gi, 'lifetime').replace(/años/g, 'years').replace(/año/g, 'year').replace(/\by\b/g, 'and');
         const EXT_EN = { 'Armado, ajuste de suspensión y fitting básico': 'Assembly, suspension setup and basic fitting', 'Pedales de plataforma': 'Flat pedals', 'Mantenimiento prepagado 12 meses (3 servicios)': 'Prepaid 12-month maintenance (3 services)' };
-        const MO_EN = t => String(t || '').replace(/Transmisión:/g, 'Drivetrain:').replace(/Amortiguador:/g, 'Shock:').replace(/Pedalier /g, 'Bottom bracket ').replace(/Para caja Pinion \(no incluida\)/g, 'For Pinion gearbox (not included)').replace(/Sin amortiguador/g, 'No shock').replace(/Cambios con desviador \(pedalier BSA 73\)/g, 'Derailleur drivetrain (BSA 73 bottom bracket)').replace(/Caja Pinion/g, 'Pinion gearbox').replace(/Smart-Shift completo/g, 'Smart-Shift complete');
+        const MO_EN = t => String(t || '').replace(/Plataforma:/g, 'Platform:').replace(/Transmisión:/g, 'Drivetrain:').replace(/Amortiguador:/g, 'Shock:').replace(/Pedalier /g, 'Bottom bracket ').replace(/Para caja Pinion \(no incluida\)/g, 'For Pinion gearbox (not included)').replace(/Sin amortiguador/g, 'No shock').replace(/Cambios con desviador \(pedalier BSA 73\)/g, 'Derailleur drivetrain (BSA 73 bottom bracket)').replace(/Caja Pinion/g, 'Pinion gearbox').replace(/Smart-Shift completo/g, 'Smart-Shift complete');
         const pg = data.pagina || {};
         data = { ...data, extras: (data.extras || []).map(e => ({ ...e, nombre: EXT_EN[e.nombre] || e.nombre })), pagina: { ...pg, asesor_cargo: pg.asesor_cargo === 'Asesor de bicicletas' ? 'Bike advisor' : pg.asesor_cargo },
           garantias: Object.fromEntries(Object.entries(data.garantias || {}).map(([k, v]) => [k, GAR_EN(v)])),
-          modelos: data.modelos.map(m => ({ ...m, montajes: (m.montajes || []).map(MO_EN), skus: (m.skus || []).map(x => ({ ...x, mo: MO_EN(x.mo) })), desc: m.desc_en || m.desc, cat: CAT_EN[m.cat] || m.cat, specs: (m.specs || []).map(x => ({ ...x, k: specEn(x.k) })),
+          modelos: data.modelos.map(m => ({ ...m, ...(m.cats ? { cats: m.cats.map(c => CAT_EN[c] || c) } : {}), montajes: (m.montajes || []).map(MO_EN), skus: (m.skus || []).map(x => ({ ...x, mo: MO_EN(x.mo) })), desc: m.desc_en || m.desc, cat: CAT_EN[m.cat] || m.cat, specs: (m.specs || []).map(x => ({ ...x, k: specEn(x.k) })),
           ...(m.mat ? { mat: MAT_EN(m.mat) } : {}), ...(m.matx ? { matx: MAT_EN(m.matx) } : {}), ...(m.gar ? { gar: GAR_EN(m.gar) } : {}),
           ...(m.modelo === 'Próximamente' ? { modelo: 'Coming soon' } : {}) })) };
       }
@@ -1359,7 +1361,8 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       let montajeRes = s.montaje;
       try {
         const md = (await leerModelos())[s.marca + '|' + s.modelo] || {}; const elegidas = b.opc && typeof b.opc === 'object' ? b.opc : {};
-        const txt = ((md.datos || {}).opciones || []).map(o => { const v = String(elegidas[o.g] || ''); return (o.v || []).includes(v) ? `${o.g}: ${v}` : null; }).filter(Boolean);
+        const txt = ((md.datos || {}).opciones || []).filter(o => !o.si || String(s.montaje).toLowerCase().includes(String(o.si).toLowerCase()))
+          .map(o => { const v = String(elegidas[o.g] || ''); return (o.v || []).includes(v) ? `${o.g}: ${v}` : null; }).filter(Boolean);
         if (txt.length) montajeRes = [s.montaje !== 'Base' ? s.montaje : '', ...txt].filter(Boolean).join(' · ').slice(0, 240);
       } catch (e) {}
       const codigo = await nuevoCodigo(conn);
@@ -2028,9 +2031,13 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
       if (b.anio !== undefined) { sets.push('anio=?'); vals.push(num(b.anio) > 2000 ? num(b.anio) : null); }
       if (sets.length) await conn.query(`UPDATE bk_skus SET ${sets.join(', ')}, actualizado=NOW() WHERE marca=? AND modelo=?`, [...vals, marca, modelo]);
       if (b.opciones !== undefined) { // «Grupo: valor1, valor2*» por línea (* = recomendado)
+        // «Grupo {palabra}: valor [S,M], valor2*» → {palabra} = solo si el montaje la contiene · [tallas] = recomendado para esas tallas · * = recomendado por defecto
         const ops = String(b.opciones || '').split('\n').map(l => l.trim()).filter(l => l.includes(':')).slice(0, 4).map(l => { const i = l.indexOf(':');
-          const vs = l.slice(i + 1).split(',').map(v => v.trim()).filter(Boolean).slice(0, 8); const def = vs.find(v => v.endsWith('*'));
-          return { g: l.slice(0, i).trim().slice(0, 40), v: vs.map(v => v.replace(/\*$/, '').trim().slice(0, 40)), ...(def ? { d: def.replace(/\*$/, '').trim() } : {}) }; }).filter(o => o.g && o.v.length > 1);
+          let g = l.slice(0, i).trim(); const si = (g.match(/\{([^}]+)\}/) || [])[1]; g = g.replace(/\{[^}]*\}/, '').trim().slice(0, 40);
+          const crudos = l.slice(i + 1).split(/,(?![^\[]*\])/).map(v => v.trim()).filter(Boolean).slice(0, 8), rec = {}; let d = null;
+          const v = crudos.map(x => { let t = x; const tl = (t.match(/\[([^\]]+)\]/) || [])[1]; t = t.replace(/\[[^\]]*\]/, '').trim(); const def = t.endsWith('*'); t = t.replace(/\*$/, '').trim().slice(0, 40);
+            if (def) d = t; if (tl) rec[t] = tl.split(/[,\s]+/).map(z => z.trim().toUpperCase()).filter(Boolean); return t; });
+          return { g, v, ...(si ? { si: si.trim().slice(0, 30) } : {}), ...(d ? { d } : {}), ...(Object.keys(rec).length ? { rec } : {}) }; }).filter(o => o.g && o.v.length > 1);
         const [[row]] = await conn.query('SELECT datos FROM bk_modelos WHERE marca=? AND modelo=?', [marca, modelo]); let dat = {}; try { dat = JSON.parse((row && row.datos) || '{}') || {}; } catch (e) {}
         if (ops.length) dat.opciones = ops; else delete dat.opciones;
         await conn.query('INSERT INTO bk_modelos (marca, modelo, datos) VALUES (?,?,?) ON DUPLICATE KEY UPDATE datos=VALUES(datos)', [marca, modelo, JSON.stringify(dat)]); }

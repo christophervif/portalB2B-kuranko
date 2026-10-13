@@ -442,7 +442,7 @@ document.getElementById('kScrim').onclick=()=>abrirPanel(false);
 document.getElementById('kMenuMovil').addEventListener('click',e=>{const b=e.target.closest('[data-acc]');if(!b)return;const li=b.closest('li');li.classList.toggle('abierto');b.textContent=li.classList.contains('abierto')?'−':'+'});
 // Buscador: busca primero en las bicis de esta tienda; abajo, el enlace para buscar repuestos y accesorios en kuranko.pe
 const normQ=t=>String(t||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9/.]+/g,' ').trim();
-const hayDe=m=>m._hay||(m._hay=normQ([m.marca,m.modelo,m.cat,m.tag==='usado'?'usado':'',m.aro==='Mullet'?'mullet':m.aro&&'aro '+m.aro,m.rec,m.mat,m.matx,m.motor,(m.colores||[]).map(c=>c.n).join(' '),(m.specs||[]).map(x=>x.v).join(' '),m.tag==='proximamente'?'':m.desc].filter(Boolean).join(' ')));
+const hayDe=m=>m._hay||(m._hay=normQ([m.marca,m.modelo,catsDe(m).join(' '),m.tag==='usado'?'usado':'',m.aro==='Mullet'?'mullet':m.aro&&'aro '+m.aro,m.rec,m.mat,m.matx,m.motor,(m.colores||[]).map(c=>c.n).join(' '),(m.specs||[]).map(x=>x.v).join(' '),m.tag==='proximamente'?'':m.desc].filter(Boolean).join(' ')));
 function buscarBicis(q){const ts=normQ(q).split(' ').filter(Boolean);if(!ts.length||!D)return [];
   return D.modelos.filter(m=>m.tag!=='proximamente').map(m=>{const h=hayDe(m),n=normQ(m.marca+' '+m.modelo);if(!ts.every(t=>h.includes(t)))return null;return {m,s:ts.filter(t=>n.includes(t)).length}}).filter(Boolean).sort((a,b)=>b.s-a.s).map(x=>x.m)}
 function pintarBusqueda(){const q=document.getElementById('kBusQ').value.trim(),out=document.getElementById('kBusRes');if(!q){out.innerHTML='';return}
@@ -514,6 +514,7 @@ function tsInit(){if(!D||!D.ts_key||TS!==null)return;TS=false;const sc=document.
 function tsToken(){return new Promise(res=>{if(!TS||!window.turnstile)return res('');let t=turnstile.getResponse(TS);if(t)return res(t);try{turnstile.execute(TS)}catch(e){}
   const i=setInterval(()=>{t=turnstile.getResponse(TS);if(t){clearInterval(i);res(t)}},300);setTimeout(()=>{clearInterval(i);res('')},15000)})}
 function tsReset(){try{if(TS&&window.turnstile)turnstile.reset(TS)}catch(e){}}
+const catsDe=m=>m.cats&&m.cats.length?m.cats:[m.cat].filter(Boolean);
 function resumen(m){
   const disp=m.skus.filter(s=>s.d>0), base=disp.length?disp:m.skus;
   const min=base.reduce((a,s)=>s.pm<a.pm?s:a,base[0]);
@@ -530,7 +531,7 @@ const F={q:'',marca:'all',cat:'all',aro:'all',eta:'all',max:60000,talla:'all',so
 function pintarFiltros(){
   const cnt={};D.modelos.forEach(m=>cnt[m.marca]=(cnt[m.marca]||0)+1);
   $('#brands').innerHTML=[['all','Todas',D.modelos.length],...D.marcas.map(b=>[b,b,cnt[b]||0])].map(([k,l,n])=>`<button class="chip" aria-pressed="${F.marca===k}" data-b="${esc(k)}">${k!=='all'&&(D.logos||{})[k]?`<img src="${esc(D.logos[k])}" alt="${esc(l)}">`:esc(l)}<span class="ct">${n}</span></button>`).join('');
-  const cats=['all',...new Set(D.modelos.map(m=>m.cat))];
+  const cats=['all',...new Set(D.modelos.flatMap(catsDe))];
   $('#fCat').innerHTML=cats.map(c=>`<option value="${esc(c)}" ${F.cat===c?'selected':''}>${c==='all'?'Todas':esc(c)}</option>`).join('');
   const aros=['all',...new Set(D.modelos.map(m=>m.aro))];
   $('#fAro').innerHTML=aros.map(a=>`<button type="button" aria-pressed="${F.aro===a}" data-a="${esc(a)}">${a==='all'?'Todos':esc(a)}</button>`).join('');
@@ -554,7 +555,7 @@ function cardHTML({m,r}){
   const badge=r.agotado?'<span class="badge">Agotado</span>':TAGS[m.tag]?`<span class="badge last">${TAGS[m.tag]}</span>`:r.lima?'<span class="badge lima">En tienda Kuranko</span>':soloGrupo?'<span class="badge last">Envío en grupo</span>':m.conf?'<span class="badge lima">Stock confirmado</span>':r.tot<=2?'<span class="badge last">Últimas unidades</span>':'<span class="badge">A pedido</span>';
   const mc=maxCuotas(m);
   return `<button class="card" data-id="${esc(m.id)}"><div class="pic" style="color:var(--ink)">${foto(m,col)}${badge}</div>
-    <div class="bd"><span class="br">${esc(m.marca)} · <span>${esc(m.cat)}</span></span><h3>${esc(m.modelo)}</h3>
+    <div class="bd"><span class="br">${esc(m.marca)} · <span>${catsDe(m).map(esc).join(' · ')}</span></span><h3>${esc(m.modelo)}</h3>
       <span class="spec">${specHTML(m)}</span>
       <div class="envs">${[...new Set(m.skus.flatMap(x=>(x.op||[]).map(o=>o.k)))].map(k=>`<span>${ENVL[k]||k}</span>`).join('')}${mc?`<span class="cu">Hasta ${mc} cuotas sin intereses</span>`:''}</div>
       <div class="sizes">${m.tallas.map(t=>`<span class="${m.skus.some(s=>s.t===t&&s.d>0)?'':'no'}">${esc(t)}</span>`).join('')}</div>
@@ -588,7 +589,7 @@ function pintarGrid(){
   let L=D.modelos.map(m=>({m,r:resumen(m)}));
   const pronto=L.filter(x=>x.m.tag==='proximamente'&&(F.marca==='all'||x.m.marca===F.marca));L=L.filter(x=>x.m.tag!=='proximamente');
   const ok=F.q?new Set(buscarBicis(F.q)):null;
-  L=L.filter(({m,r})=>(!ok||ok.has(m))&&(F.marca==='all'||m.marca===F.marca)&&(F.cat==='all'||m.cat===F.cat)&&(F.aro==='all'||m.aro===F.aro)
+  L=L.filter(({m,r})=>(!ok||ok.has(m))&&(F.marca==='all'||m.marca===F.marca)&&(F.cat==='all'||catsDe(m).includes(F.cat))&&(F.aro==='all'||m.aro===F.aro)
     &&(F.max>=60000||r.min.pm<=F.max)&&(F.talla==='all'||m.skus.some(s=>s.t===F.talla&&s.d>0))
     &&(F.eta==='all'||(F.eta==='lima'?r.lima:dias(r.pronto.fm[1])<=+F.eta)));
   const S={eta:(a,b)=>(a.r.agotado-b.r.agotado)||a.r.pronto.fm[1].localeCompare(b.r.pronto.fm[1]),pa:(a,b)=>a.r.min.pm-b.r.min.pm,pd:(a,b)=>b.r.min.pm-a.r.min.pm,br:(a,b)=>a.m.marca.localeCompare(b.m.marca)||a.m.modelo.localeCompare(b.m.modelo)}[F.sort];
@@ -607,8 +608,8 @@ function pintarGrid(){
 let S=null;
 function abrir(id,push=true){
   const m=D.modelos.find(x=>x.id===id);if(!m)return;
-  const s0=m.skus.filter(s=>s.d>0).sort((a,b)=>a.pm-b.pm)[0]||m.skus[0];
-  S={m,opc:Object.fromEntries((m.opc||[]).map(o=>[o.g,o.d||o.v[0]])),mo:s0.mo,t:s0.t,c:s0.c,envio:((s0.op||[])[0]||{}).k||'maritimo',pago:'0',extras:{},done:null,error:'',enviando:false,form:{},carrito:false};
+  const s0=m.skus.filter(s=>s.d>0&&(F.cat==='all'||!s.ct||s.ct===F.cat)).sort((a,b)=>a.pm-b.pm)[0]||m.skus.filter(s=>s.d>0).sort((a,b)=>a.pm-b.pm)[0]||m.skus[0]; // si viene filtrando una categoría, abre en esa (ej. Downhill)
+  S={m,opc:{},opcU:{},mo:s0.mo,t:s0.t,c:s0.c,envio:((s0.op||[])[0]||{}).k||'maritimo',pago:'0',extras:{},done:null,error:'',enviando:false,form:{},carrito:false};opcAjustar();
   pintarCfg();evM('modelo');$('#drawer').hidden=false;$('#scrim').hidden=false;document.body.style.overflow='hidden';
   if(push)try{history.replaceState(null,'','#'+id)}catch(e){}
 }
@@ -628,6 +629,11 @@ const ENVS={maritimo:'Más económico',aereo:'Más rápido',unidad:'Viaja sola',
 /* Montaje: si cada opción viene como «Grupo: valor · Grupo: valor» (ej. «Transmisión: Pedalier BSA 73 · Amortiguador: Intend Hover»),
    se muestra un selector por grupo con la diferencia de precio; si no, la lista de siempre. */
 const partesMo=mo=>String(mo).split(' · ').map(p=>{const i=p.indexOf(': ');return i>0?[p.slice(0,i).trim(),p.slice(i+2).trim()]:[null,p.trim()]});
+/* Opciones sin costo: «si» = solo se muestra si el montaje contiene esa palabra (ej. bielas solo con caja Pinion);
+   «rec» = valor recomendado según la talla (ej. dropout +20 mm para L–XL). Se elige sola la recomendada mientras el cliente no toque ese grupo. */
+const opcVisibles=m=>(m.opc||[]).filter(o=>!o.si||String(S.mo||'').toLowerCase().includes(o.si.toLowerCase()));
+const opcRec=o=>{const t=S&&S.t;const r=o.rec?Object.keys(o.rec).find(v=>(o.rec[v]||[]).includes(t)):null;return r||o.d||null};
+function opcAjustar(){if(!S||!S.m)return;S.opc=S.opc||{};S.opcU=S.opcU||{};for(const o of (S.m.opc||[]))if(!S.opcU[o.g])S.opc[o.g]=opcRec(o)||o.v[0]}
 function montajeHTML(m,disp){if(!(m.montajes.length>1||m.montajes[0]!=='Base'))return '';
   const pm=mo=>{const L=m.skus.filter(x=>x.mo===mo);return L.length?Math.min(...L.map(x=>x.pm)):Infinity};
   const P=m.montajes.map(partesMo),n=P[0].length,estruct=n>1&&P.every(x=>x.length===n&&x.every(([g],k)=>g&&g===P[0][k][0]));
@@ -635,7 +641,7 @@ function montajeHTML(m,disp){if(!(m.montajes.length>1||m.montajes[0]!=='Base'))r
   const cur=partesMo(S.mo).map(x=>x[1]),pc=pm(S.mo);
   return P[0].map(([g],k)=>{const minV=v=>Math.min(...m.montajes.filter((x,i)=>P[i][k][1]===v).map(pm));const vals=[...new Set(P.map(x=>x[k][1]))].sort((a,b)=>minV(a)-minV(b));
     return `<div class="opt"><div class="lbl">${esc(g)}</div><div class="opts">${vals.map(v=>{const alt=cur.slice();alt[k]=v;const mo=m.montajes.find(x=>partesMo(x).map(y=>y[1]).join('|')===alt.join('|'))||m.montajes.find(x=>partesMo(x)[k][1]===v);
-      const d=pm(mo)-pc,sel=cur[k]===v;return `<button class="o" aria-pressed="${sel}" data-mo="${esc(mo)}" ${disp(x=>x.mo===mo)?'':'disabled'}><b>${esc(v)}</b><small class="num ${sel?'ok':d>0?'mas':''}">${sel?'elegido':d>0?'+ '+M(d):d<0?'− '+M(-d):'mismo precio'}</small></button>`}).join('')}</div></div>`}).join('')}
+      const d=minV(v)-minV(cur[k]),sel=cur[k]===v; /* diferencia estable: no depende de los otros grupos (evita saltos de ±US$ 5 por redondeo) */return `<button class="o" aria-pressed="${sel}" data-mo="${esc(mo)}" ${disp(x=>x.mo===mo)?'':'disabled'}><b>${esc(v)}</b><small class="num ${sel?'ok':d>0?'mas':''}">${sel?'elegido':d>0?'+ '+M(d):d<0?'− '+M(-d):'mismo precio'}</small></button>`}).join('')}</div></div>`}).join('')}
 function marHTML(marca,o,eb){if(!o||!o.nb)return '';const g=(D.mar||{})[marca]||{van:0};const n=Math.min(o.nb,12),van=g.van||0,con=van+1,ok=con>=n,completa=ok&&van<n,ya=van?(van===1?'Ya hay 1 bici reservada':'Ya hay '+van+' bicis reservadas')+' de '+esc(marca)+' para este envío. ':'';const sale=g.fecha?' (sale aprox. el '+fD(g.fecha)+')':'';
   if(n<=1)return eb?`<div class="grp"><b>✓ Esta e-bike puede viajar en el próximo envío marítimo</b><span>Las e-bikes no pueden ir por avión por sus baterías: viaja por mar con las demás bicis de ${esc(marca)}${sale}.</span></div>`:'';
   const tit=completa?'✓ Tu reserva completa el envío marítimo de '+esc(marca):ok?'✓ El próximo envío marítimo de '+esc(marca)+' ya junta bicis suficientes':eb?'Las e-bikes solo viajan por mar: esta sale a cuenta desde '+n+' bicis de '+esc(marca)+' en el mismo envío':'Envío marítimo compartido: sale a cuenta desde '+n+' bicis de '+esc(marca);
@@ -686,7 +692,7 @@ function pintarCfg(){
       if(T.env==='maritimo'&&!(s.op||[]).some(x=>x.k==='aereo'))return marHTML(m.marca,o,false); // bicis sin aéreo disponible
       return ''})()}`;
   $('#drawer').innerHTML=`
-  <div class="dhead"><div>${(D.logos||{})[m.marca]?`<img class="blogo" src="${esc(D.logos[m.marca])}" alt="${esc(m.marca)}"><br>`:''}<span class="br">${esc(m.marca)} · <span>${esc(m.cat)}</span>${m.anio?' · '+m.anio:''}</span><h2 style="font-size:30px;line-height:1">${esc(m.modelo)}</h2></div><div style="display:flex;gap:8px;align-items:center"><button class="btn sec comp" id="compartir">Compartir</button><button class="x" id="xClose" aria-label="Cerrar">×</button></div></div>
+  <div class="dhead"><div>${(D.logos||{})[m.marca]?`<img class="blogo" src="${esc(D.logos[m.marca])}" alt="${esc(m.marca)}"><br>`:''}<span class="br">${esc(m.marca)} · <span>${catsDe(m).map(esc).join(' · ')}</span>${m.anio?' · '+m.anio:''}</span><h2 style="font-size:30px;line-height:1">${esc(m.modelo)}</h2></div><div style="display:flex;gap:8px;align-items:center"><button class="btn sec comp" id="compartir">Compartir</button><button class="x" id="xClose" aria-label="Cerrar">×</button></div></div>
   <div class="dbody"><div class="izq">
     <div class="dpic" style="color:var(--ink)">${gal.length?`<img src="${esc(gal[S.img||0])}" alt="${esc(m.marca+' '+m.modelo+' '+(S.c||''))}">`:m.img?foto(m,col):bike(colHex||col,m.cat)}</div>
     ${gal.length>1?`<div class="gal">${gal.map((u,i)=>`<button data-img="${i}" aria-pressed="${(S.img||0)===i}" aria-label="Foto ${i+1}"><img src="${esc(u)}" alt="" loading="lazy"></button>`).join('')}</div>`:''}
@@ -698,7 +704,7 @@ function pintarCfg(){
     ${m.desc?`<div class="desc ${S.descFull?'full':''}" id="dDesc">${esc(m.desc)}</div>${S.descFull?'':'<button class="btn sec" id="dMas" style="justify-self:start;padding:4px 10px;font-size:13px">Leer más</button>'}`:''}
     </div><div class="der">
     ${montajeHTML(m,disp)}
-    ${(m.opc||[]).map(o=>`<div class="opt"><div class="lbl">${esc(o.g)}</div><div class="opts">${o.v.map(v=>`<button class="o" aria-pressed="${S.opc[o.g]===v}" data-opcg="${esc(o.g)}" data-opcv="${esc(v)}"><b>${esc(v)}</b><small class="num ${S.opc[o.g]===v?'ok':''}">${S.opc[o.g]===v?'elegido':v===o.d?'recomendado':'mismo precio'}</small></button>`).join('')}</div></div>`).join('')}
+    ${opcVisibles(m).map(o=>{const rec=opcRec(o);return `<div class="opt"><div class="lbl">${esc(o.g)}</div><div class="opts">${o.v.map(v=>`<button class="o" aria-pressed="${S.opc[o.g]===v}" data-opcg="${esc(o.g)}" data-opcv="${esc(v)}"><b>${esc(v)}</b><small class="num ${S.opc[o.g]===v?'ok':''}">${S.opc[o.g]===v?'elegido':v===rec?(o.rec&&o.rec[v]?'recomendado talla '+esc(S.t):'recomendado'):'mismo precio'}</small></button>`).join('')}</div></div>`}).join('')}
     <div class="opt"><div class="lbl">Talla</div><div class="opts">${m.tallas.map(t=>{const n=m.skus.filter(x=>x.mo===S.mo&&x.t===t).reduce((a,x)=>a+x.d,0),tk=m.skus.filter(x=>x.mo===S.mo&&x.t===t).reduce((a,x)=>a+(x.tk||0),0);return `<button class="o" aria-pressed="${S.t===t}" data-t="${esc(t)}" ${n>0?'':'disabled'}><b>${esc(t)}</b>${tk?`<small class="tk">${tk} en ${esc((m.skus.find(x=>x.mo===S.mo&&x.t===t&&x.tkc)||{}).tkc||'tienda')}</small>`:n>=90?'':`<small>${n>0?n+' en tienda':'agotada'}</small>`}</button>`}).join('')}</div>
       ${m.tt?`<div class="tfind"><label>¿Qué talla soy?<input type="number" id="altura" inputmode="numeric" min="120" max="215" placeholder="Tu altura en cm" value="${esc(S.alt||'')}"></label><span id="tRec">${recTalla(m)}</span></div>`:''}
       <div class="note" style="margin-top:6px"><a href="#" id="tPrueba">Pruébate la talla en tienda o pide asesoría por videollamada</a></div></div>
@@ -715,7 +721,7 @@ function pintarCfg(){
     ${T.cu&&!Object.keys(T.cq).includes(S.pago)?`<div class="note" style="margin-top:6px">Hasta ${T.cu} cuotas sin intereses al mismo precio con ${esc(D.cuotas_bancos||'tarjeta de crédito')}. El adelanto también puede ir en cuotas.</div>`:S.pago==='pp'?'<div class="note" style="margin-top:6px">Powerpay aplica su propio interés al cliente.</div>':''}</div>
     ${D.extras.length?`<div class="opt"><div class="lbl">Extras</div><div class="extras">${D.extras.map(e=>`<label><input type="checkbox" data-x="${esc(e.id)}" ${e.incluido?'checked disabled':S.extras[e.id]?'checked':''}><span>${esc(e.nombre)}</span><span>${e.incluido||!e.precio?'incluido':'+ '+M(e.precio)}</span></label>`).join('')}</div></div>`:''}
     <div class="sum"><table>
-      <tr><td>${esc(m.modelo)} ${esc(S.mo!=='Base'?S.mo:'')}${Object.entries(S.opc||{}).map(([g,v])=>' · '+esc(g)+': '+esc(v)).join('')} · talla ${esc(S.t)}<br><span class="note">Incluye ${T.env==='lima'?'':'flete, seguro, desaduanaje, '}IGV y armado</span></td><td>${M(T.bici)}</td></tr>
+      <tr><td>${esc(m.modelo)} ${esc(S.mo!=='Base'?S.mo:'')}${opcVisibles(m).map(o=>' · '+esc(o.g)+': '+esc(S.opc[o.g]||'')).join('')} · talla ${esc(S.t)}<br><span class="note">Incluye ${T.env==='lima'?'':'flete, seguro, desaduanaje, '}IGV y armado</span></td><td>${M(T.bici)}</td></tr>
       ${s.ref&&s.ref>T.bici?`<tr><td class="note">Precio sugerido por la marca</td><td class="note" style="text-decoration:line-through">${M(s.ref)}</td></tr>`:''}
       ${T.exT?`<tr><td>Extras</td><td>${M(T.exT)}</td></tr>`:''}
       <tr><td>Llega a Lima<br><span class="note">${T.env==='lima'?'Unidad en nuestra tienda':'Fecha estimada · '+(T.env==='aereo'?'aéreo':'marítimo')+' + aduana'}</span></td><td style="color:var(--ok);font-weight:700">${T.env==='lima'?dias(T.f[0])+'–'+dias(T.f[1])+' días':fD(T.f[0])+' – '+fD(T.f[1])}</td></tr>
@@ -768,7 +774,7 @@ async function reservar(){
   S.error='';S.enviando=true;pintarCfg();
   try{
     const ts=await tsToken();
-    const r=await fetch('/api/bikes/reservar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ts,dt:Date.now()-T0,opc:S.opc||{},sku_id:T.s.id,envio:T.env,pago:S.pago,extras:Object.keys(S.extras).filter(k=>S.extras[k]),
+    const r=await fetch('/api/bikes/reservar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ts,dt:Date.now()-T0,opc:Object.fromEntries(opcVisibles(S.m).map(o=>[o.g,S.opc[o.g]])),sku_id:T.s.id,envio:T.env,pago:S.pago,extras:Object.keys(S.extras).filter(k=>S.extras[k]),
       nombre:nom,doc,tel,email:(f.rMail||'').trim(),ciudad:f.rCity,ref:REF,web:(document.getElementById('rWeb')||{}).value||'',total_visto:T.total,acepto_nuevo:!!S.aceptoNuevo})});
     const j=await r.json().catch(()=>({error:'Respuesta inválida del servidor'}));tsReset();
     S.enviando=false;
@@ -835,9 +841,9 @@ document.addEventListener('click',e=>{
   else if(t.classList.contains('card'))abrir(t.dataset.id);
   else if(t.id==='xClose')cerrar();
   else if(S&&t.closest('#drawer')){
-    if(t.dataset.opcg!==undefined){S.opc[t.dataset.opcg]=t.dataset.opcv;pintarCfg();return}
+    if(t.dataset.opcg!==undefined){S.opc[t.dataset.opcg]=t.dataset.opcv;S.opcU[t.dataset.opcg]=1;pintarCfg();return}
     if(t.dataset.mo!==undefined){S.mo=t.dataset.mo;ajustar();S.aceptoNuevo=false;pintarCfg();evM('config')}
-    else if(t.dataset.t!==undefined){S.t=t.dataset.t;ajustar();enTienda();S.aceptoNuevo=false;pintarCfg();evM('config')}
+    else if(t.dataset.t!==undefined){S.t=t.dataset.t;opcAjustar();ajustar();enTienda();S.aceptoNuevo=false;pintarCfg();evM('config')}
     else if(t.dataset.c!==undefined){S.c=t.dataset.c;S.img=0;ajustar();enTienda();pintarCfg();evM('config')}
     else if(t.dataset.img!==undefined){S.img=+t.dataset.img;pintarCfg()}
     else if(t.id==='dMas'){S.descFull=true;pintarCfg()}

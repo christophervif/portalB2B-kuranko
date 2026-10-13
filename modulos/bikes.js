@@ -487,6 +487,7 @@ function armarCatalogo(skus, R, tc, hoy = hoyLima(), mods = {}) {
     else if (dt.rec_tras && !m.rd && !m.rt) m.rt = dt.rec_tras; // frameset: solo el recorrido trasero
     if (dt.material && !m.matx) m.matx = dt.material;
     if (dt.geo && !m.geo) m.geo = dt.geo;
+    if (Array.isArray((md.datos || {}).opciones) && md.datos.opciones.length && !m.opc) m.opc = md.datos.opciones; // opciones sin costo (ej. largo de dropout)
     if (dt.geometria && !m.geom) m.geom = dt.geometria;
     if (dt.recorrido && !m.rec) m.rec = dt.recorrido; if (dt.material && !m.mat) m.mat = dt.material; if (dt.peso && !m.peso) m.peso = dt.peso; if (dt.motor && !m.motor) m.motor = dt.motor;
     if (md.url_ficha && !m.ficha) m.ficha = md.url_ficha;
@@ -1039,7 +1040,8 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       await portalPool.query(`ALTER TABLE bk_reservas ADD COLUMN pago VARCHAR(4) NULL`).catch(() => {});
       await portalPool.query(`ALTER TABLE bk_skus ADD COLUMN stock_kuranko INT NOT NULL DEFAULT 0`).catch(() => {});
       await portalPool.query(`ALTER TABLE bk_skus ADD COLUMN stock_ciudad VARCHAR(120) NULL`).catch(() => {});
-      await portalPool.query(`ALTER TABLE bk_skus MODIFY montaje VARCHAR(160) NOT NULL DEFAULT 'Base'`).catch(() => {}); // montajes con opciones «Grupo: valor · Grupo: valor»
+      await portalPool.query(`ALTER TABLE bk_skus MODIFY montaje VARCHAR(160) NOT NULL DEFAULT 'Base'`).catch(() => {});
+      await portalPool.query(`ALTER TABLE bk_reservas MODIFY montaje VARCHAR(240) NOT NULL`).catch(() => {}); // montaje + opciones sin costo elegidas (ej. Dropout) // montajes con opciones «Grupo: valor · Grupo: valor»
       await portalPool.query(`ALTER TABLE bk_modelos ADD COLUMN descripcion_en TEXT NULL`).catch(() => {});
       await portalPool.query(`ALTER TABLE bk_modelos ADD COLUMN descuento DECIMAL(5,2) NULL`).catch(() => {});
       await portalPool.query(`ALTER TABLE bk_modelos ADD COLUMN descuento_hasta DATE NULL`).catch(() => {});
@@ -1353,12 +1355,19 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
         await conn.rollback();
         return res.status(409).json({ error: `El precio se actualizó a ${soles(total)}. Revisa y vuelve a confirmar.`, total_nuevo: total, cambio_precio: true });
       }
+      // Opciones sin costo del modelo (ej. «Dropout: +10 mm»): se validan contra las del modelo y se guardan junto al montaje
+      let montajeRes = s.montaje;
+      try {
+        const md = (await leerModelos())[s.marca + '|' + s.modelo] || {}; const elegidas = b.opc && typeof b.opc === 'object' ? b.opc : {};
+        const txt = ((md.datos || {}).opciones || []).map(o => { const v = String(elegidas[o.g] || ''); return (o.v || []).includes(v) ? `${o.g}: ${v}` : null; }).filter(Boolean);
+        if (txt.length) montajeRes = [s.montaje !== 'Base' ? s.montaje : '', ...txt].filter(Boolean).join(' · ').slice(0, 240);
+      } catch (e) {}
       const codigo = await nuevoCodigo(conn);
       const validoHasta = new Date(Date.now() + num(R.validez_horas || 48) * 3600e3);
       await conn.query(`INSERT INTO bk_reservas (codigo, sku_id, marca, modelo, montaje, talla, color, sku, envio, extras, precio_bici, extras_total, total, adelanto,
           tc_usd, costo_usd, valido_hasta, fecha_min, fecha_max, nombre, doc, tel, email, ciudad, ref, ip, pago)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [codigo, s.id, s.marca, s.modelo, s.montaje, s.talla, s.color, s.sku || null, env, JSON.stringify(extras), p.pen, extrasTotal, total, adelanto,
+        [codigo, s.id, s.marca, s.modelo, montajeRes, s.talla, s.color, s.sku || null, env, JSON.stringify(extras), p.pen, extrasTotal, total, adelanto,
           tc.usd, Math.round(p.costoUSD * 100) / 100, validoHasta, fechas[0], fechas[1], nombre, doc, tel, email || null, ciudad, ref, ip, pago.slice(0, 4)]);
       await conn.query('UPDATE bk_skus SET reservado = reservado + 1 WHERE id=?', [s.id]);
       await conn.commit();
@@ -1373,7 +1382,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       }
       const fechasTxt = `${fechaCorta(fechas[0])} – ${fechaCorta(fechas[1])}`;
       envTxt += pago === 'pp' ? ' · pago con Powerpay' : pago === 't' ? ' · tarjeta en 1 pago' : +pago > 1 ? ` · ${pago} cuotas sin intereses` : '';
-      const msg = `Hola Kuranko, envié la solicitud de reserva ${codigo}: ${s.marca} ${s.modelo}${s.montaje && s.montaje !== 'Base' ? ' ' + s.montaje : ''}, talla ${s.talla}, color ${s.color}, envío ${envTxt}.\n` +
+      const msg = `Hola Kuranko, envié la solicitud de reserva ${codigo}: ${s.marca} ${s.modelo}${montajeRes && montajeRes !== 'Base' ? ' ' + montajeRes : ''}, talla ${s.talla}, color ${s.color}, envío ${envTxt}.\n` +
         `Precio final: ${$(total)} · Adelanto al confirmar: ${$(adelanto)}\nEntrega estimada: ${fechasTxt}\nNombre: ${nombre} · DNI/RUC: ${doc}\n¿Me confirman la disponibilidad?`;
       const fila = (a, v) => `<tr><td style="padding:6px 10px;border-bottom:1px solid #eee;color:#666;font-size:14px">${escH(a)}</td><td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:14px;color:#111"><b>${escH(v)}</b></td></tr>`;
       const tabla = [['Bici', `${s.marca} ${s.modelo} ${s.montaje}`], ['Talla / color', `${s.talla} · ${s.color}`], ['Envío', envTxt], ['Entrega estimada', fechasTxt],
@@ -2018,6 +2027,13 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
       for (const [k, [v, n]] of Object.entries(campos)) if (v !== undefined) { sets.push(k + '=?'); vals.push(String(v).trim().slice(0, n) || null); }
       if (b.anio !== undefined) { sets.push('anio=?'); vals.push(num(b.anio) > 2000 ? num(b.anio) : null); }
       if (sets.length) await conn.query(`UPDATE bk_skus SET ${sets.join(', ')}, actualizado=NOW() WHERE marca=? AND modelo=?`, [...vals, marca, modelo]);
+      if (b.opciones !== undefined) { // «Grupo: valor1, valor2*» por línea (* = recomendado)
+        const ops = String(b.opciones || '').split('\n').map(l => l.trim()).filter(l => l.includes(':')).slice(0, 4).map(l => { const i = l.indexOf(':');
+          const vs = l.slice(i + 1).split(',').map(v => v.trim()).filter(Boolean).slice(0, 8); const def = vs.find(v => v.endsWith('*'));
+          return { g: l.slice(0, i).trim().slice(0, 40), v: vs.map(v => v.replace(/\*$/, '').trim().slice(0, 40)), ...(def ? { d: def.replace(/\*$/, '').trim() } : {}) }; }).filter(o => o.g && o.v.length > 1);
+        const [[row]] = await conn.query('SELECT datos FROM bk_modelos WHERE marca=? AND modelo=?', [marca, modelo]); let dat = {}; try { dat = JSON.parse((row && row.datos) || '{}') || {}; } catch (e) {}
+        if (ops.length) dat.opciones = ops; else delete dat.opciones;
+        await conn.query('INSERT INTO bk_modelos (marca, modelo, datos) VALUES (?,?,?) ON DUPLICATE KEY UPDATE datos=VALUES(datos)', [marca, modelo, JSON.stringify(dat)]); }
       if (b.descuento !== undefined) { const d = Math.min(60, Math.max(0, num(b.descuento))) || null, h = /^\d{4}-\d{2}-\d{2}$/.test(b.descuento_hasta || '') ? b.descuento_hasta : null;
         await conn.query(`INSERT INTO bk_modelos (marca, modelo, descuento, descuento_hasta) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE descuento=VALUES(descuento), descuento_hasta=VALUES(descuento_hasta)`, [marca, modelo, d, h]); }
       if (nuevo !== modelo) {

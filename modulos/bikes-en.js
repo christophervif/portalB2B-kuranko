@@ -244,4 +244,6 @@ module.exports = [
   ["`<div class=\"note\" style=\"margin-top:6px\">Hasta ${T.cu} cuotas sin intereses al mismo precio con ${esc(D.cuotas_bancos||'tarjeta de crédito')}. El adelanto también puede ir en cuotas.</div>`", "`<div class=\"note\" style=\"margin-top:6px\">Up to ${T.cu} interest-free installments at the same price with ${esc(D.cuotas_bancos||'credit card')}. The deposit can also be paid in installments.</div>`"],
 
   ['<small class="num">${M(T.cq[n]/n)}/mes</small>', '<small class="num">${M(T.cq[n]/n)}/mo</small>'], ['/ns[ns.length-1])}/mes</small>', '/ns[ns.length-1])}/mo</small>'],
+
+  ["${S.opc[o.g]===v?'elegido':v===o.d?'recomendado':'mismo precio'}", "${S.opc[o.g]===v?'selected':v===o.d?'recommended':'same price'}"],
 ];

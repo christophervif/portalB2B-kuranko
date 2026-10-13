@@ -608,7 +608,7 @@ let S=null;
 function abrir(id,push=true){
   const m=D.modelos.find(x=>x.id===id);if(!m)return;
   const s0=m.skus.filter(s=>s.d>0).sort((a,b)=>a.pm-b.pm)[0]||m.skus[0];
-  S={m,mo:s0.mo,t:s0.t,c:s0.c,envio:((s0.op||[])[0]||{}).k||'maritimo',pago:'0',extras:{},done:null,error:'',enviando:false,form:{},carrito:false};
+  S={m,opc:Object.fromEntries((m.opc||[]).map(o=>[o.g,o.d||o.v[0]])),mo:s0.mo,t:s0.t,c:s0.c,envio:((s0.op||[])[0]||{}).k||'maritimo',pago:'0',extras:{},done:null,error:'',enviando:false,form:{},carrito:false};
   pintarCfg();evM('modelo');$('#drawer').hidden=false;$('#scrim').hidden=false;document.body.style.overflow='hidden';
   if(push)try{history.replaceState(null,'','#'+id)}catch(e){}
 }
@@ -698,6 +698,7 @@ function pintarCfg(){
     ${m.desc?`<div class="desc ${S.descFull?'full':''}" id="dDesc">${esc(m.desc)}</div>${S.descFull?'':'<button class="btn sec" id="dMas" style="justify-self:start;padding:4px 10px;font-size:13px">Leer más</button>'}`:''}
     </div><div class="der">
     ${montajeHTML(m,disp)}
+    ${(m.opc||[]).map(o=>`<div class="opt"><div class="lbl">${esc(o.g)}</div><div class="opts">${o.v.map(v=>`<button class="o" aria-pressed="${S.opc[o.g]===v}" data-opcg="${esc(o.g)}" data-opcv="${esc(v)}"><b>${esc(v)}</b><small class="num ${S.opc[o.g]===v?'ok':''}">${S.opc[o.g]===v?'elegido':v===o.d?'recomendado':'mismo precio'}</small></button>`).join('')}</div></div>`).join('')}
     <div class="opt"><div class="lbl">Talla</div><div class="opts">${m.tallas.map(t=>{const n=m.skus.filter(x=>x.mo===S.mo&&x.t===t).reduce((a,x)=>a+x.d,0),tk=m.skus.filter(x=>x.mo===S.mo&&x.t===t).reduce((a,x)=>a+(x.tk||0),0);return `<button class="o" aria-pressed="${S.t===t}" data-t="${esc(t)}" ${n>0?'':'disabled'}><b>${esc(t)}</b>${tk?`<small class="tk">${tk} en ${esc((m.skus.find(x=>x.mo===S.mo&&x.t===t&&x.tkc)||{}).tkc||'tienda')}</small>`:n>=90?'':`<small>${n>0?n+' en tienda':'agotada'}</small>`}</button>`}).join('')}</div>
       ${m.tt?`<div class="tfind"><label>¿Qué talla soy?<input type="number" id="altura" inputmode="numeric" min="120" max="215" placeholder="Tu altura en cm" value="${esc(S.alt||'')}"></label><span id="tRec">${recTalla(m)}</span></div>`:''}
       <div class="note" style="margin-top:6px"><a href="#" id="tPrueba">Pruébate la talla en tienda o pide asesoría por videollamada</a></div></div>
@@ -714,7 +715,7 @@ function pintarCfg(){
     ${T.cu&&!Object.keys(T.cq).includes(S.pago)?`<div class="note" style="margin-top:6px">Hasta ${T.cu} cuotas sin intereses al mismo precio con ${esc(D.cuotas_bancos||'tarjeta de crédito')}. El adelanto también puede ir en cuotas.</div>`:S.pago==='pp'?'<div class="note" style="margin-top:6px">Powerpay aplica su propio interés al cliente.</div>':''}</div>
     ${D.extras.length?`<div class="opt"><div class="lbl">Extras</div><div class="extras">${D.extras.map(e=>`<label><input type="checkbox" data-x="${esc(e.id)}" ${e.incluido?'checked disabled':S.extras[e.id]?'checked':''}><span>${esc(e.nombre)}</span><span>${e.incluido||!e.precio?'incluido':'+ '+M(e.precio)}</span></label>`).join('')}</div></div>`:''}
     <div class="sum"><table>
-      <tr><td>${esc(m.modelo)} ${esc(S.mo!=='Base'?S.mo:'')} · talla ${esc(S.t)}<br><span class="note">Incluye ${T.env==='lima'?'':'flete, seguro, desaduanaje, '}IGV y armado</span></td><td>${M(T.bici)}</td></tr>
+      <tr><td>${esc(m.modelo)} ${esc(S.mo!=='Base'?S.mo:'')}${Object.entries(S.opc||{}).map(([g,v])=>' · '+esc(g)+': '+esc(v)).join('')} · talla ${esc(S.t)}<br><span class="note">Incluye ${T.env==='lima'?'':'flete, seguro, desaduanaje, '}IGV y armado</span></td><td>${M(T.bici)}</td></tr>
       ${s.ref&&s.ref>T.bici?`<tr><td class="note">Precio sugerido por la marca</td><td class="note" style="text-decoration:line-through">${M(s.ref)}</td></tr>`:''}
       ${T.exT?`<tr><td>Extras</td><td>${M(T.exT)}</td></tr>`:''}
       <tr><td>Llega a Lima<br><span class="note">${T.env==='lima'?'Unidad en nuestra tienda':'Fecha estimada · '+(T.env==='aereo'?'aéreo':'marítimo')+' + aduana'}</span></td><td style="color:var(--ok);font-weight:700">${T.env==='lima'?dias(T.f[0])+'–'+dias(T.f[1])+' días':fD(T.f[0])+' – '+fD(T.f[1])}</td></tr>
@@ -767,7 +768,7 @@ async function reservar(){
   S.error='';S.enviando=true;pintarCfg();
   try{
     const ts=await tsToken();
-    const r=await fetch('/api/bikes/reservar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ts,dt:Date.now()-T0,sku_id:T.s.id,envio:T.env,pago:S.pago,extras:Object.keys(S.extras).filter(k=>S.extras[k]),
+    const r=await fetch('/api/bikes/reservar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ts,dt:Date.now()-T0,opc:S.opc||{},sku_id:T.s.id,envio:T.env,pago:S.pago,extras:Object.keys(S.extras).filter(k=>S.extras[k]),
       nombre:nom,doc,tel,email:(f.rMail||'').trim(),ciudad:f.rCity,ref:REF,web:(document.getElementById('rWeb')||{}).value||'',total_visto:T.total,acepto_nuevo:!!S.aceptoNuevo})});
     const j=await r.json().catch(()=>({error:'Respuesta inválida del servidor'}));tsReset();
     S.enviando=false;
@@ -834,6 +835,7 @@ document.addEventListener('click',e=>{
   else if(t.classList.contains('card'))abrir(t.dataset.id);
   else if(t.id==='xClose')cerrar();
   else if(S&&t.closest('#drawer')){
+    if(t.dataset.opcg!==undefined){S.opc[t.dataset.opcg]=t.dataset.opcv;pintarCfg();return}
     if(t.dataset.mo!==undefined){S.mo=t.dataset.mo;ajustar();S.aceptoNuevo=false;pintarCfg();evM('config')}
     else if(t.dataset.t!==undefined){S.t=t.dataset.t;ajustar();enTienda();S.aceptoNuevo=false;pintarCfg();evM('config')}
     else if(t.dataset.c!==undefined){S.c=t.dataset.c;S.img=0;ajustar();enTienda();pintarCfg();evM('config')}

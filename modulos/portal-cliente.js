@@ -103,10 +103,23 @@ module.exports = function registrarPortalCliente({
   }
   const asegurarTablaPago = prepararTablas;
 
+  // Límite de intentos fallidos: 10 por IP y 10 por usuario cada 15 minutos.
+  // (El usuario es el RUC, que es público: sin esto se podrían probar claves sin parar.)
+  const fallos = new Map(), VENTANA = 15 * 60 * 1000, MAX_FALLOS = 10;
+  const recientes = k => { const a = Date.now(), l = (fallos.get(k) || []).filter(t => a - t < VENTANA); if (l.length) fallos.set(k, l); else fallos.delete(k); return l; };
+  const fallar = (...ks) => { if (fallos.size > 10000) fallos.clear(); ks.forEach(k => fallos.set(k, [...recientes(k), Date.now()])); };
+  // Hash de relleno: si el usuario no existe se compara igual, así la respuesta tarda lo mismo
+  // y no revela qué RUC tienen acceso al portal.
+  const HASH_RELLENO = bcrypt.hashSync('relleno-' + Math.random(), 10);
+
   // Login del cliente B2B
   app.post('/portal/login', async (req, res) => {
-    const { usuario, password } = req.body;
-    if (!usuario || !password) return res.status(400).json({ error: 'Ingresa usuario y contraseña' });
+    const { usuario, password } = req.body || {};
+    if (!usuario || !password || typeof usuario !== 'string' || typeof password !== 'string')
+      return res.status(400).json({ error: 'Ingresa usuario y contraseña' });
+    const kIp = 'ip:' + (req.ip || ''), kUs = 'us:' + usuario.trim().toLowerCase();
+    if (recientes(kIp).length >= MAX_FALLOS || recientes(kUs).length >= MAX_FALLOS)
+      return res.status(429).json({ error: 'Demasiados intentos. Espera 15 minutos o escríbenos para restablecer tu clave.' });
     try {
       const [rows] = await portalPool.query(
         'SELECT * FROM portal_users WHERE username = ? AND activo = 1 LIMIT 1', [usuario.trim()]);
@@ -115,9 +128,9 @@ module.exports = function registrarPortalCliente({
       if (!u && grupos && grupos.usuarioPorRucAdicional) {
         try { u = await grupos.usuarioPorRucAdicional(usuario); } catch (e) { u = null; }
       }
-      if (!u) return res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
-      if (!(await bcrypt.compare(password, u.password_hash)))
-        return res.status(401).json({ error: 'Usuario o contraseña incorrectos' });
+      const ok = await bcrypt.compare(password, (u && u.password_hash) || HASH_RELLENO);
+      if (!u || !ok) { fallar(kIp, kUs); return res.status(401).json({ error: 'Usuario o contraseña incorrectos' }); }
+      fallos.delete(kUs);
       portalPool.query('UPDATE portal_users SET ultimo_login=NOW() WHERE id=?', [u.id]).catch(() => {});
       const token = jwt.sign({
         rol: 'cliente', portal_user_id: u.id, customer_id: u.customer_id,

@@ -89,17 +89,27 @@ td.n,th.n{text-align:right}
   <button id="st-bo" onclick="verTab('bo')">🧾 Backorders</button>
 </div>
 
-<div id="roNote" class="ro-note hide">Vista de solo lectura: el supervisor visualiza los envíos, su tracking y los backorders, y puede copiar los seguimientos para enviarlos a los clientes. Las facturas (desde Importaciones), la asignación de tracking y la gestión de backorders las hace únicamente el administrador.</div>
+<div id="roNote" class="ro-note hide">Vista de solo lectura: el supervisor visualiza los envíos y backorders. La carga de facturas, la asignación de tracking y la gestión de backorders las hace únicamente el administrador.</div>
 
 <!-- ══════════════════ TAB ENVÍOS ══════════════════ -->
 <div id="tab-env">
 
-  <!-- (maestro) Editar envío. Los envíos NUEVOS se crean desde Importaciones. -->
+  <!-- (maestro) Nuevo envío desde factura -->
   <div id="nuevoEnvio" class="card hide">
-    <h3 id="edTitulo">Editar envío</h3>
-    <div class="row"><span id="leerMsg" class="muted sm"></span></div>
+    <h3 id="envEditorTitle">Nuevo envío — leer factura con IA</h3>
+    <div id="iaUpload">
+    <div class="hint">Sube la factura del proveedor (PDF). La IA la lee y traduce las descripciones al español; a cada línea le sugiere el SKU del sistema con un indicador de confianza. La factura no se modifica: solo asignas el N° de tracking y marcas qué ítems cubren backorders.</div>
+    <div class="row">
+      <div class="f"><label>Factura (PDF)</label><input type="file" id="pdf" accept="application/pdf"></div>
+      <div class="f"><label>Modelo IA</label><input id="model" value="gemini-3.6-flash" style="width:170px"></div>
+      <button id="btnLeer" onclick="leerFactura()">Leer factura</button>
+      <span id="leerMsg" class="muted sm"></span>
+    </div>
+    </div>
 
     <div id="editor" class="hide" style="margin-top:12px">
+      <div id="skuNota" class="hint hide" style="background:#2a2140;border-color:#47406a">Modo almacén: asigna o corrige los SKU y guarda. Puedes avanzar parcialmente; cuando un SKU coincide con un producto en backorder se marca y se actualiza la cobertura.</div>
+      <div id="editMeta">
       <div class="row">
         <div class="f"><label>N° de tracking *</label><input id="e_tracking" placeholder="Ej: 1Z999AA..." style="min-width:200px"></div>
         <div class="f"><label>Courier</label><input id="e_courier" placeholder="DHL, FedEx, UPS…" style="width:140px"></div>
@@ -108,6 +118,7 @@ td.n,th.n{text-align:right}
         <div class="f"><label>Llegada estimada</label><input id="e_eta" type="date"></div>
       </div>
       <div class="f" style="margin-top:8px"><label>Nota (opcional)</label><textarea id="e_nota" placeholder="Observaciones del envío"></textarea></div>
+      </div>
 
       <div class="tw" style="margin-top:10px">
         <table>
@@ -119,7 +130,7 @@ td.n,th.n{text-align:right}
         </table>
       </div>
       <div class="row" style="margin-top:10px;justify-content:space-between">
-        <button class="ghost sm" id="btnAddItem" onclick="addItem()">+ Agregar línea</button>
+        <button class="ghost sm" onclick="addItem()">+ Agregar línea</button>
         <div class="row">
           <button class="ghost" onclick="cancelarEditor()">Cancelar</button>
           <button class="ok" id="btnGuardarEnv" onclick="guardarEnvio()">Guardar envío</button>
@@ -133,7 +144,6 @@ td.n,th.n{text-align:right}
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
       <h3 style="margin:0">Envíos</h3>
       <div class="row" style="align-items:center">
-        <button class="ghost sm" onclick="seguimientosClientes()" title="Links de seguimiento para enviar a cada cliente">🔗 Seguimientos de clientes</button>
         <button id="btnTrack" class="ghost sm" onclick="actualizarTracking()" title="Lee el estado del courier (tramo origen→almacén). Se actualiza cada 3 días.">🚚 Actualizar tracking</button>
         <select id="filtroEnv" onchange="pintarEnvios()">
           <option value="">Activos</option>
@@ -141,10 +151,9 @@ td.n,th.n{text-align:right}
           <option value="recibido">Recibidos</option>
           <option value="archivados">🗄️ Archivados</option>
         </select>
-        <button class="ghost sm" onclick="cargarEnvios()">↻</button>
+        <button class="ghost sm" onclick="cargarEnvios()" title="Recargar la lista (sin consultar al courier)">↻</button>
       </div>
     </div>
-    <div id="infoNuevo" class="hint hide" style="margin-top:8px">📦 Los envíos nuevos se crean desde <b>Importaciones → Factura → SKU → 🚚 Enviar a seguimiento</b> (la factura se sube una sola vez, allá). Aquí les asignas el tracking y la logística; cuando llegue, <b>📥 Enviar a almacén</b>.</div>
     <div id="envList" style="margin-top:10px"><div class="muted sm">Cargando…</div></div>
   </div>
 </div>
@@ -154,7 +163,7 @@ td.n,th.n{text-align:right}
 
   <div id="boTools" class="card hide">
     <h3>Gestión de backorders</h3>
-    <div class="hint">Todos los pedidos en backorder del sistema se traen automáticamente. Organízalos en grupos con la info de la venta, marca cuáles ya compraste y anota por qué o cuándo comprarás cada uno. Cuando envías una factura desde Importaciones, los backorders que cubre se marcan solos como comprados y en camino (y se ajustan con lo que confirma el almacén). Cuando ya ingresaste el producto al ERP, ese backorder se archiva solo (deja de estar pendiente en el sistema).</div>
+    <div class="hint">Todos los pedidos en backorder del sistema se traen automáticamente. Organízalos en grupos con la info de la venta, marca cuáles ya compraste y anota por qué o cuándo comprarás cada uno. Cuando subes una factura con tracking, los backorders que cubre se marcan solos como comprados y en camino. Cuando ya ingresaste el producto al ERP, ese backorder se archiva solo (deja de estar pendiente en el sistema).</div>
     <div class="row" style="align-items:center">
       <button id="btnSync" class="ghost" onclick="sincronizarBo()">↻ Actualizar desde el sistema</button>
       <button class="ghost" onclick="abrirGrupo()">+ Nuevo grupo</button>
@@ -194,8 +203,7 @@ function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');cle
 let ES_MAESTRO=false, USUARIO='';
 (function(){try{const p=JSON.parse(atob(tok().split('.')[1]||''));ES_MAESTRO=!!p.maestro;USUARIO=p.usuario||'';}catch(e){}})();
 
-/* ═══════════ buscador del catálogo (para corregir SKU en envíos antiguos) ═══════════
-   El emparejamiento automático factura→SKU vive SOLO en Importaciones. */
+/* ═══════════ motor de confianza (idéntico a Importaciones) ═══════════ */
 const QUOTES={'»':'"','«':'"','”':'"','“':'"','″':'"','’':"'",'‘':"'",'′':"'",'–':'-','—':'-','―':'-'};
 function normalize(t){if(!t)return'';t=String(t);for(const k in QUOTES)t=t.split(k).join(QUOTES[k]);
   t=t.normalize('NFKD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/["']/g,' ').replace(/[^a-z0-9 ]+/g,' ');
@@ -208,9 +216,41 @@ function tokenSet(aT,bT){if(!aT.length||!bT.length)return 0;const A=new Set(aT),
   const is=inter.join(' '),cA=(is+' '+dA.join(' ')).trim(),cB=(is+' '+dB.join(' ')).trim();
   return Math.max(ratio(is,cA),ratio(is,cB),ratio(cA,cB));}
 const clean=s=>String(s||'').normalize('NFKD').replace(/[̀-ͯ]/g,'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+const EN_ES={brake:'freno',brakes:'frenos',braking:'freno',rotor:'disco',rotors:'discos',disc:'disco',disk:'disco',pad:'pastilla',pads:'pastillas',lever:'palanca',blade:'palanca',adapter:'adaptador',adaptor:'adaptador',hose:'manguera',caliper:'caliper',bleed:'purga',bleeding:'purga',spacer:'espaciador',oil:'aceite',fluid:'liquido',tool:'herramienta',tools:'herramienta',front:'delantero',rear:'trasero',left:'izquierda',right:'derecha',screw:'tornillo',screws:'tornillo',bolt:'perno',bolts:'perno',washer:'arandela',clamp:'abrazadera',mount:'montaje',wheel:'rueda',rim:'aro',spoke:'radio',spokes:'radio',hub:'maza',chain:'cadena',cassette:'cassette',shifter:'mando',shift:'mando',handlebar:'manillar',stem:'potencia',seatpost:'tija',saddle:'sillin',grip:'puno',grips:'puno',pedal:'pedal',pedals:'pedal',crank:'biela',fork:'horquilla',shock:'amortiguador',bearing:'rodamiento',bearings:'rodamiento',seal:'reten',bottle:'botella',cage:'portabotella',pump:'bomba',valve:'valvula',tube:'camara',tubeless:'tubeless',hardware:'tornilleria',kit:'kit',set:'juego',ring:'anillo',mineral:'mineral',blood:'sangre',service:'servicio',small:'pequeno',large:'grande',piston:'piston',alignment:'alineacion',organic:'organico',mm:'mm'};
+function glossaryES(t){const o=normalize(t).split(' ').filter(Boolean);const es=o.map(w=>EN_ES[w]||w);return o.concat(es).join(' ');}
+
 let CAT=[],CATMAP={};
 function initCat(){CAT=CATALOG.map(([s,n])=>({sku:s,name:n,norm:normalize(n)}));CAT.forEach(c=>{c.tokens=c.norm.split(' ');c.cleanSku=clean(c.sku);c.cleanName=clean(c.name);CATMAP[c.sku]=c.name;});}
-const CONF_BADGE={exact:['b-exact','exacto · n° parte'],mem:['b-exact','exacto · ya confirmado'],alta:['b-alta','alta · descripción'],rev:['b-rev','revisar'],no:['b-no','sin match'],manual:['b-alta','manual'],almacen:['b-rec','✓ confirmado por almacén']};
+function buscarPorParte(part){if(!part)return null;const p=clean(part);if(!p)return null;
+  let exact=CAT.filter(c=>c.cleanSku===p);if(exact.length)return exact.map(c=>({...c,score:100}));
+  if(p.length>=4){const hits=CAT.filter(c=>c.cleanSku.includes(p)||c.cleanName.includes(p));if(hits.length)return hits.map(c=>({...c,score:99}));}
+  return null;}
+function buscarFuzzy(desc,brand,limit=4){const qt=normalize(desc).split(' ').filter(Boolean);if(!qt.length)return[];
+  const bns=brand?normalize(brand):'',bn=bns.replace(/\s+/g,'');
+  let pool=CAT;
+  if(bns&&bns.length>=3){const bm=CAT.filter(c=>c.norm.includes(bns)||c.norm.replace(/\s+/g,'').includes(bn));if(bm.length>=3)pool=bm;}
+  const sc=pool.map(c=>({sku:c.sku,name:c.name,score:tokenSet(qt,c.tokens)}));
+  sc.sort((a,b)=>b.score-a.score);return sc.slice(0,limit);}
+function _lineQueryEs(l){return (l&&l.desc_es)?l.desc_es:glossaryES((l&&l.desc)||'');}
+function _lineBrand(l){return (l&&l.marca)?l.marca:'';}
+function matchLinea(l){
+  let tipo,sku,nombre,cand=null;
+  const brand=_lineBrand(l), q=_lineQueryEs(l);
+  const byPart=buscarPorParte(l.codigo);
+  if(byPart){
+    let best=byPart[0];
+    if(byPart.length>1&&q.trim()){const qt=normalize(q).split(' ').filter(Boolean);
+      best=byPart.slice().sort((a,b)=>tokenSet(qt,normalize(b.name).split(' '))-tokenSet(qt,normalize(a.name).split(' ')))[0];}
+    tipo='exact';sku=best.sku;nombre=best.name;cand=byPart;
+  }else{
+    const f=buscarFuzzy(q,brand,4);cand=f;
+    if(f.length&&f[0].score>=88&&(f.length<2||f[0].score-f[1].score>6)){tipo='alta';sku=f[0].sku;nombre=f[0].name;}
+    else if(f.length){tipo='rev';sku=f[0].sku;nombre=f[0].name;}
+    else{tipo='no';sku='';nombre='';}
+  }
+  return{tipo,sku,nombre,cand:cand||[]};
+}
+const CONF_BADGE={exact:['b-exact','exacto · n° parte'],alta:['b-alta','alta · descripción'],rev:['b-rev','revisar'],no:['b-no','sin match'],manual:['b-alta','manual']};
 
 /* ═══════════ estado global ═══════════ */
 let CATALOG=[];                 // [[sku,name],...]
@@ -219,17 +259,20 @@ let GRUPOS=[];                  // grupos de backorder
 let BOITEMS=[];                 // ítems de backorder gestionados
 let editItems=[];              // líneas del envío en edición
 let editId='';                 // id del envío en edición ('' = nuevo)
+let MODO_SKU=false;            // true = editor en modo "solo asignar SKU" (supervisor/almacén)
 let BO_SKU_PEND=new Set();      // SKUs de backorders NO comprados (para autodetección)
 
 /* ═══════════ arranque ═══════════ */
 async function init(){
   $('rolLine').textContent = ES_MAESTRO ? ('Administrador — '+(USUARIO||'maestro')) : ('Supervisor — solo lectura'+(USUARIO?(' ('+USUARIO+')'):''));
   if(!ES_MAESTRO){$('roNote').classList.remove('hide');}
-  else{$('infoNuevo').classList.remove('hide');}
+  else{$('nuevoEnvio').classList.remove('hide');}
   // La barra de backorders la ven ambos (para agrupar y notas); el botón de
   // sincronizar solo el maestro.
   $('boTools').classList.remove('hide');
-  if(!ES_MAESTRO){const b=$('btnSync');if(b)b.style.display='none';const t=$('btnTrack');if(t)t.style.display='none';}
+  // El supervisor/almacenero TAMBIÉN puede actualizar el tracking del courier.
+  // Solo la sincronización de backorders desde el ERP queda para el maestro.
+  if(!ES_MAESTRO){const b=$('btnSync');if(b)b.style.display='none';}
   try{CATALOG=await api('/catalogo');initCat();}catch(e){CATALOG=[];}
   // 1) Pinta de inmediato lo YA guardado en el portal (rápido, pocas consultas).
   await Promise.all([cargarEnvios(),cargarBackorders()]);
@@ -286,8 +329,6 @@ function pintarEnvios(){
       ${e.eta&&e.fase!=='recibido'?`<span class="chip">🇵🇪 ~${esc(String(e.eta).slice(0,10))}</span>`:''}
       ${e.archivado?'<span class="chip">🗄️ archivado</span>':''}
       ${e.courier?`<span class="chip">${esc(e.courier)}</span>`:''}
-      ${e.origen==='importacion'?`<span class="chip" title="Creado desde Importaciones${e.codigo?(' · '+esc(e.codigo)):''}">📦 de Importaciones</span>`:''}
-      ${recepChip(e)}
       <span class="muted sm">${ES_MAESTRO&&e.proveedor?esc(e.proveedor):''}${e.n_factura?((ES_MAESTRO&&e.proveedor?' · ':'')+'Fact. '+esc(e.n_factura)):''}</span>
       <span class="muted sm">· ${(e.items||[]).length} ítems</span>
       ${nbo?`<span class="badge b-bo">${nbo} backorder</span>`:''}
@@ -306,22 +347,21 @@ function pintarEnvios(){
       return `<tr>
         <td>${esc(i.codigo||'')}</td>
         <td>${esc(i.desc_es||i.desc||'')}</td>
-        <td>${esc(i.sku||'—')}${i.nombre?`<div class="muted sm">${esc(i.nombre)}</div>`:''}${i.sku_factura?`<div class="muted sm" title="El almacén lo corrigió">factura: ${esc(i.sku_factura)}</div>`:''}${i.es_extra?'<div class="sm"><span class="badge b-rev">fuera de factura</span></div>':''}</td>
-        <td class="n">${i.no_llego?'<span class="badge b-no">no llegó</span>':(i.cantidad!=null?i.cantidad:'')}${(i.cant_factura!=null&&!i.no_llego)?`<div class="muted sm">fact. ${esc(i.cant_factura)}</div>`:''}</td>
+        <td>${esc(i.sku||'—')}${i.nombre?`<div class="muted sm">${esc(i.nombre)}</div>`:''}</td>
+        <td class="n">${i.cantidad!=null?i.cantidad:''}</td>
         <td><span class="badge ${cb[0]}">${cb[1]}</span></td>
         <td style="min-width:150px">${boCell}</td>
       </tr>`;
     }).join('');
-    const deImp=e.origen==='importacion';
-    const recCerrada=['validada','costeada'].includes(e.recep_estado);
-    const acciones = ES_MAESTRO ? `<div class="row" style="margin-top:10px">
-        ${(deImp&&!e.tracking)?'<span class="badge b-rev">falta tracking</span>':''}
-        <button class="ghost sm" onclick="editarEnvio('${e.id}')">${deImp?'Tracking / nota':'Editar'}</button>
-        ${(deImp&&!recCerrada)?`<button class="ok sm" onclick="enviarAlmacen('${e.id}')" title="Ya llegó: crea la recepción para que el almacenero confirme lo que llegó (sin precios)">📥 ${e.recep_estado?'Reenviar':'Enviar'} a almacén</button>`:''}
-        ${(deImp&&e.importacion_id)?`<button class="ghost sm" onclick="abrirEnImportaciones('${jsq(e.importacion_id)}')" title="Abre la factura y el costeo de este envío en Importaciones">🚢 Abrir en Importaciones</button>`:''}
-        <button class="sm ${e.estado==='recibido'?'ghost':'ok'}" onclick="toggleEstado('${e.id}','${e.estado==='recibido'?'en_transito':'recibido'}')">${e.estado==='recibido'?'Marcar en tránsito':'Marcar recibido'}</button>
-        <button class="danger sm" onclick="borrarEnvio('${e.id}')">Eliminar</button>
-      </div>` : '';
+    // Acciones para AMBOS roles: asignar SKU y marcar que llegó (→ Recepciones).
+    // Solo el maestro: editar completo y eliminar.
+    const rec=e.estado==='recibido';
+    const acciones = `<div class="row" style="margin-top:10px">
+        ${ES_MAESTRO?`<button class="ghost sm" onclick="editarEnvio('${e.id}')">Editar</button>`:''}
+        <button class="ghost sm" onclick="editarSkus('${e.id}')" title="Asignar o corregir los SKU (actualiza backorders)">🏷️ Asignar SKU</button>
+        <button class="sm ${rec?'ghost':'ok'}" onclick="toggleEstado('${e.id}','${rec?'en_transito':'recibido'}')" title="${rec?'Volver a en tránsito':'Marca que llegó a Perú y lo envía a Recepciones'}">${rec?'↩ En tránsito':'📥 Llegó a Perú'}</button>
+        ${ES_MAESTRO?`<button class="danger sm" onclick="borrarEnvio('${e.id}')">Eliminar</button>`:''}
+      </div>`;
     return `<div class="env">${head}<div class="env-body">
       ${e.nota?`<div class="muted sm" style="margin-bottom:6px">📝 ${esc(e.nota)}</div>`:''}
       <div class="tw"><table><thead><tr><th>Código</th><th>Descripción (español)</th><th>SKU en sistema</th><th class="n">Cant</th><th>Confianza</th><th>Cubre backorder / sobra</th></tr></thead><tbody>${rows||'<tr><td colspan=6 class="muted">Sin ítems</td></tr>'}</tbody></table></div>
@@ -333,6 +373,7 @@ function pintarEnvios(){
 }
 // Clientes incluidos en el envío (desde el reparto) → botón de compartir seguimiento.
 function clientesEnvio(e){
+  if(!ES_MAESTRO) return '';
   const set=new Map();
   (e.items||[]).forEach(i=>(i.bo_alloc||[]).forEach(a=>{ if(a.cliente) set.set(a.cliente,true); }));
   const cl=[...set.keys()];
@@ -342,46 +383,31 @@ function clientesEnvio(e){
     cl.map(c=>`<button class="ghost sm" style="margin:2px" onclick="compartirCliente('${jsq(c)}')">${esc(c)}</button>`).join('')+`</div>`;
 }
 const FASE_LBL={transito:'En camino al almacén',en_hub:'En almacén',embarcado:'Embarcado a Perú',recibido:'Recibido en Perú'};
-// N° de tracking con botón de copiar (lo ven maestro y supervisor).
-function trackingCopiable(e){
-  if(!e.tracking)return '<span class="muted sm">Aún sin N° de tracking.</span>';
-  return `<span class="sm">🚚 Tracking${e.courier?(' '+esc(e.courier)):''}: <b style="user-select:all">${esc(e.tracking)}</b></span>
-    <button class="ghost sm" onclick="event.stopPropagation();copiarTexto('${jsq(e.tracking)}','Tracking copiado')">📋 Copiar</button>`;
-}
-// Supervisor: misma información de logística, sin controles para editar.
-function panelLogisticaLectura(e){
-  const hub=e.hub||'', fase=e.fase||'transito';
-  const hubTxt={miami:'Almacén Miami (EE.UU.)',madrid:'Almacén Madrid (España)'}[hub]||'Directo a Perú';
-  const faseTxt=(e.estado==='recibido')?'Recibido en Perú':(fase==='transito'&&!hub?'En camino a Perú':(FASE_LBL[fase]||''));
-  const eta=(e.eta&&e.estado!=='recibido')?`<span class="badge b-tra">🇵🇪 llega aprox. ${esc(fFecha(e.eta))}</span>`:'';
-  const fhub=(e.fecha_hub&&hub)?`<span class="muted sm">· llegó al almacén el ${esc(fFecha(e.fecha_hub))}</span>`:'';
-  return `<div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">
-    <div class="row" style="align-items:center">${trackingCopiable(e)}</div>
-    <div class="row" style="align-items:center;margin-top:6px"><span class="chip">${esc(hubTxt)}</span><span class="badge ${e.estado==='recibido'?'b-rec':'b-tra'}">${esc(faseTxt)}</span>${eta}${fhub}</div>
-    ${histCourier(e)}
-  </div>`;
-}
 function panelLogistica(e){
-  if(!ES_MAESTRO) return panelLogisticaLectura(e);
+  // Lo ve y edita el maestro Y el supervisor/almacenero (marca en almacén / embarcado).
   const hub=e.hub||'';
   const fase=e.fase||'transito';
   const hubOpt=(v,t)=>`<option value="${v}" ${hub===v?'selected':''}>${t}</option>`;
   // Con hub (Miami/Madrid) hay paso "En almacén"; sin hub (directo a Perú) no.
   const fases = hub ? [['transito','En camino al almacén'],['en_hub','En almacén'],['embarcado','Embarcado a Perú']]
                     : [['transito','En camino a Perú']];
-  const fb=(f,t)=>`<button class="sm ${fase===f?'ok':'ghost'}" onclick="setFase('${e.id}','${f}')">${t}</button>`;
+  const fb=(f,t)=>{
+    // "Embarcado a Perú" abre el selector de 2 fechas de llegada; el resto cambia directo.
+    const on=f==='embarcado'?`pedirEmbarque('${e.id}')`:`setFase('${e.id}','${f}')`;
+    return `<button class="sm ${fase===f?'ok':'ghost'}" onclick="${on}">${t}</button>`;
+  };
   const eta=e.eta?`<span class="badge b-tra" style="margin-left:6px">🇵🇪 llega aprox. ${esc(fFecha(e.eta))}</span>`:'';
   const courier=histCourier(e);
   // Fecha en que llegó al hub (base del cálculo). Editable cuando ya está en almacén/embarcado.
   const fhub=((fase==='en_hub'||fase==='embarcado')&&hub)?`<div class="f" style="margin-top:6px;max-width:220px"><label>Llegó al almacén el</label><input type="date" value="${e.fecha_hub?esc(String(e.fecha_hub).slice(0,10)):''}" onchange="setFechaHub('${e.id}',this.value)"></div>`:'';
   return `<div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">
-    <div class="row" style="align-items:center;margin-bottom:6px">${trackingCopiable(e)}</div>
     <div class="muted sm" style="margin-bottom:5px">Logística (lo que ve el cliente). Si no eliges almacén, se asume <b>directo a Perú</b>.</div>
     <div class="row" style="align-items:flex-end">
       <div class="f"><label>Almacén intermedio</label><select onchange="setHub('${e.id}',this.value)">${hubOpt('','— directo a Perú —')}${hubOpt('miami','Miami (EE.UU.)')}${hubOpt('madrid','Madrid (España)')}</select></div>
       <div class="f"><label>Estado del envío</label><div class="row">${fases.map(f=>fb(f[0],f[1])).join('')}</div></div>
       ${eta}
     </div>
+    <div id="emb-${e.id}"></div>
     ${fhub}${courier}
   </div>`;
 }
@@ -405,6 +431,31 @@ async function putLog(id,payload){try{await api('/envio/'+encodeURIComponent(id)
 function setHub(id,hub){const e=ENVIOS.find(x=>x.id===id)||{};let fase=e.fase||'transito';if(!hub&&(fase==='en_hub'||fase==='embarcado'))fase='transito';putLog(id,{hub,fase,fecha_hub:e.fecha_hub});}
 function setFase(id,fase){const e=ENVIOS.find(x=>x.id===id)||{};putLog(id,{hub:e.hub||'',fase,fecha_hub:e.fecha_hub});}
 function setFechaHub(id,fecha){const e=ENVIOS.find(x=>x.id===id)||{};putLog(id,{hub:e.hub||'',fase:(e.fase==='embarcado'?'embarcado':'en_hub'),fecha_hub:fecha});}
+const DIA3=['dom','lun','mar','mié','jue','vie','sáb'];
+function diaNom(iso){try{return DIA3[new Date(String(iso).slice(0,10)+'T00:00:00').getDay()];}catch(_){return '';}}
+// Al marcar "Embarcado a Perú": pide las 2 opciones (martes/jueves) y deja elegir la llegada.
+async function pedirEmbarque(id){
+  const e=ENVIOS.find(x=>x.id===id)||{};
+  const box=$('emb-'+id); if(!box)return;
+  if(!e.hub){ setFase(id,'embarcado'); return; } // directo a Perú: sin cálculo de almacén
+  box.innerHTML='<div class="muted sm">Calculando fechas…</div>';
+  try{
+    const r=await api('/envio/'+encodeURIComponent(id)+'/embarque-opciones');
+    const ops=(r&&r.opciones)||[];
+    if(!ops.length){ setFase(id,'embarcado'); box.innerHTML=''; return; }
+    box.innerHTML='<div style="margin-top:8px;background:#20283f;border:1px solid var(--border);border-radius:10px;padding:10px">'+
+      '<div class="muted sm" style="margin-bottom:6px">¿Cuándo se embarcó a Perú? Elige la salida para fijar la llegada:</div>'+
+      '<div class="row">'+ops.map(o=>
+        `<button class="sm ok" onclick="confirmarEmbarque('${id}','${o.llega}')">🚢 Salió ${diaNom(o.salida)} ${esc(fFecha(o.salida))} → llega <b>${diaNom(o.llega)} ${esc(fFecha(o.llega))}</b></button>`
+      ).join('')+'</div>'+
+      '<div style="margin-top:6px"><button class="ghost sm" onclick="$(\'emb-'+id+'\').innerHTML=\'\'">Cancelar</button></div>'+
+    '</div>';
+  }catch(err){ box.innerHTML=''; toast(err.message); }
+}
+function confirmarEmbarque(id,etaISO){
+  const e=ENVIOS.find(x=>x.id===id)||{};
+  putLog(id,{hub:e.hub||'',fase:'embarcado',fecha_hub:e.fecha_hub,eta:etaISO});
+}
 async function actualizarTracking(){
   const b=$('btnTrack'); if(b){b.disabled=true;b.textContent='Actualizando…';}
   try{const r=await api('/track-refresh','POST',{force:true});
@@ -415,6 +466,53 @@ async function actualizarTracking(){
   finally{if(b){b.disabled=false;b.textContent='🚚 Actualizar tracking';}}
 }
 
+/* leer factura con IA */
+// Extrae un mensaje LEGIBLE del error de la IA (Gemini a veces devuelve {error:{message}}).
+function extraerErrorIA(raw,status){
+  try{
+    const j=JSON.parse(raw);
+    let e=(j&&j.error!==undefined)?j.error:j;
+    if(e&&typeof e==='object')e=e.message||e.status||e.error||JSON.stringify(e);
+    if(!e&&j&&j.promptFeedback)e='La IA bloqueó el documento ('+(j.promptFeedback.blockReason||'sin razón')+')';
+    e=e?String(e):'';
+    return e||('Error de IA '+status);
+  }catch(_){ return raw?String(raw).slice(0,400):('Error de IA '+status); }
+}
+async function leerFactura(){
+  const f=$('pdf').files[0];
+  if(!f){toast('Elige el PDF de la factura');return;}
+  const model=($('model').value||'gemini-3.6-flash').trim();
+  $('btnLeer').disabled=true;$('leerMsg').textContent='Leyendo la factura con IA…';
+  try{
+    const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(',')[1]);r.onerror=rej;r.readAsDataURL(f);});
+    const prompt='De esta factura de proveedor devuelve ÚNICAMENTE un objeto JSON (sin texto adicional ni markdown) con la forma {"proveedor": string, "invoice": string, "date": string, "items": [{"item","desc","desc_es","marca","qty"}]}. proveedor = nombre/razón social del EMISOR/vendedor; invoice = número de factura tal como aparece; date = fecha AAAA-MM-DD si aparece; items = SOLO líneas de PRODUCTO: item = código o número de parte del proveedor como string ("" si no hay); desc = descripción del producto TAL CUAL en la factura (idioma original), COMPLETA sin acortar; desc_es = esa MISMA descripción traducida al ESPAÑOL de repuestos de bicicleta de forma ÍNTEGRA — traduce TODAS las palabras y conserva TODOS los datos (medidas, colores, lados, tallas, códigos), no resumas ni omitas nada (ej: brake→freno, rotor/disc→disco, pads→pastillas, lever→palanca, adapter→adaptador, hose→manguera, bleed kit→kit de purga, spacer→espaciador, front→delantero, rear→trasero); marca = la MARCA/fabricante del producto si se identifica ("" si no); qty = cantidad como número. Excluye envío, flete, handling, impuestos, subtotales, totales, descuentos sueltos y cualquier fila que no sea un producto.';
+    const resp=await fetch('/api/seguimiento/ia',{method:'POST',headers:H(true),body:JSON.stringify({model,prompt,pdf_base64:b64})});
+    const raw=await resp.text();
+    if(!resp.ok){throw new Error(extraerErrorIA(raw,resp.status));}
+    let g;try{g=JSON.parse(raw);}catch(e){throw new Error('Respuesta de IA no válida');}
+    let txt='';
+    if(g&&g.candidates&&g.candidates[0]&&g.candidates[0].content&&Array.isArray(g.candidates[0].content.parts)){
+      txt=g.candidates[0].content.parts.map(p=>p.text||'').join('');
+    }else{
+      throw new Error(extraerErrorIA(raw,resp.status)); // 200 sin contenido: bloqueado o error de la IA
+    }
+    let obj;try{obj=JSON.parse(txt);}catch(e){const m=txt.match(/[\[{][\s\S]*[\]}]/);obj=m?JSON.parse(m[0]):null;}
+    if(!obj)throw new Error('No se pudo interpretar la factura');
+    const arr=Array.isArray(obj)?obj:(obj.items||[]);
+    if(obj.proveedor)$('e_prov').value=obj.proveedor;
+    if(obj.invoice)$('e_fact').value=obj.invoice;
+    editId='';
+    editItems=arr.map(o=>{
+      const l={codigo:o.item||'',desc:o.desc||'',desc_es:o.desc_es||'',marca:o.marca||'',cantidad:(+o.qty||0)};
+      const m=matchLinea(l);
+      return {...l,sku:m.sku,nombre:m.nombre,confianza:m.tipo,cand:m.cand,es_backorder:autoBo(m.sku)};
+    });
+    $('editor').classList.remove('hide');
+    $('leerMsg').textContent='Factura leída: '+editItems.length+' líneas. Revisa los SKU y asigna el tracking.';
+    renderItems();
+  }catch(e){$('leerMsg').textContent='';toast(e.message||'No se pudo leer la factura');}
+  finally{$('btnLeer').disabled=false;}
+}
 function autoBo(sku){return sku&&BO_SKU_PEND.has(clean(sku));}
 // Unidades de backorder aún por cubrir para un SKU (suma de faltantes).
 function pendPorSku(sku){const k=clean(sku||'');if(!k)return 0;
@@ -422,15 +520,8 @@ function pendPorSku(sku){const k=clean(sku||'');if(!k)return 0;
 function boBadge(sku){const p=pendPorSku(sku);return `<span class="badge b-bo">backorder${p>0?(' · faltan '+p):''}</span>`;}
 function addItem(){editItems.push({codigo:'',desc:'',desc_es:'',marca:'',cantidad:1,sku:'',nombre:'',confianza:'no',cand:[],es_backorder:false});renderItems();}
 function delItem(i){editItems.splice(i,1);renderItems();}
-let EDIT_RO=false; // envío que vino de Importaciones: líneas de solo lectura
+function recalc(i){const m=editItems[i];const r=matchLinea(m);m.sku=r.sku;m.nombre=r.nombre;m.confianza=r.tipo;m.cand=r.cand;m.es_backorder=autoBo(r.sku);renderItems();}
 function renderItems(){
-  if(EDIT_RO){
-    $('itemsBody').innerHTML=editItems.map((m,i)=>{const cb=CONF_BADGE[m.confianza]||CONF_BADGE.no;
-      return `<tr><td>${i+1}</td><td>${esc(m.codigo||'—')}</td><td style="min-width:200px;white-space:normal">${esc(m.desc_es||m.desc||'')}</td>
-        <td class="n">${m.cantidad!=null?m.cantidad:''}</td><td>${esc(m.sku||'—')}${m.nombre?`<div class="muted sm">${esc(m.nombre)}</div>`:''}</td>
-        <td><span class="badge ${cb[0]}">${cb[1]}</span></td><td style="text-align:center">${(m.bo_alloc||[]).length?boBadge(m.sku):''}</td><td></td></tr>`;}).join('');
-    return;
-  }
   $('itemsBody').innerHTML=editItems.map((m,i)=>{
     const cb=CONF_BADGE[m.confianza]||CONF_BADGE.no;
     m.es_backorder=autoBo(m.sku); // recalcula SIEMPRE según el SKU actual (también al elegirlo a mano)
@@ -486,9 +577,27 @@ function catBlur(i){
   if(v&&CATMAP[v]){ if(m.sku!==v){m.sku=v;m.nombre=CATMAP[v];m.confianza='manual';m.es_backorder=autoBo(v);renderItems();} }
   else if(!v){ if(m.sku){m.sku='';m.nombre='';m.es_backorder=false;renderItems();} } // borró el SKU
 }
-function cancelarEditor(){editItems=[];editId='';EDIT_RO=false;$('editor').classList.add('hide');$('nuevoEnvio').classList.add('hide');$('leerMsg').textContent='';}
+function cancelarEditor(){
+  MODO_SKU=false;editItems=[];editId='';$('editor').classList.add('hide');$('leerMsg').textContent='';$('pdf').value='';
+  $('iaUpload').classList.remove('hide');$('editMeta').classList.remove('hide');$('skuNota').classList.add('hide');
+  $('envEditorTitle').textContent='Nuevo envío — leer factura con IA';$('btnGuardarEnv').textContent='Guardar envío';
+  if(!ES_MAESTRO)$('nuevoEnvio').classList.add('hide'); // el supervisor no crea envíos: ocultar de nuevo
+}
 function limpiaEditor(){$('e_tracking').value='';$('e_courier').value='';$('e_prov').value='';$('e_fact').value='';$('e_eta').value='';$('e_nota').value='';}
 async function guardarEnvio(){
+  // Modo almacén: solo guarda los SKU asignados (maestro o supervisor).
+  if(MODO_SKU){
+    try{
+      $('btnGuardarEnv').disabled=true;
+      await api('/envio/'+encodeURIComponent(editId)+'/skus','PUT',
+        {items:editItems.map((m,idx)=>({idx,sku:m.sku||'',nombre:m.nombre||'',confianza:m.confianza||'manual'}))});
+      toast('SKU guardados');
+      cancelarEditor();
+      await Promise.all([cargarEnvios(),cargarBackorders()]);
+    }catch(e){toast(e.message);}
+    finally{$('btnGuardarEnv').disabled=false;}
+    return;
+  }
   const tracking=$('e_tracking').value.trim();
   if(!tracking){toast('Escribe el N° de tracking');return;}
   if(!editItems.length){toast('El envío no tiene ítems');return;}
@@ -510,39 +619,38 @@ async function guardarEnvio(){
 }
 function editarEnvio(id){
   const e=ENVIOS.find(x=>x.id===id);if(!e)return;
-  editId=id;
+  MODO_SKU=false;editId=id;
+  $('iaUpload').classList.add('hide');$('editMeta').classList.remove('hide');$('skuNota').classList.add('hide');
+  $('envEditorTitle').textContent='Editar envío';$('btnGuardarEnv').textContent='Guardar envío';
   $('e_tracking').value=e.tracking||'';$('e_courier').value=e.courier||'';$('e_prov').value=e.proveedor||'';
   $('e_fact').value=e.n_factura||'';$('e_eta').value=e.fecha_estimada?String(e.fecha_estimada).slice(0,10):'';$('e_nota').value=e.nota||'';
-  EDIT_RO=(e.origen==='importacion');
-  editItems=(e.items||[]).map(i=>({...i,cand:[]}));
-  $('e_prov').disabled=EDIT_RO;$('e_fact').disabled=EDIT_RO;
-  const ba=$('btnAddItem');if(ba)ba.style.display=EDIT_RO?'none':'';
-  $('edTitulo').textContent=EDIT_RO?('Tracking y datos del envío'+(e.codigo?(' · '+e.codigo):'')):'Editar envío';
+  editItems=(e.items||[]).map(i=>({...i,cand:matchLinea(i).cand}));
   $('nuevoEnvio').classList.remove('hide');$('editor').classList.remove('hide');
-  $('leerMsg').textContent=EDIT_RO?'Las líneas vienen de Importaciones (solo lectura). Para cambiarlas, corrígelas allá y vuelve a «Enviar a seguimiento».':'Editando envío existente.';
+  $('leerMsg').textContent='Editando envío existente.';
   renderItems();window.scrollTo({top:0,behavior:'smooth'});
 }
-async function toggleEstado(id,estado){try{await api('/envio/'+encodeURIComponent(id)+'/estado','PUT',{estado});await cargarEnvios();}catch(e){toast(e.message);}}
+// Editor liviano "solo SKU" (maestro y supervisor/almacén): avanza/corrige SKU.
+function editarSkus(id){
+  const e=ENVIOS.find(x=>x.id===id);if(!e)return;
+  MODO_SKU=true;editId=id;
+  $('iaUpload').classList.add('hide');$('editMeta').classList.add('hide');$('skuNota').classList.remove('hide');
+  $('envEditorTitle').textContent='Asignar SKU — 📦 '+(e.tracking||'');$('btnGuardarEnv').textContent='Guardar SKUs';
+  editItems=(e.items||[]).map(i=>({...i,cand:matchLinea(i).cand}));
+  $('nuevoEnvio').classList.remove('hide');$('editor').classList.remove('hide');
+  $('leerMsg').textContent='';
+  renderItems();window.scrollTo({top:0,behavior:'smooth'});
+}
+async function toggleEstado(id,estado){
+  try{
+    const r=await api('/envio/'+encodeURIComponent(id)+'/estado','PUT',{estado});
+    if(estado==='recibido'){
+      const rc=r&&r.recepcion;
+      toast(rc&&rc.ok?'Marcado recibido · enviado a Recepciones':'Marcado recibido');
+    } else toast('Marcado en tránsito');
+    await cargarEnvios();
+  }catch(e){toast(e.message);}
+}
 async function borrarEnvio(id){if(!confirm('¿Eliminar este envío?'))return;try{await api('/envio/'+encodeURIComponent(id),'DELETE');await cargarEnvios();}catch(e){toast(e.message);}}
-
-// Estado de la recepción ligada al envío (solo envíos que vienen de Importaciones).
-function recepChip(e){
-  if(e.origen!=='importacion'||!e.recep_estado)return '';
-  const t={pendiente:['b-rev','📥 en almacén: pendiente'],borrador:['b-rev','📥 almacén revisando'],validada:['b-rec','✓ almacén confirmó'],costeada:['b-rec','✓ costeado']}[e.recep_estado];
-  return t?`<span class="badge ${t[0]}">${t[1]}</span>`:'';
-}
-async function enviarAlmacen(id){
-  const e=ENVIOS.find(x=>x.id===id)||{};
-  if(!confirm((e.recep_estado?'¿Reenviar':'¿Enviar')+' este envío al almacén para que confirmen lo que llegó? (No incluye precios.)'+(e.recep_estado?'\n\nSe conserva lo que el almacén ya avanzó.':'')))return;
-  try{const r=await api('/envio/'+encodeURIComponent(id)+'/a-almacen','POST',{});
-    toast(r.nueva?'Enviado al almacén':'Recepción actualizada');await cargarEnvios();}
-  catch(err){toast(err.message);}
-}
-// Abre la factura de este envío en Importaciones (pestaña del panel).
-function abrirEnImportaciones(impId){
-  try{ if(window.parent&&window.parent!==window&&typeof window.parent.irAImportacion==='function'){ window.parent.irAImportacion(impId); return; } }catch(e){}
-  window.open('/importacion.html?retomar='+encodeURIComponent(impId),'_blank');
-}
 
 /* ═══════════ BACKORDERS ═══════════ */
 async function cargarBackorders(){
@@ -683,78 +791,22 @@ async function borrarGrupo(id){if(!confirm('¿Eliminar el grupo? Sus ítems qued
 function showModal(html){$('modalHost').innerHTML=`<div class="modal-bg" onclick="if(event.target===this)cerrarModal()"><div class="modal">${html}</div></div>`;}
 function cerrarModal(){$('modalHost').innerHTML='';}
 // Compartir el seguimiento público con el cliente (link por cliente).
-// Copia un texto al portapapeles (con respaldo para navegadores/iframes sin permiso).
-async function copiarTexto(txt,msg){
-  let ok=false;
-  try{ if(navigator.clipboard&&window.isSecureContext){ await navigator.clipboard.writeText(txt); ok=true; } }catch(e){}
-  if(!ok){ const t=document.createElement('textarea'); t.value=txt; t.setAttribute('readonly',''); t.style.position='fixed'; t.style.opacity='0';
-    document.body.appendChild(t); t.select(); try{ ok=document.execCommand('copy'); }catch(e){} document.body.removeChild(t); }
-  toast(ok?(msg||'Copiado'):'No se pudo copiar: selecciónalo y copia a mano');
-  return ok;
-}
-// Link público de un cliente (se crea la 1ra vez y luego siempre es el mismo).
-const LINKS_CLI={};
-async function linkCliente(cliente){
-  if(LINKS_CLI[cliente])return LINKS_CLI[cliente];
-  const r=await api('/cliente-link?cliente='+encodeURIComponent(cliente),'GET');
-  return (LINKS_CLI[cliente]=location.origin+r.path);
-}
-function mensajeCliente(cliente,url){return 'Hola '+cliente+', puedes seguir el estado de tu pedido aquí: '+url;}
 async function compartirCliente(cliente){
   try{
-    const url=await linkCliente(cliente);
-    const msg=mensajeCliente(cliente,url);
+    const r=await api('/cliente-link?cliente='+encodeURIComponent(cliente),'GET');
+    const url=location.origin+r.path;
+    const wa='https://wa.me/?text='+encodeURIComponent('Hola '+cliente+', puedes seguir el estado de tu pedido aquí: '+url);
     showModal(`<h3>Seguimiento para ${esc(cliente)}</h3>
-      <div class="hint">El cliente verá SOLO el estado de su pedido (sin precios, proveedor ni datos internos). Puedes editar el mensaje antes de copiarlo.</div>
-      <textarea id="shareMsg" style="width:100%;min-height:76px">${esc(msg)}</textarea>
-      <input id="shareUrl" value="${esc(url)}" readonly style="width:100%;margin-top:6px" onclick="this.select()">
+      <div class="hint">Comparte este enlace. El cliente verá SOLO el estado de su pedido (sin precios, proveedor ni datos internos).</div>
+      <input id="shareUrl" value="${esc(url)}" readonly style="width:100%" onclick="this.select()">
       <div class="row" style="margin-top:12px;justify-content:flex-end;align-items:center">
-        <button class="ok" onclick="copiarTexto($('shareMsg').value,'Mensaje copiado')">📋 Copiar mensaje</button>
-        <button class="ghost" onclick="copiarTexto($('shareUrl').value,'Enlace copiado')">Copiar solo el enlace</button>
-        <a href="#" onclick="window.open('https://wa.me/?text='+encodeURIComponent($('shareMsg').value),'_blank');return false;" style="text-decoration:none;background:#25D366;color:#fff;border-radius:8px;padding:8px 12px;font-weight:600">Enviar por WhatsApp</a>
+        <button class="ghost" onclick="copiarLink()">Copiar enlace</button>
+        <a href="${esc(wa)}" target="_blank" style="text-decoration:none;background:#25D366;color:#fff;border-radius:8px;padding:8px 12px;font-weight:600">Enviar por WhatsApp</a>
         <button class="ghost" onclick="cerrarModal()">Cerrar</button>
       </div>`);
   }catch(e){toast(e.message);}
 }
-function copiarLink(){const i=$('shareUrl');if(i)copiarTexto(i.value,'Enlace copiado');}
-// Todos los clientes con pedidos pendientes, para copiar su seguimiento de una vez.
-function clientesConPedidos(){
-  const m=new Map();
-  BOITEMS.filter(b=>!b.archivado&&b.cliente&&b.cliente!=='—').forEach(b=>{
-    const x=m.get(b.cliente)||{cliente:b.cliente,n:0,enCamino:0};
-    x.n++; if((b.cubierto||0)>0)x.enCamino++; m.set(b.cliente,x);
-  });
-  return [...m.values()].sort((a,b)=>(b.enCamino-a.enCamino)||a.cliente.localeCompare(b.cliente));
-}
-function seguimientosClientes(){
-  const cl=clientesConPedidos();
-  if(!cl.length){toast('No hay clientes con pedidos pendientes.');return;}
-  const filas=cl.map((c,i)=>`<tr><td>${esc(c.cliente)}</td><td class="n">${c.n}</td><td class="n">${c.enCamino?`<span class="badge b-tra">${c.enCamino} en camino</span>`:'<span class="muted sm">en compra</span>'}</td>
-      <td style="white-space:nowrap"><button class="ghost sm" onclick="copiarMsgCliente(${i})">📋 Copiar</button>
-      <button class="ghost sm" onclick="waCliente(${i})" title="Abrir WhatsApp con el mensaje">WhatsApp</button>
-      <button class="ghost sm" onclick="cerrarModal();compartirCliente(SEG_CLI[${i}].cliente)" title="Ver y editar el mensaje">✎</button></td></tr>`).join('');
-  SEG_CLI=cl;
-  showModal(`<h3>🔗 Seguimientos de clientes</h3>
-    <div class="hint">Cada cliente tiene un enlace propio que siempre muestra el estado actualizado de SUS productos. Copia el mensaje y pégalo en el chat del cliente.</div>
-    <div class="tw" style="max-height:55vh;overflow:auto"><table><thead><tr><th>Cliente</th><th class="n">Productos</th><th class="n">Estado</th><th></th></tr></thead><tbody>${filas}</tbody></table></div>
-    <div class="row" style="margin-top:12px;justify-content:space-between;align-items:center">
-      <button class="ghost" onclick="copiarTodosClientes()" title="Una línea por cliente: nombre y enlace">📋 Copiar todos los enlaces</button>
-      <button class="ghost" onclick="cerrarModal()">Cerrar</button>
-    </div>`);
-}
-let SEG_CLI=[];
-async function copiarMsgCliente(i){const c=SEG_CLI[i];if(!c)return;try{const url=await linkCliente(c.cliente);copiarTexto(mensajeCliente(c.cliente,url),'Mensaje para '+c.cliente+' copiado');}catch(e){toast(e.message);}}
-async function waCliente(i){const c=SEG_CLI[i];if(!c)return;
-  const w=window.open('','_blank'); // se abre ya (si no, el navegador lo bloquea tras esperar el enlace)
-  try{const url=await linkCliente(c.cliente);const wa='https://wa.me/?text='+encodeURIComponent(mensajeCliente(c.cliente,url));if(w)w.location.href=wa;else window.open(wa,'_blank');}
-  catch(e){if(w)w.close();toast(e.message);}}
-async function copiarTodosClientes(){
-  try{
-    const lineas=[];
-    for(const c of SEG_CLI){lineas.push(c.cliente+': '+await linkCliente(c.cliente));}
-    copiarTexto(lineas.join('\n'),lineas.length+' enlaces copiados');
-  }catch(e){toast(e.message);}
-}
+function copiarLink(){const i=$('shareUrl');if(!i)return;i.select();try{document.execCommand('copy');toast('Enlace copiado');}catch(e){try{navigator.clipboard.writeText(i.value);toast('Enlace copiado');}catch(_){}}}
 
 init();
 </script>

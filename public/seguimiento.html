@@ -59,8 +59,9 @@ td.n,th.n{text-align:right}
 .k{display:inline-block;background:var(--card2);border:1px solid var(--border);border-radius:8px;padding:4px 10px;font-weight:700;margin-right:6px}
 .hide{display:none!important}
 .skucell{position:relative}
-.skudrop{margin-top:4px;border:1px solid var(--border);border-radius:8px;max-height:210px;overflow:auto;background:var(--card2)}
-.skuopt{padding:6px 9px;cursor:pointer;white-space:normal;border-bottom:1px solid var(--border);line-height:1.35}
+.skudrop{margin-top:4px;min-width:300px;border:1px solid var(--border);border-radius:10px;max-height:320px;overflow:auto;background:var(--card2);box-shadow:0 10px 30px rgba(0,0,0,.35)}
+.skuopt{padding:9px 12px;cursor:pointer;white-space:normal;border-bottom:1px solid var(--border);line-height:1.4}
+.skuopt b{color:var(--warn)}
 .skuopt:last-child{border-bottom:0}
 .skuopt:hover{background:var(--card)}
 .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:14px;z-index:50}
@@ -89,7 +90,7 @@ td.n,th.n{text-align:right}
   <button id="st-bo" onclick="verTab('bo')">🧾 Backorders</button>
 </div>
 
-<div id="roNote" class="ro-note hide">Vista de solo lectura: el supervisor visualiza los envíos y backorders. La carga de facturas, la asignación de tracking y la gestión de backorders las hace únicamente el administrador.</div>
+<div id="roNote" class="ro-note hide">Como supervisor/almacén puedes: actualizar el tracking, asignar o corregir los SKU, marcar el envío en almacén / embarcado y marcar que llegó a Perú (pasa a Recepciones). La carga de facturas y la gestión de backorders las hace el administrador.</div>
 
 <!-- ══════════════════ TAB ENVÍOS ══════════════════ -->
 <div id="tab-env">
@@ -130,7 +131,7 @@ td.n,th.n{text-align:right}
         </table>
       </div>
       <div class="row" style="margin-top:10px;justify-content:space-between">
-        <button class="ghost sm" onclick="addItem()">+ Agregar línea</button>
+        <button id="btnAddLinea" class="ghost sm" onclick="addItem()">+ Agregar línea</button>
         <div class="row">
           <button class="ghost" onclick="cancelarEditor()">Cancelar</button>
           <button class="ok" id="btnGuardarEnv" onclick="guardarEnvio()">Guardar envío</button>
@@ -216,6 +217,21 @@ function tokenSet(aT,bT){if(!aT.length||!bT.length)return 0;const A=new Set(aT),
   const is=inter.join(' '),cA=(is+' '+dA.join(' ')).trim(),cB=(is+' '+dB.join(' ')).trim();
   return Math.max(ratio(is,cA),ratio(is,cB),ratio(cA,cB));}
 const clean=s=>String(s||'').normalize('NFKD').replace(/[̀-ͯ]/g,'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+// Puntaje del buscador inline: prioriza cuando TODAS las palabras escritas aparecen
+// (en cualquier orden), aceptando prefijos ("fren"→"freno") y subcadenas.
+function puntuarCat(qt,c){
+  if(!qt.length)return 0;
+  let presentes=0,fuertes=0;
+  for(const t of qt){
+    if(c.tokens.includes(t)){presentes++;fuertes++;}
+    else if(c.tokens.some(w=>w.startsWith(t))){presentes++;fuertes++;}
+    else if(t.length>=3&&c.tokens.some(w=>w.indexOf(t)>=0)){presentes++;}
+  }
+  const cob=presentes/qt.length;                 // cuántas palabras de la búsqueda aparecen
+  const fuzzy=tokenSet(qt,c.tokens);             // respaldo difuso
+  if(cob>=1)return 95+Math.min(fuertes,5);       // todas presentes → arriba (orden indistinto)
+  return cob*60+fuzzy*0.35;                       // faltan palabras → baja prioridad
+}
 const EN_ES={brake:'freno',brakes:'frenos',braking:'freno',rotor:'disco',rotors:'discos',disc:'disco',disk:'disco',pad:'pastilla',pads:'pastillas',lever:'palanca',blade:'palanca',adapter:'adaptador',adaptor:'adaptador',hose:'manguera',caliper:'caliper',bleed:'purga',bleeding:'purga',spacer:'espaciador',oil:'aceite',fluid:'liquido',tool:'herramienta',tools:'herramienta',front:'delantero',rear:'trasero',left:'izquierda',right:'derecha',screw:'tornillo',screws:'tornillo',bolt:'perno',bolts:'perno',washer:'arandela',clamp:'abrazadera',mount:'montaje',wheel:'rueda',rim:'aro',spoke:'radio',spokes:'radio',hub:'maza',chain:'cadena',cassette:'cassette',shifter:'mando',shift:'mando',handlebar:'manillar',stem:'potencia',seatpost:'tija',saddle:'sillin',grip:'puno',grips:'puno',pedal:'pedal',pedals:'pedal',crank:'biela',fork:'horquilla',shock:'amortiguador',bearing:'rodamiento',bearings:'rodamiento',seal:'reten',bottle:'botella',cage:'portabotella',pump:'bomba',valve:'valvula',tube:'camara',tubeless:'tubeless',hardware:'tornilleria',kit:'kit',set:'juego',ring:'anillo',mineral:'mineral',blood:'sangre',service:'servicio',small:'pequeno',large:'grande',piston:'piston',alignment:'alineacion',organic:'organico',mm:'mm'};
 function glossaryES(t){const o=normalize(t).split(' ').filter(Boolean);const es=o.map(w=>EN_ES[w]||w);return o.concat(es).join(' ');}
 
@@ -264,7 +280,7 @@ let BO_SKU_PEND=new Set();      // SKUs de backorders NO comprados (para autodet
 
 /* ═══════════ arranque ═══════════ */
 async function init(){
-  $('rolLine').textContent = ES_MAESTRO ? ('Administrador — '+(USUARIO||'maestro')) : ('Supervisor — solo lectura'+(USUARIO?(' ('+USUARIO+')'):''));
+  $('rolLine').textContent = ES_MAESTRO ? ('Administrador — '+(USUARIO||'maestro')) : ('Supervisor / almacén'+(USUARIO?(' ('+USUARIO+')'):''));
   if(!ES_MAESTRO){$('roNote').classList.remove('hide');}
   else{$('nuevoEnvio').classList.remove('hide');}
   // La barra de backorders la ven ambos (para agrupar y notas); el botón de
@@ -529,19 +545,19 @@ function renderItems(){
       <td>${i+1}</td>
       <td>${esc(m.codigo||'—')}</td>
       <td style="min-width:200px;white-space:normal">${esc(m.desc_es||m.desc||'')}</td>
-      <td class="n"><input type="number" value="${m.cantidad!=null?m.cantidad:''}" oninput="editItems[${i}].cantidad=(this.value===''?null:+this.value)" style="width:64px"></td>
+      <td class="n">${MODO_SKU?`<span>${m.cantidad!=null?m.cantidad:''}</span>`:`<input type="number" value="${m.cantidad!=null?m.cantidad:''}" oninput="editItems[${i}].cantidad=(this.value===''?null:+this.value)" style="width:64px">`}</td>
       <td>
         <div class="skucell">
           <input id="ci${i}" value="${esc(m.sku||'')}" autocomplete="off" spellcheck="false"
             oninput="catType(${i},this.value)" onfocus="catType(${i},this.value)" onblur="catBlur(${i})"
-            placeholder="Escribe nombre o SKU" style="min-width:170px">
+            placeholder="Escribe nombre o SKU" style="min-width:230px">
           <div id="cd${i}" class="skudrop" style="display:none"></div>
         </div>
         ${m.nombre?`<div class="muted sm">${esc(m.nombre)}</div>`:''}
       </td>
       <td><span class="badge ${cb[0]}">${cb[1]}</span></td>
       <td style="text-align:center">${m.es_backorder?boBadge(m.sku):''}</td>
-      <td><button class="danger sm" onclick="delItem(${i})">✕</button></td>
+      <td>${MODO_SKU?'':`<button class="danger sm" onclick="delItem(${i})">✕</button>`}</td>
     </tr>`;
   }).join('');
 }
@@ -553,9 +569,12 @@ function catType(i,q){
   let list=[];
   if(q.length){
     const qt=normalize(q).split(' ').filter(Boolean);
-    const tl=q.toLowerCase();
-    list=CAT.map(c=>{let sc=tokenSet(qt,c.tokens);if(c.sku.toLowerCase().includes(tl))sc=Math.max(sc,96);return{sku:c.sku,name:c.name,score:sc};})
-            .sort((a,b)=>b.score-a.score).slice(0,10);
+    const cs=clean(q);
+    list=CAT.map(c=>{
+      let sc=puntuarCat(qt,c);
+      if(cs&&c.cleanSku.includes(cs))sc=Math.max(sc,97); // coincide por SKU
+      return{sku:c.sku,name:c.name,score:sc};
+    }).filter(x=>x.score>=18).sort((a,b)=>b.score-a.score).slice(0,12);
   }else{
     list=(m.cand||[]).slice(0,10); // sin texto: muestra las opciones que sugirió la IA
   }
@@ -580,6 +599,7 @@ function catBlur(i){
 function cancelarEditor(){
   MODO_SKU=false;editItems=[];editId='';$('editor').classList.add('hide');$('leerMsg').textContent='';$('pdf').value='';
   $('iaUpload').classList.remove('hide');$('editMeta').classList.remove('hide');$('skuNota').classList.add('hide');
+  $('btnAddLinea').classList.remove('hide');
   $('envEditorTitle').textContent='Nuevo envío — leer factura con IA';$('btnGuardarEnv').textContent='Guardar envío';
   if(!ES_MAESTRO)$('nuevoEnvio').classList.add('hide'); // el supervisor no crea envíos: ocultar de nuevo
 }
@@ -621,6 +641,7 @@ function editarEnvio(id){
   const e=ENVIOS.find(x=>x.id===id);if(!e)return;
   MODO_SKU=false;editId=id;
   $('iaUpload').classList.add('hide');$('editMeta').classList.remove('hide');$('skuNota').classList.add('hide');
+  $('btnAddLinea').classList.remove('hide');
   $('envEditorTitle').textContent='Editar envío';$('btnGuardarEnv').textContent='Guardar envío';
   $('e_tracking').value=e.tracking||'';$('e_courier').value=e.courier||'';$('e_prov').value=e.proveedor||'';
   $('e_fact').value=e.n_factura||'';$('e_eta').value=e.fecha_estimada?String(e.fecha_estimada).slice(0,10):'';$('e_nota').value=e.nota||'';
@@ -634,6 +655,7 @@ function editarSkus(id){
   const e=ENVIOS.find(x=>x.id===id);if(!e)return;
   MODO_SKU=true;editId=id;
   $('iaUpload').classList.add('hide');$('editMeta').classList.add('hide');$('skuNota').classList.remove('hide');
+  $('btnAddLinea').classList.add('hide'); // en modo SKU no se agregan/quitan líneas (rompería los índices)
   $('envEditorTitle').textContent='Asignar SKU — 📦 '+(e.tracking||'');$('btnGuardarEnv').textContent='Guardar SKUs';
   editItems=(e.items||[]).map(i=>({...i,cand:matchLinea(i).cand}));
   $('nuevoEnvio').classList.remove('hide');$('editor').classList.remove('hide');

@@ -970,6 +970,15 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
     return colsTransfer;
   }
 
+  // RUC propio: el de Configuración o, si falta, el que aparece en los PDF ya emitidos de la empresa
+  async function rucDeEmitidos(companyId) {
+    try {
+      const [r] = await portalPool.query(`SELECT enlace_pdf FROM fe_comprobantes WHERE company_id = ? AND enlace_pdf IS NOT NULL ORDER BY id DESC LIMIT 5`, [companyId]);
+      for (const x of r) { const m = String(x.enlace_pdf).match(/\b((?:10|15|17|20)\d{9})-\d{2}-/); if (m) return m[1]; }
+    } catch (e) { /* nada */ }
+    return '';
+  }
+
   // Cliente del sistema con ese RUC/DNI (lectura con la cuenta de solo lectura)
   async function partyPorDoc(doc) {
     const d = String(doc || '').trim(); if (!d) return null;
@@ -1004,24 +1013,30 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
           if (u.affectedRows) await logERP({ tabla: 'stock_transfers', registro_id: comp.transfer_id, accion: 'update', campo: 'document_type_id', antes: t.document_type_id, despues: gr.id, comprobante_id: comp.id, usuario });
         }
       }
-      // Destinatario (sección RUC/DNI de la transferencia): se llena con el cliente de ese RUC/DNI, solo si está vacío
+      // El recuadro RUC/DNI y las notas llevan al CONSIGNATARIO (la tienda que recibe o devuelve),
+      // también en una devolución, donde el destinatario de la guía es la propia empresa.
+      let cons = null;
+      try { const tt = await leerTransferencia(comp.transfer_id); const l = tt && (tt.destino.consignacion ? tt.destino : tt.origen.consignacion ? tt.origen : null); cons = l && l.cliente && l.cliente.doc ? l.cliente : null; } catch (e) { cons = null; }
+      const consDoc = cons ? cons.doc : comp.cliente_doc, consTipo = cons ? cons.tipo_doc : comp.cliente_tipo_doc;
+      let consNombre = cons ? cons.nombre : comp.cliente_nombre;
+      if (cons) { const su = await consultarSunat(cons.doc); if (su) consNombre = su.nombre; }
       let destinoOk = false;
       if (ct.destino) {
         if (t.destino != null) destinoOk = true;
-        else if (comp.cliente_doc) {
-          const pid = await partyPorDoc(comp.cliente_doc);
+        else if (consDoc) {
+          const pid = (cons && cons.party_id) || await partyPorDoc(consDoc);
           if (pid) {
             const [u] = await erpWritePool.query(`UPDATE stock_transfers SET \`${ct.destino}\` = ? WHERE id = ? AND \`${ct.destino}\` IS NULL`, [pid, comp.transfer_id]);
             if (u.affectedRows) { destinoOk = true; await logERP({ tabla: 'stock_transfers', registro_id: comp.transfer_id, accion: 'update', campo: ct.destino, antes: null, despues: pid, comprobante_id: comp.id, usuario }); }
           }
         }
       }
-      // Si no se pudo poner el destinatario (no existe como cliente en el sistema), queda el RUC en las notas
-      if (ct.notas && !destinoOk) {
+      // Además, siempre se agrega a las notas "Guía … · RUC … · Nombre" (al final, sin borrar lo anterior)
+      if (ct.notas) {
         const notas = String(t.notas || '');
         if (!mencionaDoc(notas, comp.serie, comp.numero)) {
-          const doc = comp.cliente_doc ? `${comp.cliente_tipo_doc === '6' ? 'RUC' : comp.cliente_tipo_doc === '1' ? 'DNI' : 'Doc.'} ${comp.cliente_doc}` : '';
-          const linea = [`Guía ${numero}`, doc, comp.cliente_nombre].filter(Boolean).join(' · ');
+          const doc = consDoc ? `${consTipo === '6' ? 'RUC' : consTipo === '1' ? 'DNI' : 'Doc.'} ${consDoc}` : '';
+          const linea = [`Guía ${numero}`, doc, consNombre].filter(Boolean).join(' · ');
           const nuevas = (notas.trim() ? notas.trim() + ' | ' : '') + linea;  // se agrega al final, sin borrar nada
           await erpWritePool.query(`UPDATE stock_transfers SET \`${ct.notas}\` = ? WHERE id = ?`, [nuevas, comp.transfer_id]);
           await logERP({ tabla: 'stock_transfers', registro_id: comp.transfer_id, accion: 'update', campo: ct.notas, antes: t.notas, despues: nuevas, comprobante_id: comp.id, usuario });
@@ -1408,7 +1423,10 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
       const nombre = x && (x.razon_social || x.nombre_completo || [x.nombres, x.apellido_paterno, x.apellido_materno].filter(Boolean).join(' '));
       if (!nombre) return null;
       const r = { tipo_doc: tipo, doc: num, nombre: limpiar(nombre, 200), direccion: limpiar(x.direccion_fiscal || x.direccion || ''),
-        estado: x.estado || null, condicion: x.condicion || null, fuente: 'SUNAT' };
+        estado: x.estado || null, condicion: x.condicion || null, fuente: 'SUNAT',
+        // Locales anexos, si el servicio los devuelve (no todos los planes lo hacen)
+        establecimientos: (x.establecimientos || x.anexos || x.locales_anexos || x.locales || []).filter(Boolean).slice(0, 30)
+          .map(e => typeof e === 'string' ? { direccion: limpiar(e) } : { direccion: limpiar(e.direccion || e.direccion_completa || e.address || ''), ubigeo: String(e.ubigeo || '').trim(), tipo: limpiar(e.tipo || e.tipo_establecimiento || '') }) };
       cacheSunat.set(num, { r, at: Date.now() });
       return r;
     } catch (e) { return null; }
@@ -1535,7 +1553,8 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
     const doc = String(d.doc || '').trim();
     if (/^\d{8}$|^\d{11}$/.test(doc)) {
       const su = await consultarSunat(doc);
-      if (su) o.destinatario = { ...d, tipo_doc: su.tipo_doc, nombre: su.nombre, fuente: 'SUNAT', estado_sunat: su.estado, condicion_sunat: su.condicion };
+      if (su) o.destinatario = { ...d, tipo_doc: su.tipo_doc, nombre: su.nombre, fuente: 'SUNAT', estado_sunat: su.estado, condicion_sunat: su.condicion,
+        direccion_fiscal: su.direccion, establecimientos: su.establecimientos || [] };
     }
     return o;
   }
@@ -1560,7 +1579,7 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
       if (!t) throw err('Transferencia no encontrada');
       companyId = t.company_id;
       const cfgT = cfgs[companyId] || {};
-      const propio = { tipo_doc: '6', doc: cfgT.ruc || '', nombre: empresas[companyId] || '' };
+      const propio = { tipo_doc: '6', doc: cfgT.ruc || await rucDeEmitidos(companyId), nombre: empresas[companyId] || '' };
       // Destinatario: el consignatario (entrega a consignación) o la propia empresa (devolución / entre almacenes)
       destinatario = t.destino.consignacion ? { ...t.destino.cliente } : propio;
       items = t.items;
@@ -1570,8 +1589,10 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
         // Partida: desde un almacén propio, la de Configuración (Guías → Punto de partida);
         // en una devolución de consignación, la dirección de esa ubicación en el sistema
         partida: t.origen.consignacion ? { ubigeo: '', direccion: t.origen.direccion || (t.origen.cliente && t.origen.cliente.direccion) || '', lugar: [t.origen.ciudad, t.origen.region].filter(Boolean).join(', ') } : null,
-        llegada: { ubigeo: '', direccion: t.destino.direccion || (t.destino.cliente && t.destino.cliente.direccion) || '',
-          lugar: [t.destino.ciudad, t.destino.region].filter(Boolean).join(', ') },
+        // Llegada: la dirección de la consignación; si vuelve a un almacén propio, la de ese almacén o la de Configuración
+        llegada: t.destino.consignacion
+          ? { ubigeo: '', direccion: t.destino.direccion || (t.destino.cliente && t.destino.cliente.direccion) || '', lugar: [t.destino.ciudad, t.destino.region].filter(Boolean).join(', ') }
+          : { ubigeo: t.destino.direccion ? '' : (cfgT.partida_ubigeo || ''), direccion: t.destino.direccion || cfgT.partida_direccion || '', lugar: [t.destino.ciudad, t.destino.region].filter(Boolean).join(', ') },
         destinatario_fijo: !!(destinatario && destinatario.fijo) };
     } else if (q.sale_id || q.codigo) {
       let id = Number(q.sale_id);
@@ -1623,7 +1644,7 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
         if (p && p.document_number) {
           l.cliente = { tipo_doc: tipoDocCliente(String(p.document_number).trim()) || '6', doc: String(p.document_number).trim(),
             nombre: limpiar(p.business_name || [p.first_name, p.last_name].filter(Boolean).join(' ')) || l.nombre,
-            direccion: limpiar(p.direccion || ''), email: limpiar(p.email || l.email || '', 120), fijo: true, de_transferencia: !!pidDest };
+            direccion: limpiar(p.direccion || ''), email: limpiar(p.email || l.email || '', 120), fijo: true, de_transferencia: !!pidDest, party_id: pidDest || l.party_id };
           continue;
         }
       }
@@ -1661,10 +1682,12 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
       // Solo las que salen a / vuelven de una consignación necesitan guía. Los movimientos internos
       // (almacén principal ↔ tienda Kuranko, exhibición, cuarentena…) son el mismo local: no llevan guía.
       const tl = ct.tipoLoc;
-      const filtroInternas = req.query.internas === '1' || !tl ? '' : `AND (lf.\`${tl}\` = 'consignment' OR lt.\`${tl}\` = 'consignment')`;
+      // Las devoluciones de consignación tampoco: esa guía no la emite la empresa.
+      const filtroInternas = req.query.internas === '1' || !tl ? '' : `AND lt.\`${tl}\` = 'consignment'`;
       const [rows] = await prodPool.query(`SELECT st.id, st.transfer_date AS fecha, st.reference_number AS referencia, st.operation_type_code AS codigo,
           (${ct.destino ? `st.\`${ct.destino}\` IS NOT NULL OR ` : ''}${ct.notas ? `COALESCE(st.\`${ct.notas}\`,'') REGEXP '(10|15|17|20)[0-9]{9}'` : '1'}) AS con_ruc,
           lf.name AS origen, lt.name AS destino, ${tl ? `(lf.\`${tl}\` <> 'consignment' AND lt.\`${tl}\` <> 'consignment')` : '0'} AS interna,
+          ${tl ? `(lf.\`${tl}\` = 'consignment' AND lt.\`${tl}\` <> 'consignment')` : '0'} AS devolucion,
           ${ct.partyLoc && tl ? `(SELECT TRIM(pa.document_number) FROM parties pa WHERE pa.id = IF(lt.\`${tl}\` = 'consignment', lt.\`${ct.partyLoc}\`, lf.\`${ct.partyLoc}\`))` : 'NULL'} AS ruc_consig,
           ${ct.partyLoc && tl ? `(SELECT COALESCE(pa.business_name, CONCAT_WS(' ', pa.first_name, pa.last_name)) FROM parties pa WHERE pa.id = IF(lt.\`${tl}\` = 'consignment', lt.\`${ct.partyLoc}\`, lf.\`${ct.partyLoc}\`))` : 'NULL'} AS nombre_consig,
           (SELECT COALESCE(SUM(sti.quantity),0) FROM stock_transfer_items sti WHERE sti.stock_transfer_id = st.id) AS unidades
@@ -1676,7 +1699,7 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
       const ids = rows.map(r => r.id);
       const [gs] = ids.length ? await portalPool.query(`SELECT transfer_id, serie, numero, estado FROM fe_comprobantes WHERE tipo='guia' AND transfer_id IN (?) AND estado NOT IN ('error','enviando','rechazado')`, [ids]) : [[]];
       const guia = Object.fromEntries(gs.map(g => [g.transfer_id, numDoc(g.serie, g.numero)]));
-      res.json({ transferencias: rows.map(r => ({ ...r, interna: !!Number(r.interna), con_ruc: !!Number(r.con_ruc), tipo: TIPO_TRANSF[r.codigo] || r.codigo, unidades: Number(r.unidades), guia: guia[r.id] || null })), escribe_erp: !!erpWritePool, columna_empresa: ct.empresa });
+      res.json({ transferencias: rows.map(r => ({ ...r, interna: !!Number(r.interna), devolucion: !!Number(r.devolucion), con_ruc: !!Number(r.con_ruc), tipo: TIPO_TRANSF[r.codigo] || r.codigo, unidades: Number(r.unidades), guia: guia[r.id] || null })), escribe_erp: !!erpWritePool, columna_empresa: ct.empresa });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
@@ -1691,27 +1714,26 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
       const l = t.destino.consignacion ? t.destino : t.origen.consignacion ? t.origen : null;
       if (!l || !l.cliente || !l.cliente.doc) return res.status(400).json({ error: 'La ubicación de consignación no tiene RUC/DNI registrado en el sistema' });
       const ct = await columnasTransfer();
-      // Con la sección RUC/DNI de la transferencia: se elige ahí el cliente (no se toca nada más)
+      const hecho = [];
+      // 1) Sección RUC/DNI de la transferencia (destinatario): el cliente con ese RUC, solo si está vacía
       if (ct.destino) {
         const pid = await partyPorDoc(l.cliente.doc);
         if (pid) {
-          const [[y]] = await erpWritePool.query(`SELECT \`${ct.destino}\` AS d FROM stock_transfers WHERE id = ?`, [t.id]);
-          if (y && y.d != null) return res.json({ ok: true, ya: true });
           const [u] = await erpWritePool.query(`UPDATE stock_transfers SET \`${ct.destino}\` = ? WHERE id = ? AND \`${ct.destino}\` IS NULL`, [pid, t.id]);
-          if (u.affectedRows) await logERP({ tabla: 'stock_transfers', registro_id: t.id, accion: 'update', campo: ct.destino, antes: null, despues: pid, comprobante_id: null, usuario: quien(req) });
-          return res.json({ ok: true, campo: 'destinatario' });
+          if (u.affectedRows) { hecho.push('destinatario'); await logERP({ tabla: 'stock_transfers', registro_id: t.id, accion: 'update', campo: ct.destino, antes: null, despues: pid, comprobante_id: null, usuario: quien(req) }); }
         }
       }
+      // 2) Notas: "RUC … · razón social (SUNAT)" al final, sin borrar lo anterior
       const [[x]] = await erpWritePool.query(`SELECT notes FROM stock_transfers WHERE id = ?`, [t.id]);
       const notas = String((x && x.notes) || '');
-      if (notas.includes(l.cliente.doc)) return res.json({ ok: true, ya: true });
-      const su = await consultarSunat(l.cliente.doc);   // razón social según SUNAT
-      const linea = [`${l.cliente.tipo_doc === '1' ? 'DNI' : 'RUC'} ${l.cliente.doc}`, su ? su.nombre : l.cliente.nombre].filter(Boolean).join(' · ');
-      const nuevas = (notas.trim() ? notas.trim() + ' | ' : '') + linea;
-      const [u] = await erpWritePool.query(`UPDATE stock_transfers SET notes = ? WHERE id = ? AND notes <=> ?`, [nuevas, t.id, x.notes]);
-      if (!u.affectedRows) return res.status(409).json({ error: 'Las notas cambiaron mientras tanto; vuelve a intentar' });
-      await logERP({ tabla: 'stock_transfers', registro_id: t.id, accion: 'update', campo: 'notes', antes: x.notes, despues: nuevas, comprobante_id: null, usuario: quien(req) });
-      res.json({ ok: true, notas: nuevas });
+      if (!notas.includes(l.cliente.doc)) {
+        const su = await consultarSunat(l.cliente.doc);
+        const linea = [`${l.cliente.tipo_doc === '1' ? 'DNI' : 'RUC'} ${l.cliente.doc}`, su ? su.nombre : l.cliente.nombre].filter(Boolean).join(' · ');
+        const nuevas = (notas.trim() ? notas.trim() + ' | ' : '') + linea;
+        const [u] = await erpWritePool.query(`UPDATE stock_transfers SET notes = ? WHERE id = ? AND notes <=> ?`, [nuevas, t.id, x.notes]);
+        if (u.affectedRows) { hecho.push('notas'); await logERP({ tabla: 'stock_transfers', registro_id: t.id, accion: 'update', campo: 'notes', antes: x.notes, despues: nuevas, comprobante_id: null, usuario: quien(req) }); }
+      }
+      res.json({ ok: true, ya: !hecho.length, hecho });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
@@ -1748,6 +1770,14 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
     } catch (e) { res.status(500).json({ error: 'No se pudo deshacer: ' + e.message }); }
   });
 
+  function obsTransferencia(t) {
+    const l = t.destino.consignacion ? t.destino : t.origen.consignacion ? t.origen : null;
+    const c = l && l.cliente && l.cliente.doc ? ` (${l.cliente.tipo_doc === '1' ? 'DNI' : 'RUC'} ${l.cliente.doc})` : '';
+    if (t.destino.consignacion) return `Entrega en consignación a ${t.destino.nombre}${c}`;
+    if (t.origen.consignacion) return `Devolución de consignación de ${t.origen.nombre}${c}`;
+    return `Transferencia ${t.origen.nombre} → ${t.destino.nombre}`;
+  }
+
   // Datos de la guía a partir de lo que envía la pantalla
   function datosGuia(b, o) {
     return {
@@ -1759,9 +1789,10 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
       transfer_id: o.transferencia ? o.transferencia.id : null,
       llegada: b.llegada || {}, peso: b.peso, bultos: b.bultos,
       transportista: b.transportista, conductor: b.conductor, vehiculo: b.vehiculo,
-      items: Array.isArray(b.items) ? b.items : o.items,
+      // Desde una transferencia o una venta, productos y cantidades son los del sistema (no se cambian)
+      items: (o.transferencia || o.venta) ? o.items : (Array.isArray(b.items) ? b.items : o.items),
       relacionados: Array.isArray(b.relacionados) ? b.relacionados.map(r => ({ ...r, ruc_emisor: o.cfg.ruc || '' })) : o.relacionados,
-      observaciones: b.observaciones || (o.venta ? `Venta ${o.venta.code}` : o.transferencia ? `Transferencia ${o.transferencia.origen.nombre} → ${o.transferencia.destino.nombre}` : ''),
+      observaciones: b.observaciones || (o.venta ? `Venta ${o.venta.code}` : o.transferencia ? obsTransferencia(o.transferencia) : ''),
       enviar_email: b.enviar_email != null ? !!b.enviar_email : o.cfg.enviar_email, formato_pdf: o.cfg.formato_pdf
     };
   }
@@ -1776,7 +1807,9 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
         venta: o.venta ? { id: o.venta.id, code: o.venta.code } : null,
         transferencia: o.transferencia ? { id: o.transferencia.id, fecha: o.transferencia.fecha, origen: o.transferencia.origen.nombre, destino: o.transferencia.destino.nombre, tipo: o.transferencia.tipo } : null,
         motivo: o.motivo || '01', escribe_erp: !!erpWritePool,
-        destinatario: o.destinatario, destinatario_fijo: !!o.destinatario_fijo, llegada: o.llegada || { direccion: o.destinatario.direccion || '', ubigeo: '' },
+        destinatario: o.destinatario, destinatario_fijo: !!o.destinatario_fijo, items_fijos: !!(o.transferencia || o.venta),
+        observaciones: o.venta ? `Venta ${o.venta.code}` : o.transferencia ? obsTransferencia(o.transferencia) : '',
+        establecimientos: (o.destinatario && o.destinatario.establecimientos) || [], llegada: o.llegada || { direccion: o.destinatario.direccion || '', ubigeo: '' },
         items: o.items, relacionados: o.relacionados, motivos: MOTIVOS_GRE, transporte: t,
         enviar_email: o.cfg.enviar_email, hoy: hoyLima() });
     } catch (e) { res.status(e.validacion ? 400 : 500).json({ error: e.message }); }

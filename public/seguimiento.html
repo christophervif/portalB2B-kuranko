@@ -89,7 +89,7 @@ td.n,th.n{text-align:right}
   <button id="st-bo" onclick="verTab('bo')">🧾 Backorders</button>
 </div>
 
-<div id="roNote" class="ro-note hide">Vista de solo lectura: el supervisor visualiza los envíos y backorders. Las facturas (desde Importaciones), la asignación de tracking y la gestión de backorders las hace únicamente el administrador.</div>
+<div id="roNote" class="ro-note hide">Vista de solo lectura: el supervisor visualiza los envíos, su tracking y los backorders, y puede copiar los seguimientos para enviarlos a los clientes. Las facturas (desde Importaciones), la asignación de tracking y la gestión de backorders las hace únicamente el administrador.</div>
 
 <!-- ══════════════════ TAB ENVÍOS ══════════════════ -->
 <div id="tab-env">
@@ -133,6 +133,7 @@ td.n,th.n{text-align:right}
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
       <h3 style="margin:0">Envíos</h3>
       <div class="row" style="align-items:center">
+        <button class="ghost sm" onclick="seguimientosClientes()" title="Links de seguimiento para enviar a cada cliente">🔗 Seguimientos de clientes</button>
         <button id="btnTrack" class="ghost sm" onclick="actualizarTracking()" title="Lee el estado del courier (tramo origen→almacén). Se actualiza cada 3 días.">🚚 Actualizar tracking</button>
         <select id="filtroEnv" onchange="pintarEnvios()">
           <option value="">Activos</option>
@@ -332,7 +333,6 @@ function pintarEnvios(){
 }
 // Clientes incluidos en el envío (desde el reparto) → botón de compartir seguimiento.
 function clientesEnvio(e){
-  if(!ES_MAESTRO) return '';
   const set=new Map();
   (e.items||[]).forEach(i=>(i.bo_alloc||[]).forEach(a=>{ if(a.cliente) set.set(a.cliente,true); }));
   const cl=[...set.keys()];
@@ -342,8 +342,27 @@ function clientesEnvio(e){
     cl.map(c=>`<button class="ghost sm" style="margin:2px" onclick="compartirCliente('${jsq(c)}')">${esc(c)}</button>`).join('')+`</div>`;
 }
 const FASE_LBL={transito:'En camino al almacén',en_hub:'En almacén',embarcado:'Embarcado a Perú',recibido:'Recibido en Perú'};
+// N° de tracking con botón de copiar (lo ven maestro y supervisor).
+function trackingCopiable(e){
+  if(!e.tracking)return '<span class="muted sm">Aún sin N° de tracking.</span>';
+  return `<span class="sm">🚚 Tracking${e.courier?(' '+esc(e.courier)):''}: <b style="user-select:all">${esc(e.tracking)}</b></span>
+    <button class="ghost sm" onclick="event.stopPropagation();copiarTexto('${jsq(e.tracking)}','Tracking copiado')">📋 Copiar</button>`;
+}
+// Supervisor: misma información de logística, sin controles para editar.
+function panelLogisticaLectura(e){
+  const hub=e.hub||'', fase=e.fase||'transito';
+  const hubTxt={miami:'Almacén Miami (EE.UU.)',madrid:'Almacén Madrid (España)'}[hub]||'Directo a Perú';
+  const faseTxt=(e.estado==='recibido')?'Recibido en Perú':(fase==='transito'&&!hub?'En camino a Perú':(FASE_LBL[fase]||''));
+  const eta=(e.eta&&e.estado!=='recibido')?`<span class="badge b-tra">🇵🇪 llega aprox. ${esc(fFecha(e.eta))}</span>`:'';
+  const fhub=(e.fecha_hub&&hub)?`<span class="muted sm">· llegó al almacén el ${esc(fFecha(e.fecha_hub))}</span>`:'';
+  return `<div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">
+    <div class="row" style="align-items:center">${trackingCopiable(e)}</div>
+    <div class="row" style="align-items:center;margin-top:6px"><span class="chip">${esc(hubTxt)}</span><span class="badge ${e.estado==='recibido'?'b-rec':'b-tra'}">${esc(faseTxt)}</span>${eta}${fhub}</div>
+    ${histCourier(e)}
+  </div>`;
+}
 function panelLogistica(e){
-  if(!ES_MAESTRO) return '';
+  if(!ES_MAESTRO) return panelLogisticaLectura(e);
   const hub=e.hub||'';
   const fase=e.fase||'transito';
   const hubOpt=(v,t)=>`<option value="${v}" ${hub===v?'selected':''}>${t}</option>`;
@@ -356,6 +375,7 @@ function panelLogistica(e){
   // Fecha en que llegó al hub (base del cálculo). Editable cuando ya está en almacén/embarcado.
   const fhub=((fase==='en_hub'||fase==='embarcado')&&hub)?`<div class="f" style="margin-top:6px;max-width:220px"><label>Llegó al almacén el</label><input type="date" value="${e.fecha_hub?esc(String(e.fecha_hub).slice(0,10)):''}" onchange="setFechaHub('${e.id}',this.value)"></div>`:'';
   return `<div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">
+    <div class="row" style="align-items:center;margin-bottom:6px">${trackingCopiable(e)}</div>
     <div class="muted sm" style="margin-bottom:5px">Logística (lo que ve el cliente). Si no eliges almacén, se asume <b>directo a Perú</b>.</div>
     <div class="row" style="align-items:flex-end">
       <div class="f"><label>Almacén intermedio</label><select onchange="setHub('${e.id}',this.value)">${hubOpt('','— directo a Perú —')}${hubOpt('miami','Miami (EE.UU.)')}${hubOpt('madrid','Madrid (España)')}</select></div>
@@ -663,22 +683,78 @@ async function borrarGrupo(id){if(!confirm('¿Eliminar el grupo? Sus ítems qued
 function showModal(html){$('modalHost').innerHTML=`<div class="modal-bg" onclick="if(event.target===this)cerrarModal()"><div class="modal">${html}</div></div>`;}
 function cerrarModal(){$('modalHost').innerHTML='';}
 // Compartir el seguimiento público con el cliente (link por cliente).
+// Copia un texto al portapapeles (con respaldo para navegadores/iframes sin permiso).
+async function copiarTexto(txt,msg){
+  let ok=false;
+  try{ if(navigator.clipboard&&window.isSecureContext){ await navigator.clipboard.writeText(txt); ok=true; } }catch(e){}
+  if(!ok){ const t=document.createElement('textarea'); t.value=txt; t.setAttribute('readonly',''); t.style.position='fixed'; t.style.opacity='0';
+    document.body.appendChild(t); t.select(); try{ ok=document.execCommand('copy'); }catch(e){} document.body.removeChild(t); }
+  toast(ok?(msg||'Copiado'):'No se pudo copiar: selecciónalo y copia a mano');
+  return ok;
+}
+// Link público de un cliente (se crea la 1ra vez y luego siempre es el mismo).
+const LINKS_CLI={};
+async function linkCliente(cliente){
+  if(LINKS_CLI[cliente])return LINKS_CLI[cliente];
+  const r=await api('/cliente-link?cliente='+encodeURIComponent(cliente),'GET');
+  return (LINKS_CLI[cliente]=location.origin+r.path);
+}
+function mensajeCliente(cliente,url){return 'Hola '+cliente+', puedes seguir el estado de tu pedido aquí: '+url;}
 async function compartirCliente(cliente){
   try{
-    const r=await api('/cliente-link?cliente='+encodeURIComponent(cliente),'GET');
-    const url=location.origin+r.path;
-    const wa='https://wa.me/?text='+encodeURIComponent('Hola '+cliente+', puedes seguir el estado de tu pedido aquí: '+url);
+    const url=await linkCliente(cliente);
+    const msg=mensajeCliente(cliente,url);
     showModal(`<h3>Seguimiento para ${esc(cliente)}</h3>
-      <div class="hint">Comparte este enlace. El cliente verá SOLO el estado de su pedido (sin precios, proveedor ni datos internos).</div>
-      <input id="shareUrl" value="${esc(url)}" readonly style="width:100%" onclick="this.select()">
+      <div class="hint">El cliente verá SOLO el estado de su pedido (sin precios, proveedor ni datos internos). Puedes editar el mensaje antes de copiarlo.</div>
+      <textarea id="shareMsg" style="width:100%;min-height:76px">${esc(msg)}</textarea>
+      <input id="shareUrl" value="${esc(url)}" readonly style="width:100%;margin-top:6px" onclick="this.select()">
       <div class="row" style="margin-top:12px;justify-content:flex-end;align-items:center">
-        <button class="ghost" onclick="copiarLink()">Copiar enlace</button>
-        <a href="${esc(wa)}" target="_blank" style="text-decoration:none;background:#25D366;color:#fff;border-radius:8px;padding:8px 12px;font-weight:600">Enviar por WhatsApp</a>
+        <button class="ok" onclick="copiarTexto($('shareMsg').value,'Mensaje copiado')">📋 Copiar mensaje</button>
+        <button class="ghost" onclick="copiarTexto($('shareUrl').value,'Enlace copiado')">Copiar solo el enlace</button>
+        <a href="#" onclick="window.open('https://wa.me/?text='+encodeURIComponent($('shareMsg').value),'_blank');return false;" style="text-decoration:none;background:#25D366;color:#fff;border-radius:8px;padding:8px 12px;font-weight:600">Enviar por WhatsApp</a>
         <button class="ghost" onclick="cerrarModal()">Cerrar</button>
       </div>`);
   }catch(e){toast(e.message);}
 }
-function copiarLink(){const i=$('shareUrl');if(!i)return;i.select();try{document.execCommand('copy');toast('Enlace copiado');}catch(e){try{navigator.clipboard.writeText(i.value);toast('Enlace copiado');}catch(_){}}}
+function copiarLink(){const i=$('shareUrl');if(i)copiarTexto(i.value,'Enlace copiado');}
+// Todos los clientes con pedidos pendientes, para copiar su seguimiento de una vez.
+function clientesConPedidos(){
+  const m=new Map();
+  BOITEMS.filter(b=>!b.archivado&&b.cliente&&b.cliente!=='—').forEach(b=>{
+    const x=m.get(b.cliente)||{cliente:b.cliente,n:0,enCamino:0};
+    x.n++; if((b.cubierto||0)>0)x.enCamino++; m.set(b.cliente,x);
+  });
+  return [...m.values()].sort((a,b)=>(b.enCamino-a.enCamino)||a.cliente.localeCompare(b.cliente));
+}
+function seguimientosClientes(){
+  const cl=clientesConPedidos();
+  if(!cl.length){toast('No hay clientes con pedidos pendientes.');return;}
+  const filas=cl.map((c,i)=>`<tr><td>${esc(c.cliente)}</td><td class="n">${c.n}</td><td class="n">${c.enCamino?`<span class="badge b-tra">${c.enCamino} en camino</span>`:'<span class="muted sm">en compra</span>'}</td>
+      <td style="white-space:nowrap"><button class="ghost sm" onclick="copiarMsgCliente(${i})">📋 Copiar</button>
+      <button class="ghost sm" onclick="waCliente(${i})" title="Abrir WhatsApp con el mensaje">WhatsApp</button>
+      <button class="ghost sm" onclick="cerrarModal();compartirCliente(SEG_CLI[${i}].cliente)" title="Ver y editar el mensaje">✎</button></td></tr>`).join('');
+  SEG_CLI=cl;
+  showModal(`<h3>🔗 Seguimientos de clientes</h3>
+    <div class="hint">Cada cliente tiene un enlace propio que siempre muestra el estado actualizado de SUS productos. Copia el mensaje y pégalo en el chat del cliente.</div>
+    <div class="tw" style="max-height:55vh;overflow:auto"><table><thead><tr><th>Cliente</th><th class="n">Productos</th><th class="n">Estado</th><th></th></tr></thead><tbody>${filas}</tbody></table></div>
+    <div class="row" style="margin-top:12px;justify-content:space-between;align-items:center">
+      <button class="ghost" onclick="copiarTodosClientes()" title="Una línea por cliente: nombre y enlace">📋 Copiar todos los enlaces</button>
+      <button class="ghost" onclick="cerrarModal()">Cerrar</button>
+    </div>`);
+}
+let SEG_CLI=[];
+async function copiarMsgCliente(i){const c=SEG_CLI[i];if(!c)return;try{const url=await linkCliente(c.cliente);copiarTexto(mensajeCliente(c.cliente,url),'Mensaje para '+c.cliente+' copiado');}catch(e){toast(e.message);}}
+async function waCliente(i){const c=SEG_CLI[i];if(!c)return;
+  const w=window.open('','_blank'); // se abre ya (si no, el navegador lo bloquea tras esperar el enlace)
+  try{const url=await linkCliente(c.cliente);const wa='https://wa.me/?text='+encodeURIComponent(mensajeCliente(c.cliente,url));if(w)w.location.href=wa;else window.open(wa,'_blank');}
+  catch(e){if(w)w.close();toast(e.message);}}
+async function copiarTodosClientes(){
+  try{
+    const lineas=[];
+    for(const c of SEG_CLI){lineas.push(c.cliente+': '+await linkCliente(c.cliente));}
+    copiarTexto(lineas.join('\n'),lineas.length+' enlaces copiados');
+  }catch(e){toast(e.message);}
+}
 
 init();
 </script>

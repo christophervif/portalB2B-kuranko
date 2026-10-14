@@ -330,16 +330,25 @@ module.exports = function registrarSeguimiento({
   }
 
   // Estado del envío EN PALABRAS DEL CLIENTE (sin datos internos).
-  const HUB_LABEL = { miami: 'almacén de Miami (EE.UU.)', madrid: 'almacén de Madrid (España)' };
+  //  Genérico a propósito: el cliente NO ve ciudades ni países intermedios
+  //  (Miami/Madrid), ni el courier, ni su texto (que a veces trae la ciudad y
+  //  viene en inglés). Solo la etapa, la llegada estimada y si hay escala.
+  //  clave: proceso | transito | en_hub | embarcado | recibido
+  const TXT_CLIENTE = {
+    proceso:   'Pedido en proceso con el proveedor',
+    transito:  'En tránsito internacional',
+    directo:   'En camino a Perú',
+    en_hub:    'En nuestro centro de distribución internacional, preparando el envío a Perú',
+    embarcado: 'Despachado a Perú',
+    recibido:  'Llegó a Perú'
+  };
   function estadoClienteEnvio(e) {
-    const hubTxt = HUB_LABEL[e.hub] || 'almacén internacional';
     const eta = isoDate(e.eta);
-    if (e.estado === 'recibido' || e.fase === 'recibido') return { clave: 'recibido', texto: 'Recibido en Perú', eta };
-    if (e.fase === 'embarcado') return { clave: 'embarcado', texto: 'En camino a Perú', eta };
-    if (e.fase === 'en_hub') return { clave: 'en_hub', texto: 'En el ' + hubTxt + ', preparando el envío a Perú', eta };
-    const ap = s(e.api_resumen);
-    const dest = e.hub ? ('al ' + hubTxt) : 'a Perú';
-    return { clave: 'transito', texto: 'En camino ' + dest + (ap ? (' · ' + ap) : ''), eta: null };
+    const directo = !e.hub; // sin escala: va directo a Perú
+    if (e.estado === 'recibido' || e.fase === 'recibido') return { clave: 'recibido', texto: TXT_CLIENTE.recibido, eta: null, directo };
+    if (e.fase === 'embarcado') return { clave: 'embarcado', texto: TXT_CLIENTE.embarcado, eta, directo };
+    if (e.fase === 'en_hub') return { clave: 'en_hub', texto: TXT_CLIENTE.en_hub, eta, directo };
+    return { clave: 'transito', texto: directo ? TXT_CLIENTE.directo : TXT_CLIENTE.transito, eta: null, directo };
   }
 
   // Backorders EN VIVO del ERP (SOLO LECTURA). Se usa para traerlos y para sincronizar.
@@ -1145,23 +1154,23 @@ module.exports = function registrarSeguimiento({
       const envMap = {};
       if (envioIds.size) {
         const [envs] = await portalPool.query(
-          `SELECT id, hub, fase, estado, eta, api_resumen, api_at, actualizado_en FROM seg_envios WHERE id IN (?)`, [[...envioIds]]);
+          `SELECT id, hub, fase, estado, eta, api_at, actualizado_en FROM seg_envios WHERE id IN (?)`, [[...envioIds]]);
         envs.forEach(e => { envMap[e.id] = e; });
       }
       let ultima = null;
       const items = bo.map(b => {
         const cob = asJson(b.coberturas, []) || [];
         const prim = cob.find(c => c && c.envio_id && envMap[c.envio_id]);
-        let estado = 'En proceso de compra', eta = null;
+        let estado = TXT_CLIENTE.proceso, eta = null, fase = 'proceso', directo = false;
         if (prim) {
           const e = envMap[prim.envio_id];
           const info = estadoClienteEnvio(e);
-          estado = info.texto; eta = info.eta;
+          estado = info.texto; eta = info.eta; fase = info.clave; directo = info.directo;
           const at = e.api_at || e.actualizado_en;
           if (at && (!ultima || at > ultima)) ultima = at;
         }
         const imagen = imgMap[s(b.sku).trim()] || '';
-        return { producto: b.producto || '', cantidad: b.cantidad, estado, eta, imagen };
+        return { producto: b.producto || '', cantidad: b.cantidad, estado, fase, directo, eta, imagen };
       });
       res.json({ ok: true, cliente, items, actualizado: ultima, nota: 'Este seguimiento se actualiza cada 3 días.' });
     } catch (e) {

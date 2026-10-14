@@ -177,7 +177,7 @@ a.lnk:hover{text-decoration:underline}
     <div class="card">
       <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:flex-start">
         <div><h3>Transferencias sin guía</h3>
-        <div class="desc">Entregas y devoluciones de <b>consignación</b> sin N° de documento (o sin RUC en las notas): son las que llevan guía. Los movimientos internos (almacén principal ↔ Kuranko, exhibición, cuarentena) no aparecen porque son el mismo local. Al emitir, el N° se anota solo en la transferencia.</div></div>
+        <div class="desc">Entregas y devoluciones de <b>consignación</b> sin N° de documento (o sin RUC/DNI de destinatario): son las que llevan guía. Los movimientos internos (almacén principal ↔ Kuranko, exhibición, cuarentena) no aparecen porque son el mismo local. Al emitir, el N° se anota solo en la transferencia.</div></div>
         <div class="acciones"><button class="btn btn-sec" onclick="abrirVentasGuia()">🚚 Guía desde una venta…</button></div>
       </div>
       <div class="fila"><label class="campo">Periodo<select id="mt-dias" onchange="cargarTransferencias()"><option value="15">15 días</option><option value="60" selected>60 días</option><option value="180">6 meses</option></select></label>
@@ -1033,13 +1033,16 @@ async function cargarTransferencias() {
       <td>${fechaTxt(String(t.fecha).slice(0, 10))}</td>
       <td><div class="nom">${esc(t.origen || '—')} → ${esc(t.destino || '—')}</div><div class="sub">Transferencia #${t.id}</div></td>
       <td><span class="sub">${esc(t.tipo || '')}</span></td><td class="n">${N(t.unidades, 0)}</td>
-      <td>${t.referencia ? `<span class="chip c-g">${esc(t.referencia)}</span>` : t.guia ? `<span class="chip c-w">${esc(t.guia)} (por anotar)</span>` : '<span class="sub">—</span>'}${t.referencia && !t.con_ruc && !t.interna ? '<div class="sub" style="color:var(--fg-w)">sin RUC en notas</div>' : ''}</td>
-      <td>${t.referencia && !t.con_ruc && !t.interna ? `<button class="btn btn-sec btn-sm" onclick="anotarRUCTransf(${t.id})">Agregar RUC a notas</button>` : t.guia || t.referencia ? '' : t.interna ? `<span class="chip c-g" title="Mismo local: no necesita guía">Interno</span> <button class="btn btn-sec btn-sm" onclick="if(confirm('Es un movimiento interno (mismo local): normalmente NO lleva guía. Emitir una guía genera un documento real ante SUNAT. ¿Emitirla igual?'))abrirGuia({transfer_id:${t.id}})">Emitir igual</button>` : `<button class="btn btn-sm" onclick="abrirGuia({transfer_id:${t.id}})">Emitir guía</button>`}</td></tr>`).join('')
+      <td>${t.referencia ? `<span class="chip c-g">${esc(t.referencia)}</span>` : t.guia ? `<span class="chip c-w">${esc(t.guia)} (por anotar)</span>` : '<span class="sub">—</span>'}${t.referencia && !t.con_ruc && !t.interna ? '<div class="sub" style="color:var(--fg-w)">sin RUC/DNI de destinatario</div>' : ''}</td>
+      <td>${t.referencia && !t.con_ruc && !t.interna ? (t.ruc_consig
+        ? `<div class="sub">Consignatario: <span class="mono">RUC ${esc(t.ruc_consig)}</span>${t.nombre_consig ? ' · ' + esc(t.nombre_consig) : ''}</div><button class="btn btn-sec btn-sm" onclick="anotarRUCTransf(${t.id}, '${esc(t.ruc_consig)}')">Poner este RUC en la transferencia</button>`
+        : '<span class="sub" style="color:var(--fg-w)">La ubicación no tiene cliente con RUC en el sistema</span>') : t.guia || t.referencia ? '' : t.interna ? `<span class="chip c-g" title="Mismo local: no necesita guía">Interno</span> <button class="btn btn-sec btn-sm" onclick="if(confirm('Es un movimiento interno (mismo local): normalmente NO lleva guía. Emitir una guía genera un documento real ante SUNAT. ¿Emitirla igual?'))abrirGuia({transfer_id:${t.id}})">Emitir igual</button>` : `<button class="btn btn-sm" onclick="abrirGuia({transfer_id:${t.id}})">Emitir guía</button>`}</td></tr>`).join('')
       || '<tr><td colspan="6" class="vacio">No hay consignaciones sin guía en este periodo</td></tr>';
   } catch (e) { $('mt-body').innerHTML = `<tr><td colspan="6" class="vacio">${esc(e.message)}</td></tr>`; }
 }
-async function anotarRUCTransf(id) {
-  try { const r = await api(`/api/fe/guia/transferencia/${id}/ruc`, 'POST'); showToast(r.ya ? 'Ya tenía el RUC en las notas' : 'RUC agregado al final de las notas'); cargarTransferencias(); }
+async function anotarRUCTransf(id, ruc) {
+  if (!confirm(`En la transferencia #${id} se pondrá como destinatario (sección RUC/DNI) el cliente con RUC ${ruc}.\nSi ese cliente no existe en el sistema, se agrega al final de las notas.\nNo se cambia el N° de guía ni se emite nada. ¿Continuar?`)) return;
+  try { const r = await api(`/api/fe/guia/transferencia/${id}/ruc`, 'POST'); showToast(r.ya ? 'La transferencia ya tenía destinatario' : r.campo === 'destinatario' ? 'Destinatario (RUC/DNI) puesto en la transferencia' : 'RUC agregado al final de las notas'); cargarTransferencias(); }
   catch (e) { showToast(e.message, true); }
 }
 // Guía desde una venta: se elige de una lista con búsqueda
@@ -1107,7 +1110,7 @@ async function abrirGuia(origen) {
   $('mg-peso').value = ''; $('mg-bultos').value = 1;
   $('mg-obs').value = MG.venta ? 'Venta ' + MG.venta.code : MG.transferencia ? `Transferencia ${MG.transferencia.origen} → ${MG.transferencia.destino}` : ''; $('mg-mail').checked = !!MG.enviar_email;
   $('mg-rel').innerHTML = (MG.relacionados.length ? `Documento relacionado: <b>${MG.relacionados.map(r => `${NOMBRE_TIPO[r.tipo] || r.tipo} ${esc(numTxt(r.serie, r.numero))}`).join(', ')}</b>` : 'Sin comprobante relacionado.')
-    + (MG.transferencia ? (MG.escribe_erp ? '<br>Al emitir, el N° de la guía y el RUC/DNI del destinatario se escriben en la transferencia del sistema.' : '<br>Al emitir, copia el N° de la guía en la transferencia del sistema.') : '');
+    + (MG.transferencia ? (MG.escribe_erp ? '<br>Al emitir, el N° de la guía, el tipo Guía de Remisión y el destinatario (RUC/DNI) se escriben en la transferencia del sistema.' : '<br>Al emitir, copia el N° de la guía en la transferencia del sistema.') : '');
   $('mg-serie').textContent = MG.serie ? `Serie ${MG.serie} · el número lo asigna el portal` : 'Falta la serie de guías (Configuración)';
   MG_ITEMS = MG.items.map(i => ({ ...i, sel: true }));
   pintarItemsGuia(); pintarTransporte(); mgModalidad(MG_MOD);

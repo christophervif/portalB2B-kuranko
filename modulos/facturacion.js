@@ -945,7 +945,18 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('stock_transfers','locations')`);
       const de = t => c.filter(x => x.t === t).map(x => x.c);
       const st = de('stock_transfers'), lo = de('locations');
+      // Destinatario (RUC/DNI) de la transferencia: columna que apunta a un cliente (parties)
+      const destino = ['destination_id', 'recipient_id', 'destinatario_id'].find(x => st.includes(x)) || null;
+      let destTabla = null;
+      if (destino) {
+        try {
+          const [[fk]] = await prodPool.query(`SELECT REFERENCED_TABLE_NAME t FROM information_schema.KEY_COLUMN_USAGE
+            WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'stock_transfers' AND COLUMN_NAME = ? AND REFERENCED_TABLE_NAME IS NOT NULL LIMIT 1`, [destino]);
+          destTabla = fk ? fk.t : 'parties';
+        } catch (e) { destTabla = 'parties'; }
+      }
       colsTransfer = {
+        destino: destTabla === 'parties' ? destino : null,
         empresa: ['company_id', 'empresa_id'].find(x => st.includes(x)) || null,
         notas: st.includes('notes') ? 'notes' : null,
         dirLoc: ['address', 'direccion', 'address_line', 'location_address'].find(x => lo.includes(x)) || null,
@@ -955,8 +966,15 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
         regionLoc: lo.includes('state') ? 'state' : null,
         emailLoc: lo.includes('email') ? 'email' : null
       };
-    } catch (e) { colsTransfer = { empresa: null, notas: 'notes', dirLoc: null, tipoLoc: 'type', partyLoc: null, ciudadLoc: null, regionLoc: null, emailLoc: null }; }
+    } catch (e) { colsTransfer = { destino: null, empresa: null, notas: 'notes', dirLoc: null, tipoLoc: 'type', partyLoc: null, ciudadLoc: null, regionLoc: null, emailLoc: null }; }
     return colsTransfer;
+  }
+
+  // Cliente del sistema con ese RUC/DNI (lectura con la cuenta de solo lectura)
+  async function partyPorDoc(doc) {
+    const d = String(doc || '').trim(); if (!d) return null;
+    const [r] = await prodPool.query(`SELECT id FROM parties WHERE TRIM(document_number) = ? ORDER BY id LIMIT 1`, [d]);
+    return r.length ? r[0].id : null;
   }
 
   // Al emitir una guía desde una transferencia: escribe el N° de documento (solo si está vacío)
@@ -967,7 +985,7 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
     const numero = numDoc(comp.serie, comp.numero);
     try {
       const ct = await columnasTransfer();
-      const [[t]] = await erpWritePool.query(`SELECT id, reference_number, document_type_id${ct.notas ? ', `' + ct.notas + '` AS notas' : ''} FROM stock_transfers WHERE id = ?`, [comp.transfer_id]);
+      const [[t]] = await erpWritePool.query(`SELECT id, reference_number, document_type_id${ct.notas ? ', `' + ct.notas + '` AS notas' : ''}${ct.destino ? ', `' + ct.destino + '` AS destino' : ''} FROM stock_transfers WHERE id = ?`, [comp.transfer_id]);
       if (!t) return { erp_estado: 'error', erp_error: 'La transferencia ya no existe en el sistema' };
       const actual = String(t.reference_number || '').trim();
       if (actual && normDoc(actual) !== normDoc(numero))
@@ -986,7 +1004,20 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
           if (u.affectedRows) await logERP({ tabla: 'stock_transfers', registro_id: comp.transfer_id, accion: 'update', campo: 'document_type_id', antes: t.document_type_id, despues: gr.id, comprobante_id: comp.id, usuario });
         }
       }
-      if (ct.notas) {
+      // Destinatario (sección RUC/DNI de la transferencia): se llena con el cliente de ese RUC/DNI, solo si está vacío
+      let destinoOk = false;
+      if (ct.destino) {
+        if (t.destino != null) destinoOk = true;
+        else if (comp.cliente_doc) {
+          const pid = await partyPorDoc(comp.cliente_doc);
+          if (pid) {
+            const [u] = await erpWritePool.query(`UPDATE stock_transfers SET \`${ct.destino}\` = ? WHERE id = ? AND \`${ct.destino}\` IS NULL`, [pid, comp.transfer_id]);
+            if (u.affectedRows) { destinoOk = true; await logERP({ tabla: 'stock_transfers', registro_id: comp.transfer_id, accion: 'update', campo: ct.destino, antes: null, despues: pid, comprobante_id: comp.id, usuario }); }
+          }
+        }
+      }
+      // Si no se pudo poner el destinatario (no existe como cliente en el sistema), queda el RUC en las notas
+      if (ct.notas && !destinoOk) {
         const notas = String(t.notas || '');
         if (!mencionaDoc(notas, comp.serie, comp.numero)) {
           const doc = comp.cliente_doc ? `${comp.cliente_tipo_doc === '6' ? 'RUC' : comp.cliente_tipo_doc === '1' ? 'DNI' : 'Doc.'} ${comp.cliente_doc}` : '';
@@ -1567,7 +1598,7 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
   async function leerTransferencia(id) {
     const ct = await columnasTransfer();
     const [[t]] = await prodPool.query(`SELECT st.id, st.transfer_date, st.reference_number, st.operation_type_code, st.location_from_id, st.location_to_id
-      ${ct.notas ? ', st.`' + ct.notas + '` AS notas' : ''}${ct.empresa ? ', st.`' + ct.empresa + '` AS company_id' : ''}
+      ${ct.notas ? ', st.`' + ct.notas + '` AS notas' : ''}${ct.empresa ? ', st.`' + ct.empresa + '` AS company_id' : ''}${ct.destino ? ', st.`' + ct.destino + '` AS destino_party' : ''}
       FROM stock_transfers st WHERE st.id = ?`, [id]);
     if (!t) return null;
     const extraLoc = [['dirLoc', 'direccion'], ['ciudadLoc', 'ciudad'], ['regionLoc', 'region'], ['partyLoc', 'party_id'], ['emailLoc', 'email']]
@@ -1583,19 +1614,20 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
     if (consig.length && grupos && grupos.facturacionDe) { try { fact = await grupos.facturacionDe(consig); } catch (e) { fact = {}; } }
     for (const l of [origen, destino]) {
       if (!l.consignacion) continue;
-      // 1.º los datos que se pusieron al crear la ubicación de consignación (su cliente/empresa vinculada)
-      if (l.party_id) {
+      // 1.º el destinatario (RUC/DNI) elegido en la transferencia; 2.º el cliente vinculado a la ubicación
+      const pidDest = t.destino_party && (l === destino || !destino.consignacion) ? t.destino_party : null;
+      if (pidDest || l.party_id) {
         const cp = await columnasParty();
         const sel = ['direccion', 'email'].filter(k => cp[k]).map(k => `, \`${cp[k]}\` AS ${k}`).join('');
-        const [[p]] = await prodPool.query(`SELECT document_number, business_name, first_name, last_name${sel} FROM parties WHERE id = ?`, [l.party_id]);
+        const [[p]] = await prodPool.query(`SELECT document_number, business_name, first_name, last_name${sel} FROM parties WHERE id = ?`, [pidDest || l.party_id]);
         if (p && p.document_number) {
           l.cliente = { tipo_doc: tipoDocCliente(String(p.document_number).trim()) || '6', doc: String(p.document_number).trim(),
             nombre: limpiar(p.business_name || [p.first_name, p.last_name].filter(Boolean).join(' ')) || l.nombre,
-            direccion: limpiar(p.direccion || ''), email: limpiar(p.email || l.email || '', 120), fijo: true };
+            direccion: limpiar(p.direccion || ''), email: limpiar(p.email || l.email || '', 120), fijo: true, de_transferencia: !!pidDest };
           continue;
         }
       }
-      // 2.º lo registrado en Gestión de clientes del portal
+      // 3.º lo registrado en Gestión de clientes del portal
       const f = fact[l.id] || {};
       l.cliente = { tipo_doc: f.ruc ? tipoDocCliente(f.ruc) || '6' : '', doc: f.ruc || '', nombre: f.nombre || l.nombre, direccion: '', email: l.email || '' };
       if (f.customer_id) {
@@ -1631,13 +1663,15 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
       const tl = ct.tipoLoc;
       const filtroInternas = req.query.internas === '1' || !tl ? '' : `AND (lf.\`${tl}\` = 'consignment' OR lt.\`${tl}\` = 'consignment')`;
       const [rows] = await prodPool.query(`SELECT st.id, st.transfer_date AS fecha, st.reference_number AS referencia, st.operation_type_code AS codigo,
-          ${ct.notas ? `COALESCE(st.\`${ct.notas}\`,'') REGEXP '(10|15|17|20)[0-9]{9}'` : '1'} AS con_ruc,
+          (${ct.destino ? `st.\`${ct.destino}\` IS NOT NULL OR ` : ''}${ct.notas ? `COALESCE(st.\`${ct.notas}\`,'') REGEXP '(10|15|17|20)[0-9]{9}'` : '1'}) AS con_ruc,
           lf.name AS origen, lt.name AS destino, ${tl ? `(lf.\`${tl}\` <> 'consignment' AND lt.\`${tl}\` <> 'consignment')` : '0'} AS interna,
+          ${ct.partyLoc && tl ? `(SELECT TRIM(pa.document_number) FROM parties pa WHERE pa.id = IF(lt.\`${tl}\` = 'consignment', lt.\`${ct.partyLoc}\`, lf.\`${ct.partyLoc}\`))` : 'NULL'} AS ruc_consig,
+          ${ct.partyLoc && tl ? `(SELECT COALESCE(pa.business_name, CONCAT_WS(' ', pa.first_name, pa.last_name)) FROM parties pa WHERE pa.id = IF(lt.\`${tl}\` = 'consignment', lt.\`${ct.partyLoc}\`, lf.\`${ct.partyLoc}\`))` : 'NULL'} AS nombre_consig,
           (SELECT COALESCE(SUM(sti.quantity),0) FROM stock_transfer_items sti WHERE sti.stock_transfer_id = st.id) AS unidades
         FROM stock_transfers st
         LEFT JOIN locations lf ON lf.id = st.location_from_id LEFT JOIN locations lt ON lt.id = st.location_to_id
         WHERE st.transfer_date >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
-          ${req.query.todas === '1' ? '' : `AND (st.reference_number IS NULL OR TRIM(st.reference_number) = ''${ct.notas ? ` OR COALESCE(st.\`${ct.notas}\`,'') NOT REGEXP '(10|15|17|20)[0-9]{9}'` : ''})`} ${filtroInternas}
+          ${req.query.todas === '1' ? '' : `AND (st.reference_number IS NULL OR TRIM(st.reference_number) = ''${ct.notas ? ` OR (${ct.destino ? `st.\`${ct.destino}\` IS NULL AND ` : ''}COALESCE(st.\`${ct.notas}\`,'') NOT REGEXP '(10|15|17|20)[0-9]{9}')` : ''})`} ${filtroInternas}
         ORDER BY st.transfer_date DESC, st.id DESC LIMIT 300`, [dias]);
       const ids = rows.map(r => r.id);
       const [gs] = ids.length ? await portalPool.query(`SELECT transfer_id, serie, numero, estado FROM fe_comprobantes WHERE tipo='guia' AND transfer_id IN (?) AND estado NOT IN ('error','enviando','rechazado')`, [ids]) : [[]];
@@ -1656,6 +1690,18 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
       if (!t) return res.status(404).json({ error: 'Transferencia no encontrada' });
       const l = t.destino.consignacion ? t.destino : t.origen.consignacion ? t.origen : null;
       if (!l || !l.cliente || !l.cliente.doc) return res.status(400).json({ error: 'La ubicación de consignación no tiene RUC/DNI registrado en el sistema' });
+      const ct = await columnasTransfer();
+      // Con la sección RUC/DNI de la transferencia: se elige ahí el cliente (no se toca nada más)
+      if (ct.destino) {
+        const pid = await partyPorDoc(l.cliente.doc);
+        if (pid) {
+          const [[y]] = await erpWritePool.query(`SELECT \`${ct.destino}\` AS d FROM stock_transfers WHERE id = ?`, [t.id]);
+          if (y && y.d != null) return res.json({ ok: true, ya: true });
+          const [u] = await erpWritePool.query(`UPDATE stock_transfers SET \`${ct.destino}\` = ? WHERE id = ? AND \`${ct.destino}\` IS NULL`, [pid, t.id]);
+          if (u.affectedRows) await logERP({ tabla: 'stock_transfers', registro_id: t.id, accion: 'update', campo: ct.destino, antes: null, despues: pid, comprobante_id: null, usuario: quien(req) });
+          return res.json({ ok: true, campo: 'destinatario' });
+        }
+      }
       const [[x]] = await erpWritePool.query(`SELECT notes FROM stock_transfers WHERE id = ?`, [t.id]);
       const notas = String((x && x.notes) || '');
       if (notas.includes(l.cliente.doc)) return res.json({ ok: true, ya: true });
@@ -1688,7 +1734,7 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
       if (l.tabla === 'sale_vouchers' && l.accion === 'insert') {
         const [r] = await erpWritePool.query(`DELETE FROM sale_vouchers WHERE id = ?`, [l.registro_id]);
         if (!r.affectedRows) return res.status(400).json({ error: 'El comprobante ya no estaba en el sistema' });
-      } else if (l.tabla === 'stock_transfers' && l.accion === 'update' && /^(reference_number|notes|document_type_id)$/.test(l.campo)) {
+      } else if (l.tabla === 'stock_transfers' && l.accion === 'update' && /^(reference_number|notes|document_type_id|destination_id|recipient_id|destinatario_id)$/.test(l.campo)) {
         // Solo se restaura si nadie lo cambió después
         const [r] = await erpWritePool.query(`UPDATE stock_transfers SET \`${l.campo}\` = ? WHERE id = ? AND \`${l.campo}\` <=> ?`, [l.antes, l.registro_id, l.despues]);
         if (!r.affectedRows) return res.status(400).json({ error: 'El campo cambió después en el sistema; revísalo a mano' });

@@ -177,12 +177,12 @@ a.lnk:hover{text-decoration:underline}
     <div class="card">
       <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:flex-start">
         <div><h3>Transferencias sin guía</h3>
-        <div class="desc">Entregas y devoluciones de <b>consignación</b> sin N° de documento (o sin RUC/DNI de destinatario): son las que llevan guía. Los movimientos internos (almacén principal ↔ Kuranko, exhibición, cuarentena) no aparecen porque son el mismo local. Al emitir, el N° se anota solo en la transferencia.</div></div>
+        <div class="desc"><b>Entregas a consignación</b> sin N° de documento (o sin RUC/DNI de destinatario): son las que llevan guía. No aparecen los movimientos internos (almacén principal ↔ Kuranko, exhibición, cuarentena) ni las devoluciones de consignación, cuya guía emite el consignatario. Al emitir, el N° se anota solo en la transferencia.</div></div>
         <div class="acciones"><button class="btn btn-sec" onclick="abrirVentasGuia()">🚚 Guía desde una venta…</button></div>
       </div>
       <div class="fila"><label class="campo">Periodo<select id="mt-dias" onchange="cargarTransferencias()"><option value="15">15 días</option><option value="60" selected>60 días</option><option value="180">6 meses</option></select></label>
         <label class="chk"><input type="checkbox" id="mt-todas" onchange="cargarTransferencias()"> Ver también las que ya tienen N° documento</label>
-        <label class="chk"><input type="checkbox" id="mt-internas" onchange="cargarTransferencias()"> Mostrar movimientos internos</label></div>
+        <label class="chk"><input type="checkbox" id="mt-internas" onchange="cargarTransferencias()"> Mostrar también internos y devoluciones</label></div>
       <div id="mt-aviso"></div>
       <div class="tabla-wrap"><table>
         <thead><tr><th>Fecha</th><th>Origen → Destino</th><th>Tipo</th><th class="n">Unid.</th><th>N° documento</th><th></th></tr></thead>
@@ -349,6 +349,7 @@ a.lnk:hover{text-decoration:underline}
 
 <!-- ══════════ MODAL: GUÍA DE REMISIÓN ══════════ -->
 <datalist id="dl-ubigeos"></datalist>
+<datalist id="dl-llegadas"></datalist>
 <div class="modal" id="m-guia"><div class="modal-box">
   <div class="modal-top">
     <div><h3 id="mg-titulo">Guía de remisión</h3><div class="desc" id="mg-sub"></div></div>
@@ -372,7 +373,7 @@ a.lnk:hover{text-decoration:underline}
   <div class="grid2">
     <label class="campo" style="grid-column:span 2">Punto de partida<input id="mg-pdir" oninput="previaGuiaLenta()"></label>
     <label class="campo" style="grid-column:span 2">Distrito de partida<input id="mg-pubi" list="dl-ubigeos" placeholder="Escribe el distrito…" oninput="previaGuiaLenta()"></label>
-    <label class="campo" style="grid-column:span 2">Dirección de llegada<input id="mg-ldir" oninput="previaGuiaLenta()"></label>
+    <label class="campo" style="grid-column:span 2">Dirección de llegada<input id="mg-ldir" list="dl-llegadas" oninput="previaGuiaLenta()"><span class="sub" id="mg-ldir-ayuda"></span></label>
     <label class="campo" style="grid-column:span 2">Distrito de llegada<input id="mg-lubi" list="dl-ubigeos" placeholder="Escribe el distrito…" oninput="previaGuiaLenta()"></label>
   </div>
   <div class="desc" style="margin-top:12px"><b>Transporte</b></div>
@@ -1017,11 +1018,25 @@ async function cargarUbigeos() {
 }
 const ubiTxt = c => { const u = (UBIGEOS || []).find(x => x[0] === c); return c ? (u ? `${c} · ${u[1]}` : c) : ''; };
 // Ubigeo a partir de "distrito, provincia/departamento" de la ubicación del sistema (solo si es único)
-function ubigeoDe(lugar) {
-  const sinT = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
-  const partes = String(lugar || '').split(',').map(sinT).filter(Boolean); if (!partes.length || !UBIGEOS) return '';
-  const c = UBIGEOS.filter(([, n]) => { const d = sinT(n).split(',').map(x => x.trim()); return d[0] === partes[0] && partes.slice(1).every(p => d.includes(p)); });
-  return c.length === 1 ? c[0][0] : '';
+function ubigeoDe(lugar, direccion) {
+  if (!UBIGEOS) return '';
+  const sinT = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
+  const L = UBIGEOS.map(([c, n]) => [c, sinT(n).split(',').map(x => x.trim())]);
+  // Si hay empate (ej. Miraflores de Lima, Arequipa, Yauyos…), se prefiere Lima Metropolitana
+  const elegir = c => { if (c.length > 1) c = c.filter(([, d]) => d[1] === 'LIMA' && d[2] === 'LIMA'); return c.length === 1 ? c[0][0] : ''; };
+  const unico = f => elegir(L.filter(f));
+  // 1) "distrito, provincia/departamento" de la ubicación del sistema
+  const partes = String(lugar || '').split(',').map(sinT).filter(Boolean);
+  if (partes.length) { const u = unico(([, d]) => d[0] === partes[0] && partes.slice(1).every(p => d.includes(p))); if (u) return u; }
+  // 2) el distrito escrito dentro de la dirección ("Av. República de Panamá 3986, Surquillo, Lima"); el más específico gana
+  const trozos = String(direccion || '').split(/[,\-–]/).map(sinT).filter(t => t && !/\d/.test(t)).reverse();
+  for (let i = 0; i < trozos.length; i++) {
+    const dist = trozos[i], resto = trozos.filter((_, j) => j !== i);
+    if (dist === 'LIMA') continue;
+    const u = elegir(L.filter(([, d]) => d[0] === dist && resto.every(p => d.includes(p))));
+    if (u) return u;
+  }
+  return '';
 }
 const ubiCod = v => (String(v || '').match(/^\s*(\d{6})/) || [])[1] || '';
 async function cargarTransferencias() {
@@ -1033,16 +1048,16 @@ async function cargarTransferencias() {
       <td>${fechaTxt(String(t.fecha).slice(0, 10))}</td>
       <td><div class="nom">${esc(t.origen || '—')} → ${esc(t.destino || '—')}</div><div class="sub">Transferencia #${t.id}</div></td>
       <td><span class="sub">${esc(t.tipo || '')}</span></td><td class="n">${N(t.unidades, 0)}</td>
-      <td>${t.referencia ? `<span class="chip c-g">${esc(t.referencia)}</span>` : t.guia ? `<span class="chip c-w">${esc(t.guia)} (por anotar)</span>` : '<span class="sub">—</span>'}${t.referencia && !t.con_ruc && !t.interna ? '<div class="sub" style="color:var(--fg-w)">sin RUC/DNI de destinatario</div>' : ''}</td>
-      <td>${t.referencia && !t.con_ruc && !t.interna ? (t.ruc_consig
+      <td>${t.referencia ? `<span class="chip c-g">${esc(t.referencia)}</span>` : t.guia ? `<span class="chip c-w">${esc(t.guia)} (por anotar)</span>` : '<span class="sub">—</span>'}${t.referencia && !t.con_ruc && !t.interna && !t.devolucion ? '<div class="sub" style="color:var(--fg-w)">sin RUC/DNI de destinatario</div>' : ''}</td>
+      <td>${t.devolucion ? '<span class="chip c-g" title="La guía de una devolución la emite el consignatario">Devolución</span>' : t.referencia && !t.con_ruc && !t.interna ? (t.ruc_consig
         ? `<div class="sub">Consignatario: <span class="mono">RUC ${esc(t.ruc_consig)}</span>${t.nombre_consig ? ' · ' + esc(t.nombre_consig) : ''}</div><button class="btn btn-sec btn-sm" onclick="anotarRUCTransf(${t.id}, '${esc(t.ruc_consig)}')">Poner este RUC en la transferencia</button>`
         : '<span class="sub" style="color:var(--fg-w)">La ubicación no tiene cliente con RUC en el sistema</span>') : t.guia || t.referencia ? '' : t.interna ? `<span class="chip c-g" title="Mismo local: no necesita guía">Interno</span> <button class="btn btn-sec btn-sm" onclick="if(confirm('Es un movimiento interno (mismo local): normalmente NO lleva guía. Emitir una guía genera un documento real ante SUNAT. ¿Emitirla igual?'))abrirGuia({transfer_id:${t.id}})">Emitir igual</button>` : `<button class="btn btn-sm" onclick="abrirGuia({transfer_id:${t.id}})">Emitir guía</button>`}</td></tr>`).join('')
       || '<tr><td colspan="6" class="vacio">No hay consignaciones sin guía en este periodo</td></tr>';
   } catch (e) { $('mt-body').innerHTML = `<tr><td colspan="6" class="vacio">${esc(e.message)}</td></tr>`; }
 }
 async function anotarRUCTransf(id, ruc) {
-  if (!confirm(`En la transferencia #${id} se pondrá como destinatario (sección RUC/DNI) el cliente con RUC ${ruc}.\nSi ese cliente no existe en el sistema, se agrega al final de las notas.\nNo se cambia el N° de guía ni se emite nada. ¿Continuar?`)) return;
-  try { const r = await api(`/api/fe/guia/transferencia/${id}/ruc`, 'POST'); showToast(r.ya ? 'La transferencia ya tenía destinatario' : r.campo === 'destinatario' ? 'Destinatario (RUC/DNI) puesto en la transferencia' : 'RUC agregado al final de las notas'); cargarTransferencias(); }
+  if (!confirm(`En la transferencia #${id} se pondrá el RUC ${ruc}:\n• en el recuadro RUC/DNI (si está vacío)\n• y al final de las notas, sin borrar lo que haya.\nNo se cambia el N° de guía ni se emite nada. ¿Continuar?`)) return;
+  try { const r = await api(`/api/fe/guia/transferencia/${id}/ruc`, 'POST'); showToast(r.ya ? 'La transferencia ya tenía el RUC en el recuadro y en las notas' : 'Agregado en la transferencia: ' + r.hecho.map(h => h === 'destinatario' ? 'recuadro RUC/DNI' : 'notas').join(' y ')); cargarTransferencias(); }
   catch (e) { showToast(e.message, true); }
 }
 // Guía desde una venta: se elige de una lista con búsqueda
@@ -1106,11 +1121,17 @@ async function abrirGuia(origen) {
     : '✓ Datos de la ubicación de consignación en el sistema (RUC no se puede cambiar aquí)';
   if (d.fuente === 'SUNAT') $('mg-nombre').disabled = true;
   $('mg-pdir').value = MG.partida.direccion || ''; $('mg-pubi').value = ubiTxt(MG.partida.ubigeo || ubigeoDe(MG.partida.lugar));
-  $('mg-ldir').value = MG.llegada.direccion || ''; $('mg-lubi').value = ubiTxt(MG.llegada.ubigeo || ubigeoDe(MG.llegada.lugar));
+  $('mg-ldir').value = MG.llegada.direccion || ''; $('mg-lubi').value = ubiTxt(MG.llegada.ubigeo || ubigeoDe(MG.llegada.lugar, MG.llegada.direccion));
+  $('mg-pubi').value = ubiTxt(MG.partida.ubigeo || ubigeoDe(MG.partida.lugar, MG.partida.direccion));
+  // Locales del destinatario según SUNAT (fiscal y anexos), para elegir la dirección de llegada
+  const locs = [d.direccion_fiscal ? { direccion: d.direccion_fiscal, tipo: 'Domicilio fiscal' } : null, ...(MG.establecimientos || [])].filter(x => x && x.direccion);
+  $('dl-llegadas').innerHTML = locs.map(x => `<option value="${esc(x.direccion)}">${esc(x.tipo || 'Local anexo')}</option>`).join('');
+  $('mg-ldir-ayuda').textContent = locs.length ? `${locs.length} dirección(es) registradas en SUNAT para este RUC: elige en la lista o escribe otra.` : '';
+  if (!d.doc && !MG.destinatario_fijo) showToast('Falta el RUC de la empresa: complétalo en Configuración → RUC de la empresa', true);
   $('mg-peso').value = ''; $('mg-bultos').value = 1;
-  $('mg-obs').value = MG.venta ? 'Venta ' + MG.venta.code : MG.transferencia ? `Transferencia ${MG.transferencia.origen} → ${MG.transferencia.destino}` : ''; $('mg-mail').checked = !!MG.enviar_email;
+  $('mg-obs').value = MG.observaciones || ''; $('mg-mail').checked = !!MG.enviar_email;
   $('mg-rel').innerHTML = (MG.relacionados.length ? `Documento relacionado: <b>${MG.relacionados.map(r => `${NOMBRE_TIPO[r.tipo] || r.tipo} ${esc(numTxt(r.serie, r.numero))}`).join(', ')}</b>` : 'Sin comprobante relacionado.')
-    + (MG.transferencia ? (MG.escribe_erp ? '<br>Al emitir, el N° de la guía, el tipo Guía de Remisión y el destinatario (RUC/DNI) se escriben en la transferencia del sistema.' : '<br>Al emitir, copia el N° de la guía en la transferencia del sistema.') : '');
+    + (MG.transferencia ? (MG.escribe_erp ? '<br>Al emitir, en la transferencia del sistema se escriben el N° de la guía, el tipo Guía de Remisión, el destinatario (recuadro RUC/DNI) y una línea en notas con guía, RUC y razón social.' : '<br>Al emitir, copia el N° de la guía en la transferencia del sistema.') : '');
   $('mg-serie').textContent = MG.serie ? `Serie ${MG.serie} · el número lo asigna el portal` : 'Falta la serie de guías (Configuración)';
   MG_ITEMS = MG.items.map(i => ({ ...i, sel: true }));
   pintarItemsGuia(); pintarTransporte(); mgModalidad(MG_MOD);
@@ -1152,7 +1173,12 @@ async function nuevoTransporte(clase) {
   } catch (e) { showToast(e.message, true); }
 }
 function pintarItemsGuia() {
-  $('mg-items').innerHTML = MG_ITEMS.map((it, i) => `<tr>
+  // Desde una transferencia o una venta: productos y cantidades del sistema, sin cambios
+  const fijo = MG && MG.items_fijos;
+  $('mg-items').innerHTML = MG_ITEMS.map((it, i) => fijo ? `<tr>
+    <td><input type="checkbox" checked disabled></td>
+    <td><div class="nom">${esc(it.descripcion)}</div><div class="sub">${esc(it.codigo || '')}</div></td>
+    <td class="n"><b>${N(it.cantidad, 0)}</b></td></tr>` : `<tr>
     <td><input type="checkbox" ${it.sel ? 'checked' : ''} onchange="MG_ITEMS[${i}].sel=this.checked;previaGuiaLenta()"></td>
     <td><input value="${esc(it.descripcion)}" oninput="MG_ITEMS[${i}].descripcion=this.value;previaGuiaLenta()"><div class="sub">${esc(it.codigo || '')}</div></td>
     <td class="n"><input class="q" type="number" min="0" step="any" value="${it.cantidad}" oninput="MG_ITEMS[${i}].cantidad=Number(this.value);previaGuiaLenta()"></td></tr>`).join('')

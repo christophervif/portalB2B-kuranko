@@ -15,6 +15,8 @@
 //  Todo va protegido por authAdmin + requiereModulo('importaciones').
 // ═══════════════════════════════════════════════════════════════════════════
 
+const { rutaCatalogo } = require('./comunes');
+
 module.exports = function registrarImportacion({
   app, authAdmin, requiereModulo, prodPool, portalPool
 }) {
@@ -49,6 +51,57 @@ module.exports = function registrarImportacion({
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX (n), INDEX (codigo), INDEX (tipo)
       )`);
+    // Memoria de asignaciones "proveedor + código de factura → SKU". Se llena con
+    // lo que TÚ eliges a mano y, sobre todo, con lo que el ALMACÉN confirma con el
+    // producto en la mano. La próxima factura con ese código sale "ya confirmado".
+    await portalPool.query(`
+      CREATE TABLE IF NOT EXISTS imp_sku_mem (
+        k          VARCHAR(200) PRIMARY KEY,
+        sku        VARCHAR(120) NOT NULL DEFAULT '',
+        fuente     VARCHAR(20)  NOT NULL DEFAULT '',
+        veces      INT NOT NULL DEFAULT 1,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )`);
+  }
+
+  // ── Memoria SKU: clave = PROVEEDOR|CÓDIGO (solo letras y números, mayúsculas) ─
+  //    El frontend arma la MISMA clave (memKey en importacion.html).
+  const limpio = (v) => String(v == null ? '' : v).normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const memKey = (prov, codigo) => {
+    const p = limpio(String(prov || '').split('(')[0]), c = limpio(codigo);
+    return (p && c) ? (p + '|' + c).slice(0, 200) : '';
+  };
+  // entries: [{prov, codigo, sku}] · fuente: 'maestro' | 'almacen'
+  // Lo que confirmó el ALMACÉN no lo pisa una elección posterior del maestro
+  // (el almacén vio el producto); una nueva confirmación del almacén sí lo actualiza.
+  async function aprenderSku(entries, fuente) {
+    const vistos = new Map();
+    (Array.isArray(entries) ? entries : []).forEach(e => {
+      const k = memKey(e && e.prov, e && e.codigo);
+      const sku = String((e && e.sku) || '').trim().slice(0, 120);
+      if (k && sku) vistos.set(k, sku);
+    });
+    if (!vistos.size) return 0;
+    const f = fuente === 'almacen' ? 'almacen' : 'maestro';
+    const valores = [...vistos].map(([k, sku]) => [k, sku, f]);
+    await portalPool.query(
+      `INSERT INTO imp_sku_mem (k, sku, fuente) VALUES ?
+       ON DUPLICATE KEY UPDATE
+         sku    = IF(fuente = 'almacen' AND VALUES(fuente) <> 'almacen', sku, VALUES(sku)),
+         fuente = IF(fuente = 'almacen' AND VALUES(fuente) <> 'almacen', fuente, VALUES(fuente)),
+         veces  = veces + 1`, [valores]);
+    return valores.length;
+  }
+  // Aprende de una recepción CONFIRMADA por el almacén (llamado desde recepciones).
+  async function aprenderDeRecepcion(row) {
+    if (!row) return;
+    const items = asJson(row.items, []) || [];
+    const entries = items
+      .filter(i => !i.es_extra && i.codigo && i.sku_confirmado && i.estado_item !== 'no_llego' && !(i.sub && i.sub.length))
+      .map(i => ({ prov: row.proveedor, codigo: i.codigo, sku: i.sku_confirmado }));
+    try { await aprenderSku(entries, 'almacen'); }
+    catch (e) { console.error('[importacion] aprender de recepción', e.message); }
   }
 
   // Helper: parsea JSON que puede venir como string o ya como objeto (mysql2 con
@@ -60,31 +113,9 @@ module.exports = function registrarImportacion({
   };
 
   // ── 1) CATÁLOGO (solo lectura, desde Renzo) → [[sku, name], ...] ───────────
-  //    Excluye 'variable' (productos padre) y borrados. TRIM al sku (a veces
-  //    trae tabuladores/espacios). Caché en memoria de 10 min.
-  let _catCache = null, _catAt = 0;
-  const CAT_TTL = 10 * 60 * 1000;
-
-  app.get('/api/importacion/catalogo', authAdmin, mImp, async (req, res) => {
-    try {
-      if (_catCache && (Date.now() - _catAt) < CAT_TTL && !req.query.fresh) {
-        return res.json(_catCache);
-      }
-      const [rows] = await prodPool.query(`
-        SELECT TRIM(sku) AS sku, name
-          FROM product_variations
-         WHERE product_type <> 'variable'
-           AND deleted_at IS NULL
-           AND sku IS NOT NULL AND TRIM(sku) <> ''
-         ORDER BY sku`);
-      _catCache = rows.map(r => [r.sku, r.name || '']);
-      _catAt = Date.now();
-      res.json(_catCache);
-    } catch (e) {
-      console.error('[importacion] catalogo', e.message);
-      res.status(500).json({ error: 'No se pudo leer el catálogo' });
-    }
-  });
+  //    Excluye 'variable' (productos padre) y borrados. Caché COMPARTIDA con
+  //    Recepciones y Seguimiento (comunes.js): una sola consulta cada 10 min.
+  app.get('/api/importacion/catalogo', authAdmin, mImp, rutaCatalogo(prodPool, 'importacion'));
 
   // ── 2) TASAS POR PARTIDA (portal) — se guarda/lee el arreglo completo ──────
   app.get('/api/importacion/partidas', authAdmin, mImp, async (req, res) => {
@@ -131,6 +162,29 @@ module.exports = function registrarImportacion({
     } catch (e) {
       console.error('[importacion] put mem', e.message);
       res.status(500).json({ error: 'No se pudo guardar la memoria' });
+    }
+  });
+
+  // ── 3b) MEMORIA SKU (proveedor|código → sku) ──────────────────────────────
+  //    GET → { clave: [sku, fuente] }  ·  POST { entries:[{prov,codigo,sku}] }
+  app.get('/api/importacion/sku-mem', authAdmin, mImp, async (req, res) => {
+    try {
+      const [rows] = await portalPool.query(`SELECT k, sku, fuente FROM imp_sku_mem`);
+      const out = {}; rows.forEach(r => { out[r.k] = [r.sku, r.fuente]; });
+      res.json(out);
+    } catch (e) {
+      console.error('[importacion] get sku-mem', e.message);
+      res.status(500).json({ error: 'No se pudo leer la memoria de SKU' });
+    }
+  });
+
+  app.post('/api/importacion/sku-mem', authAdmin, mImp, async (req, res) => {
+    try {
+      const n = await aprenderSku(req.body && req.body.entries, 'maestro');
+      res.json({ ok: true, n });
+    } catch (e) {
+      console.error('[importacion] post sku-mem', e.message);
+      res.status(500).json({ error: 'No se pudo guardar la memoria de SKU' });
     }
   });
 
@@ -331,5 +385,5 @@ module.exports = function registrarImportacion({
     }
   });
 
-  return { prepararTablas };
+  return { prepararTablas, aprenderDeRecepcion };
 };

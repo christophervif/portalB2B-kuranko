@@ -84,4 +84,48 @@ function nombreProdVar(producto, variacion) {
   return p + ' — ' + v;
 }
 
-module.exports = { EMPRESAS_BI, fechaHoraLima, fechaLima, fechaPura, nombreTrazable, rango, cabeceraExcel, GANANCIA_NORMAL, ES_NORMAL, ES_PEDIDO, ES_FALLA, nombreProdVar };
+// ── Catálogo de SKUs del ERP (solo lectura) COMPARTIDO ─────────────────────
+//  Antes Importaciones, Recepciones y Seguimiento hacían cada uno la MISMA
+//  consulta con su propia caché (hasta 3 consultas al ERP y 3 copias en memoria).
+//  Ahora hay una sola caché de 10 min. Si llegan varias peticiones a la vez
+//  mientras se lee, todas esperan la MISMA consulta (no se dispara 3 veces).
+//  Devuelve [[sku, name], ...] — hijos y simples (los padres 'variable' no).
+let _catSku = null, _catSkuAt = 0, _catSkuProm = null, _catSkuMap = null;
+const CAT_SKU_TTL = 10 * 60 * 1000;
+async function catalogoSku(prodPool, fresh) {
+  if (!fresh && _catSku && (Date.now() - _catSkuAt) < CAT_SKU_TTL) return _catSku;
+  if (_catSkuProm) return _catSkuProm;
+  _catSkuProm = prodPool.query(`
+      SELECT TRIM(sku) AS sku, name FROM product_variations
+       WHERE product_type <> 'variable' AND deleted_at IS NULL
+         AND sku IS NOT NULL AND TRIM(sku) <> '' ORDER BY sku`)
+    .then(([rows]) => {
+      _catSku = rows.map(r => [r.sku, r.name || '']);
+      _catSkuAt = Date.now();
+      _catSkuMap = null; // se rearma bajo demanda
+      return _catSku;
+    })
+    .finally(() => { _catSkuProm = null; });
+  return _catSkuProm;
+}
+// Mapa sku → nombre (para poner el nombre a un SKU sin otra consulta).
+async function nombrePorSku(prodPool) {
+  const cat = await catalogoSku(prodPool);
+  if (!_catSkuMap) { _catSkuMap = new Map(); cat.forEach(([s, n]) => _catSkuMap.set(s, n)); }
+  return _catSkuMap;
+}
+// Responde el catálogo con caché del navegador (5 min). ?fresh=1 fuerza leer el ERP.
+function rutaCatalogo(prodPool, etiqueta) {
+  return async (req, res) => {
+    try {
+      const cat = await catalogoSku(prodPool, !!req.query.fresh);
+      if (!req.query.fresh) res.set('Cache-Control', 'private, max-age=300');
+      res.json(cat);
+    } catch (e) {
+      console.error('[' + etiqueta + '] catalogo', e.message);
+      res.status(500).json({ error: 'No se pudo leer el catálogo' });
+    }
+  };
+}
+
+module.exports = { EMPRESAS_BI, fechaHoraLima, fechaLima, fechaPura, nombreTrazable, rango, cabeceraExcel, GANANCIA_NORMAL, ES_NORMAL, ES_PEDIDO, ES_FALLA, nombreProdVar, catalogoSku, nombrePorSku, rutaCatalogo };

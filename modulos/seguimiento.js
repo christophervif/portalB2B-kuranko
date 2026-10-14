@@ -2,12 +2,15 @@
 //  MÓDULO: Seguimiento de envíos (trackings) + gestión de Backorders
 //
 //  Idea (lo pediste tú):
-//   1) TÚ (maestro) subes una factura de proveedor. La IA (Gemini, misma clave
-//      protegida que Importaciones) la lee y devuelve las líneas con su
-//      traducción al ESPAÑOL. La factura NO se modifica: se muestra tal cual y
-//      se le asigna manualmente un N° de TRACKING. Cada línea trae su SKU
-//      sugerido con un INDICADOR DE CONFIANZA (exacto/alta/revisar/sin match),
-//      igual que en Importaciones.
+//   1) La factura se sube y revisa UNA SOLA VEZ, en Importaciones (Factura → SKU).
+//      Desde ahí, «🚚 Enviar a seguimiento» crea aquí el envío con sus líneas
+//      (código, descripción en español, cantidad, SKU y confianza) SIN PRECIOS.
+//      Aquí solo se le asigna el TRACKING y la logística. Las líneas de esos
+//      envíos son de SOLO LECTURA: se corrigen en Importaciones y se reenvían.
+//      (Los envíos antiguos, creados subiendo la factura aquí, siguen editables.)
+//   1b) Cuando llega, «📥 Enviar a almacén» crea la recepción desde el envío.
+//      Cuando el almacén CONFIRMA, el envío toma los SKU y cantidades reales
+//      (lo que vio el almacenero) y se recalcula la cobertura de backorders.
 //   2) El envío queda con su tracking y sus ítems. Se marca cuáles de esos
 //      ítems corresponden a productos en BACKORDER (los que un cliente ya pidió
 //      y están esperando stock). Así el SUPERVISOR ve, con el tracking, qué está
@@ -30,10 +33,14 @@
 //   · prodPool (ERP de Renzo) → SOLO LECTURA: catálogo y líneas de backorder.
 //   · portalPool → tablas seg_* (envíos, backorders gestionados, grupos).
 //   · La factura NO se guarda (ni el PDF): solo la tabla de líneas ya leída.
+//   · seg_envios.items_factura = líneas tal como llegaron de Importaciones;
+//     seg_envios.items = esas líneas ajustadas con la confirmación del almacén.
 // ═══════════════════════════════════════════════════════════════════════════
 
+const { rutaCatalogo, nombrePorSku } = require('./comunes');
+
 module.exports = function registrarSeguimiento({
-  app, authAdmin, requiereModulo, prodPool, portalPool
+  app, authAdmin, requiereModulo, prodPool, portalPool, recepciones
 }) {
 
   const mSeg = requiereModulo('seguimiento'); // lectura: admin con el módulo (el maestro pasa)
@@ -130,6 +137,15 @@ module.exports = function registrarSeguimiento({
     try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN api_at DATETIME NULL`); } catch (e) {}                        // última lectura por API
     try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN api_eventos JSON NULL`); } catch (e) {}                      // historial completo de eventos del courier (traducido)
     try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN api_entrega DATE NULL`); } catch (e) {}                       // fecha de entrega real según el courier
+    // ── Vínculo con Importaciones / Recepción ─────────────────────────────────
+    try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN origen VARCHAR(20) NOT NULL DEFAULT 'manual'`); } catch (e) {} // manual (legado) | importacion
+    try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN importacion_id VARCHAR(80) NOT NULL DEFAULT ''`); } catch (e) {} // = id de recepción (código + factura)
+    try { await portalPool.query(`ALTER TABLE seg_envios ADD INDEX idx_seg_imp (importacion_id)`); } catch (e) {}
+    try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN codigo VARCHAR(80) NOT NULL DEFAULT ''`); } catch (e) {}       // código de importación
+    try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN empresa VARCHAR(255) NOT NULL DEFAULT ''`); } catch (e) {}
+    try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN items_factura JSON NULL`); } catch (e) {}                    // líneas tal cual vinieron de Importaciones
+    try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN recep_id VARCHAR(80) NOT NULL DEFAULT ''`); } catch (e) {}    // recepción creada desde este envío
+    try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN recep_conf_at DATETIME NULL`); } catch (e) {}                // cuándo se aplicó la confirmación del almacén
 
     // Token de seguimiento público por CLIENTE (link que se comparte al cliente).
     await portalPool.query(`
@@ -459,8 +475,89 @@ module.exports = function registrarSeguimiento({
       nombre:    s(it.nombre).slice(0, 255),                    // nombre del producto en el sistema
       confianza: s(it.confianza).slice(0, 20),                  // exact | alta | rev | no | manual
       es_backorder: !!it.es_backorder,                          // ¿cubre un producto en backorder?
-      bo_ids:    Array.isArray(it.bo_ids) ? it.bo_ids.map(x => s(x).slice(0, 60)).filter(Boolean) : []
+      bo_ids:    Array.isArray(it.bo_ids) ? it.bo_ids.map(x => s(x).slice(0, 60)).filter(Boolean) : [],
+      // Ajustes del ALMACÉN (solo en envíos que vienen de Importaciones):
+      sku_factura: s(it.sku_factura).slice(0, 120),             // SKU sugerido en la factura, si el almacén lo cambió
+      cant_factura: numOrNull(it.cant_factura),                 // cantidad facturada, si llegó otra
+      verificado: !!it.verificado,                              // confirmado por el almacén
+      no_llego:  !!it.no_llego,
+      es_extra:  !!it.es_extra                                  // llegó sin estar en la factura
     };
+  }
+
+  // ── Envío ← confirmación del almacén ──────────────────────────────────────
+  //  Parte SIEMPRE de las líneas originales (items_factura) para que se pueda
+  //  repetir (reconfirmación, corrección) sin acumular cambios.
+  //  · SKU     → el que confirmó el almacén (sku_factura guarda el de la factura).
+  //  · Cantidad→ la que realmente llegó; 'no llegó' → 0.
+  //  · Línea subdividida en varios SKU → una línea por SKU.
+  //  · Productos fuera de factura → se agregan (también pueden cubrir backorders).
+  function aplicarRecepcion(base, recItems, nombres) {
+    const normCod = (x) => s(x).replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    const recNo = recItems.filter(i => !i.es_extra);
+    // Emparejar por posición si las listas coinciden; si no, por código (en orden).
+    const mismoOrden = recNo.length === base.length && base.every((b, k) => normCod(b.codigo) === normCod(recNo[k].codigo));
+    const colas = {};
+    if (!mismoOrden) recNo.forEach(r => { const k = normCod(r.codigo); (colas[k] = colas[k] || []).push(r); });
+    const nom = (sku, def) => (nombres && nombres.get(sku)) || def || '';
+    const out = [];
+    base.forEach((b, k) => {
+      const r = mismoOrden ? recNo[k] : ((colas[normCod(b.codigo)] || []).shift() || null);
+      if (!r) { out.push({ ...b }); return; }
+      const cantFac = b.cantidad;
+      if (r.estado_item === 'no_llego') {
+        out.push({ ...b, cantidad: 0, cant_factura: cantFac, no_llego: true, verificado: true });
+        return;
+      }
+      const recibida = (r.cant_recibida == null ? cantFac : Number(r.cant_recibida));
+      if (Array.isArray(r.sub) && r.sub.length) {
+        r.sub.forEach(sx => {
+          const sku = s(sx.sku_confirmado) || b.sku;
+          const cant = (r.split_modo === 'cant') ? (sx.cant_recibida == null ? 0 : Number(sx.cant_recibida)) : recibida;
+          out.push({ ...b, sku, nombre: nom(sku, sku === b.sku ? b.nombre : ''), cantidad: cant,
+            sku_factura: b.sku, cant_factura: cantFac, confianza: 'almacen', verificado: true });
+        });
+        return;
+      }
+      const sku = s(r.sku_confirmado) || b.sku;
+      const cambio = sku !== b.sku;
+      out.push({ ...b, sku, nombre: cambio ? nom(sku, '') : b.nombre, cantidad: recibida,
+        sku_factura: cambio ? b.sku : '', cant_factura: (recibida !== cantFac ? cantFac : null),
+        confianza: cambio ? 'almacen' : b.confianza, verificado: true });
+    });
+    recItems.filter(i => i.es_extra).forEach(r => {
+      const sku = s(r.sku_confirmado);
+      out.push({ codigo: s(r.codigo), desc: s(r.desc), desc_es: s(r.desc), marca: '', sku, nombre: nom(sku, ''),
+        cantidad: numOrNull(r.cant_recibida), confianza: 'almacen', verificado: true, es_extra: true });
+    });
+    return out.map(itemEnvio);
+  }
+
+  // Llamado por Recepciones cuando el almacén confirma (o se corrige) una recepción.
+  async function alConfirmarRecepcion(rec) {
+    if (!rec) return;
+    const ids = [...new Set([s(rec.id), s(rec.importacion_id)].filter(Boolean))];
+    let [envs] = await portalPool.query(
+      `SELECT id, items, items_factura, n_factura, proveedor FROM seg_envios
+        WHERE origen = 'importacion' AND (recep_id IN (?) OR importacion_id IN (?)) LIMIT 1`, [ids, ids]);
+    if (!envs.length && rec.n_factura) {
+      // Respaldo: misma factura (normalizada) entre los envíos que vinieron de Importaciones.
+      const nf = s(rec.n_factura).replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+      const [cand] = await portalPool.query(
+        `SELECT id, items, items_factura, n_factura, proveedor FROM seg_envios WHERE origen = 'importacion' AND n_factura <> ''`);
+      envs = cand.filter(e => s(e.n_factura).replace(/[^A-Za-z0-9]/g, '').toUpperCase() === nf);
+      if (envs.length !== 1) return; // ambiguo o inexistente: no tocar nada
+    }
+    if (!envs.length) return;
+    const ev = envs[0];
+    const base = asJson(ev.items_factura, null) || asJson(ev.items, []) || [];
+    const recItems = asJson(rec.items, []) || [];
+    let nombres = null; try { nombres = await nombrePorSku(prodPool); } catch (e) { /* sin nombres nuevos */ }
+    const items = aplicarRecepcion(base.filter(i => !i.es_extra), recItems, nombres);
+    await portalPool.query(
+      `UPDATE seg_envios SET items = ?, items_factura = COALESCE(items_factura, ?), recep_id = ?, recep_conf_at = NOW() WHERE id = ?`,
+      [JSON.stringify(items), JSON.stringify(base), s(rec.id), ev.id]);
+    await recomputarCoberturas();
   }
 
   // ════════════════════════════════════════════════════════════════════════
@@ -468,23 +565,8 @@ module.exports = function registrarSeguimiento({
   // ════════════════════════════════════════════════════════════════════════
 
   // ── Catálogo del sistema de ventas (solo lectura) → [[sku, name], ...] ─────
-  let _catCache = null, _catAt = 0;
-  const CAT_TTL = 10 * 60 * 1000;
-  app.get('/api/seguimiento/catalogo', authAdmin, mSeg, async (req, res) => {
-    try {
-      if (_catCache && (Date.now() - _catAt) < CAT_TTL && !req.query.fresh) return res.json(_catCache);
-      const [rows] = await prodPool.query(`
-        SELECT TRIM(sku) AS sku, name FROM product_variations
-         WHERE product_type <> 'variable' AND deleted_at IS NULL
-           AND sku IS NOT NULL AND TRIM(sku) <> '' ORDER BY sku`);
-      _catCache = rows.map(r => [r.sku, r.name || '']);
-      _catAt = Date.now();
-      res.json(_catCache);
-    } catch (e) {
-      console.error('[seguimiento] catalogo', e.message);
-      res.status(500).json({ error: 'No se pudo leer el catálogo' });
-    }
-  });
+  //    Caché COMPARTIDA con Importaciones y Recepciones (comunes.js).
+  app.get('/api/seguimiento/catalogo', authAdmin, mSeg, rutaCatalogo(prodPool, 'seguimiento'));
 
   // ── Envíos (con sus ítems) ─────────────────────────────────────────────────
   //    ?estado=en_transito|recibido para filtrar.
@@ -496,6 +578,7 @@ module.exports = function registrarSeguimiento({
       let sql = `SELECT * FROM seg_envios` + (w.length ? ' WHERE ' + w.join(' AND ') : '') +
                 ` ORDER BY (estado='recibido') ASC, actualizado_en DESC`;
       const [rows] = await portalPool.query(sql, args);
+      const recEstado = await estadosRecepcion(rows);
       // El proveedor y el N° de factura SOLO los ve el maestro. Al supervisor ni
       // siquiera se le envían desde el servidor (no basta con ocultarlos en la UI).
       const esMaestro = !!(req.admin && req.admin.maestro);
@@ -512,6 +595,8 @@ module.exports = function registrarSeguimiento({
         api_eventos: asJson(r.api_eventos, []) || [],
         api_entrega: isoDate(r.api_entrega),
         nota: r.nota || '', items: asJson(r.items, []) || [],
+        origen: r.origen || 'manual', importacion_id: r.importacion_id || '', codigo: r.codigo || '',
+        recep_id: r.recep_id || '', recep_estado: recEstado[r.id] || '', recep_conf_at: r.recep_conf_at || null,
         creado_por: r.creado_por, creado_en: r.creado_en, actualizado_en: r.actualizado_en
       })));
     } catch (e) {
@@ -519,6 +604,27 @@ module.exports = function registrarSeguimiento({
       res.status(500).json({ error: 'No se pudieron leer los envíos' });
     }
   });
+
+  // Estado de la recepción ligada a cada envío (una sola consulta para todos).
+  async function estadosRecepcion(rows) {
+    const out = {};
+    const porId = {};
+    rows.forEach(r => {
+      if (r.origen !== 'importacion') return;
+      [s(r.recep_id), s(r.importacion_id)].filter(Boolean).forEach(k => { (porId[k] = porId[k] || []).push(r.id); });
+    });
+    const keys = Object.keys(porId);
+    if (!keys.length) return out;
+    try {
+      const [recs] = await portalPool.query(
+        `SELECT id, importacion_id, estado, archivada FROM imp_recepciones WHERE id IN (?) OR importacion_id IN (?)`, [keys, keys]);
+      recs.forEach(rc => {
+        const est = rc.archivada ? 'costeada' : rc.estado;
+        [s(rc.id), s(rc.importacion_id)].forEach(k => (porId[k] || []).forEach(envId => { if (!out[envId]) out[envId] = est; }));
+      });
+    } catch (e) { /* si la tabla no existe aún, sin estado */ }
+    return out;
+  }
 
   app.get('/api/seguimiento/envio/:id', authAdmin, mSeg, async (req, res) => {
     try {
@@ -531,6 +637,7 @@ module.exports = function registrarSeguimiento({
         proveedor: esMaestro ? r.proveedor : '', n_factura: r.n_factura,
         estado: r.estado, fecha_estimada: r.fecha_estimada,
         nota: r.nota || '', items: asJson(r.items, []) || [],
+        origen: r.origen || 'manual', importacion_id: r.importacion_id || '', recep_id: r.recep_id || '',
         creado_por: r.creado_por, creado_en: r.creado_en, actualizado_en: r.actualizado_en
       });
     } catch (e) {
@@ -599,30 +706,8 @@ module.exports = function registrarSeguimiento({
   //  ESCRITURA (solo maestro)
   // ════════════════════════════════════════════════════════════════════════
 
-  // ── Proxy de IA (Gemini) — idéntico a Importaciones, el PDF no se almacena ──
-  app.post('/api/seguimiento/ia', authAdmin, mSeg, soloMaestroSeg, async (req, res) => {
-    try {
-      const key = process.env.GEMINI_API_KEY;
-      if (!key) return res.status(500).json({ error: 'GEMINI_API_KEY no está configurada en el servidor' });
-      const { model, prompt, pdf_base64 } = req.body || {};
-      if (!prompt || !pdf_base64) return res.status(400).json({ error: 'Falta el prompt o el PDF' });
-      const mdl = (model || 'gemini-3.6-flash').replace(/[^a-zA-Z0-9.\-]/g, '');
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${mdl}:generateContent?key=${encodeURIComponent(key)}`;
-      const body = {
-        contents: [{ parts: [
-          { inline_data: { mime_type: 'application/pdf', data: pdf_base64 } },
-          { text: prompt }
-        ] }],
-        generationConfig: { temperature: 0, response_mime_type: 'application/json' }
-      };
-      const g = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      const text = await g.text();
-      res.status(g.status).type('application/json').send(text);
-    } catch (e) {
-      console.error('[seguimiento] ia', e.message);
-      res.status(500).json({ error: 'Error llamando a la IA' });
-    }
-  });
+  // (La lectura de facturas con IA ya NO está aquí: la factura se sube una sola
+  //  vez en Importaciones y se envía a este módulo con «Enviar a seguimiento».)
 
   // ── Backorders EN VIVO desde el ERP (para elegir cuáles gestionar) ─────────
   //    SOLO LECTURA. Igual que /api/importacion/backorders pero devuelve el id
@@ -824,7 +909,18 @@ module.exports = function registrarSeguimiento({
       const tracking = s(b.tracking).slice(0, 160);
 
       // ¿Ya existía? conservar creado_por.
-      const [prev] = await portalPool.query(`SELECT creado_por FROM seg_envios WHERE id = ?`, [id]);
+      const [prev] = await portalPool.query(`SELECT creado_por, origen FROM seg_envios WHERE id = ?`, [id]);
+      // Envío que vino de Importaciones: sus líneas, proveedor y factura son de
+      // SOLO LECTURA aquí (se corrigen en Importaciones y se reenvían). Solo se
+      // edita tracking, courier, llegada estimada y nota; el estado no se toca.
+      if (prev.length && prev[0].origen === 'importacion') {
+        await portalPool.query(
+          `UPDATE seg_envios SET tracking=?, courier=?, fecha_estimada=?, nota=? WHERE id=?`,
+          [tracking, s(b.courier).slice(0,80),
+           (b.fecha_estimada && /^\d{4}-\d{2}-\d{2}/.test(String(b.fecha_estimada))) ? String(b.fecha_estimada).slice(0,10) : null,
+           s(b.nota).slice(0, 2000), id]);
+        return res.json({ ok: true, id });
+      }
       const creadoPor = (prev.length && prev[0].creado_por) ? prev[0].creado_por : quienEs(req);
       await portalPool.query(
         `INSERT INTO seg_envios (id, tracking, courier, proveedor, n_factura, estado, fecha_estimada, nota, items, creado_por)
@@ -844,6 +940,95 @@ module.exports = function registrarSeguimiento({
     } catch (e) {
       console.error('[seguimiento] envio guardar', e.message);
       res.status(500).json({ error: 'No se pudo guardar el envío' });
+    }
+  });
+
+  // ── Crear/actualizar el envío DESDE IMPORTACIONES (Factura → SKU) ──────────
+  //    Body: { importacion_id, codigo, proveedor, empresa, n_factura,
+  //            items:[{codigo,desc,desc_es,marca,cantidad,sku,nombre,confianza}] }
+  //    SIN precios (no se aceptan aunque vengan). Un envío por importacion_id:
+  //    reenviar la misma factura ACTUALIZA sus líneas y conserva tracking y
+  //    logística. Si ya existía un envío viejo (subido aquí) con la MISMA
+  //    factura y sin vínculo, se adopta en vez de duplicarlo.
+  app.post('/api/seguimiento/desde-importacion', authAdmin, mSeg, soloMaestroSeg, async (req, res) => {
+    try {
+      const b = req.body || {};
+      const impId = s(b.importacion_id).trim().slice(0, 80);
+      if (!impId) return res.status(400).json({ error: 'Falta el id de la importación' });
+      const items = (Array.isArray(b.items) ? b.items : []).map(it => itemEnvio({
+        codigo: it && it.codigo, desc: it && it.desc, desc_es: it && it.desc_es, marca: it && it.marca,
+        cantidad: it && it.cantidad, sku: it && it.sku, nombre: it && it.nombre, confianza: it && it.confianza
+      }));
+      if (!items.length) return res.status(400).json({ error: 'La factura no tiene líneas' });
+      const nFac = s(b.n_factura).slice(0, 160);
+
+      let [prev] = await portalPool.query(
+        `SELECT id, tracking, recep_conf_at FROM seg_envios WHERE importacion_id = ? LIMIT 1`, [impId]);
+      if (!prev.length && nFac) {
+        const nf = nFac.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+        const [cand] = await portalPool.query(
+          `SELECT id, tracking, recep_conf_at, n_factura FROM seg_envios
+            WHERE importacion_id = '' AND archivado = 0 AND n_factura <> ''`);
+        const hits = cand.filter(e => s(e.n_factura).replace(/[^A-Za-z0-9]/g, '').toUpperCase() === nf);
+        if (hits.length === 1) prev = hits;
+      }
+      if (prev.length && prev[0].recep_conf_at) {
+        return res.status(409).json({ error: 'El almacén ya confirmó este envío; los cambios de SKU se hacen en la recepción (corrección).' });
+      }
+      const itemsJson = JSON.stringify(items);
+      let id, nuevo = false;
+      if (prev.length) {
+        id = prev[0].id;
+        await portalPool.query(
+          `UPDATE seg_envios SET origen='importacion', importacion_id=?, codigo=?, proveedor=?, empresa=?, n_factura=?,
+             items=?, items_factura=? WHERE id=?`,
+          [impId, s(b.codigo).slice(0, 80), s(b.proveedor).slice(0, 255), s(b.empresa).slice(0, 255), nFac,
+           itemsJson, itemsJson, id]);
+      } else {
+        id = 'env:' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+        nuevo = true;
+        await portalPool.query(
+          `INSERT INTO seg_envios (id, tracking, courier, proveedor, n_factura, estado, nota, items, creado_por,
+             origen, importacion_id, codigo, empresa, items_factura)
+           VALUES (?, '', '', ?, ?, 'en_transito', '', ?, ?, 'importacion', ?, ?, ?, ?)`,
+          [id, s(b.proveedor).slice(0, 255), nFac, itemsJson, quienEs(req),
+           impId, s(b.codigo).slice(0, 80), s(b.empresa).slice(0, 255), itemsJson]);
+      }
+      await recomputarCoberturas();
+      res.json({ ok: true, id, nuevo, tracking: prev.length ? (prev[0].tracking || '') : '' });
+    } catch (e) {
+      console.error('[seguimiento] desde-importacion', e.message);
+      res.status(500).json({ error: 'No se pudo crear el envío en Seguimiento' });
+    }
+  });
+
+  // ── «Enviar a almacén» desde el envío (cuando llegó) ──────────────────────
+  //    Crea (o actualiza, si aún no la validan) la recepción con las líneas del
+  //    envío, SIN precios. Usa el mismo id que la importación, así Importación
+  //    la encuentra y «Continuar a la DUA» retoma el costeo guardado.
+  app.post('/api/seguimiento/envio/:id/a-almacen', authAdmin, mSeg, soloMaestroSeg, async (req, res) => {
+    try {
+      if (!recepciones || typeof recepciones.crearOActualizar !== 'function')
+        return res.status(500).json({ error: 'El módulo de recepciones no está disponible' });
+      const [rows] = await portalPool.query(`SELECT * FROM seg_envios WHERE id = ?`, [req.params.id]);
+      if (!rows.length) return res.status(404).json({ error: 'Envío no encontrado' });
+      const ev = rows[0];
+      if (ev.origen !== 'importacion' || !ev.importacion_id)
+        return res.status(400).json({ error: 'Este envío no viene de Importaciones; envíalo al almacén desde Importaciones.' });
+      const lineas = (asJson(ev.items_factura, null) || asJson(ev.items, []) || []).filter(i => !i.es_extra);
+      const r = await recepciones.crearOActualizar({
+        id: ev.importacion_id, importacion_id: ev.importacion_id, codigo: ev.codigo || ev.importacion_id,
+        proveedor: ev.proveedor, empresa: ev.empresa, n_factura: ev.n_factura, tipo: 'compra',
+        items: lineas.map(i => ({ codigo: i.codigo, desc: i.desc_es || i.desc, cantidad: i.cantidad,
+          sku_sugerido: i.sku, confianza: i.confianza }))
+      }, { buscarPorFactura: true });
+      if (r.status !== 200) return res.status(r.status).json(r.body);
+      await portalPool.query(
+        `UPDATE seg_envios SET recep_id = ?, estado = 'recibido' WHERE id = ?`, [r.body.id, ev.id]);
+      res.json({ ok: true, recep_id: r.body.id, nueva: !!r.body.nueva });
+    } catch (e) {
+      console.error('[seguimiento] a-almacen', e.message);
+      res.status(500).json({ error: 'No se pudo enviar al almacén' });
     }
   });
 
@@ -1010,5 +1195,5 @@ module.exports = function registrarSeguimiento({
     }
   });
 
-  return { prepararTablas };
+  return { prepararTablas, alConfirmarRecepcion, _test: { aplicarRecepcion } };
 };

@@ -377,10 +377,12 @@ async function cargarCatalogo(){
     CATALOG=await apiGet('/catalogo');            // [[sku,name],...]
     if(!Array.isArray(CATALOG))CATALOG=[];
   }catch(e){ if(info)info.textContent='⚠ no se pudo leer el catálogo ('+e.message+')'; CATALOG=[]; }
+  try{ if(window._skuMemP) await window._skuMemP; }catch(e){} // la memoria de SKU debe estar antes de emparejar
   initCat();
   if(info)info.textContent=`catálogo: ${CAT.length.toLocaleString('es-PE')} SKUs (sistema de ventas)`;
   // si ya se leyó una factura antes de cargar el catálogo, re-emparejar
-  try{ if(typeof facMatches!=='undefined' && facMatches && facMatches.length){ facMatches=facMatches.map(l=>({...l,...matchLinea(l)})); renderFactura(); } }catch(e){}
+  // (las líneas que YA tienen SKU —p. ej. retomadas de un envío— lo conservan; solo se recalculan sus opciones)
+  try{ if(typeof facMatches!=='undefined' && facMatches && facMatches.length){ facMatches=facMatches.map(l=>{const r=matchLinea(l);return l.sku?{...l,cand:_candConSku(l,r.cand)}:{...l,...r};}); renderFactura(); } }catch(e){}
 }
 const PROVEEDORES=[["PR0004Magu","MaguraUSA"],["PR0006Mond","Mondraker"],["PR0001Lord","LordGun"],["PR0002Binn","BikeInn"],["PR0003Jpra","Jpracing"],["PR0005OakC","OakComponents"],["PR000777de","77designz"],["PR0008Gemi","Gemini"],["PR0009Extr","Extralite"],["PR0010Fidl","Fidlock"],["PR0011Ebay","Ebay"],["PR0012Mona","Monark"],["PR0013Amaz","Amazon"],["PR0014R2Bi","R2Bike"],["PR0015Bdis","BikeDiscount"],["PR0016Bi24","Bike24"],["PR0017Worl","WorldWide Cyclery"],["PR0018Bcom","BikeComponents"],["PR0019AliE","AliExpress"],["PR0021Oiar","Oiartzun"],["PR0020NA","NA"]];
 
@@ -614,16 +616,47 @@ async function leerConIA(){
 // si no, la descripción contra el nombre del sistema (fuzzy).
 function _lineBrand(l){return (l&&l.marca)?l.marca:(PROV_BRAND[($('f_prov')&&$('f_prov').value)||'']||'');}
 function _lineQueryEs(l){return (l&&l.desc_es)?l.desc_es:glossaryES((l&&l.desc)||'');}  // español (IA) o glosario EN→ES
+// ── Memoria de asignaciones: "proveedor + código de factura → SKU" ──
+// Se llena con lo que eliges a mano y con lo que el ALMACÉN confirma con el producto
+// en la mano. La clave es la MISMA que arma el servidor (imp_sku_mem).
+let SKU_MEM={}; // clave → [sku, fuente('maestro'|'almacen')]
+async function cargarSkuMem(){ try{ const o=await apiGet('/sku-mem'); SKU_MEM=(o&&typeof o==='object')?o:{}; }catch(e){ SKU_MEM={}; } }
+function memKey(prov,codigo){const p=clean(String(prov||'').split('(')[0]),c=clean(codigo);return (p&&c)?(p+'|'+c).slice(0,200):'';}
+function provNombreActual(){const o=$('f_prov')&&$('f_prov').selectedOptions&&$('f_prov').selectedOptions[0];return ((o&&o.textContent)||'').split('(')[0].trim();}
+// Guarda en la memoria lo que TÚ elegiste a mano (🔎, el desplegable o escrito).
+function aprenderSkus(){
+  const prov=provNombreActual(); if(!prov)return;
+  const entries=(facMatches||[]).filter(m=>m.sku&&m.item&&(m.tipo==='manual'||m.elegido)).map(m=>({prov,codigo:m.item,sku:m.sku}));
+  if(!entries.length)return;
+  entries.forEach(e=>{const k=memKey(e.prov,e.codigo);if(k&&!(SKU_MEM[k]&&SKU_MEM[k][1]==='almacen'))SKU_MEM[k]=[e.sku,'maestro'];});
+  apiSend('/sku-mem','POST',{entries});
+}
+// Asegura que el SKU ya asignado aparezca entre las opciones del desplegable.
+function _candConSku(l,cand){cand=(cand||[]).slice();if(l&&l.sku&&!cand.some(c=>c.sku===l.sku))cand.unshift({sku:l.sku,name:CATMAP[l.sku]||l.nombre||'',score:100});return cand;}
 function matchLinea(l){
   let tipo,sku,nombre,cand=null;
   const brand=_lineBrand(l), q=_lineQueryEs(l);
+  const qt=normalize(q).split(' ').filter(Boolean);
+  const simDesc=c=>qt.length?tokenSet(qt,normalize(c.name).split(' ')):0;
   const byPart=buscarPorParte(l.item);
-  if(byPart){ // preferir variante cuyo sku o nombre contiene el número (no el "PAD" padre)
-    let best=byPart.slice().sort((a,b)=>(a.sku.startsWith('PAD')?1:0)-(b.sku.startsWith('PAD')?1:0))[0];
-    // si hay varias variantes con el mismo n° de parte, desempata por parecido de la descripción (en español) con el nombre
-    if(byPart.length>1 && q.trim()){const qt=normalize(q).split(' ').filter(Boolean);
-      best=byPart.slice().sort((a,b)=>tokenSet(qt,normalize(b.name).split(' '))-tokenSet(qt,normalize(a.name).split(' ')))[0];}
-    tipo='exact';sku=best.sku;nombre=best.name;cand=byPart;
+  // 0) MEMORIA: este proveedor ya mandó este código y alguien confirmó su SKU.
+  const mk=memKey(provNombreActual(),l.item), mem=mk&&SKU_MEM[mk];
+  if(mem&&mem[0]&&Object.prototype.hasOwnProperty.call(CATMAP,mem[0])){
+    const otros=(byPart||buscarFuzzy(q,brand,4)||[]).filter(c=>c.sku!==mem[0]);
+    return{tipo:'mem',sku:mem[0],nombre:CATMAP[mem[0]],fuente:mem[1]||'',cand:[{sku:mem[0],name:CATMAP[mem[0]],score:100}].concat(otros)};
+  }
+  if(byPart){
+    // Orden: parecido de la descripción (en español) con el nombre; a igualdad, la variante que no es "PAD" (padre).
+    const ord=byPart.map(c=>({c,sim:simDesc(c),pad:c.sku.startsWith('PAD')?1:0})).sort((a,b)=>(b.sim-a.sim)||(a.pad-b.pad));
+    const best=ord[0].c;
+    // EXACTO solo si el SKU ES el código, o si el código aparece en UN solo producto.
+    // Si el código está DENTRO de varios productos, la elección la decide la descripción:
+    // clara → "alta"; pareja → "revisar" (antes salía como exacto aunque fuera una adivinanza).
+    const exacto=byPart[0].score===100;
+    const unico=new Set(byPart.map(c=>c.sku)).size===1;
+    if(exacto||unico)tipo='exact';
+    else tipo=(ord.length>1&&(ord[0].sim-ord[1].sim)>6)?'alta':'rev';
+    sku=best.sku;nombre=best.name;cand=ord.map(x=>x.c);
   } else {
     const f=buscarFuzzy(q,brand,4);cand=f;
     if(f.length && f[0].score>=88 && (f.length<2 || f[0].score-f[1].score>6)){tipo='alta';sku=f[0].sku;nombre=f[0].name;}
@@ -677,13 +710,14 @@ function catSearchRun(){const box=$('catres');if(!box)return;const term=$('catq'
 function catPick(sku){const c=CAT.find(x=>x.sku===sku);if(catSearchRow>=0&&facMatches[catSearchRow]){const m=facMatches[catSearchRow];m.sku=sku;m.nombre=c?c.name:'';m.tipo='manual';m.cand=c?[{sku:c.sku,name:c.name,score:100}]:[];}closeCatSearch();renderFactura();}
 function renderFactura(){
   const cnt={exact:0,alta:0,rev:0,no:0};facMatches.forEach(m=>{if(cnt[m.tipo]==null)cnt[m.tipo]=0;cnt[m.tipo]++;});
-  const badge={exact:['b-exact','exacto · n° parte'],alta:['b-alta','alta · descripción'],rev:['b-rev','revisar · elige'],no:['b-no','sin match'],manual:['b-alta','manual · catálogo']};
+  const badge={exact:['b-exact','exacto · n° parte'],mem:['b-exact','exacto · elegido antes'],alta:['b-alta','alta · descripción'],rev:['b-rev','revisar · elige'],no:['b-no','sin match'],manual:['b-alta','manual · catálogo']};
   const rows=facMatches.map((m,i)=>{
-    const[bc,bt]=badge[m.tipo]||badge.no;let sel;
-    if(m.tipo==='exact'){sel=`<span class="sku">${esc(m.sku)}</span><div class="nm">${esc(m.nombre)}</div>`;}
-    else if((m.cand||[]).length){const opts=(m.cand||[]).map(c=>`<option value="${esc(c.sku)}" ${c.sku===m.sku?'selected':''}>${esc(c.sku)} · ${esc(c.name)} (${Math.round(c.score)})</option>`).join('');
-      sel=`<select onchange="facMatches[${i}].sku=this.value">${opts}<option value="">(ninguno)</option></select>`;}
-    else{sel=`<input value="${esc(m.sku||'')}" oninput="facMatches[${i}].sku=this.value" placeholder="SKU manual" style="min-width:120px"><div class="nm">escribe el SKU o usa 🔎</div>`;}
+    let[bc,bt]=badge[m.tipo]||badge.no;let sel;
+    if(m.tipo==='mem'&&m.fuente==='almacen')bt='exacto · confirmado por almacén';
+    if(m.tipo==='exact'||m.tipo==='mem'){sel=`<span class="sku">${esc(m.sku)}</span><div class="nm">${esc(m.nombre)}</div>`;}
+    else if((m.cand||[]).length){const opts=_candConSku(m,m.cand).map(c=>`<option value="${esc(c.sku)}" ${c.sku===m.sku?'selected':''}>${esc(c.sku)} · ${esc(c.name)} (${Math.round(c.score)})</option>`).join('');
+      sel=`<select onchange="facMatches[${i}].sku=this.value;facMatches[${i}].elegido=1">${opts}<option value="" ${m.sku?'':'selected'}>(ninguno)</option></select>`;}
+    else{sel=`<input value="${esc(m.sku||'')}" oninput="facMatches[${i}].sku=this.value;facMatches[${i}].elegido=1" placeholder="SKU manual" style="min-width:120px"><div class="nm">escribe el SKU o usa 🔎</div>`;}
     const acts=`<div style="display:flex;gap:3px;flex-wrap:wrap;white-space:nowrap">`+
       `<span class="btn-sm" title="Buscar en todo el catálogo del sistema" onclick="openCatSearch(${i})">🔎</span>`+
       `<span class="btn-sm" title="Volver a cruzar con el código" onclick="facRecalcRow(${i})">↻</span>`+
@@ -702,20 +736,63 @@ function renderFactura(){
   $('facResult').innerHTML=`<div class="card">
     <div class="kpis">
       <div class="kpi"><b>${facMatches.length}</b>líneas</div>
-      <div class="kpi"><b>${cnt.exact}</b>exacto n° parte</div>
+      <div class="kpi"><b>${cnt.exact+(cnt.mem||0)}</b>exacto n° parte / memoria</div>
       <div class="kpi"><b>${cnt.alta+cnt.rev}</b>por descripción</div>
       <div class="kpi"><b>${cnt.rev+cnt.no}</b>a revisar</div>
     </div>
     <div class="hint">Puedes <b>editar</b> código, descripción, cantidad y precio; <b>agregar</b> o <b>quitar</b> líneas; <b>reordenar arrastrando</b> desde el <b>⠿</b> del número; y <b>dividir</b> una línea en 2 (queda marcada <b>✂ dividido</b>) — ambas conservan el valor total: <b>÷precio</b> = misma cantidad y precio unitario a la mitad (un «set» que son 2 SKU: 10 sets = 10 A + 10 B a mitad de precio); <b>÷cant</b> = mismo precio y se reparte la cantidad (10 unidades = 5 A + 5 B). Si ninguna sugerencia sirve, pulsa <b>🔎</b> para buscar en <b>todo el catálogo</b>; con <b>↻</b> vuelves a cruzar por el código. <b>Total c/desc.</b>: si la factura trae descuento, la IA pone aquí el total final de la línea (con el descuento ya aplicado) y ese valor es el que se usa para costear; vacío = precio × cantidad.</div>
     <div class="tw" style="margin-top:6px"><table><thead><tr><th>#</th><th>Item factura</th><th>Descripción</th><th class="n">Cant</th><th class="n">Precio EXW</th><th class="n" title="Total de la línea con descuento aplicado; vacío = precio × cantidad">Total c/desc.</th><th>SKU en sistema de ventas</th><th>Confianza</th><th>Acciones</th></tr></thead><tbody>${rows}</tbody></table></div>
-    <div class="actions"><button class="btn-sm" onclick="facAdd()">+ agregar ítem</button>${realOn()?'<button class="btn" onclick="enviarARecepcion()" title="Manda esta carga (sin precios) al almacenero para que confirme lo que llegó" style="background:#f59e0b;border-color:#f59e0b;color:#111726;font-weight:800;font-size:15px;padding:12px 20px;box-shadow:0 3px 10px rgba(245,158,11,.45)">📥 Enviar a almacén</button>':''}<button class="btn btn-green" onclick="enviarACalc()">✓ Confirmar y enviar a Calculadora →</button></div>
+    <div class="actions"><button class="btn-sm" onclick="facAdd()">+ agregar ítem</button>${realOn()?'<button class="btn" onclick="enviarASeguimiento()" title="Crea (o actualiza) el envío en Seguimiento con estas líneas, SIN precios. Ahí le pones el tracking." style="background:#2d6a9f;border-color:#2d6a9f;color:#fff;font-weight:800;font-size:15px;padding:12px 20px">🚚 Enviar a seguimiento</button>':''}${realOn()?'<button class="btn" onclick="enviarARecepcion()" title="Manda esta carga (sin precios) al almacenero para que confirme lo que llegó" style="background:#f59e0b;border-color:#f59e0b;color:#111726;font-weight:800;font-size:15px;padding:12px 20px;box-shadow:0 3px 10px rgba(245,158,11,.45)">📥 Enviar a almacén</button>':''}<button class="btn btn-green" onclick="enviarACalc()">✓ Confirmar y enviar a Calculadora →</button></div>
   </div>`;
 }
 function enviarACalc(){
+  aprenderSkus();
   RECEP_INGRESO=null; // ruta DIRECTA (sin recepción): cantidades de la factura y sin almacén heredado
   autoModoPorFactura(); // define Courier/Definitiva por el valor de la factura
   items=facMatches.filter(m=>m.sku).map(m=>({parte:m.item,codigo:m.sku,desc:m.desc,precioEXW:m.exw,cantidad:m.qty,peso:0,partida:'',avLib:'',exwAduanas:'',descTotal:(m.total!=null?m.total:''),split:m.split||''}));
   updateCodigo();aplicarCourier();renderItems();tab(duaAplica()?'dua':'calc');
+}
+
+// ══════════════ ENVIAR A SEGUIMIENTO (la factura se sube UNA sola vez, aquí) ══════════════
+// Crea/actualiza el envío en Seguimiento con las líneas de la factura SIN precios.
+// Allá solo se pone el tracking y la logística; cuando llega, desde el envío se
+// manda al almacén. El costeo queda guardado (imprec_*) para retomarlo después.
+async function enviarASeguimiento(){
+  updateCodigo();
+  if(!realOn()){alert('Solo las COMPRAS se envían a seguimiento (cambia el tipo a Compra).');return;}
+  const m=_meta();
+  if(!String(m.invoice||'').trim()){alert('Falta el N° de factura.');return;}
+  const id=recepId();
+  const lineas=(facMatches||[]).filter(x=>x.item||x.desc||x.sku).map(x=>({
+    codigo:x.item||'', desc:x.desc||'', desc_es:x.desc_es||'', marca:x.marca||'', cantidad:+x.qty||0,
+    sku:x.sku||'', nombre:x.sku?(CATMAP[x.sku]||x.nombre||''):'', confianza:x.tipo||'' }));
+  if(!lineas.length){alert('No hay líneas para enviar.');return;}
+  const sinSku=lineas.filter(l=>!l.sku).length;
+  if(!confirm('¿Enviar la factura «'+m.invoice+'» a Seguimiento? (No incluye precios.)'+(sinSku?('\n\n⚠ '+sinSku+' línea(s) van SIN SKU: no podrán cubrir backorders hasta que el almacén las confirme.'):'')))return;
+  try{
+    const r=await fetch('/api/seguimiento/desde-importacion',{method:'POST',headers:_authHeaders(true),body:JSON.stringify({
+      importacion_id:id, codigo:codigoImportacion(), proveedor:provNombreActual(), empresa:m.empresa||'', n_factura:m.invoice||'', items:lineas })});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok)throw new Error(d.error||('API '+r.status));
+    aprenderSkus();
+    // Guardar el costeo (con precios y la tabla de factura) para retomarlo cuando llegue.
+    items=facMatches.filter(x=>x.sku).map(mm=>({parte:mm.item,codigo:mm.sku,desc:mm.desc,precioEXW:mm.exw,cantidad:mm.qty,peso:0,partida:'',avLib:'',exwAduanas:'',descTotal:(mm.total!=null?mm.total:''),split:mm.split||''}));
+    try{ guardarImportacionParaRecepcion(id); }catch(e){}
+    alert(d.nuevo?'✓ Enviado a Seguimiento. Allá le asignas el tracking; cuando llegue, desde el envío lo mandas al almacén.'
+                 :'✓ Envío actualizado en Seguimiento (se conservan su tracking y logística).');
+  }catch(e){alert('No se pudo enviar a seguimiento: '+e.message);}
+}
+// Abre la factura guardada de un envío (desde Seguimiento → «Abrir en Importaciones»).
+async function retomarDesdeEnvio(impId){
+  const idImp='imprec_'+impId;
+  let r=saved.find(x=>x.id===idImp);
+  if(!r){ await cargarSaved(); r=saved.find(x=>x.id===idImp); } // pudo guardarse en otra sesión
+  // Si hay OTRA factura abierta en pantalla, avisar antes de reemplazarla.
+  const abierta=((facMatches&&facMatches.length)||(items&&items.length)) && recepId()!==impId;
+  if(r && abierta && !confirm('Se va a abrir la factura de este envío y se reemplazará lo que tienes abierto ahora en Importaciones (lo guardado no se pierde). ¿Continuar?'))return;
+  if(!r){alert('No encuentro la factura guardada de este envío ('+impId+'). Si ya la costeaste, está en 💾 Guardadas.');return;}
+  cargarImportacion(idImp);
+  if(Array.isArray(r.fac)&&r.fac.length)tab('factura');
 }
 
 // ══════════════ RECEPCIÓN EN ALMACÉN (paso intermedio de compra) ══════════════
@@ -767,6 +844,7 @@ async function enviarARecepcion(){
   } else {
     if(!confirm('¿Enviar esta carga al almacén para que la confirmen? (No incluye precios.)')) return;
   }
+  aprenderSkus();
   try{
     await recApi('/api/recepcion','POST',{ id:idFinal, importacion_id:idFinal, codigo:codigoImportacion(), proveedor:provEnvio,
       empresa:m.empresa||'', n_factura:m.invoice||'', tipo:'compra', items:lineas });
@@ -946,7 +1024,7 @@ function renderRecepEstado(){
   }).join('');
   // Botón continuar: cualquier recepción VALIDADA se puede llevar al costeo (se recupera su
   // estado guardado). El maestro puede forzar la que está cargada ahora aunque no esté validada.
-  const tieneGuardado = !!saved.find(x=>x.id===('imprec_'+r.id)) || esActual;
+  const tieneGuardado = !!_savedDeRecep(r) || esActual;
   let accion='';
   if(val && tieneGuardado){ accion=`<button class="btn btn-green" onclick="continuarADua()">Continuar a la DUA →</button>`; }
   else if(val && !tieneGuardado){ accion=`<span class="hint">Validada, pero no encuentro su costeo guardado. Ábrela en <b>Factura → SKU</b> o desde 💾 Guardadas.</span>`; }
@@ -994,7 +1072,7 @@ function recepSetSku(i,v){ if(recepImp&&recepImp.items[i])recepImp.items[i].sku_
 // Buscador de SKU por NOMBRE o código (hijos/variaciones y simples; los padres no están en CAT)
 function recepNorm(s){ return String(s==null?'':s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').trim(); }
 function recepConfBadge(t){
-  const m={exact:['b-exact','exacto'],alta:['b-alta','alta'],manual:['b-alta','manual'],rev:['b-rev','revisar'],no:['b-no','sin match']};
+  const m={exact:['b-exact','exacto'],mem:['b-exact','ya confirmado'],alta:['b-alta','alta'],manual:['b-alta','manual'],rev:['b-rev','revisar'],no:['b-no','sin match']};
   const x=m[t]||m['no']; return '<span class="badge '+x[0]+'" style="font-size:10px">'+x[1]+'</span>';
 }
 function recepSkuBuscar(i,q){
@@ -1027,6 +1105,8 @@ function guardarImportacionParaRecepcion(recId){
   const meta=_meta(); meta.codigo=codigoImportacion(); meta.recepId=recId;
   const rec={id:idImp,n:0,tipo:tipoImportacion(),nombre:(_meta().invoice||recId),
     savedAt:new Date().toISOString().slice(0,16).replace('T',' '),meta,state:buildState()};
+  // También la tabla Factura → SKU (sin las opciones), para retomarla desde el envío.
+  if(facMatches&&facMatches.length)rec.fac=facMatches.map(({cand,...x})=>x);
   const i=saved.findIndex(x=>x.id===idImp); if(i>=0)saved[i]=rec; else saved.push(rec);
   persistOne(rec);
 }
@@ -1081,6 +1161,15 @@ function exportExtrasDeRecep(rec){
   const rows=ex.map(e=>[e.sku_confirmado||'',(e.cant_recibida==null?'':e.cant_recibida),e.nota||'',(rec.proveedor||''),rec.n_factura||'',anom]);
   xlsxDownload(_fname('FueraDeFactura-'+(rec.n_factura||''))+'.xlsx','Fuera de factura',[head].concat(rows));
 }
+// Costeo guardado (imprec_*) de una recepción: por id de la recepción, por id de la
+// importación (si vino de Seguimiento) y, como respaldo, por N° de factura.
+function _savedDeRecep(rec){
+  if(!rec)return null;
+  const nF=x=>String(x==null?'':x).replace(/[^A-Za-z0-9]/g,'').toUpperCase();
+  let r=saved.find(x=>x.id==='imprec_'+rec.id)||(rec.importacion_id?saved.find(x=>x.id==='imprec_'+rec.importacion_id):null);
+  if(!r&&nF(rec.n_factura))r=saved.find(x=>String(x.id).startsWith('imprec_')&&nF(x.meta&&x.meta.invoice)===nF(rec.n_factura));
+  return r||null;
+}
 function continuarADua(){
   const rec=recepImp; if(!rec)return;
   if(_facCargadaCoincide(rec)){
@@ -1088,7 +1177,8 @@ function continuarADua(){
     items=facMatches.filter(m=>m.sku).map(m=>({parte:m.item,codigo:m.sku,desc:m.desc,precioEXW:m.exw,cantidad:m.qty,peso:0,partida:'',avLib:'',exwAduanas:'',descTotal:(m.total!=null?m.total:''),split:m.split||''}));
     updateCodigo();aplicarCourier();
   } else {
-    const idImp='imprec_'+rec.id; const savedRec=saved.find(x=>x.id===idImp);
+    const savedRec=_savedDeRecep(rec);
+    const idImp=savedRec?savedRec.id:'';
     if(!savedRec){ alert('No encuentro el costeo guardado de esta factura (quizá se envió antes de esta versión). Ábrela en Factura → SKU o desde 💾 Guardadas.'); return; }
     cargarImportacion(idImp); // restaura TODO el costeo de esa factura
   }
@@ -1281,6 +1371,12 @@ function cargarImportacion(id){
   if(s.dua&&s.dua.series){lastSeries=s.dua.series;lastTot=s.dua.tot||null;lastDuaHeader=s.dua.header||null;if($('duaDeclNum'))$('duaDeclNum').value=(s.dua.decl&&s.dua.decl.num)||'';if($('duaDeclFecha'))$('duaDeclFecha').value=(s.dua.decl&&s.dua.decl.fecha)||'';if(lastSeries.length)renderDuaAssign();}else{lastSeries=[];lastTot=null;lastDuaHeader=null;}
   if(m){$('numImp').value=m.numImp||'';if(m.empresa)$('empresa').value=m.empresa;$('f_inv').value=m.invoice||'';if(m.proveedor)$('f_prov').value=m.proveedor;}
   RECEP_INGRESO=s.recep||null; // restaurar la info de recepción para el ingreso
+  // Costeos ligados a un envío/recepción guardan también la tabla de la factura.
+  if(Array.isArray(r.fac)&&r.fac.length){
+    facMatches=r.fac.map(x=>({...x,cand:[]}));
+    try{ facMatches=facMatches.map(x=>({...x,cand:_candConSku(x,matchLinea(x).cand)})); }catch(e){}
+    try{ renderFactura(); }catch(e){}
+  }
   updateCodigo();aplicarModo();aplicarTipo();renderLocales();renderItems();tab('calc');calcular();
 }
 function _csvCell(v){v=(v==null?'':String(v));if(/[";\n]/.test(v))v='"'+v.replace(/"/g,'""')+'"';return v;}
@@ -2064,10 +2160,12 @@ $('f_prov').innerHTML=PROVEEDORES.map(([c,n])=>`<option value="${c}">${n} (${c})
 if(typeof pdfjsLib!=='undefined')pdfjsLib.GlobalWorkerOptions.workerSrc='/vendor/pdf.worker.min.js';
 renderLocales();renderItems();updateCodigo();recalcTCSunat();explicarTCSunat();aplicarModo();aplicarTipo();aplicarMonedaTC();recalcPercepLiq();
 // Datos que vienen del portal (catálogo de Renzo + tasas/memoria/importaciones guardadas)
+window._skuMemP=cargarSkuMem(); // memoria de SKU (antes de emparejar con el catálogo)
 cargarCatalogo();
 cargarPartidas();
 cargarPartidaMem();
-cargarSaved();
+// ?retomar=<id> → abrir la factura guardada de un envío (viene de Seguimiento)
+cargarSaved().then(()=>{ try{ const q=new URLSearchParams(location.search).get('retomar'); if(q)retomarDesdeEnvio(q); }catch(e){} });
 </script>
 </body>
 </html>

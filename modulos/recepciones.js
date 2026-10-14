@@ -16,8 +16,10 @@
 //  Protegido con authAdmin + requiereModulo('recepciones') (el maestro pasa).
 // ═══════════════════════════════════════════════════════════════════════════
 
+const { rutaCatalogo } = require('./comunes');
+
 module.exports = function registrarRecepciones({
-  app, authAdmin, requiereModulo, prodPool, portalPool
+  app, authAdmin, requiereModulo, prodPool, portalPool, hooks
 }) {
 
   const mRec = requiereModulo('recepciones');
@@ -167,77 +169,87 @@ module.exports = function registrarRecepciones({
   });
 
   // ── Catálogo (solo lectura, para que el supervisor busque/corrija SKU) ─────
-  //    El supervisor no tiene el módulo 'importaciones', así que expone aquí un
-  //    catálogo liviano [[sku, name], ...] con caché de 10 min.
-  let _catCache = null, _catAt = 0;
-  const CAT_TTL = 10 * 60 * 1000;
-  app.get('/api/recepcion/catalogo', authAdmin, mRec, async (req, res) => {
-    try {
-      if (_catCache && (Date.now() - _catAt) < CAT_TTL && !req.query.fresh) return res.json(_catCache);
-      // Solo hijos (variation) y simples — los padres (variable) se excluyen.
-      // El nombre es el del propio hijo/simple (no el del padre).
-      const [rows] = await prodPool.query(`
-        SELECT TRIM(sku) AS sku, name FROM product_variations
-         WHERE product_type <> 'variable' AND deleted_at IS NULL
-           AND sku IS NOT NULL AND TRIM(sku) <> '' ORDER BY sku`);
-      _catCache = rows.map(r => [r.sku, r.name || '']);
-      _catAt = Date.now();
-      res.json(_catCache);
-    } catch (e) {
-      console.error('[recepciones] catalogo', e.message);
-      res.status(500).json({ error: 'No se pudo leer el catálogo' });
-    }
-  });
+  //    El supervisor no tiene el módulo 'importaciones', así que se expone aquí.
+  //    Usa la caché COMPARTIDA (comunes.js) con Importaciones y Seguimiento.
+  app.get('/api/recepcion/catalogo', authAdmin, mRec, rutaCatalogo(prodPool, 'recepciones'));
 
-  // ── Crear/actualizar una recepción desde el wizard (admin/maestro) ─────────
-  //    Reenviar la misma factura ACTUALIZA la recepción (no duplica) mientras
-  //    no esté 'validada'. Si ya está validada, se conserva y no se pisa.
+  // ── Crear/actualizar una recepción (lógica compartida) ─────────────────────
+  //    La usan el wizard de Importación (POST /api/recepcion) y Seguimiento
+  //    ("Enviar a almacén" desde el envío). Reenviar la misma factura ACTUALIZA
+  //    la recepción (no duplica) mientras no esté 'validada'.
+  //    opts.buscarPorFactura: si no existe ese id, reutiliza la recepción de la
+  //    MISMA factura + proveedor (igual que hace el frontend de Importación).
+  //    Devuelve { status, body }.
+  const normF = (x) => s(x).replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+  async function crearOActualizar(b, opts) {
+    b = b || {};
+    if (!b.id) return { status: 400, body: { error: 'Falta el id de la recepción' } };
+    const itemsCarga = Array.isArray(b.items) ? b.items.map(itemDeCarga) : [];
+    if (!itemsCarga.length) return { status: 400, body: { error: 'La carga no tiene ítems' } };
+
+    let id = String(b.id);
+    let [prev] = await portalPool.query(`SELECT id, items, estado FROM imp_recepciones WHERE id = ?`, [id]);
+    if (!prev.length && opts && opts.buscarPorFactura && normF(b.n_factura)) {
+      const [cand] = await portalPool.query(
+        `SELECT id, items, estado, proveedor, n_factura FROM imp_recepciones WHERE n_factura <> '' ORDER BY actualizado_en DESC LIMIT 500`);
+      const hit = cand.find(r => normF(r.n_factura) === normF(b.n_factura) && normF(r.proveedor) === normF(b.proveedor));
+      if (hit) { prev = [hit]; id = String(hit.id); }
+    }
+    let items = itemsCarga;
+    if (prev.length) {
+      if (prev[0].estado === 'validada') {
+        return { status: 409, body: { error: 'Esta recepción ya fue validada por el almacén; no se puede reenviar.', id } };
+      }
+      // Conservar lo que el almacén YA adelantó. Se empareja por CÓDIGO de la
+      // factura (y por posición entre códigos repetidos), NO por sku_sugerido:
+      // así, aunque el sistema sugiera otro SKU al reenviar, no se pierde lo que
+      // el almacén contó/confirmó. Los EXTRA (fuera de factura) se conservan tal cual.
+      const antes = asJson(prev[0].items, []) || [];
+      const normCod = (x) => s(x).replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+      const colas = {}; // codigo normalizado -> cola de ítems previos (no-extra) en orden
+      antes.filter(i => !i.es_extra).forEach(i => { const k = normCod(i.codigo); (colas[k] = colas[k] || []).push(i); });
+      items = itemsCarga.map(i => {
+        const cola = colas[normCod(i.codigo)];
+        const prevIt = (cola && cola.length) ? cola.shift() : null;
+        return fusionarValidacion(i, prevIt || {});
+      });
+      // Re-adjuntar los EXTRA que agregó el almacén (no vienen en la carga de factura).
+      antes.filter(i => i.es_extra).forEach(e => items.push(e));
+    } else {
+      items = itemsCarga.map(i => fusionarValidacion(i, {}));
+    }
+
+    await portalPool.query(
+      `INSERT INTO imp_recepciones (id, importacion_id, codigo, proveedor, empresa, n_factura, tipo, estado, items)
+       VALUES (?,?,?,?,?,?,?, 'pendiente', ?)
+       ON DUPLICATE KEY UPDATE importacion_id=VALUES(importacion_id), codigo=VALUES(codigo), proveedor=VALUES(proveedor),
+         empresa=VALUES(empresa), n_factura=VALUES(n_factura), tipo=VALUES(tipo), items=VALUES(items),
+         estado = IF(estado='validada','validada','pendiente'), archivada = 0`,
+      [id, s(b.importacion_id), s(b.codigo || b.importacion_id), s(b.proveedor), s(b.empresa), s(b.n_factura),
+       s(b.tipo || 'compra'), JSON.stringify(items)]);
+    return { status: 200, body: { ok: true, id, nueva: !prev.length } };
+  }
+
   app.post('/api/recepcion', authAdmin, mRec, async (req, res) => {
     try {
-      const b = req.body || {};
-      if (!b.id) return res.status(400).json({ error: 'Falta el id de la recepción' });
-      const itemsCarga = Array.isArray(b.items) ? b.items.map(itemDeCarga) : [];
-      if (!itemsCarga.length) return res.status(400).json({ error: 'La carga no tiene ítems' });
-
-      const [prev] = await portalPool.query(`SELECT items, estado FROM imp_recepciones WHERE id = ?`, [String(b.id)]);
-      let items = itemsCarga;
-      if (prev.length) {
-        if (prev[0].estado === 'validada') {
-          return res.status(409).json({ error: 'Esta recepción ya fue validada por el almacén; no se puede reenviar.' });
-        }
-        // Conservar lo que el almacén YA adelantó. Se empareja por CÓDIGO de la
-        // factura (y por posición entre códigos repetidos), NO por sku_sugerido:
-        // así, aunque el sistema sugiera otro SKU al reenviar, no se pierde lo que
-        // el almacén contó/confirmó. Los EXTRA (fuera de factura) se conservan tal cual.
-        const antes = asJson(prev[0].items, []) || [];
-        const normCod = (x) => s(x).replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-        const colas = {}; // codigo normalizado -> cola de ítems previos (no-extra) en orden
-        antes.filter(i => !i.es_extra).forEach(i => { const k = normCod(i.codigo); (colas[k] = colas[k] || []).push(i); });
-        items = itemsCarga.map(i => {
-          const cola = colas[normCod(i.codigo)];
-          const prevIt = (cola && cola.length) ? cola.shift() : null;
-          return fusionarValidacion(i, prevIt || {});
-        });
-        // Re-adjuntar los EXTRA que agregó el almacén (no vienen en la carga de factura).
-        antes.filter(i => i.es_extra).forEach(e => items.push(e));
-      } else {
-        items = itemsCarga.map(i => fusionarValidacion(i, {}));
-      }
-
-      await portalPool.query(
-        `INSERT INTO imp_recepciones (id, importacion_id, codigo, proveedor, empresa, n_factura, tipo, estado, items)
-         VALUES (?,?,?,?,?,?,?, 'pendiente', ?)
-         ON DUPLICATE KEY UPDATE importacion_id=VALUES(importacion_id), codigo=VALUES(codigo), proveedor=VALUES(proveedor),
-           empresa=VALUES(empresa), n_factura=VALUES(n_factura), tipo=VALUES(tipo), items=VALUES(items),
-           estado = IF(estado='validada','validada','pendiente'), archivada = 0`,
-        [String(b.id), s(b.importacion_id), s(b.codigo || b.importacion_id), s(b.proveedor), s(b.empresa), s(b.n_factura),
-         s(b.tipo || 'compra'), JSON.stringify(items)]);
-      res.json({ ok: true, id: String(b.id) });
+      const r = await crearOActualizar(req.body);
+      res.status(r.status).json(r.body);
     } catch (e) {
       console.error('[recepciones] crear', e.message);
       res.status(500).json({ error: 'No se pudo enviar a recepción' });
     }
   });
+
+  // Avisa a los otros módulos que una recepción quedó confirmada/corregida
+  // (Seguimiento actualiza el envío y los backorders; Importación aprende los SKU).
+  // Corre DESPUÉS de responder: si falla, no afecta lo que hizo el almacén.
+  async function avisarConfirmada(id) {
+    if (!hooks || typeof hooks.alConfirmarRecepcion !== 'function') return;
+    try {
+      const [rows] = await portalPool.query(`SELECT * FROM imp_recepciones WHERE id = ?`, [id]);
+      if (rows.length && rows[0].estado === 'validada') await hooks.alConfirmarRecepcion(rows[0]);
+    } catch (e) { console.error('[recepciones] aviso confirmación', e.message); }
+  }
 
   // ── Listar recepciones ─────────────────────────────────────────────────────
   //    ?estado=pendiente|borrador|validada  · ?pendientes=1 (pendiente+borrador)
@@ -325,6 +337,7 @@ module.exports = function registrarRecepciones({
         [numOrNull(b.almacen_id), s(b.almacen_nombre), s(b.almacen_codigo), JSON.stringify(items), estado,
          confirmar ? 1 : 0, quienEs(req), setVal, setMod, req.params.id]);
       res.json({ ok: true, estado });
+      if (confirmar) avisarConfirmada(req.params.id);
     } catch (e) {
       console.error('[recepciones] validar', e.message);
       res.status(500).json({ error: 'No se pudo guardar la validación' });
@@ -360,6 +373,7 @@ module.exports = function registrarRecepciones({
         `UPDATE imp_recepciones SET items=?, modificada_en = IF(estado='validada', NOW(), modificada_en) WHERE id=?`,
         [JSON.stringify(items), req.params.id]);
       res.json({ ok: true });
+      avisarConfirmada(req.params.id); // solo actúa si ya está validada
     } catch (e) {
       console.error('[recepciones] corregir', e.message);
       res.status(500).json({ error: 'No se pudo guardar la corrección' });
@@ -430,5 +444,5 @@ module.exports = function registrarRecepciones({
     }
   });
 
-  return { prepararTablas };
+  return { prepararTablas, crearOActualizar };
 };

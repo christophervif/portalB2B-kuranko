@@ -304,10 +304,19 @@ let modBikes = null;
   modImportacion = require('./modulos/importacion')({ app, authAdmin, requiereModulo, prodPool, portalPool });
 
   // ── Módulo Recepción de mercadería (paso intermedio compra: almacén valida) ──
-  modRecepciones = require('./modulos/recepciones')({ app, authAdmin, requiereModulo, prodPool, portalPool });
+  //    hooksRecepcion se completa abajo: cuando el almacén confirma, avisa a
+  //    Seguimiento (envío + backorders) e Importación (memoria de SKU).
+  const hooksRecepcion = {};
+  modRecepciones = require('./modulos/recepciones')({ app, authAdmin, requiereModulo, prodPool, portalPool, hooks: hooksRecepcion });
 
   // ── Módulo Seguimiento (trackings de envíos + gestión de backorders) ──
-  modSeguimiento = require('./modulos/seguimiento')({ app, authAdmin, requiereModulo, prodPool, portalPool });
+  //    Recibe los envíos desde Importaciones y crea recepciones («Enviar a almacén»).
+  modSeguimiento = require('./modulos/seguimiento')({ app, authAdmin, requiereModulo, prodPool, portalPool, recepciones: modRecepciones });
+
+  hooksRecepcion.alConfirmarRecepcion = async (rec) => {
+    try { await modSeguimiento.alConfirmarRecepcion(rec); } catch (e) { console.error('[hook] seguimiento ← recepción', e.message); }
+    try { await modImportacion.aprenderDeRecepcion(rec); } catch (e) { console.error('[hook] memoria SKU ← recepción', e.message); }
+  };
 
   // ── Módulo Cotizador rápido (vendedores: buscador + precio mínimo FIFO) ──
   const modCotizador = require('./modulos/cotizador')({ app, authAdmin, requiereModulo, prodPool });

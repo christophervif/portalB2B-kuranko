@@ -749,6 +749,16 @@ function tab(id,btn){
   const bi=document.getElementById('btn-inicio'); if(bi)bi.style.display='';
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));document.getElementById('tab-'+id).classList.add('active');btn.classList.add('active');try{localStorage.setItem('admtab',id);}catch(e){}cargarDatosTab(id);}
 
+// Desde Seguimiento (iframe): abrir en Importaciones la factura guardada de un envío.
+// Si la app de importaciones ya está abierta, la retoma ahí mismo (sin recargarla).
+window.irAImportacion=function(impId){
+  const btn=[...document.querySelectorAll('.tab')].find(b=>/tab\('importaciones'/.test(b.getAttribute('onclick')||''));
+  if(btn) tab('importaciones',btn);
+  const fr=document.getElementById('imp-frame'); if(!fr) return;
+  try{ const w=fr.contentWindow; if(fr.src && w && typeof w.retomarDesdeEnvio==='function'){ w.retomarDesdeEnvio(impId); return; } }catch(e){}
+  fr.src='/importacion.html?retomar='+encodeURIComponent(impId)+'&v='+Date.now();
+};
+
 // Muestra u oculta las pestañas según los permisos del usuario que entró
 function aplicarPermisos(){
   const botones=document.querySelectorAll('.tab');
@@ -1312,6 +1322,7 @@ function recNorm(s){ return String(s==null?'':s).toLowerCase().normalize('NFD').
 // Badge del nivel de confianza del SKU sugerido (viene del match de la factura en Importación).
 function recConfianza(t){
   const m={ exact:['✓ Coincide seguro (código)','#dcfce7','#166534'],
+    mem:['✓ Ya confirmado antes','#dcfce7','#166534'],
     alta:['Probable (por nombre)','#dbeafe','#1e40af'],
     manual:['Elegido a mano','#dbeafe','#1e40af'],
     rev:['⚠ Revísalo bien','#fef9c3','#854d0e'],

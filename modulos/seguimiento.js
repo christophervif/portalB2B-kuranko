@@ -332,15 +332,15 @@ module.exports = function registrarSeguimiento({
   }
 
   // Estado del envío EN PALABRAS DEL CLIENTE (sin datos internos).
-  const HUB_LABEL = { miami: 'almacén de Miami (EE.UU.)', madrid: 'almacén de Madrid (España)' };
+  //    NUNCA se le revela al cliente DÓNDE está el almacén (Miami/Madrid): siempre
+  //    se le dice "nuestro almacén", igual para cualquier hub.
   function estadoClienteEnvio(e) {
-    const hubTxt = HUB_LABEL[e.hub] || 'almacén internacional';
     const eta = isoDate(e.eta);
     if (e.estado === 'recibido' || e.fase === 'recibido') return { clave: 'recibido', texto: 'Recibido en Perú', eta };
     if (e.fase === 'embarcado') return { clave: 'embarcado', texto: 'En camino a Perú', eta };
-    if (e.fase === 'en_hub') return { clave: 'en_hub', texto: 'En el ' + hubTxt + ', preparando el envío a Perú', eta };
+    if (e.fase === 'en_hub') return { clave: 'en_hub', texto: 'En nuestro almacén, preparando el envío a Perú', eta };
     const ap = s(e.api_resumen);
-    const dest = e.hub ? ('al ' + hubTxt) : 'a Perú';
+    const dest = e.hub ? 'a nuestro almacén' : 'a Perú';
     return { clave: 'transito', texto: 'En camino ' + dest + (ap ? (' · ' + ap) : ''), eta: null };
   }
 

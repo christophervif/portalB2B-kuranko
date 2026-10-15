@@ -183,6 +183,12 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
           creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           UNIQUE KEY (fecha, cuenta_ref)
         )`);
+      // Para tarjetas: monto = deuda total anotada; por_pagar = lo que vence en el
+      // próximo pago (estado de cuenta) y fecha_pago = cuándo vence
+      for (const col of ['por_pagar DECIMAL(14,2) NULL', 'fecha_pago DATE NULL']) {
+        try { await portalPool.query(`ALTER TABLE gas_saldos ADD COLUMN ${col}`); }
+        catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+      }
       // Con qué se pagó cada entrada de mercadería del ERP (contado o tarjeta)
       await portalPool.query(`
         CREATE TABLE IF NOT EXISTS gas_entrada_pago (
@@ -513,14 +519,15 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
   app.get('/api/gastos/saldos', authAdmin, mGas, async (req, res) => {
     try {
       await prepararTablas();
-      const cuentas = (await listarCuentas(false)).filter(c => c.tipo !== 'tarjeta');
+      const cuentas = await listarCuentas(false);
       const [ult] = await portalPool.query(`
-        SELECT s.cuenta_ref, DATE_FORMAT(s.fecha, '%Y-%m-%d') AS fecha, s.monto FROM gas_saldos s
+        SELECT s.cuenta_ref, DATE_FORMAT(s.fecha, '%Y-%m-%d') AS fecha, s.monto, s.por_pagar, DATE_FORMAT(s.fecha_pago, '%Y-%m-%d') AS fecha_pago FROM gas_saldos s
         JOIN (SELECT cuenta_ref, MAX(fecha) AS f FROM gas_saldos GROUP BY cuenta_ref) m ON m.cuenta_ref = s.cuenta_ref AND m.f = s.fecha`);
       const [hist] = await portalPool.query(`
         SELECT DATE_FORMAT(fecha, '%Y-%m-%d') AS fecha, company_id, SUM(monto) AS total, COUNT(*) AS cuentas
-        FROM gas_saldos GROUP BY fecha, company_id ORDER BY fecha DESC LIMIT 40`);
-      const u = Object.fromEntries(ult.map(r => [r.cuenta_ref, { fecha: r.fecha, monto: +r.monto }]));
+        FROM gas_saldos WHERE fecha_pago IS NULL AND por_pagar IS NULL GROUP BY fecha, company_id ORDER BY fecha DESC LIMIT 40`);
+      const u = Object.fromEntries(ult.map(r => [r.cuenta_ref, { fecha: r.fecha, monto: +r.monto,
+        por_pagar: r.por_pagar == null ? null : +r.por_pagar, fecha_pago: r.fecha_pago }]));
       res.json({ cuentas: cuentas.map(c => ({ ...c, ultimo: u[c.ref] || null })),
         historial: hist.map(h => ({ ...h, total: r2(h.total) })) });
     } catch (e) { res.status(500).json({ error: e.message }); }
@@ -532,14 +539,25 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
       const { fecha, saldos } = req.body || {};
       if (!esFecha(fecha)) return res.status(400).json({ error: 'Fecha inválida' });
       if (fecha > hoyLima()) return res.status(400).json({ error: 'La fecha no puede ser futura' });
-      const cuentas = (await listarCuentas(true)).filter(c => c.tipo !== 'tarjeta');
+      const cuentas = await listarCuentas(true);
       let n = 0;
       for (const x of Array.isArray(saldos) ? saldos : []) {
         const c = cuentas.find(k => k.ref === x.cuenta_ref);
         if (!c || x.monto === '' || x.monto == null || !isFinite(+x.monto)) continue;
-        await portalPool.query(`INSERT INTO gas_saldos (fecha, cuenta_ref, company_id, monto, creado_por) VALUES (?, ?, ?, ?, ?)
-          ON DUPLICATE KEY UPDATE monto = VALUES(monto), company_id = VALUES(company_id), creado_por = VALUES(creado_por)`,
-          [fecha, c.ref, c.company_id, r2(x.monto), usuarioDe(req)]);
+        let porPagar = null, fechaPago = null;
+        if (c.tipo === 'tarjeta') {
+          // Deuda de la tarjeta: cuánto vence en el próximo pago y cuándo
+          const deuda = r2(Math.abs(+x.monto));
+          porPagar = x.por_pagar === '' || x.por_pagar == null ? deuda : r2(Math.abs(+x.por_pagar));
+          if (porPagar > deuda) return res.status(400).json({ error: `${c.nombre}: el próximo pago no puede ser mayor que la deuda total` });
+          fechaPago = esFecha(x.fecha_pago) ? x.fecha_pago : finDeMes(fecha.slice(0, 7));
+          if (fechaPago < fecha) return res.status(400).json({ error: `${c.nombre}: la fecha del próximo pago no puede ser anterior a la fecha del saldo` });
+          x.monto = deuda;
+        }
+        await portalPool.query(`INSERT INTO gas_saldos (fecha, cuenta_ref, company_id, monto, por_pagar, fecha_pago, creado_por) VALUES (?, ?, ?, ?, ?, ?, ?)
+          ON DUPLICATE KEY UPDATE monto = VALUES(monto), por_pagar = VALUES(por_pagar), fecha_pago = VALUES(fecha_pago),
+            company_id = VALUES(company_id), creado_por = VALUES(creado_por)`,
+          [fecha, c.ref, c.company_id, r2(x.monto), porPagar, fechaPago, usuarioDe(req)]);
         n++;
       }
       if (!n) return res.status(400).json({ error: 'Pon el saldo de al menos una cuenta' });
@@ -566,7 +584,7 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
       const emps = empresaValida(req.query.empresa) ? [empresaValida(req.query.empresa)] : Object.keys(EMPRESAS_BI).map(Number);
       const cuentas = await listarCuentas(true);
       const [ult] = await portalPool.query(`
-        SELECT s.cuenta_ref, DATE_FORMAT(s.fecha, '%Y-%m-%d') AS fecha, s.monto FROM gas_saldos s
+        SELECT s.cuenta_ref, DATE_FORMAT(s.fecha, '%Y-%m-%d') AS fecha, s.monto, s.por_pagar, DATE_FORMAT(s.fecha_pago, '%Y-%m-%d') AS fecha_pago FROM gas_saldos s
         JOIN (SELECT cuenta_ref, MAX(fecha) AS f FROM gas_saldos WHERE fecha <= ? GROUP BY cuenta_ref) m ON m.cuenta_ref = s.cuenta_ref AND m.f = s.fecha`, [hoy]);
       // Ventana amplia para cargos de tarjeta todavía no pagados (hasta 3 meses atrás)
       const desdeCargos = sumarMeses(mes, -3) + '-01';
@@ -584,11 +602,23 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
         const fotos = ctas.map(c => ({ c, f: ult.find(u => u.cuenta_ref === c.ref) })).filter(x => x.f);
         const tarjetas = tarjetasDe(cuentas, cid);
         const tRefs = new Set(tarjetas.map(t => t.ref));
-        // Cargos de tarjeta de la empresa (mercadería + gastos con tarjeta)
+        // Cargos de tarjeta de la empresa (mercadería + gastos con tarjeta).
+        // Si se anotó la deuda de una tarjeta, esa deuda reemplaza a todo lo cargado
+        // hasta esa fecha: vence "por_pagar" en "fecha_pago" y el resto en el pago
+        // siguiente; solo se suman los cargos posteriores a la fecha del saldo.
+        const deudaTarjeta = {};
+        ult.filter(u => tRefs.has(u.cuenta_ref)).forEach(u => { deudaTarjeta[u.cuenta_ref] = u; });
+        const despuesDeDeuda = c => !deudaTarjeta[c.ref] || c.fecha > deudaTarjeta[c.ref].fecha;
         const cargos = [
           ...merc.filter(m => m.metodo === 'tarjeta' && tRefs.has(m.cuenta_ref)).map(m => ({ fecha: m.fecha, fecha_pago: m.fecha_pago, monto: m.total, ref: m.cuenta_ref, tipo: 'mercadería' })),
           ...gasT.filter(g => tRefs.has(g.cuenta_ref)).map(g => ({ fecha: g.fecha, fecha_pago: g.fecha_pago, monto: g.monto_pen, ref: g.cuenta_ref, tipo: 'gasto' }))
-        ];
+        ].filter(despuesDeDeuda);
+        Object.values(deudaTarjeta).forEach(u => {
+          const deuda = +u.monto, prox = u.por_pagar == null ? deuda : +u.por_pagar;
+          const fp = u.fecha_pago || finDeMes(u.fecha.slice(0, 7));
+          if (prox > 0) cargos.push({ fecha: u.fecha, fecha_pago: fp, monto: r2(prox), ref: u.cuenta_ref, tipo: 'deuda anotada' });
+          if (deuda - prox > 0) cargos.push({ fecha: u.fecha, fecha_pago: finDeMes(sumarMeses(fp.slice(0, 7), 1)), monto: r2(deuda - prox), ref: u.cuenta_ref, tipo: 'deuda anotada' });
+        });
         const fijosPend = fijosMes.fijos.filter(f => f.company_id === cid && f.activo && !f.pagado && !tRefs.has(f.cuenta_ref));
         const fijosPendTot = r2(fijosPend.reduce((a, f) => a + enSoles(f), 0));
         const fijosSigTot = r2(fijosSig.fijos.filter(f => f.company_id === cid && f.activo && !tRefs.has(f.cuenta_ref)).reduce((a, f) => a + enSoles(f), 0));
@@ -645,7 +675,9 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
           const pagos = {};
           cs.filter(c => c.fecha_pago >= hoy).forEach(c => { pagos[c.fecha_pago] = r2((pagos[c.fecha_pago] || 0) + c.monto); });
           const pagoHoy = fechaPagoTarjeta(hoy, t.corte_dia, t.pago_meses);
+          const du = deudaTarjeta[t.ref];
           const x = { ref: t.ref, nombre: t.nombre, limite: t.limite, corte_dia: t.corte_dia, pago_meses: t.pago_meses,
+            deuda_anotada: du ? { fecha: du.fecha, monto: +du.monto, por_pagar: du.por_pagar == null ? +du.monto : +du.por_pagar, fecha_pago: du.fecha_pago } : null,
             usado, disponible: t.limite == null ? null : r2(t.limite - usado),
             proximos_pagos: Object.entries(pagos).sort().map(([fecha, monto]) => ({ fecha, monto })),
             compra_hoy_se_paga: pagoHoy };

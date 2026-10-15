@@ -239,9 +239,9 @@ details.config summary{cursor:pointer;font-size:11px;font-weight:600;color:var(-
 </div>
 <!-- Saldos de las cuentas -->
 <div class="modal-fondo" id="modal-saldos" onclick="if(event.target===this)cerrarSaldos()">
-  <form class="modal" onsubmit="guardarSaldos(event)" autocomplete="off" style="max-width:680px">
+  <form class="modal" onsubmit="guardarSaldos(event)" autocomplete="off" style="max-width:860px">
     <h3>Saldos de las cuentas</h3>
-    <p class="desc" style="margin:-6px 0 12px">Anota cuánto dinero hay en cada cuenta en una fecha (lo que ves en el banco, o lo que registras en tu Excel). Desde esa foto, el sistema suma los cobros y resta gastos, compras y pagos de tarjeta para estimar el saldo de hoy. Deja en blanco las que no quieras cambiar.</p>
+    <p class="desc" style="margin:-6px 0 12px">Anota cuánto dinero hay en cada cuenta (y cuánto debes en cada tarjeta) en una fecha (lo que ves en el banco, o lo que registras en tu Excel). Desde esa foto, el sistema suma los cobros y resta gastos, compras y pagos de tarjeta para estimar el saldo de hoy. Deja en blanco las que no quieras cambiar.</p>
     <label class="f" style="max-width:200px;margin-bottom:10px">Fecha del saldo<input type="date" id="sal-fecha" required></label>
     <div class="tabla-wrap" id="sal-tabla"></div>
     <div class="pie-modal"><span style="flex:1"></span>
@@ -628,6 +628,8 @@ function pintarCapacidad(){
       const pct=t.limite?Math.min(100,t.usado/t.limite*100):0;
       h+=`<div class="tj"><div><b>💳 ${esc(t.nombre)}</b></div>
         ${t.limite!=null?`<div class="linea" title="Línea usada"><span style="width:${pct}%"></span></div><div class="sub">Usado ${soles(t.usado)} de ${soles(t.limite)} · <b>disponible ${soles(t.disponible)}</b></div>`:`<div class="sub">Usado ${soles(t.usado)} (sin límite registrado)</div>`}
+        ${t.deuda_anotada?`<div class="sub">Deuda anotada el ${fechaTxt(t.deuda_anotada.fecha)}: ${soles(t.deuda_anotada.monto)} (próximo pago ${soles(t.deuda_anotada.por_pagar)} el ${fechaTxt(t.deuda_anotada.fecha_pago)}) + compras nuevas</div>`
+          :`<div class="sub" style="color:var(--fg-warn)">Sin deuda anotada: solo cuenta las compras registradas. <a href="#" onclick="abrirSaldos();return false" style="color:inherit">Anotar deuda</a></div>`}
         <div class="sub" style="margin-top:4px">Si compras hoy, lo pagas el <b>${fechaTxt(t.compra_hoy_se_paga)}</b>.</div>
         ${t.puedes_cargar?`<div style="margin-top:6px"><span class="lbl">Podrías cargar hoy</span><div style="font-size:1.25rem;font-weight:800;color:var(--white)">${soles(t.puedes_cargar.sin_ventas)}</div>
           <div class="sub">Contando lo que vas a cobrar y vender hasta el ${fechaTxt(t.proyeccion.fecha)} (${t.proyeccion.dias} días al ritmo actual): <b>${soles(t.puedes_cargar.con_ventas)}</b></div></div>`:''}
@@ -647,18 +649,35 @@ async function abrirSaldos(){
   try{
     const d=await api('/api/gastos/saldos');
     document.getElementById('sal-fecha').value=hoyLima();
-    const grupos={};d.cuentas.forEach(c=>(grupos[c.company_id||0]=grupos[c.company_id||0]||[]).push(c));
-    document.getElementById('sal-tabla').innerHTML='<table><thead><tr><th>Cuenta</th><th class="num">Último saldo</th><th>Saldo nuevo</th></tr></thead><tbody>'+
+    const bancos=d.cuentas.filter(c=>c.tipo!=='tarjeta'), tarjetas=d.cuentas.filter(c=>c.tipo==='tarjeta');
+    const grupos={};bancos.forEach(c=>(grupos[c.company_id||0]=grupos[c.company_id||0]||[]).push(c));
+    let h='<table><thead><tr><th>Cuenta</th><th class="num">Último saldo</th><th>Saldo nuevo</th></tr></thead><tbody>'+
       Object.entries(grupos).map(([cid,cs])=>`<tr><td colspan="3" style="font-weight:700;background:var(--surface3)">${+cid?esc(empNom(cid)):'Sin titular'}</td></tr>`+
         cs.map(c=>`<tr><td>${esc(c.nombre)}</td><td class="num">${c.ultimo?`${soles(c.ultimo.monto)}<div class="sub">${fechaTxt(c.ultimo.fecha)}</div>`:'<span class="sub">—</span>'}</td>
           <td><input type="number" step="0.01" inputmode="decimal" data-ref="${esc(c.ref)}" placeholder="${c.ultimo?c.ultimo.monto:''}" style="width:140px"></td></tr>`).join('')).join('')+'</tbody></table>';
+    if(tarjetas.length){
+      const finMes=(()=>{const [a,m]=hoyLima().split('-').map(Number);return new Date(Date.UTC(a,m,0)).toISOString().slice(0,10);})();
+      h+=`<h3 style="margin:16px 0 4px;text-transform:none;letter-spacing:0;font-size:13px;color:var(--white)">💳 Deuda de las tarjetas</h3>
+        <p class="desc" style="margin-bottom:8px">Lo que debes hoy en cada tarjeta (está en tu app del banco). <b>Próximo pago</b> es el monto de tu estado de cuenta que vence primero; lo que quede de la deuda se toma para el pago siguiente. Desde esta fecha, el sistema suma solo las compras nuevas que cargues a la tarjeta.</p>
+        <table><thead><tr><th>Tarjeta</th><th class="num">Deuda anotada</th><th>Deuda total hoy</th><th>Próximo pago</th><th>Vence</th></tr></thead><tbody>`+
+        tarjetas.map(c=>{const u=c.ultimo;return `<tr><td>${esc(c.nombre)}<div class="sub">${c.company_id?esc(empCorto(c.company_id)):''}</div></td>
+          <td class="num">${u?`${soles(u.monto)}<div class="sub">${fechaTxt(u.fecha)}${u.por_pagar!=null?' · próx. '+soles(u.por_pagar)+' el '+fechaTxt(u.fecha_pago):''}</div>`:'<span class="sub">—</span>'}</td>
+          <td><input type="number" step="0.01" min="0" inputmode="decimal" data-ref="${esc(c.ref)}" data-tarjeta="1" style="width:120px"></td>
+          <td><input type="number" step="0.01" min="0" inputmode="decimal" data-prox="${esc(c.ref)}" placeholder="toda" style="width:110px"></td>
+          <td><input type="date" data-fpago="${esc(c.ref)}" value="${finMes}" style="width:140px"></td></tr>`;}).join('')+'</tbody></table>';
+    }
+    document.getElementById('sal-tabla').innerHTML=h;
     document.getElementById('modal-saldos').classList.add('on');
   }catch(e){toast(e.message,true);}
 }
 function cerrarSaldos(){document.getElementById('modal-saldos').classList.remove('on');}
 async function guardarSaldos(ev){
   ev.preventDefault();
-  const saldos=[...document.querySelectorAll('#sal-tabla input[data-ref]')].filter(i=>i.value!=='').map(i=>({cuenta_ref:i.dataset.ref,monto:i.value}));
+  const q=sel=>document.querySelector(sel);
+  const saldos=[...document.querySelectorAll('#sal-tabla input[data-ref]')].filter(i=>i.value!=='').map(i=>{
+    const x={cuenta_ref:i.dataset.ref,monto:i.value};
+    if(i.dataset.tarjeta){const r=CSS.escape(i.dataset.ref);x.por_pagar=q(`[data-prox="${r}"]`).value;x.fecha_pago=q(`[data-fpago="${r}"]`).value;}
+    return x;});
   try{const r=await api('/api/gastos/saldos','POST',{fecha:document.getElementById('sal-fecha').value,saldos});toast(`Saldos guardados (${r.guardados})`);cerrarSaldos();cargarCapacidad();}
   catch(e){toast(e.message,true);}
 }

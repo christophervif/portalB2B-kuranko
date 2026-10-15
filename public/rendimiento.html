@@ -105,6 +105,14 @@ th.sin-g{color:var(--muted)}
     </div>
   </div>
 
+  <div class="card" id="mes-card">
+    <h3 id="mes-titulo">Este mes</h3>
+    <div class="kpis" id="mes-kpis" style="margin-bottom:10px"></div>
+    <div style="position:relative;height:260px"><canvas id="graf-mes" role="img" aria-label="Ingresos y egresos acumulados del mes con proyección al cierre"></canvas></div>
+    <p class="sub" style="margin-top:6px" id="mes-nota"></p>
+    <details style="margin-top:8px"><summary class="sub" style="cursor:pointer">Lo que falta pagar este mes</summary><div id="mes-pend" style="margin-top:6px"></div></details>
+  </div>
+
   <div id="avisos"></div>
   <div class="kpis" id="kpis"></div>
 
@@ -131,7 +139,7 @@ th.sin-g{color:var(--muted)}
 
 <script>
 let TOKEN='';try{TOKEN=localStorage.getItem('admtoken')||'';}catch(e){}
-let EMPRESA='', MESES=12, D=null, CH=null;
+let EMPRESA='', MESES=12, D=null, CH=null, M=null, CHM=null;
 const esc=t=>String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const soles=n=>n==null?'—':'S/ '+Number(n).toLocaleString('es-PE',{maximumFractionDigits:0});
 const pct=n=>n==null?'—':Number(n).toLocaleString('es-PE',{maximumFractionDigits:1})+'%';
@@ -160,7 +168,42 @@ async function cargar(){
     const d=await api('/api/rendimiento?'+q);if(n!==PET)return;
     D=d;pintar();
   }catch(e){toast(e.message);document.getElementById('kpis').innerHTML=`<div class="vacio">${esc(e.message)}</div>`;}
+  cargarMes();
 }
+
+// ── Este mes: ingresos vs egresos acumulados y proyección al cierre ──
+async function cargarMes(){
+  try{M=await api('/api/rendimiento/mes'+(EMPRESA?'?empresa='+EMPRESA:''));pintarMes();}
+  catch(e){document.getElementById('mes-kpis').innerHTML=`<div class="vacio">${esc(e.message)}</div>`;}
+}
+function pintarMes(){
+  const m=M, queda=m.queda_para_comprar;
+  document.getElementById('mes-titulo').textContent='Este mes · '+mesTxt(m.mes,true)+(EMPRESA?' · '+empNom(EMPRESA):'');
+  document.getElementById('mes-kpis').innerHTML=[
+    {l:'Ingresos al cierre',v:soles(m.ingresos_cierre),s:`cobrado hasta hoy ${soles(m.ingresos_hoy)} · proyección`},
+    {l:'Egresos al cierre',v:soles(m.egresos_cierre),s:`pagado hasta hoy ${soles(m.egresos_hoy)} + lo que falta`},
+    {l:'Te quedaría para comprar',v:`<span class="${queda<0?'neg':'pos'}">${soles(queda)}</span>`,s:'este mes, si cobras al ritmo de siempre',a:1}
+  ].map(x=>`<div class="kpi ${x.a?'acc':''}"><div class="l">${x.l}</div><div class="v">${x.v}</div><div class="s">${x.s}</div></div>`).join('');
+  document.getElementById('mes-nota').innerHTML=`Línea continua: lo real hasta hoy (día ${m.dia_hoy} de ${m.dias_mes}). Punteada: proyección. Ingresos: cobros, y desde hoy ${soles(m.prom_dia)} por día (tu promedio de los últimos 90 días; el mes pasado cobraste ${soles(m.mes_pasado)}). Egresos: gastos pagados, mercadería al contado y pagos de tarjeta; lo que falta son los gastos fijos pendientes y la tarjeta que vence este mes. No incluye el dinero que ya tenías en el banco: eso está en "¿Cuánto puedo comprar hoy?" de Compras y gastos.`;
+  document.getElementById('mes-pend').innerHTML=m.pendientes.length?'<table><tbody>'+m.pendientes.map(p=>`<tr><td style="text-align:left">${esc(p.concepto)}${p.vencido?' <span class="neg">(vencido)</span>':''}</td><td>${fechaD(p.dia)}</td><td>${soles(p.monto)}</td></tr>`).join('')+'</tbody></table>':'<span class="sub">Nada pendiente.</span>';
+  const cI=cssVar('--s-margen'),cE=cssVar('--s-gastos'),grid=cssVar('--grid'),tx=cssVar('--muted');
+  const lbl=m.serie.map(x=>+x.dia.slice(8,10));
+  const ds=[
+    {label:'Ingresos',data:m.serie.map(x=>x.ingresos),borderColor:cI,backgroundColor:cI,borderWidth:2,pointRadius:0,tension:.2},
+    {label:'Ingresos (proyección)',data:m.serie.map(x=>x.ingresos_proy),borderColor:cI,backgroundColor:cI,borderWidth:2,borderDash:[6,5],pointRadius:0,tension:.2},
+    {label:'Egresos',data:m.serie.map(x=>x.egresos),borderColor:cE,backgroundColor:cE,borderWidth:2,pointRadius:0,stepped:true},
+    {label:'Egresos (proyección)',data:m.serie.map(x=>x.egresos_proy),borderColor:cE,backgroundColor:cE,borderWidth:2,borderDash:[6,5],pointRadius:0,stepped:true}
+  ];
+  if(CHM)CHM.destroy();
+  CHM=new Chart(document.getElementById('graf-mes'),{type:'line',data:{labels:lbl,datasets:ds},options:{
+    responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+    scales:{x:{grid:{display:false},ticks:{color:tx,font:{size:11},maxTicksLimit:16},title:{display:true,text:'día del mes',color:tx,font:{size:11}}},
+      y:{beginAtZero:true,grid:{color:grid},border:{display:false},ticks:{color:tx,font:{size:11},callback:v=>'S/ '+Number(v).toLocaleString('es-PE')}}},
+    plugins:{legend:{position:'bottom',labels:{color:cssVar('--text2'),boxWidth:12,boxHeight:12,padding:14,font:{size:12},filter:i=>!/proyección/.test(i.text)}},
+      tooltip:{filter:i=>i.raw!=null,callbacks:{title:it=>'Día '+it[0].label,label:c=>`${c.dataset.label}: ${soles(c.raw)}`}}}
+  }});
+}
+const fechaD=f=>f?f.slice(8,10)+'/'+f.slice(5,7):'';
 
 function pintar(){
   const d=D;
@@ -288,7 +331,7 @@ function pintarFlujo(){
 }
 
 // Si el panel cambia el tema, redibujar el gráfico con los colores del tema nuevo
-new MutationObserver(()=>{if(D)pintarGrafico(D.resultado[EMPRESA?String(EMPRESA):'T']);}).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+new MutationObserver(()=>{if(D)pintarGrafico(D.resultado[EMPRESA?String(EMPRESA):'T']);if(M)pintarMes();}).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
 
 document.getElementById('f-hasta').value=hoyMes();
 cargar();

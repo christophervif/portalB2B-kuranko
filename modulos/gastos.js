@@ -565,6 +565,135 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
+  // Cargos de tarjeta de una empresa (mercadería + gastos con tarjeta).
+  // Si se anotó la deuda de una tarjeta, esa deuda reemplaza a todo lo cargado
+  // hasta esa fecha: vence "por_pagar" en "fecha_pago" y el resto en el pago
+  // siguiente; solo se suman los cargos posteriores a la fecha del saldo.
+  function cargosDeTarjetas(cid, cuentas, ult, merc, gasT) {
+    const tarjetas = tarjetasDe(cuentas, cid);
+    const tRefs = new Set(tarjetas.map(t => t.ref));
+    const deudaTarjeta = {};
+    ult.filter(u => tRefs.has(u.cuenta_ref)).forEach(u => { deudaTarjeta[u.cuenta_ref] = u; });
+    const despuesDeDeuda = c => !deudaTarjeta[c.ref] || c.fecha > deudaTarjeta[c.ref].fecha;
+    const cargos = [
+      ...merc.filter(m => m.metodo === 'tarjeta' && tRefs.has(m.cuenta_ref)).map(m => ({ fecha: m.fecha, fecha_pago: m.fecha_pago, monto: m.total, ref: m.cuenta_ref, tipo: 'mercadería' })),
+      ...gasT.filter(g => tRefs.has(g.cuenta_ref)).map(g => ({ fecha: g.fecha, fecha_pago: g.fecha_pago, monto: g.monto_pen, ref: g.cuenta_ref, tipo: 'gasto' }))
+    ].filter(despuesDeDeuda);
+    Object.values(deudaTarjeta).forEach(u => {
+      const deuda = +u.monto, prox = u.por_pagar == null ? deuda : +u.por_pagar;
+      const fp = u.fecha_pago || finDeMes(u.fecha.slice(0, 7));
+      if (prox > 0) cargos.push({ fecha: u.fecha, fecha_pago: fp, monto: r2(prox), ref: u.cuenta_ref, tipo: 'deuda anotada' });
+      if (deuda - prox > 0) cargos.push({ fecha: u.fecha, fecha_pago: finDeMes(sumarMeses(fp.slice(0, 7), 1)), monto: r2(deuda - prox), ref: u.cuenta_ref, tipo: 'deuda anotada' });
+    });
+    return { tarjetas, tRefs, deudaTarjeta, cargos };
+  }
+  async function ultimosSaldos(hoy) {
+    const [ult] = await portalPool.query(`
+      SELECT s.cuenta_ref, DATE_FORMAT(s.fecha, '%Y-%m-%d') AS fecha, s.monto, s.por_pagar, DATE_FORMAT(s.fecha_pago, '%Y-%m-%d') AS fecha_pago FROM gas_saldos s
+      JOIN (SELECT cuenta_ref, MAX(fecha) AS f FROM gas_saldos WHERE fecha <= ? GROUP BY cuenta_ref) m ON m.cuenta_ref = s.cuenta_ref AND m.f = s.fecha`, [hoy]);
+    return ult;
+  }
+
+  // ── El mes en curso, día a día (para Rendimiento) ────────────────────────────
+  // Ingresos (cobros) acumulados vs egresos acumulados en CAJA, y la proyección al
+  // cierre del mes:
+  //   ingreso proyectado = cobrado hasta hoy + promedio diario de los últimos 90
+  //                        días × días que faltan
+  //   egresos proyectados = salido hasta hoy + gastos fijos pendientes (en su día
+  //                        de vencimiento) + pagos de tarjeta que vencen este mes
+  //   te queda para comprar = ingreso proyectado − egresos proyectados
+  // Egresos = gastos pagados (no los cargados a tarjeta) + mercadería al contado +
+  // pagos de tarjeta (mercadería, gastos y deuda anotada) en su fecha de pago.
+  async function mesEnCurso({ empresa }) {
+    await prepararTablas();
+    const hoy = hoyLima(), mes = hoy.slice(0, 7), fin = finDeMes(mes), ini = mes + '-01';
+    const emps = empresaValida(empresa) ? [empresaValida(empresa)] : Object.keys(EMPRESAS_BI).map(Number);
+    const enEmp = cid => emps.includes(+cid);
+    const cuentas = await listarCuentas(true);
+    const ult = await ultimosSaldos(hoy);
+    const desdeCargos = sumarMeses(mes, -3) + '-01';
+    const minFoto = ult.reduce((a, r) => r.fecha < a ? r.fecha : a, desdeCargos);
+    const [merc, gasT] = await Promise.all([mercaderiaConPago({ desde: minFoto, hasta: fin }), gastosConTarjeta({ desde: minFoto, hasta: fin })]);
+    const [[tc]] = await portalPool.query(`SELECT tipo_cambio FROM gas_gastos WHERE borrado_en IS NULL AND moneda = 'USD' AND tipo_cambio > 0 ORDER BY fecha DESC, id DESC LIMIT 1`);
+    const tcUsd = tc ? +tc.tipo_cambio : null;
+    const fijosMes = await fijosDelMes({ mes, emp: null });
+    const listaEmp = emps.join(',');
+
+    // Cobros por día del mes y promedio diario de los últimos 90 días
+    const [cobDia] = await prodPool.query(`
+      SELECT DATE_FORMAT(sp.paid_at, '%Y-%m-%d') AS dia, COALESCE(SUM(sp.amount), 0) AS t
+      FROM sale_payments sp LEFT JOIN sales s ON s.id = sp.sale_id LEFT JOIN bank_accounts ba ON ba.id = sp.bank_account_id
+      WHERE sp.voided_at IS NULL AND sp.paid_at >= ? AND sp.paid_at < DATE_ADD(?, INTERVAL 1 DAY)
+        AND COALESCE(ba.party_id, s.company_id) IN (${listaEmp})
+      GROUP BY dia`, [ini, hoy]);
+    const [[prom]] = await prodPool.query(`
+      SELECT COALESCE(SUM(sp.amount), 0) AS t FROM sale_payments sp
+      LEFT JOIN sales s ON s.id = sp.sale_id LEFT JOIN bank_accounts ba ON ba.id = sp.bank_account_id
+      WHERE sp.voided_at IS NULL AND sp.paid_at >= DATE_SUB(?, INTERVAL 90 DAY) AND sp.paid_at < ?
+        AND COALESCE(ba.party_id, s.company_id) IN (${listaEmp})`, [ini, ini]);
+    const [[mesPas]] = await prodPool.query(`
+      SELECT COALESCE(SUM(sp.amount), 0) AS t FROM sale_payments sp
+      LEFT JOIN sales s ON s.id = sp.sale_id LEFT JOIN bank_accounts ba ON ba.id = sp.bank_account_id
+      WHERE sp.voided_at IS NULL AND sp.paid_at >= ? AND sp.paid_at < ?
+        AND COALESCE(ba.party_id, s.company_id) IN (${listaEmp})`, [sumarMeses(mes, -1) + '-01', ini]);
+    // Promedio diario: últimos 90 días antes de este mes (más estable que el ritmo de pocos días)
+    const promDia = +prom.t / 90;
+
+    // Egresos del mes por día
+    const tarjetaRefs = new Set(cuentas.filter(c => c.tipo === 'tarjeta').map(c => c.ref));
+    const [gas] = await portalPool.query(`
+      SELECT DATE_FORMAT(fecha, '%Y-%m-%d') AS dia, cuenta_ref, SUM(monto_pen) AS t FROM gas_gastos
+      WHERE borrado_en IS NULL AND fecha BETWEEN ? AND ? AND company_id IN (${listaEmp})
+      GROUP BY dia, cuenta_ref`, [ini, fin]);
+    const egr = {};   // dia → {gastos, mercaderia, tarjeta}
+    const add = (dia, k, v) => { const e = egr[dia] = egr[dia] || { gastos: 0, mercaderia: 0, tarjeta: 0 }; e[k] += v; };
+    gas.filter(g => !tarjetaRefs.has(g.cuenta_ref) && g.dia <= hoy).forEach(g => add(g.dia, 'gastos', +g.t));
+    merc.filter(m => enEmp(m.company_id) && m.metodo === 'contado' && m.fecha >= ini && m.fecha <= hoy).forEach(m => add(m.fecha, 'mercaderia', m.total));
+    const pendientes = [];   // egresos que faltan este mes
+    for (const cid of emps) {
+      const { cargos } = cargosDeTarjetas(cid, cuentas, ult, merc, gasT);
+      cargos.filter(c => c.fecha_pago >= ini && c.fecha_pago <= fin).forEach(c => {
+        if (c.fecha_pago <= hoy) add(c.fecha_pago, 'tarjeta', c.monto);
+        else pendientes.push({ dia: c.fecha_pago, concepto: 'Pago de tarjeta', monto: c.monto });
+      });
+    }
+    fijosMes.fijos.filter(f => enEmp(f.company_id) && f.activo && !f.pagado && !tarjetaRefs.has(f.cuenta_ref)).forEach(f => {
+      const monto = f.moneda === 'USD' ? (tcUsd ? f.monto * tcUsd : 0) : f.monto;
+      pendientes.push({ dia: f.vence < hoy ? hoy : f.vence, concepto: f.nombre, monto, vencido: f.vence < hoy });
+    });
+
+    // Series acumuladas por día
+    const dias = [];
+    for (let d = 1; d <= ultimoDia(mes); d++) dias.push(`${mes}-${String(d).padStart(2, '0')}`);
+    const cobMap = Object.fromEntries(cobDia.map(r => [r.dia, +r.t]));
+    let accI = 0, accE = 0, accIp = null, accEp = null;
+    const serie = dias.map(dia => {
+      const real = dia <= hoy;
+      if (real) {
+        accI += cobMap[dia] || 0;
+        const e = egr[dia]; accE += e ? e.gastos + e.mercaderia + e.tarjeta : 0;
+      }
+      if (dia >= hoy) {
+        if (accIp == null) { accIp = accI; accEp = accE; }
+        else accIp += promDia;
+        accEp += pendientes.filter(p => p.dia === dia).reduce((a, p) => a + p.monto, 0);
+      }
+      return { dia, ingresos: real ? r2(accI) : null, egresos: real ? r2(accE) : null,
+        ingresos_proy: dia >= hoy ? r2(accIp) : null, egresos_proy: dia >= hoy ? r2(accEp) : null };
+    });
+    const ultimo = serie[serie.length - 1];
+    const totEgr = Object.values(egr).reduce((a, e) => ({ gastos: a.gastos + e.gastos, mercaderia: a.mercaderia + e.mercaderia, tarjeta: a.tarjeta + e.tarjeta }), { gastos: 0, mercaderia: 0, tarjeta: 0 });
+    return {
+      hoy, mes, fin, dias_mes: dias.length, dia_hoy: +hoy.slice(8, 10), prom_dia: r2(promDia), mes_pasado: r2(mesPas.t),
+      ingresos_hoy: r2(accI), egresos_hoy: r2(accE),
+      egresos_detalle: { gastos: r2(totEgr.gastos), mercaderia: r2(totEgr.mercaderia), tarjeta: r2(totEgr.tarjeta) },
+      ingresos_cierre: ultimo.ingresos_proy, egresos_cierre: ultimo.egresos_proy,
+      queda_para_comprar: r2(ultimo.ingresos_proy - ultimo.egresos_proy),
+      pendientes: pendientes.sort((a, b) => a.dia.localeCompare(b.dia)).map(p => ({ ...p, monto: r2(p.monto) })),
+      serie
+    };
+  }
+
   // ── ¿Cuánto puedo comprar hoy? ──────────────────────────────────────────────
   // Por empresa:
   //   Saldo estimado hoy = saldos anotados (última foto de cada cuenta)
@@ -583,9 +712,7 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
       const hoy = hoyLima(), mes = hoy.slice(0, 7), fin = finDeMes(mes);
       const emps = empresaValida(req.query.empresa) ? [empresaValida(req.query.empresa)] : Object.keys(EMPRESAS_BI).map(Number);
       const cuentas = await listarCuentas(true);
-      const [ult] = await portalPool.query(`
-        SELECT s.cuenta_ref, DATE_FORMAT(s.fecha, '%Y-%m-%d') AS fecha, s.monto, s.por_pagar, DATE_FORMAT(s.fecha_pago, '%Y-%m-%d') AS fecha_pago FROM gas_saldos s
-        JOIN (SELECT cuenta_ref, MAX(fecha) AS f FROM gas_saldos WHERE fecha <= ? GROUP BY cuenta_ref) m ON m.cuenta_ref = s.cuenta_ref AND m.f = s.fecha`, [hoy]);
+      const ult = await ultimosSaldos(hoy);
       // Ventana amplia para cargos de tarjeta todavía no pagados (hasta 3 meses atrás)
       const desdeCargos = sumarMeses(mes, -3) + '-01';
       const minFoto = ult.reduce((a, r) => r.fecha < a ? r.fecha : a, desdeCargos);
@@ -600,25 +727,7 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
       for (const cid of emps) {
         const ctas = cuentas.filter(c => c.company_id === cid && c.tipo !== 'tarjeta');
         const fotos = ctas.map(c => ({ c, f: ult.find(u => u.cuenta_ref === c.ref) })).filter(x => x.f);
-        const tarjetas = tarjetasDe(cuentas, cid);
-        const tRefs = new Set(tarjetas.map(t => t.ref));
-        // Cargos de tarjeta de la empresa (mercadería + gastos con tarjeta).
-        // Si se anotó la deuda de una tarjeta, esa deuda reemplaza a todo lo cargado
-        // hasta esa fecha: vence "por_pagar" en "fecha_pago" y el resto en el pago
-        // siguiente; solo se suman los cargos posteriores a la fecha del saldo.
-        const deudaTarjeta = {};
-        ult.filter(u => tRefs.has(u.cuenta_ref)).forEach(u => { deudaTarjeta[u.cuenta_ref] = u; });
-        const despuesDeDeuda = c => !deudaTarjeta[c.ref] || c.fecha > deudaTarjeta[c.ref].fecha;
-        const cargos = [
-          ...merc.filter(m => m.metodo === 'tarjeta' && tRefs.has(m.cuenta_ref)).map(m => ({ fecha: m.fecha, fecha_pago: m.fecha_pago, monto: m.total, ref: m.cuenta_ref, tipo: 'mercadería' })),
-          ...gasT.filter(g => tRefs.has(g.cuenta_ref)).map(g => ({ fecha: g.fecha, fecha_pago: g.fecha_pago, monto: g.monto_pen, ref: g.cuenta_ref, tipo: 'gasto' }))
-        ].filter(despuesDeDeuda);
-        Object.values(deudaTarjeta).forEach(u => {
-          const deuda = +u.monto, prox = u.por_pagar == null ? deuda : +u.por_pagar;
-          const fp = u.fecha_pago || finDeMes(u.fecha.slice(0, 7));
-          if (prox > 0) cargos.push({ fecha: u.fecha, fecha_pago: fp, monto: r2(prox), ref: u.cuenta_ref, tipo: 'deuda anotada' });
-          if (deuda - prox > 0) cargos.push({ fecha: u.fecha, fecha_pago: finDeMes(sumarMeses(fp.slice(0, 7), 1)), monto: r2(deuda - prox), ref: u.cuenta_ref, tipo: 'deuda anotada' });
-        });
+        const { tarjetas, tRefs, deudaTarjeta, cargos } = cargosDeTarjetas(cid, cuentas, ult, merc, gasT);
         const fijosPend = fijosMes.fijos.filter(f => f.company_id === cid && f.activo && !f.pagado && !tRefs.has(f.cuenta_ref));
         const fijosPendTot = r2(fijosPend.reduce((a, f) => a + enSoles(f), 0));
         const fijosSigTot = r2(fijosSig.fijos.filter(f => f.company_id === cid && f.activo && !tRefs.has(f.cuenta_ref)).reduce((a, f) => a + enSoles(f), 0));
@@ -976,5 +1085,8 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
     return Object.values(acc).map(x => ({ ...x, merc_caja: r2(x.merc_caja), gastos_tarjeta: r2(x.gastos_tarjeta), pagos_tarjeta: r2(x.pagos_tarjeta) }));
   }
 
+  // Rendimiento recibe solo gastosMensuales desde index.js; se le cuelga mesEnCurso
+  // para no tener que tocar index.js (archivo compartido por todos los módulos).
+  gastosMensuales.mesEnCurso = mesEnCurso;
   return { prepararTablas, gastosMensuales, _test: { resumir, filtros } };
 };

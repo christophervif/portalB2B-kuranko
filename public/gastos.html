@@ -52,7 +52,7 @@ label.f{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--mu
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:16px}
 .kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px}
 .kpi .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
-.kpi .v{font-size:1.3rem;font-weight:700;color:var(--white);font-variant-numeric:tabular-nums}
+.kpi .v{font-size:clamp(1.05rem,1.5vw,1.3rem);font-weight:700;color:var(--white);font-variant-numeric:tabular-nums;white-space:nowrap}
 .kpi .s{font-size:11px;color:var(--muted2);margin-top:3px}
 .kpi.acc{border-color:var(--accent)}
 .dot{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:6px;vertical-align:middle}
@@ -98,6 +98,18 @@ details.config summary{cursor:pointer;font-size:11px;font-weight:600;color:var(-
 .toast{position:fixed;bottom:20px;right:20px;background:var(--bg-ok);color:var(--fg-ok);padding:12px 18px;border-radius:12px;font-size:13px;display:none;z-index:100;border:1px solid var(--border);max-width:340px}
 .toast.err{background:var(--bg-r);color:var(--fg-r)}
 .oculto{display:none!important}
+.cap-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px}
+.cap{border:1px solid var(--border);border-radius:14px;padding:14px;background:var(--surface2);min-width:0}
+.cap .nom{font-weight:700;color:var(--white);margin-bottom:8px}
+.cap .big{font-size:1.9rem;font-weight:800;color:var(--white);font-variant-numeric:tabular-nums;line-height:1.1}
+.cap .big.neg{color:var(--fg-r)}
+.cap .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.cap details{margin-top:10px}
+.cap summary{cursor:pointer;font-size:12px;color:var(--text2)}
+.cap table td{padding:4px 6px;border:none}
+.cap .tj{border-top:1px solid var(--border);margin-top:12px;padding-top:10px}
+.linea{height:8px;border-radius:5px;background:var(--surface3);overflow:hidden;margin:6px 0 2px}
+.linea span{display:block;height:100%;background:var(--fg-warn)}
 </style>
 </head>
 <body>
@@ -105,7 +117,7 @@ details.config summary{cursor:pointer;font-size:11px;font-weight:600;color:var(-
   <div class="titulo">
     <div>
       <h2>Compras y gastos</h2>
-      <p class="desc">Todo el dinero que sale y <b>no es mercadería</b>: planilla, alquiler, servicios, fletes, comisiones, publicidad, impuestos… Indica de qué <b>cuenta</b> salió y de qué <b>empresa</b> es el gasto. La mercadería no se anota aquí: ya viene del sistema (entradas e importaciones). Los <b>gastos fijos</b> (mensuales, anuales…) se definen una vez y cada mes aparecen como pendientes hasta que registras el pago.</p>
+      <p class="desc">Aquí anotas todo el dinero que sale y <b>no es mercadería</b>: planilla, alquiler, servicios, fletes, comisiones, publicidad, impuestos… Indica de qué <b>cuenta</b> salió y de qué <b>empresa</b> es el gasto. La mercadería no se anota: <b>se ve abajo</b>, tomada de las entradas de stock del sistema. Los <b>gastos fijos</b> (mensuales, anuales…) se definen una vez y cada mes aparecen como pendientes hasta que registras el pago.</p>
     </div>
     <div class="fila">
       <button class="btn" onclick="abrirForm()">+ Nuevo gasto</button>
@@ -139,6 +151,14 @@ details.config summary{cursor:pointer;font-size:11px;font-weight:600;color:var(-
     </div>
   </div>
 
+  <div class="card" id="cap-card">
+    <div class="fila" style="justify-content:space-between;margin-bottom:10px">
+      <h3 style="margin:0">¿Cuánto puedo comprar hoy?</h3>
+      <button class="btn btn-sm" onclick="abrirSaldos()">Actualizar saldos</button>
+    </div>
+    <div id="cap"><div class="vacio">Calculando…</div></div>
+  </div>
+
   <div class="kpis" id="kpis"></div>
   <div id="avisos"></div>
 
@@ -160,6 +180,13 @@ details.config summary{cursor:pointer;font-size:11px;font-weight:600;color:var(-
   </div>
 
   <div class="card"><h3 id="mm-titulo">Últimos 12 meses</h3><div class="tabla-wrap" id="mensual"></div></div>
+
+  <div class="card" id="merc-card">
+    <h3 id="merc-titulo">Compras de mercadería</h3>
+    <p class="desc" style="margin:-4px 0 10px">Vienen solas de las <b>entradas de stock del sistema</b> (compra y importación), valorizadas al costo del lote. Aquí solo se ven: si algo está mal, se corrige en el sistema. Clic en una fila para ver los productos.</p>
+    <div class="tabla-wrap" id="merc"></div>
+    <div class="sub" id="merc-nota" style="margin-top:8px"></div>
+  </div>
 
   <div class="card">
     <h3 id="lista-titulo">Gastos</h3>
@@ -210,6 +237,19 @@ details.config summary{cursor:pointer;font-size:11px;font-weight:600;color:var(-
     </div>
   </form>
 </div>
+<!-- Saldos de las cuentas -->
+<div class="modal-fondo" id="modal-saldos" onclick="if(event.target===this)cerrarSaldos()">
+  <form class="modal" onsubmit="guardarSaldos(event)" autocomplete="off" style="max-width:680px">
+    <h3>Saldos de las cuentas</h3>
+    <p class="desc" style="margin:-6px 0 12px">Anota cuánto dinero hay en cada cuenta en una fecha (lo que ves en el banco, o lo que registras en tu Excel). Desde esa foto, el sistema suma los cobros y resta gastos, compras y pagos de tarjeta para estimar el saldo de hoy. Deja en blanco las que no quieras cambiar.</p>
+    <label class="f" style="max-width:200px;margin-bottom:10px">Fecha del saldo<input type="date" id="sal-fecha" required></label>
+    <div class="tabla-wrap" id="sal-tabla"></div>
+    <div class="pie-modal"><span style="flex:1"></span>
+      <button type="button" class="btn btn-sec" onclick="cerrarSaldos()">Cancelar</button>
+      <button type="submit" class="btn">Guardar saldos</button></div>
+  </form>
+</div>
+
 <!-- Formulario de gasto fijo (plantilla) -->
 <div class="modal-fondo" id="modal-fijo" onclick="if(event.target===this)cerrarFijo()">
   <form class="modal" onsubmit="guardarFijo(event)" autocomplete="off">
@@ -240,7 +280,7 @@ details.config summary{cursor:pointer;font-size:11px;font-weight:600;color:var(-
 <script>
 // ── Base compartida (mini-app en iframe; comparte token y origen con admin.html) ──
 let TOKEN='';try{TOKEN=localStorage.getItem('admtoken')||'';}catch(e){}
-let OPC=null, DATOS=null, FIJOS=null, EMPRESA='', MODO='mes', EDITANDO=null, EMP_FORM=null, EMP_MANUAL=false, FIJO_PAGO=null, FIJO_EDIT=null, FIJO_EMP=null, TODOS_FIJOS=false;
+let OPC=null, DATOS=null, MERC=null, FIJOS=null, EMPRESA='', MODO='mes', EDITANDO=null, EMP_FORM=null, EMP_MANUAL=false, FIJO_PAGO=null, FIJO_EDIT=null, FIJO_EMP=null, TODOS_FIJOS=false;
 
 function esc(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
 function toast(m,e){const t=document.getElementById('toast');t.textContent=m;t.className='toast'+(e?' err':'');t.style.display='block';clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',4000);}
@@ -316,18 +356,29 @@ let PET=0;
 async function cargar(){
   const n=++PET;
   try{
-    const [d,m]=await Promise.all([api('/api/gastos?'+params()),api('/api/gastos/mensual?'+new URLSearchParams({hasta:MODO==='mes'?document.getElementById('f-mes').value:(document.getElementById('f-hasta').value||hoyLima()).slice(0,7),...(EMPRESA?{empresa:EMPRESA}:{})}))]);
+    // Mercadería: solo filtra por período y empresa (no tiene cuenta ni categoría)
+    const pm=new URLSearchParams();
+    if(MODO==='mes')pm.set('mes',document.getElementById('f-mes').value);
+    else{pm.set('desde',document.getElementById('f-desde').value);pm.set('hasta',document.getElementById('f-hasta').value);}
+    if(EMPRESA)pm.set('empresa',EMPRESA);
+    const [d,m,mc]=await Promise.all([api('/api/gastos?'+params()),api('/api/gastos/mensual?'+new URLSearchParams({hasta:MODO==='mes'?document.getElementById('f-mes').value:(document.getElementById('f-hasta').value||hoyLima()).slice(0,7),...(EMPRESA?{empresa:EMPRESA}:{})})),
+      api('/api/gastos/mercaderia?'+pm).catch(e=>({error:e.message}))]);
     if(n!==PET)return;
-    DATOS=d;pintar(d);pintarMensual(m);
+    MERC=mc;DATOS=d;pintar(d);pintarMensual(m);pintarMercaderia();
+    cargarCapacidad();
     if(MODO==='mes')cargarFijos();
   }catch(e){toast(e.message,true);}
 }
 function pintar(d){
   const r=d.resumen,t=r.totales;
   const porEmp=Object.fromEntries(r.por_empresa.map(x=>[x.company_id,x.total]));
-  const kp=[{l:'Total egresos',v:soles(t.total),s:t.n+' registro'+(t.n===1?'':'s'),a:1},
+  // Mercadería: se suma a los totales solo si no hay filtros que no le aplican
+  const mOk=mercAplica()&&MERC&&!MERC.error, mTot=mOk?MERC.total:0, mEmp=id=>mOk?(MERC.por_empresa[id]||0):0;
+  const tot=t.total+mTot;
+  const kp=[{l:'Total salidas',v:soles(tot),s:mOk?`gastos ${soles(t.total)} + mercadería ${soles(mTot)}`:t.n+' registro'+(t.n===1?'':'s'),a:1},
     {l:'Gastos del período',v:soles(t.en_resultado),s:'cuentan en el resultado'}];
-  if(!EMPRESA)OPC.empresas.forEach(e=>kp.push({l:e.nombre,v:soles(porEmp[e.id]||0),s:t.total?Math.round((porEmp[e.id]||0)/t.total*100)+'% del total':'—',dot:e.id}));
+  if(mOk)kp.push({l:'Mercadería comprada',v:soles(mTot),s:MERC.entradas.length+' entrada'+(MERC.entradas.length===1?'':'s')+' de stock'});
+  if(!EMPRESA)OPC.empresas.forEach(e=>{const v=(porEmp[e.id]||0)+mEmp(e.id);kp.push({l:e.nombre,v:soles(v),s:tot?Math.round(v/tot*100)+'% del total'+(mOk?' · con mercadería':''):'—',dot:e.id});});
   kp.push({l:'Gastos fijos',v:soles(t.fijos),s:'se repiten cada mes'});
   if(t.no_resultado)kp.push({l:'Retiros y préstamos',v:soles(t.no_resultado),s:'salida de dinero, no gasto'});
   document.getElementById('kpis').innerHTML=kp.map(k=>`<div class="kpi ${k.a?'acc':''}"><div class="l">${k.dot?`<span class="dot" style="background:var(--e${k.dot})"></span>`:''}${esc(k.l)}</div><div class="v">${k.v}</div><div class="s">${k.s}</div></div>`).join('');
@@ -493,6 +544,126 @@ async function borrarDesdeForm(){
 }
 document.addEventListener('keydown',e=>{if(e.key==='Escape')cerrarForm();});
 
+// ── Compras de mercadería (entradas de stock del sistema, solo lectura) ──
+function mercAplica(){
+  return !document.getElementById('f-categoria').value&&!document.getElementById('f-cuenta').value&&!document.getElementById('f-q').value.trim()
+    &&!document.getElementById('f-fijo').checked&&!document.getElementById('f-entre').checked;
+}
+const COD_TXT={'02':'Compra','18':'Importación','16':'saldo inicial','05':'devolución recibida','11':'transferencia','21':'producción','28':'ajuste','99':'otros'};
+function pintarMercaderia(){
+  const box=document.getElementById('merc'),nota=document.getElementById('merc-nota');
+  const per=MODO==='mes'?mesTxt(document.getElementById('f-mes').value):'';
+  document.getElementById('merc-titulo').textContent='Compras de mercadería'+(per?' · '+per:'');
+  if(!mercAplica()){box.innerHTML='<div class="vacio">No aplica con los filtros de categoría, cuenta, búsqueda o fijos (la mercadería no tiene cuenta ni categoría). Quita esos filtros para verla.</div>';nota.textContent='';return;}
+  if(!MERC||MERC.error){box.innerHTML=`<div class="vacio">No se pudieron leer las entradas del sistema${MERC&&MERC.error?': '+esc(MERC.error):''}.</div>`;nota.textContent='';return;}
+  const E=MERC.entradas;
+  const hayImp=E.some(e=>e.importacion), hayProv=E.some(e=>e.proveedor);
+  const tarjetas=MERC.tarjetas||[];
+  const selPago=e=>{const p=e.pago||{metodo:'contado'};const v=p.metodo==='tarjeta'?p.cuenta_ref:'contado';
+    return `<select onclick="event.stopPropagation()" onchange="cambiarPago(${e.id},this.value)" aria-label="Medio de pago" style="max-width:190px">
+      <option value="contado" ${v==='contado'?'selected':''}>Contado</option>${tarjetas.filter(t=>!e.company_id||t.company_id===e.company_id).map(t=>`<option value="${esc(t.ref)}" ${v===t.ref?'selected':''}>${esc(t.nombre)}</option>`).join('')}</select>
+      <div class="sub">${p.metodo==='tarjeta'?'se paga el '+fechaTxt(p.fecha_pago):'sale al comprar'}${p.por_defecto?' · automático':''}</div>`;};
+  box.innerHTML=E.length?'<table><thead><tr><th>Fecha</th><th>Empresa</th><th>Tipo</th><th>Documento</th>'+(hayImp?'<th>Importación</th>':'')+(hayProv?'<th>Proveedor</th>':'')+'<th class="num">Productos</th><th class="num">Unidades</th><th class="num">Total (costo)</th><th>Pago</th></tr></thead><tbody>'+
+    E.map(e=>`<tr style="cursor:pointer" onclick="detalleEntrada(${e.id},this)" title="Ver productos"><td style="white-space:nowrap">${fechaTxt(e.fecha)}</td>
+      <td>${e.company_id?empChip(e.company_id):'<span class="sub">sin empresa</span>'}</td><td>${esc(COD_TXT[e.codigo]||e.codigo)}</td>
+      <td>${e.documento?esc(e.documento):'<span class="sub">—</span>'}</td>${hayImp?`<td>${esc(e.importacion||'')}</td>`:''}${hayProv?`<td>${esc(e.proveedor||'')}</td>`:''}
+      <td class="num">${e.productos}</td><td class="num">${Number(e.unidades).toLocaleString('es-PE')}</td>
+      <td class="num"><b>${soles(e.total)}</b>${e.sin_costo?`<div class="sub" style="color:var(--fg-warn)">${e.sin_costo} sin costo</div>`:''}</td><td>${selPago(e)}</td></tr>`).join('')+
+    `</tbody><tfoot><tr><td colspan="${6+(hayImp?1:0)+(hayProv?1:0)}">Total</td><td class="num">${soles(MERC.total)}</td><td></td></tr></tfoot></table>`
+    :'<div class="vacio">No hay entradas de compra o importación en este período.</div>';
+  const otras=MERC.otras||[];
+  nota.innerHTML=`Se cuentan las entradas con código SUNAT ${MERC.codigos_compra.join(' y ')} (compra e importación).`+
+    (otras.length?' Otras entradas del período que <b>no</b> son compra: '+otras.map(o=>`${esc(COD_TXT[o.codigo]||'código '+o.codigo)} (${o.n}) ${soles(o.total)}`).join(' · ')+'.':'');
+}
+async function detalleEntrada(id,tr){
+  const sig=tr.nextElementSibling;
+  if(sig&&sig.classList.contains('det-entrada')){sig.remove();return;}
+  const cols=tr.children.length;
+  const fila=document.createElement('tr');fila.className='det-entrada';
+  fila.innerHTML=`<td colspan="${cols}" style="background:var(--surface2)"><span class="sub">Cargando…</span></td>`;tr.after(fila);
+  try{
+    const d=await api('/api/gastos/mercaderia/'+id);
+    fila.firstElementChild.innerHTML=d.length?'<table><thead><tr><th>SKU</th><th>Producto</th><th class="num">Cant.</th><th class="num">Costo unit.</th><th class="num">Subtotal</th></tr></thead><tbody>'+
+      d.map(x=>`<tr><td class="sub">${esc(x.sku||'')}</td><td>${esc(x.producto)}${x.variacion&&x.variacion!==x.producto?` <span class="sub">(${esc(x.variacion)})</span>`:''}</td><td class="num">${x.cantidad}</td><td class="num">${x.costo_unit==null?'<span class="sub">—</span>':soles(x.costo_unit)}</td><td class="num">${soles(x.subtotal)}</td></tr>`).join('')+'</tbody></table>'
+      :'<span class="sub">Sin productos.</span>';
+  }catch(e){fila.firstElementChild.innerHTML=`<span class="sub">${esc(e.message)}</span>`;}
+}
+
+async function cambiarPago(id,v){
+  try{await api('/api/gastos/mercaderia/'+id+'/pago','POST',v==='contado'?{metodo:'contado'}:{metodo:'tarjeta',cuenta_ref:v});toast('Medio de pago guardado');cargar();}
+  catch(e){toast(e.message,true);}
+}
+
+// ── ¿Cuánto puedo comprar hoy? ──
+let CAP=null;
+async function cargarCapacidad(){
+  try{CAP=await api('/api/gastos/capacidad'+(EMPRESA?'?empresa='+EMPRESA:''));pintarCapacidad();}
+  catch(e){document.getElementById('cap').innerHTML=`<div class="vacio">${esc(e.message)}</div>`;}
+}
+function pintarCapacidad(){
+  const neg=v=>v<0?'neg':'';
+  document.getElementById('cap').innerHTML='<div class="cap-grid">'+CAP.empresas.map(r=>{
+    let h=`<div class="cap"><div class="nom"><span class="dot" style="background:var(--e${r.company_id})"></span>${esc(r.empresa)}</div>`;
+    if(r.necesita_saldo){
+      h+=`<p class="desc">Para calcularlo necesito el saldo de las cuentas de esta empresa. <a href="#" onclick="abrirSaldos();return false" style="color:var(--accent)">Anotar saldos</a></p>`;
+    }else{
+      const s=r.saldo,c=r.comprometido;
+      h+=`<div class="lbl">Puedes comprar al contado hoy</div><div class="big ${neg(r.puede_hoy)}">${soles(r.puede_hoy)}</div>
+        <div class="sub" style="margin-top:4px">Si cobras lo pendiente (${soles(r.por_cobrar)}): <b>${soles(r.puede_con_cobros)}</b></div>
+        <details><summary>Cómo se calcula</summary><table>
+          <tr><td>Saldo anotado (${fechaTxt(s.fecha_foto)})</td><td class="num">${soles(s.base)}</td></tr>
+          <tr><td>+ Cobros desde entonces</td><td class="num">${soles(s.cobros)}</td></tr>
+          <tr><td>− Gastos pagados</td><td class="num">${soles(s.gastos)}</td></tr>
+          <tr><td>− Mercadería al contado</td><td class="num">${soles(s.merc_contado)}</td></tr>
+          <tr><td>− Tarjeta ya pagada</td><td class="num">${soles(s.pagos_tarjeta)}</td></tr>
+          <tr><td><b>= Saldo estimado hoy</b></td><td class="num"><b>${soles(s.estimado)}</b></td></tr>
+          <tr><td>− Gastos fijos pendientes del mes</td><td class="num">${soles(c.fijos_total)}</td></tr>
+          ${c.fijos.map(f=>`<tr><td class="sub" style="padding-left:16px">${esc(f.nombre)} · vence ${fechaTxt(f.vence)}${f.usd?' (US$)':''}</td><td class="num sub">${soles(f.monto)}</td></tr>`).join('')}
+          <tr><td>− Tarjeta que vence el ${fechaTxt(r.fin_mes)}</td><td class="num">${soles(c.tarjeta)}</td></tr>
+          <tr><td><b>= Puedes comprar hoy</b></td><td class="num"><b>${soles(r.puede_hoy)}</b></td></tr>
+        </table>${r.cuentas_sin_saldo.length?`<p class="sub" style="color:var(--fg-warn);margin-top:6px">Sin saldo anotado: ${r.cuentas_sin_saldo.map(esc).join(', ')}.</p>`:''}
+        ${r.fijos_usd_sin_tc?'<p class="sub" style="color:var(--fg-warn)">Hay gastos fijos en dólares sin tipo de cambio registrado: no se restan.</p>':''}</details>`;
+    }
+    (r.tarjetas||[]).forEach(t=>{
+      const pct=t.limite?Math.min(100,t.usado/t.limite*100):0;
+      h+=`<div class="tj"><div><b>💳 ${esc(t.nombre)}</b></div>
+        ${t.limite!=null?`<div class="linea" title="Línea usada"><span style="width:${pct}%"></span></div><div class="sub">Usado ${soles(t.usado)} de ${soles(t.limite)} · <b>disponible ${soles(t.disponible)}</b></div>`:`<div class="sub">Usado ${soles(t.usado)} (sin límite registrado)</div>`}
+        <div class="sub" style="margin-top:4px">Si compras hoy, lo pagas el <b>${fechaTxt(t.compra_hoy_se_paga)}</b>.</div>
+        ${t.puedes_cargar?`<div style="margin-top:6px"><span class="lbl">Podrías cargar hoy</span><div style="font-size:1.25rem;font-weight:800;color:var(--white)">${soles(t.puedes_cargar.sin_ventas)}</div>
+          <div class="sub">Contando lo que vas a cobrar y vender hasta el ${fechaTxt(t.proyeccion.fecha)} (${t.proyeccion.dias} días al ritmo actual): <b>${soles(t.puedes_cargar.con_ventas)}</b></div></div>`:''}
+        ${t.proximos_pagos.length?`<div class="sub" style="margin-top:6px">Próximos pagos: ${t.proximos_pagos.map(p=>`${fechaTxt(p.fecha)} <b>${soles(p.monto)}</b>`).join(' · ')}</div>`:''}</div>`;
+    });
+    // Varias tarjetas comparten el mismo dinero para pagarlas: tope conjunto
+    const tjs=(r.tarjetas||[]).filter(t=>t.puedes_cargar);
+    if(tjs.length>1){
+      const disp=tjs.reduce((a,t)=>a+(t.disponible==null?Infinity:t.disponible),0);
+      const proy=Math.max(0,Math.min(...tjs.map(t=>t.proyeccion.sin_ventas))), proyV=Math.max(0,Math.min(...tjs.map(t=>t.proyeccion.con_ventas)));
+      h+=`<div class="aviso info" style="margin-top:10px">Las tarjetas se pagan con el mismo dinero: <b>entre todas</b> podrías cargar hoy hasta <b>${soles(Math.min(proy,disp))}</b> (o ${soles(Math.min(proyV,disp))} contando lo que vas a cobrar y vender), no la suma de cada una.</div>`;
+    }
+    return h+'</div>';
+  }).join('')+'</div><p class="sub" style="margin-top:8px">Estimación: parte del último saldo que anotaste y suma o resta lo registrado en el sistema desde esa fecha. Si algo no se registró (un pago por fuera, una transferencia entre cuentas), el número se desvía: vuelve a anotar los saldos para corregirlo.</p>';
+}
+async function abrirSaldos(){
+  try{
+    const d=await api('/api/gastos/saldos');
+    document.getElementById('sal-fecha').value=hoyLima();
+    const grupos={};d.cuentas.forEach(c=>(grupos[c.company_id||0]=grupos[c.company_id||0]||[]).push(c));
+    document.getElementById('sal-tabla').innerHTML='<table><thead><tr><th>Cuenta</th><th class="num">Último saldo</th><th>Saldo nuevo</th></tr></thead><tbody>'+
+      Object.entries(grupos).map(([cid,cs])=>`<tr><td colspan="3" style="font-weight:700;background:var(--surface3)">${+cid?esc(empNom(cid)):'Sin titular'}</td></tr>`+
+        cs.map(c=>`<tr><td>${esc(c.nombre)}</td><td class="num">${c.ultimo?`${soles(c.ultimo.monto)}<div class="sub">${fechaTxt(c.ultimo.fecha)}</div>`:'<span class="sub">—</span>'}</td>
+          <td><input type="number" step="0.01" inputmode="decimal" data-ref="${esc(c.ref)}" placeholder="${c.ultimo?c.ultimo.monto:''}" style="width:140px"></td></tr>`).join('')).join('')+'</tbody></table>';
+    document.getElementById('modal-saldos').classList.add('on');
+  }catch(e){toast(e.message,true);}
+}
+function cerrarSaldos(){document.getElementById('modal-saldos').classList.remove('on');}
+async function guardarSaldos(ev){
+  ev.preventDefault();
+  const saldos=[...document.querySelectorAll('#sal-tabla input[data-ref]')].filter(i=>i.value!=='').map(i=>({cuenta_ref:i.dataset.ref,monto:i.value}));
+  try{const r=await api('/api/gastos/saldos','POST',{fecha:document.getElementById('sal-fecha').value,saldos});toast(`Saldos guardados (${r.guardados})`);cerrarSaldos();cargarCapacidad();}
+  catch(e){toast(e.message,true);}
+}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')cerrarSaldos();});
+
 // ── Gastos fijos: pendientes y pagados del mes ──
 const FREC={1:'mensual',2:'cada 2 meses',3:'trimestral',6:'semestral',12:'anual'};
 const frecTxt=f=>FREC[+f]||'cada '+f+' meses';
@@ -586,8 +757,12 @@ function pintarConfig(){
     <td>${m?`<label class="chk"><input type="checkbox" id="cat-f-${c.id}" ${c.fijo_sugerido?'checked':''}> fijo por defecto</label>`:(c.fijo_sugerido?'Fijo':'')}</td>
     <td>${m?`<label class="chk"><input type="checkbox" id="cat-a-${c.id}" ${c.activo?'checked':''}> activa</label>`:(c.activo?'':'inactiva')}</td>
     <td>${m?`<button class="btn btn-sec btn-sm" onclick="guardarCat(${c.id})">Guardar</button>`:''}</td></tr>`).join('');
+  const tjTxt=c=>c.tipo!=='tarjeta'?esc(c.tipo):(m?`tarjeta · límite <input type="number" step="0.01" id="tj-l-${c.id}" value="${c.limite??''}" style="width:110px"> corte día <input type="number" min="1" max="31" id="tj-c-${c.id}" value="${c.corte_dia}" style="width:60px">
+      pago <select id="tj-p-${c.id}"><option value="0" ${c.pago_meses?'':'selected'}>fin del mes del corte</option><option value="1" ${c.pago_meses?'selected':''}>fin del mes siguiente al corte</option></select>
+      <button class="btn btn-sec btn-sm" onclick="guardarTarjeta(${c.id})">Guardar</button><div class="sub">${ejemploTarjeta(c.corte_dia,c.pago_meses)}</div>`
+      :`tarjeta · límite ${c.limite!=null?soles(c.limite):'—'} · corte ${c.corte_dia}<div class="sub">${ejemploTarjeta(c.corte_dia,c.pago_meses)}</div>`);
   const cuentas=OPC.cuentas.map(c=>`<tr><td>${esc(c.nombre)}</td><td>${c.company_id?empChip(c.company_id):'<span class="sub">sin titular</span>'}</td>
-    <td>${c.origen==='erp'?'<span class="sub">del sistema (ERP)</span>':esc(c.tipo)}</td>
+    <td>${c.origen==='erp'?'<span class="sub">del sistema (ERP)</span>':tjTxt(c)}</td>
     <td>${c.origen==='portal'&&m?`<label class="chk"><input type="checkbox" ${c.activo?'checked':''} onchange="activarCuenta(${c.id},this.checked)"> activa</label>`:''}</td></tr>`).join('');
   document.getElementById('config-cuerpo').innerHTML=`
     <p class="desc" style="margin-bottom:10px">Las categorías marcadas como <b>"no es gasto"</b> (retiros de socios, pago de préstamos) son salidas de dinero, pero no restan en el resultado de la empresa. ${m?'':'Solo el administrador maestro puede cambiarlas.'}</p>
@@ -598,7 +773,9 @@ function pintarConfig(){
     <div class="tabla-wrap"><table><thead><tr><th>Cuenta</th><th>Titular</th><th>Tipo</th><th></th></tr></thead><tbody>${cuentas}</tbody></table></div>
     ${m?`<div class="fila" style="margin-top:10px"><input id="cu-nombre" placeholder="Ej. Tarjeta BCP Visa Diseños" style="flex:1;min-width:200px">
       <select id="cu-empresa">${OPC.empresas.map(e=>`<option value="${e.id}">${esc(e.nombre)}</option>`).join('')}</select>
-      <select id="cu-tipo"><option value="efectivo">Efectivo</option><option value="tarjeta">Tarjeta</option><option value="banco">Banco</option><option value="otro">Otro</option></select>
+      <select id="cu-tipo" onchange="document.getElementById('cu-tj').classList.toggle('oculto',this.value!=='tarjeta')"><option value="efectivo">Efectivo</option><option value="tarjeta">Tarjeta de crédito</option><option value="banco">Banco</option><option value="otro">Otro</option></select>
+      <span id="cu-tj" class="fila oculto">límite <input type="number" step="0.01" id="cu-limite" style="width:110px"> corte día <input type="number" min="1" max="31" id="cu-corte" value="11" style="width:60px">
+        pago <select id="cu-pago"><option value="0">fin del mes del corte</option><option value="1">fin del mes siguiente al corte</option></select></span>
       <button class="btn btn-sm" onclick="agregarCuenta()">Agregar cuenta</button></div>`:''}`;
 }
 async function guardarCat(id){
@@ -609,13 +786,26 @@ async function guardarCat(id){
     await api('/api/gastos/categorias','POST',body);toast('Categoría guardada');await cargarOpciones();cargar();
   }catch(e){toast(e.message,true);}
 }
+// Ejemplo legible de la regla de una tarjeta (mismo cálculo que el servidor)
+function ejemploTarjeta(corte,pm){
+  const pago=f=>{const [a,m,d]=f.split('-').map(Number);let mc=d<=corte?m:m+1;let y=a;mc+=+pm||0;while(mc>12){mc-=12;y++;}return fechaTxt(new Date(Date.UTC(y,mc,0)).toISOString().slice(0,10));};
+  const y=hoyLima().slice(0,4),mm=hoyLima().slice(5,7),d1=String(Math.max(1,corte-3)).padStart(2,'0'),d2=String(Math.min(28,+corte+2)).padStart(2,'0');
+  return `Ej.: compra del ${d1}/${mm} → se paga el ${pago(`${y}-${mm}-${d1}`)}; compra del ${d2}/${mm} → ${pago(`${y}-${mm}-${d2}`)}`;
+}
+async function guardarTarjeta(id){
+  const c=OPC.cuentas.find(x=>x.origen==='portal'&&x.id===id);if(!c)return;
+  try{await api('/api/gastos/cuentas','POST',{id,nombre:c.nombre,company_id:c.company_id,tipo:'tarjeta',activo:c.activo,
+      limite:document.getElementById('tj-l-'+id).value,corte_dia:document.getElementById('tj-c-'+id).value,pago_meses:document.getElementById('tj-p-'+id).value});
+    toast('Tarjeta guardada');await cargarOpciones();cargar();}catch(e){toast(e.message,true);}
+}
 async function agregarCuenta(){
-  try{await api('/api/gastos/cuentas','POST',{nombre:document.getElementById('cu-nombre').value,company_id:document.getElementById('cu-empresa').value,tipo:document.getElementById('cu-tipo').value});
+  try{await api('/api/gastos/cuentas','POST',{nombre:document.getElementById('cu-nombre').value,company_id:document.getElementById('cu-empresa').value,tipo:document.getElementById('cu-tipo').value,
+    limite:document.getElementById('cu-limite').value,corte_dia:document.getElementById('cu-corte').value,pago_meses:document.getElementById('cu-pago').value});
     toast('Cuenta agregada');await cargarOpciones();}catch(e){toast(e.message,true);}
 }
 async function activarCuenta(id,on){
   const c=OPC.cuentas.find(x=>x.origen==='portal'&&x.id===id);if(!c)return;
-  try{await api('/api/gastos/cuentas','POST',{id,nombre:c.nombre,company_id:c.company_id,tipo:c.tipo,activo:on?1:0});toast(on?'Cuenta activada':'Cuenta desactivada');await cargarOpciones();}
+  try{await api('/api/gastos/cuentas','POST',{id,nombre:c.nombre,company_id:c.company_id,tipo:c.tipo,activo:on?1:0,limite:c.limite,corte_dia:c.corte_dia,pago_meses:c.pago_meses});toast(on?'Cuenta activada':'Cuenta desactivada');await cargarOpciones();}
   catch(e){toast(e.message,true);}
 }
 

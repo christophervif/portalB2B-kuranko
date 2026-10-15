@@ -125,7 +125,7 @@ th.sin-g{color:var(--muted)}
   </div>
 
   <div class="card"><h3>Flujo de caja</h3><div class="tabla-wrap" id="flujo"></div>
-    <p class="sub" style="margin-top:8px">Dinero que entró (cobros, por la cuenta donde entró el pago) menos el que salió: gastos, retiros y préstamos, y compras de mercadería (entradas del sistema valorizadas al costo). Un mes con utilidad puede tener flujo negativo si se compró mucha mercadería.</p></div>
+    <p class="sub" style="margin-top:8px">Dinero que entró (cobros, por la cuenta donde entró el pago) menos el que salió: gastos, retiros y préstamos, y mercadería (entradas del sistema valorizadas al costo). Lo que se compra <b>con tarjeta</b> (mercadería o gastos) cuenta en el mes en que <b>se paga la tarjeta</b>, no en el de la compra; lo de contado, en el mes de la compra. Un mes con utilidad puede tener flujo negativo si se compró mucha mercadería.</p></div>
 </div>
 <div class="toast" id="toast"></div>
 
@@ -278,9 +278,8 @@ function pintarFlujo(){
     if(D.grupos.length>1)h+=`<tr class="grupo"><td colspan="${D.meses.length+2}">${nomGrupo(g)}</td></tr>`;
     const solo=k=>f.map(x=>x.con_gastos?x[k]:null);
     h+=filaTabla('Ingresos cobrados',solo('ingresos'),sum(f,'ingresos',true),'',soles);
-    h+=filaTabla('(−) Gastos',solo('gastos'),sum(f,'gastos',true),'',soles);
-    h+=filaTabla('(−) Retiros y préstamos',solo('no_resultado'),sum(f,'no_resultado',true),'',soles);
-    h+=filaTabla('(−) Compras de mercadería',solo('compras'),sum(f,'compras',true),'',soles);
+    h+=filaTabla('(−) Gastos y retiros pagados',solo('gastos_caja'),sum(f,'gastos_caja',true),'',soles);
+    h+=filaTabla('(−) Mercadería pagada',solo('compras_caja'),sum(f,'compras_caja',true),'',soles);
     h+=filaTabla('= Flujo del mes',f.map(x=>x.flujo),sum(f,'flujo',true),'res',x=>x==null?'—':`<span class="${x<0?'neg':''}">${soles(x)}</span>`);
     let ac=0;const acum=f.map(x=>{if(x.flujo==null)return null;ac+=x.flujo;return ac;});
     h+=filaTabla('Acumulado',acum,null,'pct',x=>x==null?'':`<span class="${x<0?'neg':''}">${soles(x)}</span>`);

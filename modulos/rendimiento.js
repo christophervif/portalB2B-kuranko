@@ -39,7 +39,8 @@ function calcularRendimiento({ meses, filasVentas, gastos, empresa, mesEnCurso }
   const primerMesGastos = gastos.primer_mes || null;
   const conGastos = mes => !!primerMesGastos && mes >= primerMesGastos;
 
-  const base = () => ({ ...Object.fromEntries(CAMPOS_VENTA.map(c => [c, 0])), gastos: 0, no_resultado: 0, fijos: 0, fijos_plantilla: 0 });
+  const base = () => ({ ...Object.fromEntries(CAMPOS_VENTA.map(c => [c, 0])), gastos: 0, no_resultado: 0, fijos: 0, fijos_plantilla: 0,
+    merc_caja: 0, gastos_tarjeta: 0, pagos_tarjeta: 0 });
   const celdas = {}; // grupo → mes → valores
   grupos.forEach(g => { celdas[g] = {}; meses.forEach(m => { celdas[g][m] = base(); }); });
   const sumar = (mes, cid, fn) => {
@@ -53,6 +54,10 @@ function calcularRendimiento({ meses, filasVentas, gastos, empresa, mesEnCurso }
     if (r.en_resultado) { c.gastos += r.total; c.fijos += r.fijos; c.fijos_plantilla += r.fijos_plantilla || 0; }
     else c.no_resultado += r.total;
   }));
+  // Caja: mercadería y gastos con tarjeta en el mes en que realmente sale el dinero
+  const conCaja = Array.isArray(gastos.caja);
+  (gastos.caja || []).forEach(x => sumar(x.mes, x.company_id, c => {
+    c.merc_caja += x.merc_caja; c.gastos_tarjeta += x.gastos_tarjeta; c.pagos_tarjeta += x.pagos_tarjeta; }));
 
   const resultado = {};
   grupos.forEach(g => {
@@ -75,7 +80,11 @@ function calcularRendimiento({ meses, filasVentas, gastos, empresa, mesEnCurso }
         fijos_plantilla: tiene ? r2(c.fijos_plantilla) : null,
         utilidad: utilidad == null ? null : r2(utilidad),
         utilidad_pct: utilidad != null && c.ventas > 0 ? Math.round(utilidad / c.ventas * 1000) / 10 : null,
-        flujo: tiene ? r2(c.ingresos - c.gastos - c.no_resultado - c.compras) : null
+        // Flujo de caja: si hay datos de caja, la mercadería y los gastos con tarjeta
+        // cuentan cuando se pagan (contado = al comprar; tarjeta = fecha de pago)
+        gastos_caja: tiene ? r2(c.gastos + c.no_resultado - (conCaja ? c.gastos_tarjeta - c.pagos_tarjeta : 0)) : null,
+        compras_caja: tiene ? r2(conCaja ? c.merc_caja : c.compras) : null,
+        flujo: tiene ? r2(c.ingresos - (c.gastos + c.no_resultado - (conCaja ? c.gastos_tarjeta - c.pagos_tarjeta : 0)) - (conCaja ? c.merc_caja : c.compras)) : null
       };
     });
   });

@@ -154,6 +154,7 @@
       <div><label>Proveedor</label><select id="f_prov" onchange="updateCodigo()"></select></div>
       <div><label>Empresa (RUC)</label><select id="empresa" onchange="updateCodigo()"><option value="20514359661">DISEÑOS CORPORATIVOS (20514359661)</option><option value="10736768432">Christopher Villasante (10736768432)</option></select></div>
       <div><label>N° factura / invoice</label><input id="f_inv" placeholder="IN231741"></div>
+      <div><label>Fecha de la factura</label><input id="f_fecha" type="date" title="Fecha de compra: la usa Compras y gastos para la tarjeta y la caja"></div>
       <div><label>Modo de importación</label><select id="modo" onchange="onModoChangeUser()"><option>Definitiva</option><option>Courier</option></select></div>
     </div>
     <div class="hint"><b>Cotización</b> = valores teóricos (aún no compras): se ocultan la DUA y la liquidación real. <b>Compra</b> = ya la importaste: se habilitan la DUA, la liquidación y los impuestos reales. · En <b>Definitiva</b> puedes usar cualquier partida (menos las Courier); en <b>Courier</b> solo las <b>9809.*</b>.</div>
@@ -599,6 +600,7 @@ async function leerConIA(){
     let provTxt='';
     if(obj&&!Array.isArray(obj)){
       if(obj.invoice)$('f_inv').value=obj.invoice;
+      if(obj.date&&/^\d{4}-\d{2}-\d{2}/.test(String(obj.date))&&$('f_fecha'))$('f_fecha').value=String(obj.date).slice(0,10);
       if(obj.proveedor){const c=matchProveedor(obj.proveedor);if(c){$('f_prov').value=c;provTxt=' · proveedor '+(($('f_prov').selectedOptions[0]||{}).textContent||'').split('(')[0];}else provTxt=' · proveedor "'+obj.proveedor+'" (no reconocido, elígelo)';}
       if(obj.empresa_compradora)$('empresa').value=/dise[nñ]os/i.test(obj.empresa_compradora)?'20514359661':'10736768432';
       if(obj.envio!=null&&+obj.envio>0&&$('g_flete')){$('g_flete').value=+obj.envio;} // costo de envío → Flete (gastos CIF)
@@ -1234,7 +1236,7 @@ let saved=[];
 async function cargarSaved(){ try{ const a=await apiGet('/importaciones'); if(Array.isArray(a)) saved=a; }catch(e){} renderSavedList(); }
 function persistOne(rec){ apiSend('/importaciones','POST',rec); }
 function persistSaved(){ saved.forEach(persistOne); } // usado por "Importar respaldo": reenvía todo al portal
-function _meta(){return{numImp:$('numImp').value,empresa:$('empresa').value,invoice:$('f_inv').value,proveedor:$('f_prov').value,proveedorNombre:($('f_prov').selectedOptions[0]?$('f_prov').selectedOptions[0].textContent:'')};}
+function _meta(){return{numImp:$('numImp').value,empresa:$('empresa').value,invoice:$('f_inv').value,fecha_factura:($('f_fecha')&&$('f_fecha').value)||'',proveedor:$('f_prov').value,proveedorNombre:($('f_prov').selectedOptions[0]?$('f_prov').selectedOptions[0].textContent:'')};}
 function guardarImportacion(){
   updateCodigo();
   const nMax=saved.reduce((m,r)=>Math.max(m,r.n||0),0)+1;
@@ -1369,7 +1371,7 @@ function cargarImportacion(id){
   // lo ya calculado.
   items.forEach(it=>{ if(!it.tasas){ it.tasas=_tasasDeLista(it.partida, s.partidas)||_tasasPartida(it.partida)||null; } });
   if(s.dua&&s.dua.series){lastSeries=s.dua.series;lastTot=s.dua.tot||null;lastDuaHeader=s.dua.header||null;if($('duaDeclNum'))$('duaDeclNum').value=(s.dua.decl&&s.dua.decl.num)||'';if($('duaDeclFecha'))$('duaDeclFecha').value=(s.dua.decl&&s.dua.decl.fecha)||'';if(lastSeries.length)renderDuaAssign();}else{lastSeries=[];lastTot=null;lastDuaHeader=null;}
-  if(m){$('numImp').value=m.numImp||'';if(m.empresa)$('empresa').value=m.empresa;$('f_inv').value=m.invoice||'';if(m.proveedor)$('f_prov').value=m.proveedor;}
+  if(m){$('numImp').value=m.numImp||'';if(m.empresa)$('empresa').value=m.empresa;$('f_inv').value=m.invoice||'';if($('f_fecha'))$('f_fecha').value=m.fecha_factura||'';if(m.proveedor)$('f_prov').value=m.proveedor;}
   RECEP_INGRESO=s.recep||null; // restaurar la info de recepción para el ingreso
   // Costeos ligados a un envío/recepción guardan también la tabla de la factura.
   if(Array.isArray(r.fac)&&r.fac.length){

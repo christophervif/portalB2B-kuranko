@@ -198,6 +198,11 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
           actualizado_por VARCHAR(60) NOT NULL DEFAULT '',
           actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         )`);
+      // Fecha de COMPRA de la mercadería (la entrada al ERP se hace al llegar, ~1 mes
+      // después). metodo NULL = automático (solo se cambió la fecha).
+      try { await portalPool.query(`ALTER TABLE gas_entrada_pago ADD COLUMN fecha_compra DATE NULL`); }
+      catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+      await portalPool.query(`ALTER TABLE gas_entrada_pago MODIFY metodo VARCHAR(10) NULL`);
       // Columna nueva en gas_gastos (instalaciones anteriores no la tienen)
       try { await portalPool.query(`ALTER TABLE gas_gastos ADD COLUMN fijo_id INT UNSIGNED NULL AFTER fijo, ADD INDEX (fijo_id)`); }
       catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
@@ -382,14 +387,17 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
       const cols = await colsEntradas();
       const colProv = ['supplier_id', 'provider_id', 'party_id'].find(c => cols.has(c));
       const selImp = cols.has('importacion_ref') ? 'se.importacion_ref' : `''`;
+      const cfd = await colFechaDoc();
       const selProv = colProv ? `COALESCE(NULLIF(TRIM(pr.business_name),''), TRIM(CONCAT(COALESCE(pr.first_name,''),' ',COALESCE(pr.last_name,''))))` : `''`;
       const joinProv = colProv ? `LEFT JOIN parties pr ON pr.id = se.${colProv}` : '';
-      const extraGroup = (cols.has('importacion_ref') ? ', se.importacion_ref' : '') + (colProv ? ', pr.id, pr.business_name, pr.first_name, pr.last_name' : '');
+      const extraGroup = (cols.has('importacion_ref') ? ', se.importacion_ref' : '') + (colProv ? ', pr.id, pr.business_name, pr.first_name, pr.last_name' : '')
+        + ((await colFechaDoc()) ? ', se.' + (await colFechaDoc()) : '');
       const fe = f.empresa ? `AND sb.company_id = ${f.empresa}` : '';
       const p = [REF_ENTRADA, f.desde, f.hasta + ' 23:59:59'];
       const [entradas] = await prodPool.query(`
         SELECT se.id, DATE_FORMAT(MIN(sm.movement_date), '%Y-%m-%d') AS fecha, se.operation_type_code AS codigo,
           COALESCE(se.reference_number, '') AS documento, ${selImp} AS importacion, ${selProv} AS proveedor,
+          ${cfd ? `DATE_FORMAT(se.${cfd}, '%Y-%m-%d')` : 'NULL'} AS fecha_doc,
           sb.company_id, COUNT(DISTINCT sm.product_variation_id) AS productos,
           SUM(ABS(sm.quantity)) AS unidades, COALESCE(SUM(ABS(sm.quantity) * sb.cost_price), 0) AS total,
           SUM(CASE WHEN sb.cost_price IS NULL OR sb.cost_price = 0 THEN 1 ELSE 0 END) AS sin_costo
@@ -413,10 +421,13 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
         GROUP BY codigo ORDER BY total DESC`, [...p, CODIGOS_COMPRA]);
       const cuentas = await listarCuentas(true);
       const met = await metodosEntradas(entradas.map(e => e.id));
+      const fc = await fechasCompra(entradas, met);
       const lista = entradas.map(e => {
         const cid = e.company_id == null ? null : +e.company_id;
-        const pago = resolverPago(met[e.id], cid, cuentas, e.fecha);
-        return { ...e, company_id: cid, productos: +e.productos, unidades: +e.unidades, total: r2(e.total), sin_costo: +e.sin_costo, pago };
+        const f = fc[e.id];
+        const pago = resolverPago(met[e.id], cid, cuentas, f.fecha_compra);
+        return { ...e, company_id: cid, productos: +e.productos, unidades: +e.unidades, total: r2(e.total), sin_costo: +e.sin_costo,
+          fecha_compra: f.fecha_compra, fecha_compra_origen: f.origen, pago };
       });
       const porEmp = {};
       lista.forEach(e => { const k = e.company_id || 0; porEmp[k] = r2((porEmp[k] || 0) + e.total); });
@@ -448,15 +459,93 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
   async function metodosEntradas(ids) {
     await prepararTablas();
     if (!ids.length) return {};
-    const [rows] = await portalPool.query(`SELECT stock_entry_id, metodo, cuenta_ref FROM gas_entrada_pago WHERE stock_entry_id IN (?)`, [ids]);
+    const [rows] = await portalPool.query(`SELECT stock_entry_id, metodo, cuenta_ref, DATE_FORMAT(fecha_compra, '%Y-%m-%d') AS fecha_compra
+      FROM gas_entrada_pago WHERE stock_entry_id IN (?)`, [ids]);
     return Object.fromEntries(rows.map(r => [r.stock_entry_id, r]));
+  }
+
+  // ── Fecha de COMPRA de cada entrada ──
+  // La mercadería se ingresa al sistema cuando llega (≈ 1 mes después), pero la
+  // tarjeta se carga (y el contado se paga) en la fecha de la factura. Orden:
+  //   1) la fecha anotada a mano en Compras de mercadería
+  //   2) una columna de fecha de documento en stock_entries, si el ERP la tiene
+  //   3) la fecha en que se subió la factura a Seguimiento (seg_envios), cruzando
+  //      su N° de factura con la referencia de la entrada
+  //   4) si nada de eso existe, la fecha de ingreso al sistema
+  const COLS_FECHA_DOC = ['document_date', 'invoice_date', 'issue_date', 'purchase_date', 'reference_date', 'emission_date', 'fecha_documento', 'fecha_emision', 'fecha_compra'];
+  async function colFechaDoc() { const c = await colsEntradas(); return COLS_FECHA_DOC.find(x => c.has(x)) || null; }
+  const tokensDoc = v => String(v || '').toUpperCase().split(/[,;|/\s]+/).map(t => t.replace(/[^A-Z0-9-]/g, '')).filter(t => t.length >= 3);
+  async function fechasSeguimiento() {
+    try {
+      const [rows] = await portalPool.query(`SELECT n_factura, DATE_FORMAT(creado_en, '%Y-%m-%d') AS f FROM seg_envios
+        WHERE n_factura <> '' ORDER BY creado_en DESC LIMIT 5000`);
+      const m = {};
+      rows.forEach(r => tokensDoc(r.n_factura).forEach(t => { if (!m[t] || r.f < m[t]) m[t] = r.f; }));
+      return m;
+    } catch (e) { return {}; }   // Seguimiento aún sin tablas
+  }
+  // Módulo Importaciones: cada factura subida queda en imp_importaciones (portal).
+  // Se enlaza con la entrada por código (stock_entries.importacion_ref = meta.codigo)
+  // o por N° de factura (meta.invoice ↔ reference_number).
+  //   fecha  = fecha de la factura leída por la IA (meta.fecha_factura) → exacta
+  //   subida = día en que se subió la factura (aproximación)
+  const fechaValida = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v || '').slice(0, 10)) ? String(v).slice(0, 10) : null;
+  async function fechasImportaciones() {
+    try {
+      const [rows] = await portalPool.query(`SELECT codigo, rec, DATE_FORMAT(created_at, '%Y-%m-%d') AS creado FROM imp_importaciones LIMIT 5000`);
+      const porCodigo = {}, porToken = {};
+      const mejor = (a, b) => !a ? b : ((!!b.fecha > !!a.fecha) || (!!b.fecha === !!a.fecha && b.compra > a.compra) ? b : a);
+      rows.forEach(r => {
+        let rec = r.rec; if (typeof rec === 'string') { try { rec = JSON.parse(rec); } catch (e) { rec = {}; } }
+        const meta = (rec && rec.meta) || {};
+        const x = { fecha: fechaValida(meta.fecha_factura), subida: fechaValida(rec && rec.savedAt) || fechaValida(r.creado),
+          compra: /compra/i.test((rec && rec.tipo) || '') ? 1 : 0 };
+        if (!x.fecha && !x.subida) return;
+        const cod = String(r.codigo || meta.codigo || '').trim().toUpperCase();
+        if (cod) porCodigo[cod] = mejor(porCodigo[cod], x);
+        tokensDoc(meta.invoice).forEach(t => { porToken[t] = mejor(porToken[t], x); });
+      });
+      return { porCodigo, porToken };
+    } catch (e) { return { porCodigo: {}, porToken: {} }; }   // módulo Importaciones sin tabla
+  }
+  function deImportacion(imp, e) {
+    const c = String(e.importacion || '').trim().toUpperCase();
+    if (c && imp.porCodigo[c]) return imp.porCodigo[c];
+    const xs = tokensDoc(e.documento).map(t => imp.porToken[t]).filter(Boolean);
+    return xs.find(x => x.fecha) || xs[0] || null;
+  }
+  // entradas: [{id, fecha (ingreso), documento, importacion, fecha_doc}] → {id: {fecha_compra, origen}}
+  // Prioridad: anotada a mano > fecha del documento en el ERP > fecha de la factura en Importaciones
+  //            > día en que se subió a Importaciones > Seguimiento > fecha de ingreso
+  async function fechasCompra(entradas, met) {
+    const faltan = entradas.filter(e => !(met[e.id] && met[e.id].fecha_compra) && !e.fecha_doc);
+    const imp = faltan.some(e => e.documento || e.importacion) ? await fechasImportaciones() : { porCodigo: {}, porToken: {} };
+    const seg = faltan.some(e => e.documento) ? await fechasSeguimiento() : {};
+    const out = {};
+    entradas.forEach(e => {
+      const m = met[e.id];
+      let f = null, origen = 'ingreso';
+      if (m && m.fecha_compra) { f = m.fecha_compra; origen = 'manual'; }
+      else if (e.fecha_doc) { f = e.fecha_doc; origen = 'documento'; }
+      else {
+        const x = deImportacion(imp, e);
+        const fs = tokensDoc(e.documento).map(t => seg[t]).filter(Boolean).sort();
+        if (x && x.fecha) { f = x.fecha; origen = 'importacion'; }
+        else if (x && x.subida && (!fs.length || x.subida <= fs[0])) { f = x.subida; origen = 'importacion_subida'; }
+        else if (fs.length) { f = fs[0]; origen = 'seguimiento'; }
+      }
+      // Una compra no puede ser posterior a su ingreso
+      if (!f || f > e.fecha) { f = e.fecha; origen = 'ingreso'; }
+      out[e.id] = { fecha_compra: f, origen };
+    });
+    return out;
   }
   const tarjetasDe = (cuentas, cid) => cuentas.filter(c => c.tipo === 'tarjeta' && c.activo && (!cid || c.company_id === cid));
   const tarjetaPrincipal = (cuentas, cid) => tarjetasDe(cuentas, cid).sort((a, b) => (b.limite || 0) - (a.limite || 0))[0] || null;
   // Devuelve {metodo, cuenta_ref, tarjeta, fecha_pago, por_defecto}
   function resolverPago(marcado, cid, cuentas, fecha) {
     let metodo, ref, porDefecto = false;
-    if (marcado) { metodo = marcado.metodo; ref = marcado.cuenta_ref; }
+    if (marcado && marcado.metodo) { metodo = marcado.metodo; ref = marcado.cuenta_ref; }
     else {
       porDefecto = true;
       const t = MERC_TARJETA_POR_DEFECTO[cid] ? tarjetaPrincipal(cuentas, cid) : null;
@@ -468,40 +557,62 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
       fecha_pago: t ? fechaPagoTarjeta(fecha, t.corte_dia, t.pago_meses) : fecha };
   }
 
+  // Medio de pago y/o fecha de compra de una entrada.
+  //   metodo: 'auto' (vuelve al automático) | 'contado' | 'tarjeta' (con cuenta_ref)
+  //   fecha_compra: 'AAAA-MM-DD' o '' para volver a la fecha automática
   app.post('/api/gastos/mercaderia/:id/pago', authAdmin, mGas, async (req, res) => {
     try {
       await prepararTablas();
       const id = parseInt(req.params.id, 10) || 0;
       const b = req.body || {};
-      if (b.metodo === 'auto') { await portalPool.query(`DELETE FROM gas_entrada_pago WHERE stock_entry_id = ?`, [id]); return res.json({ ok: true }); }
-      const metodo = b.metodo === 'tarjeta' ? 'tarjeta' : 'contado';
-      let cuenta_ref = null;
-      if (metodo === 'tarjeta') {
-        const t = (await listarCuentas(true)).find(c => c.ref === b.cuenta_ref && c.tipo === 'tarjeta');
-        if (!t) return res.status(400).json({ error: 'Elige la tarjeta' });
-        cuenta_ref = t.ref;
+      const [[act]] = await portalPool.query(`SELECT metodo, cuenta_ref, DATE_FORMAT(fecha_compra, '%Y-%m-%d') AS fecha_compra FROM gas_entrada_pago WHERE stock_entry_id = ?`, [id]);
+      let metodo = act ? act.metodo : null, cuenta_ref = act ? act.cuenta_ref : null, fecha_compra = act ? act.fecha_compra : null;
+      if ('metodo' in b) {
+        if (b.metodo === 'auto') { metodo = null; cuenta_ref = null; }
+        else if (b.metodo === 'tarjeta') {
+          const t = (await listarCuentas(true)).find(c => c.ref === b.cuenta_ref && c.tipo === 'tarjeta');
+          if (!t) return res.status(400).json({ error: 'Elige la tarjeta' });
+          metodo = 'tarjeta'; cuenta_ref = t.ref;
+        } else { metodo = 'contado'; cuenta_ref = null; }
       }
-      await portalPool.query(`INSERT INTO gas_entrada_pago (stock_entry_id, metodo, cuenta_ref, actualizado_por) VALUES (?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE metodo = VALUES(metodo), cuenta_ref = VALUES(cuenta_ref), actualizado_por = VALUES(actualizado_por)`,
-        [id, metodo, cuenta_ref, usuarioDe(req)]);
+      if ('fecha_compra' in b) {
+        if (b.fecha_compra === '' || b.fecha_compra == null) fecha_compra = null;
+        else if (!esFecha(b.fecha_compra) || b.fecha_compra > hoyLima()) return res.status(400).json({ error: 'Fecha de compra inválida' });
+        else fecha_compra = b.fecha_compra;
+      }
+      if (!metodo && !fecha_compra) await portalPool.query(`DELETE FROM gas_entrada_pago WHERE stock_entry_id = ?`, [id]);
+      else await portalPool.query(`INSERT INTO gas_entrada_pago (stock_entry_id, metodo, cuenta_ref, fecha_compra, actualizado_por) VALUES (?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE metodo = VALUES(metodo), cuenta_ref = VALUES(cuenta_ref), fecha_compra = VALUES(fecha_compra), actualizado_por = VALUES(actualizado_por)`,
+        [id, metodo, cuenta_ref, fecha_compra, usuarioDe(req)]);
       res.json({ ok: true });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
   // Entradas de mercadería (todas las empresas) con su medio y fecha de pago
+  // fecha = fecha de COMPRA (la que cuenta para la tarjeta y la caja); fecha_ingreso = cuando entró al sistema.
+  // La ventana se amplía 2 meses hacia adelante por fecha de ingreso, porque una compra
+  // del período puede haberse ingresado después.
   async function mercaderiaConPago({ desde, hasta }) {
+    const cfd = await colFechaDoc();
+    const imp = (await colsEntradas()).has('importacion_ref');
+    const hastaIngreso = finDeMes(sumarMeses(hasta.slice(0, 7), 2));
     const [rows] = await prodPool.query(`
       SELECT se.id, DATE_FORMAT(MIN(sm.movement_date), '%Y-%m-%d') AS fecha, sb.company_id,
+        COALESCE(se.reference_number, '') AS documento, ${cfd ? `DATE_FORMAT(se.${cfd}, '%Y-%m-%d')` : 'NULL'} AS fecha_doc,
+        ${imp ? 'se.importacion_ref' : `''`} AS importacion,
         COALESCE(SUM(ABS(sm.quantity) * sb.cost_price), 0) AS total
       FROM stock_movements sm
       JOIN stock_entries se ON se.id = sm.reference_id
       ${LOTE_DE_ENTRADA}
       WHERE sm.reference_type = ? AND sm.movement_date BETWEEN ? AND ? AND se.operation_type_code IN (?)
-      GROUP BY se.id, sb.company_id`, [REF_ENTRADA, desde, hasta + ' 23:59:59', CODIGOS_COMPRA]);
+      GROUP BY se.id, sb.company_id, se.reference_number${cfd ? ', se.' + cfd : ''}${imp ? ', se.importacion_ref' : ''}`, [REF_ENTRADA, desde, hastaIngreso + ' 23:59:59', CODIGOS_COMPRA]);
     const cuentas = await listarCuentas(true);
     const met = await metodosEntradas([...new Set(rows.map(r => r.id))]);
-    return rows.map(r => { const cid = r.company_id == null ? null : +r.company_id;
-      return { id: r.id, fecha: r.fecha, company_id: cid, total: r2(r.total), ...resolverPago(met[r.id], cid, cuentas, r.fecha) }; });
+    const fc = await fechasCompra(rows, met);
+    return rows.map(r => { const cid = r.company_id == null ? null : +r.company_id; const f = fc[r.id];
+      return { id: r.id, fecha: f.fecha_compra, fecha_ingreso: r.fecha, fecha_origen: f.origen, company_id: cid, total: r2(r.total),
+        ...resolverPago(met[r.id], cid, cuentas, f.fecha_compra) }; })
+      .filter(m => m.fecha <= hasta);
   }
   // Gastos pagados con tarjeta (cuenta propia tipo tarjeta) con su fecha de pago real
   async function gastosConTarjeta({ desde, hasta }) {

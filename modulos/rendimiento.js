@@ -170,5 +170,13 @@ module.exports = function registrarRendimiento({ app, authAdmin, requiereModulo,
     } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
   });
 
+  // Mes en curso día a día: ingresos vs egresos acumulados y proyección al cierre
+  app.get('/api/rendimiento/mes', authAdmin, mRend, async (req, res) => {
+    try {
+      if (!gastosMensuales.mesEnCurso) return res.status(501).json({ error: 'Actualiza modulos/gastos.js' });
+      res.json(await gastosMensuales.mesEnCurso({ empresa: req.query.empresa }));
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
   return { _test: { calcularRendimiento } };
 };

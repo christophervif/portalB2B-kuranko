@@ -183,7 +183,7 @@ details.config summary{cursor:pointer;font-size:11px;font-weight:600;color:var(-
 
   <div class="card" id="merc-card">
     <h3 id="merc-titulo">Compras de mercadería</h3>
-    <p class="desc" style="margin:-4px 0 10px">Vienen solas de las <b>entradas de stock del sistema</b> (compra y importación), valorizadas al costo del lote. Aquí solo se ven: si algo está mal, se corrige en el sistema. Clic en una fila para ver los productos.</p>
+    <p class="desc" style="margin:-4px 0 10px">Vienen solas de las <b>entradas de stock del sistema</b> (compra y importación), valorizadas al costo del lote, según la fecha en que se <b>ingresaron</b>. Como se ingresan al llegar (≈ 1 mes después), la <b>fecha de compra</b> de la factura es la que cuenta para la tarjeta y la caja: se toma de Seguimiento si la factura se subió ahí, y la puedes corregir. Clic en una fila para ver los productos.</p>
     <div class="tabla-wrap" id="merc"></div>
     <div class="sub" id="merc-nota" style="margin-top:8px"></div>
   </div>
@@ -563,13 +563,16 @@ function pintarMercaderia(){
     return `<select onclick="event.stopPropagation()" onchange="cambiarPago(${e.id},this.value)" aria-label="Medio de pago" style="max-width:190px">
       <option value="contado" ${v==='contado'?'selected':''}>Contado</option>${tarjetas.filter(t=>!e.company_id||t.company_id===e.company_id).map(t=>`<option value="${esc(t.ref)}" ${v===t.ref?'selected':''}>${esc(t.nombre)}</option>`).join('')}</select>
       <div class="sub">${p.metodo==='tarjeta'?'se paga el '+fechaTxt(p.fecha_pago):'sale al comprar'}${p.por_defecto?' · automático':''}</div>`;};
-  box.innerHTML=E.length?'<table><thead><tr><th>Fecha</th><th>Empresa</th><th>Tipo</th><th>Documento</th>'+(hayImp?'<th>Importación</th>':'')+(hayProv?'<th>Proveedor</th>':'')+'<th class="num">Productos</th><th class="num">Unidades</th><th class="num">Total (costo)</th><th>Pago</th></tr></thead><tbody>'+
-    E.map(e=>`<tr style="cursor:pointer" onclick="detalleEntrada(${e.id},this)" title="Ver productos"><td style="white-space:nowrap">${fechaTxt(e.fecha)}</td>
+  const ORIG={manual:'anotada',documento:'de la factura',importacion:'de la factura (Importaciones)',importacion_subida:'subida a Importaciones',seguimiento:'de Seguimiento',ingreso:'= ingreso, revísala'};
+  const selFecha=e=>`<input type="date" value="${e.fecha_compra||''}" max="${e.fecha}" onclick="event.stopPropagation()" onchange="cambiarFechaCompra(${e.id},this.value)" aria-label="Fecha de compra" style="width:140px">
+    <div class="sub" ${e.fecha_compra_origen==='ingreso'?'style="color:var(--fg-warn)"':''}>${ORIG[e.fecha_compra_origen]||''}${e.fecha_compra_origen==='manual'?` · <a href="#" onclick="event.stopPropagation();cambiarFechaCompra(${e.id},'');return false" style="color:inherit">automática</a>`:''}</div>`;
+  box.innerHTML=E.length?'<table><thead><tr><th>Ingreso</th><th>Compra (factura)</th><th>Empresa</th><th>Tipo</th><th>Documento</th>'+(hayImp?'<th>Importación</th>':'')+(hayProv?'<th>Proveedor</th>':'')+'<th class="num">Productos</th><th class="num">Unidades</th><th class="num">Total (costo)</th><th>Pago</th></tr></thead><tbody>'+
+    E.map(e=>`<tr style="cursor:pointer" onclick="detalleEntrada(${e.id},this)" title="Ver productos"><td style="white-space:nowrap">${fechaTxt(e.fecha)}</td><td>${selFecha(e)}</td>
       <td>${e.company_id?empChip(e.company_id):'<span class="sub">sin empresa</span>'}</td><td>${esc(COD_TXT[e.codigo]||e.codigo)}</td>
       <td>${e.documento?esc(e.documento):'<span class="sub">—</span>'}</td>${hayImp?`<td>${esc(e.importacion||'')}</td>`:''}${hayProv?`<td>${esc(e.proveedor||'')}</td>`:''}
       <td class="num">${e.productos}</td><td class="num">${Number(e.unidades).toLocaleString('es-PE')}</td>
       <td class="num"><b>${soles(e.total)}</b>${e.sin_costo?`<div class="sub" style="color:var(--fg-warn)">${e.sin_costo} sin costo</div>`:''}</td><td>${selPago(e)}</td></tr>`).join('')+
-    `</tbody><tfoot><tr><td colspan="${6+(hayImp?1:0)+(hayProv?1:0)}">Total</td><td class="num">${soles(MERC.total)}</td><td></td></tr></tfoot></table>`
+    `</tbody><tfoot><tr><td colspan="${7+(hayImp?1:0)+(hayProv?1:0)}">Total</td><td class="num">${soles(MERC.total)}</td><td></td></tr></tfoot></table>`
     :'<div class="vacio">No hay entradas de compra o importación en este período.</div>';
   const otras=MERC.otras||[];
   nota.innerHTML=`Se cuentan las entradas con código SUNAT ${MERC.codigos_compra.join(' y ')} (compra e importación).`+
@@ -589,6 +592,10 @@ async function detalleEntrada(id,tr){
   }catch(e){fila.firstElementChild.innerHTML=`<span class="sub">${esc(e.message)}</span>`;}
 }
 
+async function cambiarFechaCompra(id,v){
+  try{await api('/api/gastos/mercaderia/'+id+'/pago','POST',{fecha_compra:v});toast(v?'Fecha de compra guardada':'Fecha de compra automática');cargar();}
+  catch(e){toast(e.message,true);}
+}
 async function cambiarPago(id,v){
   try{await api('/api/gastos/mercaderia/'+id+'/pago','POST',v==='contado'?{metodo:'contado'}:{metodo:'tarjeta',cuenta_ref:v});toast('Medio de pago guardado');cargar();}
   catch(e){toast(e.message,true);}

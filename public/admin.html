@@ -186,6 +186,8 @@ tr:hover td{background:var(--hover)}
 .mm td.cero{color:var(--muted)}
 .mm tr:hover td{background:var(--hover)}
 .cob-ok{color:var(--fg-ok)}.cob-warn{color:var(--fg-warn)}.cob-bad{color:var(--fg-r)}
+.kpi-d{font-size:10.5px;color:var(--muted);margin-top:5px;line-height:1.4}
+.kpi-d .up{color:var(--fg-ok);font-weight:700}.kpi-d .dn{color:var(--fg-r);font-weight:700}.kpi-d .eq{font-weight:700}
 .empresa-name{font-size:14px;font-weight:600;margin-bottom:10px}
 .empresa-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .estat{background:var(--surface3);border-radius:8px;padding:8px}
@@ -265,7 +267,7 @@ tr:hover td{background:var(--hover)}
     </div>
     <div class="tabs" id="tabs-bar" style="display:none">
       <button class="tab active" onclick="tab('clientes_gestion',this)">Gestión de clientes</button>
-      <button class="tab" data-modulos="resumen,caja_bi,rentabilidad,gastos,rendimiento" onclick="tab('ventas_ingresos',this)">Ventas y compras</button>
+      <button class="tab" data-modulos="resumen,caja_bi,rentabilidad,gastos,rendimiento,auditoria_vc" onclick="tab('ventas_ingresos',this)">Ventas y compras</button>
       <button class="tab" onclick="tab('cotizador',this)">Cotizador</button>
       <button class="tab" onclick="tab('precio_importado',this)">Precio importado</button>
       <button class="tab" onclick="tab('bikes',this)">Bikes a pedido</button>
@@ -306,6 +308,7 @@ tr:hover td{background:var(--hover)}
         <button class="subtab active" id="vc-t-ventas" onclick="vcSub('ventas')">Ventas e ingresos</button>
         <button class="subtab" id="vc-t-gastos" data-modulo="gastos" onclick="vcSub('gastos')">Compras y gastos</button>
         <button class="subtab" id="vc-t-rendimiento" data-modulo="rendimiento" onclick="vcSub('rendimiento')">Rendimiento</button>
+        <button class="subtab" id="vc-t-auditoria-ventas" data-modulo="auditoria_vc" onclick="vcSub('auditoria-ventas')">Auditoría</button>
       </div>
       <div class="subpanel active" id="vc-ventas">
       <div class="card">
@@ -339,11 +342,12 @@ tr:hover td{background:var(--hover)}
             <span>Métrica</span>
             <div class="seg sm" id="vi-metrica">
               <button data-v="ventas" class="on" onclick="viSetMetrica('ventas')">Ventas S/</button>
-              <button data-v="ingresos" onclick="viSetMetrica('ingresos')">Ingresos S/</button>
+              <button data-v="ingresos" onclick="viSetMetrica('ingresos')">Cobrado S/</button>
+              <button data-v="vc" onclick="viSetMetrica('vc')">Vendido vs cobrado</button>
               <button data-v="num_ventas" onclick="viSetMetrica('num_ventas')">N° ventas</button>
               <button data-v="ticket" onclick="viSetMetrica('ticket')">Ticket prom.</button>
-              <button data-v="margen" onclick="viSetMetrica('margen')">Margen S/</button>
-              <button data-v="compras" onclick="viSetMetrica('compras')">Compras S/</button>
+              <button data-v="margen" onclick="viSetMetrica('margen')">Margen bruto S/</button>
+              <button data-v="compras" onclick="viSetMetrica('compras')">Mercadería ingresada</button>
             </div>
           </div>
           <p class="card-note" id="vi-graf-nota"></p>
@@ -352,7 +356,12 @@ tr:hover td{background:var(--hover)}
         </div>
 
         <div class="dbcard"><h4 id="mm-titulo">Mes a mes por empresa</h4>
-          <p class="card-note"><b>Ventas</b>, <b>N° de ventas</b>, <b>ticket</b> y <b>margen</b> van por la empresa que gestiona la venta; <b>ingresos</b> por la empresa dueña de la cuenta donde entró el pago; <b>compras</b> son las entradas de stock tipo compra o importación, valorizadas al costo del lote. Debajo de cada cifra: variación contra el mes anterior.</p>
+          <div class="vi-ctrl"><span>Comparar con</span>
+            <div class="seg sm" id="vi-mmcomp">
+              <button data-v="anterior" class="on" onclick="viSetMmComp('anterior')">Mes anterior</button>
+              <button data-v="anio" onclick="viSetMmComp('anio')">Mismo mes del año pasado</button>
+            </div></div>
+          <p class="card-note"><b>Ventas</b>, <b>N° de ventas</b>, <b>ticket</b> y <b>margen</b> van por la empresa que gestiona la venta; <b>cobrado</b>, por la empresa dueña de la cuenta donde entró el pago; <b>mercadería ingresada</b> son las entradas de stock tipo compra o importación, al costo del lote. El margen es sin IGV.</p>
           <div class="mm-wrap"><table class="mm" id="tbl-mm"></table></div>
           <div id="mm-nota" style="font-size:11px;color:var(--muted);margin-top:8px"></div>
         </div>
@@ -378,18 +387,19 @@ tr:hover td{background:var(--hover)}
           <div class="dbcard"><h4>B2B vs B2C</h4><div style="position:relative;height:220px"><canvas id="ch-tipo"></canvas></div></div>
         </div>
         <div class="two-col">
-          <div class="dbcard"><h4>Métodos de pago</h4><div style="position:relative;height:240px"><canvas id="ch-pagos"></canvas></div></div>
-          <div class="dbcard"><h4>Resumen de cobros</h4><div id="pagos-tabla"></div></div>
+          <div class="dbcard"><h4>Cobros por método de pago</h4><div style="position:relative;height:240px"><canvas id="ch-pagos"></canvas></div></div>
+          <div class="dbcard"><h4>Detalle de cobros</h4><div id="pagos-tabla"></div></div>
         </div>
         <div class="dbcard" style="border-top:2px solid var(--accent);padding-top:14px">
           <h4>Rentabilidad</h4>
-          <p class="card-note">Ganancia real por método FIFO: precio de venta menos costo del lote. Solo cuenta las líneas con costo conocido; la <b>cobertura</b> indica qué parte de lo vendido tiene costo conocido (si es baja, el margen es menos confiable).</p>
+          <p class="card-note">Margen bruto por método FIFO y <b>sin IGV</b>: venta sin IGV menos el costo del lote sin impuesto deducible. Es antes de gastos: la utilidad está en Rendimiento. Solo cuenta las líneas con costo conocido; la <b>cobertura</b> indica qué parte de lo vendido tiene costo (si es baja, el margen es menos confiable).</p>
         </div>
         <div id="rent-kpis" class="kpi-grid"></div>
         <div id="rent-avisos"></div>
         <div class="dbcard"><h4>Rentabilidad por canal (B2B vs B2C)</h4>
           <div style="overflow-x:auto"><table class="dtable" id="tbl-canal"></table></div></div>
-        <div class="dbcard"><h4>Top 15 productos por ganancia FIFO</h4>
+        <div class="dbcard"><h4>Productos: cuánto venden y cuánto ganan</h4>
+          <p class="card-note" id="prod-nota"></p>
           <div style="position:relative" id="ch-prod-wrap"><canvas id="ch-prod"></canvas></div></div>
         <div class="dbcard"><h4>Productos con margen bajo o negativo</h4>
           <p class="card-note">Productos con al menos S/100 vendidos y costo conocido, del peor margen al mejor. En rojo, los que se vendieron por debajo del costo.</p>
@@ -407,6 +417,12 @@ tr:hover td{background:var(--hover)}
       <div class="subpanel" id="vc-rendimiento">
         <div class="card" style="padding:0;overflow:hidden">
           <iframe id="rendimiento-frame" title="Rendimiento"
+            style="width:100%;height:calc(100vh - 200px);min-height:560px;border:0;display:block"></iframe>
+        </div>
+      </div>
+      <div class="subpanel" id="vc-auditoria-ventas">
+        <div class="card" style="padding:0;overflow:hidden">
+          <iframe id="auditoria-ventas-frame" title="Auditoría de ventas y compras"
             style="width:100%;height:calc(100vh - 200px);min-height:560px;border:0;display:block"></iframe>
         </div>
       </div>
@@ -1583,8 +1599,9 @@ function dbInitFechas(panelId){
   const panel=document.getElementById(panelId); if(!panel)return;
   const d=panel.querySelector('.db-desde'), h=panel.querySelector('.db-hasta');
   if(d&&h&&!d.value){
-    h.value=new Date().toISOString().split('T')[0];
-    d.value=new Date(Date.now()-30*864e5).toISOString().split('T')[0];
+    // En hora local (con toISOString, después de las 7 p. m. "hasta" salía mañana)
+    h.value=viIso(new Date());
+    d.value=viIso(new Date(Date.now()-29*864e5));
   }
 }
 // Carga la data de una pestaña BI (llamada desde cargarDatosTab, solo la 1a vez)
@@ -1610,7 +1627,7 @@ function dbAplicarMes(elemento){
   if(d)d.value=desde; if(h)h.value=hasta;
 }
 // ── "Ventas y compras": sub-pestañas ──
-const VC_MODS={ventas:['resumen','caja_bi','rentabilidad'],gastos:['gastos'],rendimiento:['rendimiento']};
+const VC_MODS={ventas:['resumen','caja_bi','rentabilidad'],gastos:['gastos'],rendimiento:['rendimiento'],'auditoria-ventas':['auditoria_vc']};
 function vcPuede(sub){return ES_MAESTRO||(VC_MODS[sub]||[]).some(m=>MIS_MODULOS.includes(m));}
 function vcSub(sub){
   if(!vcPuede(sub))return;
@@ -1645,21 +1662,32 @@ function dbCargarActual(){
 }
 
 // ══════════ VENTAS E INGRESOS: filtro por empresa, gráfico agrupado y mes a mes ══════════
-let viEmpresa='', viAgrupar='dia', viMetrica='ventas', viEmpresas=[], viSerie=null;
+let viEmpresa='', viAgrupar='dia', viMetrica='ventas', viEmpresas=[], viSerie=null, viSerieAnt=null, viMmComp='anterior';
 // Colores fijos por empresa (legibles en tema claro y oscuro); 0 = total
-const VI_COL={1:'#6C63D9',2:'#14A37F',0:'#8b93b8'}, VI_COL_T='#FFB30D';
+const VI_COL={1:'#6C63D9',2:'#14A37F',0:'#8b93b8'}, VI_COL_T='#FFB30D', VI_COL_ANT='#8b93b8';
 const VI_MESES=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
 const VI_METRICAS={
-  ventas:{t:'Ventas',din:1,nota:'Valor vendido, por la empresa que gestiona la venta (fecha de venta).'},
-  ingresos:{t:'Ingresos',din:1,nota:'Dinero cobrado, por la empresa dueña de la cuenta donde entró el pago (fecha de pago).'},
+  ventas:{t:'Ventas',din:1,nota:'Valor vendido (con IGV), por la empresa que gestiona la venta y su fecha de venta.'},
+  ingresos:{t:'Cobrado',din:1,nota:'Dinero cobrado, por la empresa dueña de la cuenta donde entró el pago y su fecha de pago. No cuenta cobros de ventas canceladas o eliminadas.'},
+  vc:{t:'Vendido vs cobrado',din:1,nota:'Barras: lo vendido. Línea: lo cobrado. Cuando la línea queda por debajo de las barras, estás vendiendo a crédito.'},
   num_ventas:{t:'N° de ventas',din:0,nota:'Cantidad de ventas, por la empresa que gestiona la venta.'},
   ticket:{t:'Ticket promedio',din:1,nota:'Ventas ÷ N° de ventas del período.'},
-  margen:{t:'Margen FIFO',din:1,nota:'Ganancia FIFO (precio − costo del lote). Solo líneas con costo conocido.'},
-  compras:{t:'Compras',din:1,nota:'Entradas de stock tipo compra o importación, valorizadas al costo del lote, por la empresa dueña del lote.'}
+  margen:{t:'Margen bruto (sin IGV)',din:1,nota:'Venta sin IGV − costo sin impuesto deducible, de las líneas con costo conocido (la cobertura está en Mes a mes).'},
+  compras:{t:'Mercadería ingresada',din:1,nota:'Entradas de stock tipo compra o importación, por fecha de ingreso al almacén y al costo del lote. No es lo pagado: eso está en Rendimiento → Flujo de caja.'}
 };
 const viNomEmp=id=>{const e=viEmpresas.find(x=>x.id===+id);return e?e.nombre:(+id?'Empresa '+id:'Sin asignar');};
 const viCorto=id=>viNomEmp(id).split(' ')[0];
 const viIso=d=>{const z=new Date(d.getTime()-d.getTimezoneOffset()*6e4);return z.toISOString().slice(0,10);};
+// Mismo período un año antes ('2026-03' → '2025-03'; el 29/02 pasa a 28/02)
+const viMenosAnio=p=>{const s=(+p.slice(0,4)-1)+p.slice(4);return s.endsWith('-02-29')?s.slice(0,8)+'28':s;};
+const viMesPrev=p=>{const [a,m]=p.split('-').map(Number);return m===1?`${a-1}-12`:`${a}-${String(m-1).padStart(2,'0')}`;};
+// Período (día / lunes de la semana / mes) que contiene a hoy
+function viPeriodoActual(ag){
+  const h=new Date();
+  if(ag==='mes')return viIso(h).slice(0,7);
+  if(ag==='semana'){const d=new Date(h);d.setDate(d.getDate()-((d.getDay()+6)%7));return viIso(d);}
+  return viIso(h);
+}
 function viRango(){
   const c=document.getElementById('tab-ventas_ingresos');
   const d=c.querySelector('.db-desde').value, h=c.querySelector('.db-hasta').value;
@@ -1697,6 +1725,7 @@ function viSetAgrupar(v){
   viCargarSerie().catch(e=>showToast('Gráfico: '+e.message,true));
 }
 function viSetMetrica(v){viMetrica=v;viMarcar('vi-metrica',v);viDibujar();}
+function viSetMmComp(v){viMmComp=v;viMarcar('vi-mmcomp',v);viMesAMes().catch(e=>showToast('Mes a mes: '+e.message,true));}
 function viPreset(cual){
   const c=document.getElementById('tab-ventas_ingresos');
   const hoy=new Date(); let d=new Date(hoy);
@@ -1733,18 +1762,19 @@ function viEtiqueta(p,agrupar,larga){
 // Agrega las filas del servidor en {periodo: {cid: {...}}}
 function viIndexar(filas){
   const idx={};
-  filas.forEach(r=>{(idx[r.periodo]=idx[r.periodo]||{})[r.company_id]=r;});
+  (filas||[]).forEach(r=>{(idx[r.periodo]=idx[r.periodo]||{})[r.company_id]=r;});
   return idx;
 }
-const VI_VACIO={ventas:0,num_ventas:0,ingresos:0,margen:0,base_margen:0,ingreso_items:0,compras:0};
+const VI_VACIO={ventas:0,num_ventas:0,ingresos:0,margen:0,base_margen:0,ingreso_items:0,compras:0,ventas_netas:0,margen_neto:0,base_neta:0};
 // Suma varias filas (para el total o para una empresa)
 function viSumar(celdas){
-  const t={...VI_VACIO}; celdas.forEach(c=>{if(c)Object.keys(VI_VACIO).forEach(k=>t[k]+=+c[k]||0);}); return t;
+  const t={...VI_VACIO}; (celdas||[]).forEach(c=>{if(c)Object.keys(VI_VACIO).forEach(k=>t[k]+=+c[k]||0);}); return t;
 }
 function viValor(c,m){
   if(!c)return 0;
   if(m==='ticket')return c.num_ventas>0?c.ventas/c.num_ventas:0;
-  if(m==='margen_pct')return c.base_margen>0?c.margen/c.base_margen*100:null;
+  if(m==='margen')return +c.margen_neto||0;
+  if(m==='margen_pct')return c.base_neta>0?c.margen_neto/c.base_neta*100:null;
   if(m==='cobertura')return c.ingreso_items>0?c.base_margen/c.ingreso_items*100:null;
   return +c[m]||0;
 }
@@ -1762,32 +1792,63 @@ function viGruposVisibles(filas){
   return [...viEmpresas.map(e=>e.id),...(sinAsig?[0]:[]),'T'];
 }
 const viFechaTxt=f=>f?f.split('-').reverse().join('/'):'';
+const viCobCls=v=>v==null?'':v>=90?'cob-ok':v>=70?'cob-warn':'cob-bad';
 
 async function viCargarSerie(){
   const {desde,hasta}=viRango(); if(!desde||!hasta)return;
-  viSerie=await viApi('/api/bi-serie',{agrupar:viAgrupar});
-  viSerie.periodos=viPeriodos(desde,hasta,viAgrupar);
+  // Por mes: también el mismo rango un año antes (línea "año anterior")
+  const pAnt=viAgrupar==='mes'?viApi('/api/bi-serie',{agrupar:'mes',desde:viMenosAnio(desde),hasta:viMenosAnio(hasta)}).catch(()=>null):Promise.resolve(null);
+  const [s,a]=await Promise.all([viApi('/api/bi-serie',{agrupar:viAgrupar}),pAnt]);
+  viSerie=s; viSerie.periodos=viPeriodos(desde,hasta,viAgrupar);
+  viSerieAnt=a&&a.filas&&a.filas.length?a:null;
   viDibujar();
 }
 function viDibujar(){
   if(!viSerie)return;
   const m=viMetrica, meta=VI_METRICAS[m], ag=viSerie.agrupar, per=viSerie.periodos, idx=viIndexar(viSerie.filas);
-  const fmt=v=>meta.din?dbFmt(v):dbFmtN(Math.round(v));
+  const fmt=v=>v==null?'—':meta.din?dbFmt(v):dbFmtN(Math.round(v));
+  const esDia=ag==='dia', iAct=per.indexOf(viPeriodoActual(ag));
+  const principal=viEmpresa?+viEmpresa:'T';
   document.getElementById('vi-graf-titulo').textContent=meta.t+' por '+({dia:'día',semana:'semana',mes:'mes'}[ag])+(viEmpresa?' — '+viNomEmp(viEmpresa):'');
   const hi=viSerie.historico;
-  document.getElementById('vi-graf-nota').textContent=meta.nota+(hi&&hi.usado?` Antes del ${viFechaTxt(hi.corte)} los datos vienen del Excel histórico (por la cuenta de la forma de pago).`:'');
-  document.getElementById('vi-zoom-hint').style.display=ag==='dia'?'':'none';
-  const esLinea=ag==='dia';
-  const grupos=viGruposVisibles(viSerie.filas);
-  const datasets=grupos.map(cid=>{
-    const col=cid==='T'?VI_COL_T:(VI_COL[cid]||'#8b93b8');
-    const data=per.map(p=>viValor(viCelda(idx,p,cid),m));
-    if(cid==='T')return {type:'line',label:'Total',data,borderColor:col,backgroundColor:'transparent',borderWidth:2,borderDash:[5,4],pointRadius:esLinea?0:3,pointHoverRadius:5,tension:.3,order:0};
-    return esLinea
-      ?{type:'line',label:viNomEmp(cid),data,borderColor:col,backgroundColor:col+'22',fill:grupos.length===1,tension:.3,pointRadius:2,pointHoverRadius:5,borderWidth:2,order:1}
-      :{type:'bar',label:viNomEmp(cid),data,backgroundColor:col,borderRadius:4,maxBarThickness:38,order:1};
-  });
-  dbMkChart('ch-dias',esLinea?'line':'bar',{labels:per.map(p=>viEtiqueta(p,ag,false)),datasets},{
+  document.getElementById('vi-graf-nota').textContent=meta.nota+
+    (esDia?' Las líneas son el promedio de los últimos 7 días; las barras claras, cada día.':'')+
+    (ag==='mes'&&viSerieAnt&&m!=='vc'?' La línea punteada gris es el mismo mes del año anterior.':'')+
+    (iAct>=0&&!esDia?' La última barra (más clara) está en curso.':'')+
+    (hi&&hi.usado?` Antes del ${viFechaTxt(hi.corte)} los datos vienen del Excel histórico.`:'');
+  document.getElementById('vi-zoom-hint').style.display=esDia?'':'none';
+  // La barra del período en curso va más clara: aún no está completa
+  const colores=col=>per.map((p,i)=>i===iAct&&!esDia?col+'66':col);
+  // Promedio de 7 días (el ticket: ventas ÷ N° de esos 7 días)
+  const movil=(cid,met)=>per.map((p,i)=>{const w=per.slice(Math.max(0,i-6),i+1).map(q=>viCelda(idx,q,cid));const t=viSumar(w);return met==='ticket'?viValor(t,'ticket'):viValor(t,met)/w.length;});
+  let datasets;
+  if(m==='vc'){
+    const col=principal==='T'?'#6C63D9':(VI_COL[principal]||'#6C63D9'), cel=per.map(p=>viCelda(idx,p,principal));
+    datasets=esDia?[
+      {type:'line',label:'Vendido (media 7 días)',data:movil(principal,'ventas'),borderColor:col,backgroundColor:col,borderWidth:2,pointRadius:0,tension:.3,order:1},
+      {type:'line',label:'Cobrado (media 7 días)',data:movil(principal,'ingresos'),borderColor:VI_COL_T,backgroundColor:VI_COL_T,borderWidth:2,pointRadius:0,tension:.3,order:1},
+      {type:'bar',label:'Vendido cada día',data:cel.map(c=>c.ventas),backgroundColor:'rgba(148,163,184,.25)',borderRadius:2,maxBarThickness:14,order:3}
+    ]:[
+      {type:'bar',label:'Vendido',data:cel.map(c=>c.ventas),backgroundColor:colores(col),borderRadius:4,maxBarThickness:38,order:2},
+      {type:'line',label:'Cobrado',data:cel.map(c=>c.ingresos),borderColor:VI_COL_T,backgroundColor:VI_COL_T,borderWidth:2,pointRadius:3,tension:.3,order:1}
+    ];
+  }else{
+    const grupos=viGruposVisibles(viSerie.filas);
+    datasets=grupos.map(cid=>{
+      const col=cid==='T'?VI_COL_T:(VI_COL[cid]||'#8b93b8');
+      if(esDia)return {type:'line',label:(cid==='T'?'Total':viNomEmp(cid))+' (media 7 días)',data:movil(cid,m),borderColor:col,backgroundColor:col,borderWidth:2,borderDash:cid==='T'&&grupos.length>1?[5,4]:[],pointRadius:0,pointHoverRadius:4,tension:.3,order:1};
+      const data=per.map(p=>viValor(viCelda(idx,p,cid),m));
+      if(cid==='T')return {type:'line',label:'Total',data,borderColor:VI_COL_T,backgroundColor:VI_COL_T,borderWidth:2,borderDash:[5,4],pointRadius:3,pointHoverRadius:5,tension:.3,order:0};
+      return {type:'bar',label:viNomEmp(cid),data,backgroundColor:colores(col),borderRadius:4,maxBarThickness:38,order:1};
+    });
+    if(esDia)datasets.push({type:'bar',label:'Cada día'+(viEmpresa?'':' (total)'),data:per.map(p=>viValor(viCelda(idx,p,principal),m)),backgroundColor:'rgba(148,163,184,.25)',borderRadius:2,maxBarThickness:14,order:3});
+    if(ag==='mes'&&viSerieAnt){
+      const idxA=viIndexar(viSerieAnt.filas);
+      // Sin datos ese mes del año pasado → hueco (no un cero que parezca caída)
+      datasets.push({type:'line',label:(viEmpresa?viCorto(viEmpresa):'Total')+' año anterior',spanGaps:false,data:per.map(p=>idxA[viMenosAnio(p)]?viValor(viCelda(idxA,viMenosAnio(p),principal),m):null),borderColor:VI_COL_ANT,backgroundColor:VI_COL_ANT,borderWidth:1.5,borderDash:[2,3],pointRadius:2,tension:.3,order:0});
+    }
+  }
+  dbMkChart('ch-dias','bar',{labels:per.map(p=>viEtiqueta(p,ag,false)),datasets},{
     interaction:{mode:'index',intersect:false},
     scales:{
       x:{ticks:{color:'#94a3b8',font:{size:10},maxRotation:0,autoSkip:true,maxTicksLimit:16},grid:{color:'rgba(148,163,184,.08)'}},
@@ -1795,8 +1856,8 @@ function viDibujar(){
     },
     plugins:{
       legend:{display:datasets.length>1,position:'bottom',labels:{color:'#94a3b8',font:{size:11},padding:10,boxWidth:14}},
-      tooltip:{callbacks:{title:it=>viEtiqueta(per[it[0].dataIndex],ag,true),label:c=>c.dataset.label+': '+fmt(c.raw)}},
-      zoom:esLinea?{pan:{enabled:true,mode:'x'},zoom:{wheel:{enabled:true},pinch:{enabled:true},mode:'x'},limits:{x:{minRange:3}}}:{pan:{enabled:false},zoom:{wheel:{enabled:false},pinch:{enabled:false}}}
+      tooltip:{callbacks:{title:it=>viEtiqueta(per[it[0].dataIndex],ag,true)+(it[0].dataIndex===iAct?' (en curso)':''),label:c=>c.dataset.label+': '+fmt(c.raw)}},
+      zoom:esDia?{pan:{enabled:true,mode:'x'},zoom:{wheel:{enabled:true},pinch:{enabled:true},mode:'x'},limits:{x:{minRange:3}}}:{pan:{enabled:false},zoom:{wheel:{enabled:false},pinch:{enabled:false}}}
     }
   });
   const cv=document.getElementById('ch-dias');
@@ -1804,47 +1865,62 @@ function viDibujar(){
 }
 
 // Tabla "Mes a mes": 12 meses hasta el mes de la fecha "Hasta"; si el rango
-// elegido es más largo, lo cubre completo (máximo 36 meses)
+// elegido es más largo, lo cubre completo (máximo 36 meses). Cada cifra se compara
+// con el mes anterior o con el mismo mes del año pasado; el mes en curso, contra
+// los MISMOS días del mes de comparación (no contra un mes completo).
 async function viMesAMes(){
   const {desde:dRango,hasta}=viRango(); if(!hasta)return;
   const [a,mm]=hasta.split('-').map(Number);
   let ini=new Date(a,mm-12,1);
   if(dRango){const [da,dm]=dRango.split('-').map(Number);const ir=new Date(da,dm-1,1);const tope=new Date(a,mm-36,1);
     if(ir<ini)ini=ir<tope?tope:ir;}
-  const desde=viIso(ini);
-  const r=await viApi('/api/bi-serie',{agrupar:'mes',desde,hasta});
-  const meses=viPeriodos(desde,hasta,'mes'), idx=viIndexar(r.filas);
-  const hoy=new Date(), mesActual=`${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}`;
+  const desde=viIso(ini), desdeExt=viIso(new Date(ini.getFullYear()-1,ini.getMonth(),1));
+  const hoy=new Date(), mesActual=viIso(hoy).slice(0,7);
+  const meses=viPeriodos(desde,hasta,'mes'), enCurso=meses.includes(mesActual);
+  const compDe=p=>viMmComp==='anio'?viMenosAnio(p):viMesPrev(p);
+  let parcial=null, parcialMes=null;
+  const pParcial=(async()=>{
+    if(!enCurso)return null;
+    const base=viMmComp==='anio'?new Date(hoy.getFullYear()-1,hoy.getMonth(),1):new Date(hoy.getFullYear(),hoy.getMonth()-1,1);
+    const ult=new Date(base.getFullYear(),base.getMonth()+1,0).getDate();
+    const fin=new Date(base.getFullYear(),base.getMonth(),Math.min(hoy.getDate(),ult));
+    parcialMes=viIso(base).slice(0,7);
+    return viApi('/api/bi-serie',{agrupar:'mes',desde:viIso(base),hasta:viIso(fin)});
+  })();
+  const [r,rp]=await Promise.all([viApi('/api/bi-serie',{agrupar:'mes',desde:desdeExt,hasta}),pParcial]);
+  if(rp)parcial=viIndexar(rp.filas);
+  const idx=viIndexar(r.filas);
   document.getElementById('mm-titulo').textContent='Mes a mes'+(viEmpresa?' — '+viNomEmp(viEmpresa):' por empresa')+' · '+viEtiqueta(meses[0],'mes',true)+' a '+viEtiqueta(meses[meses.length-1],'mes',true);
   const filasMet=[
     {k:'ventas',t:'Ventas',f:dbFmt,d:'pct'},
-    {k:'ingresos',t:'Ingresos',f:dbFmt,d:'pct'},
+    {k:'ingresos',t:'Cobrado',f:dbFmt,d:'pct'},
     {k:'num_ventas',t:'N° ventas',f:dbFmtN,d:'pct'},
     {k:'ticket',t:'Ticket prom.',f:dbFmt,d:'pct'},
-    {k:'margen_pct',t:'Margen %',f:v=>v==null?'—':v.toFixed(1)+'%',d:'pp'},
-    {k:'cobertura',t:'Cobertura costo',f:v=>v==null?'—':`<span class="${v>=90?'cob-ok':v>=70?'cob-warn':'cob-bad'}">${v.toFixed(0)}%</span>`,d:null},
-    {k:'compras',t:'Compras',f:dbFmt,d:'pct'},
+    {k:'margen_pct',t:'Margen bruto % (sin IGV)',f:v=>v==null?'—':v.toFixed(1)+'%',d:'pp'},
+    {k:'cobertura',t:'Cobertura costo',f:v=>v==null?'—':`<span class="${viCobCls(v)}">${v.toFixed(0)}%</span>`,d:null},
+    {k:'compras',t:'Mercadería ingresada',f:dbFmt,d:'pct'},
   ];
   const delta=(act,ant,tipo)=>{
     if(!tipo||act==null||ant==null)return '';
     if(tipo==='pp'){const x=act-ant;const c=Math.abs(x)<0.05?'eq':x>0?'up':'dn';return `<span class="dv ${c}">${x>0?'+':''}${x.toFixed(1)} pp</span>`;}
-    if(!ant)return act?'<span class="dv eq">nuevo</span>':'';
+    if(!ant)return '';   // sin dato con qué comparar
     const x=(act-ant)/Math.abs(ant)*100;const c=Math.abs(x)<0.5?'eq':x>0?'up':'dn';
     return `<span class="dv ${c}">${x>0?'▲':x<0?'▼':''} ${Math.abs(x).toFixed(0)}%</span>`;
   };
-  const cab='<thead><tr><th>Métrica</th>'+meses.map(p=>`<th>${viEtiqueta(p,'mes',false)}${p===mesActual?' <span title="Mes en curso">·</span>':''}</th>`).join('')+'<th>Total 12m</th></tr></thead>';
+  const cab='<thead><tr><th>Métrica</th>'+meses.map(p=>`<th${p===mesActual?' title="En curso: se compara contra los mismos días"':''}>${viEtiqueta(p,'mes',false)}${p===mesActual?' <span style="color:var(--fg-warn)">●</span>':''}</th>`).join('')+'<th>Total del período</th></tr></thead>';
   let cuerpo='<tbody>';
-  viGruposVisibles(r.filas).forEach(cid=>{
+  viGruposVisibles(r.filas.filter(f=>f.periodo>=desde.slice(0,7))).forEach(cid=>{
     const nom=cid==='T'?'Total (todas)':viNomEmp(cid);
     const col=cid==='T'?VI_COL_T:(VI_COL[cid]||'#8b93b8');
     cuerpo+=`<tr class="mm-grupo"><td colspan="${meses.length+2}"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${col};margin-right:7px"></span>${nom}</td></tr>`;
     const celdas=meses.map(p=>viCelda(idx,p,cid));
+    const comps=meses.map(p=>p===mesActual&&parcial?viCelda(parcial,parcialMes,cid):viCelda(idx,compDe(p),cid));
     const tot=viSumar(celdas);
     filasMet.forEach(fm=>{
       cuerpo+=`<tr><td>${fm.t}</td>`+celdas.map((c,i)=>{
-        const v=viValor(c,fm.k), ant=i>0?viValor(celdas[i-1],fm.k):null;
+        const v=viValor(c,fm.k), ant=viValor(comps[i],fm.k);
         const cero=(v===0||v==null);
-        return `<td class="${cero?'cero':''}">${fm.f(v)}${i>0?delta(v,ant,fm.d):''}</td>`;
+        return `<td class="${cero?'cero':''}">${fm.f(v)}${delta(v,ant,fm.d)}</td>`;
       }).join('')+`<td style="font-weight:700">${fm.f(viValor(tot,fm.k))}</td></tr>`;
     });
   });
@@ -1852,11 +1928,10 @@ async function viMesAMes(){
   const NOM_COD={'16':'saldo inicial','05':'devolución recibida','11':'transferencia','21':'entrada de producción','28':'ajuste','99':'otros'};
   const otras=(r.otras_entradas||[]);
   document.getElementById('mm-nota').innerHTML=
-    `Compras = entradas con código SUNAT ${r.codigos_compra.join(' y ')} (compra e importación). `+
-    (otras.length?'Otras entradas de stock en este período que <b>no</b> se cuentan como compra: '+otras.map(o=>`código ${o.codigo}${NOM_COD[o.codigo]?' ('+NOM_COD[o.codigo]+')':''} ${dbFmt(o.total)}`).join(' · ')+'.':'')+
-    (meses.includes(mesActual)?' El último mes está en curso.':'');
+    `Debajo de cada cifra: variación contra ${viMmComp==='anio'?'el mismo mes del año pasado':'el mes anterior'}${enCurso?'; el mes en curso (●) se compara contra los mismos días':''}. `+
+    `Mercadería ingresada = entradas con código SUNAT ${r.codigos_compra.join(' y ')} (compra e importación). `+
+    (otras.length?`Otras entradas de stock desde ${viEtiqueta(desdeExt.slice(0,7),'mes',true)} que <b>no</b> se cuentan como compra: `+otras.map(o=>`código ${o.codigo}${NOM_COD[o.codigo]?' ('+NOM_COD[o.codigo]+')':''} ${dbFmt(o.total)}`).join(' · ')+'.':'');
 }
-
 
 // ── Histórico del Excel: estado, comparación con el sistema y fecha de corte ──
 let viHist=null, viHistSug=null;
@@ -1916,21 +1991,48 @@ async function histBorrar(){
   catch(e){showToast(e.message,true);}
 }
 
+// Rangos para comparar los KPIs: el período anterior del mismo largo y el mismo
+// período del año pasado
+function viRangosComparacion(desde,hasta){
+  if(!desde||!hasta)return null;
+  const d=new Date(desde+'T00:00:00'), h=new Date(hasta+'T00:00:00');
+  const dias=Math.round((h-d)/864e5)+1;
+  const antH=new Date(d); antH.setDate(antH.getDate()-1);
+  const antD=new Date(antH); antD.setDate(antD.getDate()-dias+1);
+  return {ant:{desde:viIso(antD),hasta:viIso(antH)},anio:{desde:viMenosAnio(desde),hasta:viMenosAnio(hasta)}};
+}
+// "▲ 12 % vs período anterior · ▼ 3 % vs año pasado"
+function viDeltaKpi(act,ant,anio){
+  const uno=(b,txt)=>{
+    if(b==null||!isFinite(b)||!b)return '';
+    const x=(act-b)/Math.abs(b)*100, c=Math.abs(x)<0.5?'eq':x>0?'up':'dn';
+    return `<span class="${c}">${x>0?'▲':x<0?'▼':'='} ${Math.abs(x).toFixed(0)}%</span> ${txt}`;
+  };
+  const p=[uno(ant,'vs período anterior'),uno(anio,'vs año pasado')].filter(Boolean);
+  return p.length?`<div class="kpi-d">${p.join(' · ')}</div>`:'';
+}
+
 async function dbResumen(){
   await viInitEmpresas();
   if(!window._histCargado){window._histCargado=1;histCargar();}
-  const [k]=await Promise.all([viApi('/api/kpis'),viCargarSerie()]);
-  // Totales del rango a partir de la serie (compras e ingresos con su propia regla de empresa)
+  const {desde,hasta}=viRango(), rc=viRangosComparacion(desde,hasta);
+  const serieDe=r=>rc?viApi('/api/bi-serie',{agrupar:'mes',...r}).catch(()=>null):Promise.resolve(null);
+  const [k,,sAnt,sAnio]=await Promise.all([viApi('/api/kpis'),viCargarSerie(),serieDe(rc&&rc.ant),serieDe(rc&&rc.anio)]);
+  // Totales del rango a partir de la serie (cobros y mercadería con su propia regla de empresa)
   const tot=viSumar((viSerie&&viSerie.filas)||[]);
+  const tA=sAnt&&sAnt.filas.length?viSumar(sAnt.filas):null, tY=sAnio&&sAnio.filas.length?viSumar(sAnio.filas):null;
+  const dl=m=>viDeltaKpi(viValor(tot,m),tA?viValor(tA,m):null,tY?viValor(tY,m):null);
+  const mgPct=viValor(tot,'margen_pct'), cob=viValor(tot,'cobertura');
+  const sist=k.solo_sistema_desde?'sistema, desde '+viFechaTxt(k.solo_sistema_desde):null;
   document.getElementById('kpis-grid').innerHTML=[
-    {l:'Valor de ventas',v:dbFmt(tot.ventas),s:dbFmtN(tot.num_ventas)+' ventas',a:1},
-    {l:'Ingresos',v:dbFmt(tot.ingresos),s:'cobrado en el período',a:1},
-    {l:'Por cobrar',v:dbFmt(k.por_cobrar),s:k.solo_sistema_desde?'sistema, desde '+viFechaTxt(k.solo_sistema_desde):'de estas ventas'},
-    {l:'Ticket promedio',v:dbFmt(viValor(tot,'ticket')),s:'por venta'},
-    {l:'Compras',v:dbFmt(tot.compras),s:'compra e importación'},
-    {l:'Clientes únicos',v:dbFmtN(k.clientes_unicos),s:k.solo_sistema_desde?'sistema, desde '+viFechaTxt(k.solo_sistema_desde):'en el período'},
-    {l:'Canceladas',v:dbFmtN(k.canceladas),s:k.solo_sistema_desde?'sistema, desde '+viFechaTxt(k.solo_sistema_desde):'anuladas'},
-  ].map(x=>`<div class="kpi ${x.a?'accent':''}"><div class="kpi-label">${x.l}</div><div class="kpi-val">${x.v}</div><div class="kpi-sub">${x.s}</div></div>`).join('');
+    {l:'Valor de ventas',v:dbFmt(tot.ventas),s:dbFmtN(tot.num_ventas)+' ventas'+(+k.pago_pendiente>0?` · ${dbFmt(k.pago_pendiente)} con pago pendiente`:''),d:dl('ventas'),a:1},
+    {l:'Cobrado',v:dbFmt(tot.ingresos),s:'dinero que entró en el período',d:dl('ingresos'),a:1},
+    {l:'Margen bruto (sin IGV)',v:dbFmt(tot.margen_neto),s:(mgPct==null?'sin costo conocido':mgPct.toFixed(1)+'% de lo vendido con costo')+(cob!=null?` · cobertura <span class="${viCobCls(cob)}">${cob.toFixed(0)}%</span>`:''),d:dl('margen')},
+    {l:'Ticket promedio',v:dbFmt(viValor(tot,'ticket')),s:'por venta',d:dl('ticket')},
+    {l:'Por cobrar',v:dbFmt(k.por_cobrar),s:sist||'deuda de estas ventas (igual que Cuentas por cobrar)'},
+    {l:'Clientes únicos',v:dbFmtN(k.clientes_unicos),s:sist||'en el período'},
+    {l:'Canceladas',v:dbFmtN(k.canceladas),s:sist||'ventas anuladas'},
+  ].map(x=>`<div class="kpi ${x.a?'accent':''}"><div class="kpi-label">${x.l}</div><div class="kpi-val">${x.v}</div><div class="kpi-sub">${x.s}</div>${x.d||''}</div>`).join('');
   // Por empresa: solo tiene sentido con "Todas"
   const cardEmp=document.getElementById('vi-card-empresas');
   cardEmp.style.display=viEmpresa?'none':'';
@@ -1943,63 +2045,89 @@ async function dbResumen(){
       return `<div class="empresa-card"><div class="empresa-name"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${VI_COL[e.id]||'#8b93b8'};margin-right:7px"></span>${e.nombre}</div>
       <div class="empresa-grid">
         <div class="estat"><div class="estat-label">Ventas</div><div class="estat-val">${dbFmt(t.ventas)}</div></div>
-        <div class="estat"><div class="estat-label">Ingresos</div><div class="estat-val">${dbFmt(t.ingresos)}</div></div>
+        <div class="estat"><div class="estat-label">Cobrado</div><div class="estat-val">${dbFmt(t.ingresos)}</div></div>
         <div class="estat"><div class="estat-label">N° ventas</div><div class="estat-val">${dbFmtN(t.num_ventas)}</div></div>
         <div class="estat"><div class="estat-label">Ticket prom.</div><div class="estat-val">${dbFmt(viValor(t,'ticket'))}</div></div>
-        <div class="estat"><div class="estat-label">Margen</div><div class="estat-val">${mg==null?'—':mg.toFixed(1)+'%'}</div></div>
-        <div class="estat"><div class="estat-label">Compras</div><div class="estat-val">${dbFmt(t.compras)}</div></div>
+        <div class="estat"><div class="estat-label">Margen (sin IGV)</div><div class="estat-val">${mg==null?'—':mg.toFixed(1)+'%'}</div></div>
+        <div class="estat"><div class="estat-label">Mercadería ingresada</div><div class="estat-val">${dbFmt(t.compras)}</div></div>
       </div></div>`;}).join('');
   }
   const [tipo]=await Promise.all([viApi('/api/tipo-cliente'),viMesAMes()]);
-  dbMkChart('ch-tipo','doughnut',{labels:tipo.map(t=>t.tipo),datasets:[{data:tipo.map(t=>+t.total),backgroundColor:['#6C63D9','#14A37F'],borderWidth:0}]},
-    {plugins:{legend:{position:'bottom',labels:{color:'#94a3b8',font:{size:12},padding:14}},tooltip:{callbacks:{label:c=>dbFmt(c.raw)}}}});
+  // B2B vs B2C: barras horizontales con monto y % (una dona no deja comparar)
+  const totTipo=tipo.reduce((a,t)=>a+(+t.total||0),0)||1;
+  const tipoOrd=[...tipo].sort((a,b)=>+b.total-+a.total);
+  document.getElementById('ch-tipo').parentElement.style.height=Math.max(120,tipoOrd.length*52+30)+'px';
+  dbMkChart('ch-tipo','bar',{labels:tipoOrd.map(t=>`${t.tipo} · ${Math.round(+t.total/totTipo*100)}%`),datasets:[{data:tipoOrd.map(t=>+t.total),backgroundColor:tipoOrd.map(t=>t.is_company?'#6C63D9':'#14A37F'),borderRadius:4,maxBarThickness:30}]},
+    {indexAxis:'y',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>{const t=tipoOrd[c.dataIndex];return `${dbFmt(c.raw)} · ${dbFmtN(t.ventas)} ventas · ${dbFmtN(t.clientes)} clientes`;}}}},
+     scales:{x:{beginAtZero:true,ticks:{color:'#94a3b8',font:{size:10},callback:v=>'S/'+dbFmtN(v)},grid:{color:'rgba(148,163,184,.08)'}},y:{ticks:{color:'#94a3b8',font:{size:12}},grid:{display:false}}}});
 }
 
 async function dbRentabilidad(){
   await viInitEmpresas();
-  const r=await viApi('/api/rentabilidad');
+  const [r,cfg]=await Promise.all([viApi('/api/rentabilidad'),apiCall('/api/bi-config','GET').catch(()=>null)]);
   const cob=r.cobertura==null?null:+r.cobertura;
   document.getElementById('rent-kpis').innerHTML=[
-    {l:'Ingreso confiable',v:dbFmt(r.ingreso_confiable),s:'con costo conocido',a:1},
-    {l:'Costo FIFO',v:dbFmt(r.costo),s:'costo real'},
-    {l:'Ganancia neta',v:dbFmt(r.ganancia),s:'FIFO confiable',a:1},
-    {l:'Margen promedio',v:r.margen_promedio+'%',s:'sobre confiable'},
-    {l:'Ganancia pendiente',v:dbFmt(r.ingreso_pendiente),s:dbFmtN(r.lineas_pedido)+' líneas a pedido'},
-    {l:'Cobertura de costo',v:cob==null?'—':`<span class="${cob>=90?'cob-ok':cob>=70?'cob-warn':'cob-bad'}">${cob.toFixed(0)}%</span>`,s:'de lo vendido tiene costo'},
+    {l:'Vendido con costo (sin IGV)',v:dbFmt(r.ingreso_neto),s:'líneas con lote asignado',a:1},
+    {l:'Costo (sin impuesto)',v:dbFmt(r.costo_neto),s:'FIFO, costo del lote'},
+    {l:'Margen bruto (sin IGV)',v:dbFmt(r.ganancia_neta),s:'venta − costo, antes de gastos',a:1},
+    {l:'Margen %',v:r.margen_promedio==null?'—':r.margen_promedio+'%',s:'sobre lo vendido con costo'},
+    {l:'Ventas a pedido sin costo',v:dbFmt(r.ingreso_pendiente),s:dbFmtN(r.lineas_pedido)+' líneas: su margen se conoce al llegar'},
+    {l:'Cobertura de costo',v:cob==null?'—':`<span class="${viCobCls(cob)}">${cob.toFixed(0)}%</span>`,s:'de lo vendido tiene costo'},
   ].map(x=>`<div class="kpi ${x.a?'accent':''}"><div class="kpi-label">${x.l}</div><div class="kpi-val">${x.v}</div><div class="kpi-sub">${x.s}</div></div>`).join('');
   let avisos='';
-  if(+r.ingreso_pendiente>0)avisos+=`<div class="db-aviso db-aviso-y">⏸️ <b>${dbFmt(r.ingreso_pendiente)}</b> en ${dbFmtN(r.lineas_pedido)} ventas <b>"a pedido"</b>: el producto aún no llega a Perú, su costo se conocerá al ingresarlo. La venta y el dinero sí cuentan; la ganancia queda pendiente.</div>`;
-  if(+r.lineas_falla>0)avisos+=`<div class="db-aviso db-aviso-r">⚠️ <b>${dbFmtN(r.lineas_falla)} ventas con costo no vinculado</b> (falla de migración): tienen ingreso de stock pero no se enlazó a la venta. Excluidas del cálculo de ganancia — conviene revisarlas.</div>`;
+  if(+r.ingreso_pendiente>0)avisos+=`<div class="db-aviso db-aviso-y">⏸️ <b>${dbFmt(r.ingreso_pendiente)}</b> en ${dbFmtN(r.lineas_pedido)} líneas <b>"a pedido"</b>: el producto aún no llega, su costo se conocerá al ingresarlo. La venta y el dinero sí cuentan; el margen queda pendiente.</div>`;
+  if(+r.lineas_falla>0)avisos+=`<div class="db-aviso db-aviso-r">⚠️ <b>${dbFmtN(r.lineas_falla)} líneas con costo no vinculado</b>: no tienen lote asignado ni están a pedido, así que no entran en el margen. Están listadas en <b>Auditoría</b> para corregirlas.</div>`;
   if(cob!=null&&cob<70)avisos+=`<div class="db-aviso db-aviso-r">⚠️ Solo el <b>${cob.toFixed(0)}%</b> de lo vendido tiene costo conocido: el margen de este período se calcula sobre una parte pequeña de las ventas y puede no ser representativo.</div>`;
+  if(cfg)avisos+=`<p class="card-note" style="margin:4px 0 10px">Montos sin IGV: venta ÷ 1.18 ${cfg.empresas_igv.length===viEmpresas.length?'(las dos empresas cobran IGV)':cfg.empresas_igv.length?'en '+cfg.empresas_igv.map(viCorto).join(', '):'(ninguna empresa con IGV)'}; costo ${cfg.costo==='columna'&&cfg.columna_disponible?'sin impuesto deducible, tomado del lote':cfg.costo==='igual'?'del lote tal cual':'del lote ÷ 1.18'}. Se cambia en Rendimiento → Ajustes de IGV.</p>`;
   document.getElementById('rent-avisos').innerHTML=avisos;
   const [canal,bajo]=await Promise.all([viApi('/api/rentabilidad-canal'),viApi('/api/margen-bajo')]);
-  document.getElementById('tbl-canal').innerHTML='<thead><tr><th>Canal</th><th>Ventas</th><th>Ingreso</th><th>Ticket prom.</th><th>Ganancia FIFO</th><th>Margen %</th><th>Cobertura</th></tr></thead><tbody>'+
-    (canal.length?canal.map(c=>`<tr><td>${c.tipo}</td><td>${dbFmtN(c.ventas)}</td><td>${dbFmt(c.ingreso)}</td><td>${dbFmt(c.ticket)}</td><td>${dbFmt(c.ganancia)}</td><td style="font-weight:700">${c.margen==null?'—':c.margen+'%'}</td><td>${c.cobertura==null?'—':`<span class="${+c.cobertura>=90?'cob-ok':+c.cobertura>=70?'cob-warn':'cob-bad'}">${(+c.cobertura).toFixed(0)}%</span>`}</td></tr>`).join('')
+  document.getElementById('tbl-canal').innerHTML='<thead><tr><th>Canal</th><th>Ventas</th><th>Vendido</th><th>Ticket prom.</th><th>Margen bruto (sin IGV)</th><th>Margen %</th><th>Cobertura</th></tr></thead><tbody>'+
+    (canal.length?canal.map(c=>`<tr><td>${c.tipo}</td><td>${dbFmtN(c.ventas)}</td><td>${dbFmt(c.ingreso)}</td><td>${dbFmt(c.ticket)}</td><td>${dbFmt(c.ganancia)}</td><td style="font-weight:700">${c.margen==null?'—':c.margen+'%'}</td><td>${c.cobertura==null?'—':`<span class="${viCobCls(+c.cobertura)}">${(+c.cobertura).toFixed(0)}%</span>`}</td></tr>`).join('')
       :'<tr><td colspan="7" style="text-align:center;color:var(--muted)">Sin ventas en el período</td></tr>')+'</tbody>';
   dbSortTable('tbl-margen-bajo',bajo,[
     {k:'producto',t:'Producto',fmt:(v,r)=>`${v}${r.variacion&&r.variacion!==v?' <span style="color:var(--muted)">('+r.variacion+')</span>':''}`},
     {k:'sku',t:'SKU',fmt:v=>`<span style="color:var(--muted);font-size:11px">${v||'-'}</span>`},
     {k:'unidades',t:'Unid.',fmt:dbFmtN,num:1},
-    {k:'ingreso',t:'Ingreso',fmt:dbFmt,num:1},
-    {k:'costo',t:'Costo',fmt:dbFmt,num:1},
-    {k:'ganancia',t:'Ganancia',fmt:v=>`<span class="${+v<0?'cob-bad':''}">${dbFmt(v)}</span>`,num:1},
+    {k:'ingreso_neto',t:'Vendido sin IGV',fmt:dbFmt,num:1},
+    {k:'costo',t:'Costo sin imp.',fmt:dbFmt,num:1},
+    {k:'ganancia',t:'Margen',fmt:v=>`<span class="${+v<0?'cob-bad':''}">${dbFmt(v)}</span>`,num:1},
     {k:'margen',t:'Margen %',fmt:v=>`<span class="badge ${+v<0?'badge-r':+v<10?'badge-y':'badge-g'}">${v}%</span>`,num:1}
   ],'margen');
   if(dbTableState['tbl-margen-bajo'].dir!=='asc'&&dbTableState['tbl-margen-bajo'].sortKey==='margen'){dbTableState['tbl-margen-bajo'].dir='asc';dbRenderTable('tbl-margen-bajo');}
+  // Productos: cuánto venden (X) contra cuánto ganan (Y). Las líneas parten en la venta
+  // mediana y el margen promedio: cuatro zonas para decidir qué hacer con cada uno.
   const prod=await viApi('/api/top-productos');
-  document.getElementById('ch-prod-wrap').style.height=Math.max(300,prod.length*38+40)+'px';
-  dbMkChart('ch-prod','bar',{labels:prod.map(p=>p.producto+(p.variacion&&p.variacion!==p.producto?' ('+p.variacion+')':'')),
-    datasets:[{label:'Ganancia',data:prod.map(p=>+p.ganancia),backgroundColor:prod.map(p=>p.estado==='a_pedido'?'#BA7517':p.estado==='sin_costo'?'#E24B4A':'#534AB7'),borderRadius:4}]},
-    {indexAxis:'y',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>{const p=prod[c.dataIndex];const et=p.estado==='a_pedido'?' (a pedido)':p.estado==='sin_costo'?' (sin costo)':'';return 'Ganancia: '+dbFmt(c.raw)+' | '+dbFmtN(p.unidades)+' u.'+et;}}}},
-     scales:{x:{ticks:{color:'#94a3b8',font:{size:10},callback:v=>'S/'+dbFmtN(v)},grid:{color:'rgba(255,255,255,.06)'}},y:{ticks:{color:'#94a3b8',font:{size:11}},grid:{display:false}}}});
+  const conM=prod.filter(p=>p.margen!=null), sinM=prod.length-conM.length;
+  const ventasOrd=conM.map(p=>+p.ingreso).sort((a,b)=>a-b);
+  const medV=ventasOrd.length?ventasOrd[Math.floor(ventasOrd.length/2)]:0;
+  const sumN=conM.reduce((a,p)=>a+ +p.ingreso_neto_conf,0), promM=sumN?conM.reduce((a,p)=>a+ +p.ganancia,0)/sumN*100:0;
+  const maxU=Math.max(1,...conM.map(p=>+p.unidades));
+  const nomP=p=>p.producto+(p.variacion&&p.variacion!==p.producto?' ('+p.variacion+')':'');
+  document.getElementById('ch-prod-wrap').style.height='380px';
+  const cuadrantes={id:'cuadrantes',afterDraw(ch){const {ctx,chartArea:a,scales:{x,y}}=ch;if(!conM.length)return;ctx.save();ctx.strokeStyle='rgba(148,163,184,.55)';ctx.setLineDash([4,4]);ctx.lineWidth=1;
+    const px=x.getPixelForValue(medV),py=y.getPixelForValue(promM);
+    if(px>=a.left&&px<=a.right){ctx.beginPath();ctx.moveTo(px,a.top);ctx.lineTo(px,a.bottom);ctx.stroke();}
+    if(py>=a.top&&py<=a.bottom){ctx.beginPath();ctx.moveTo(a.left,py);ctx.lineTo(a.right,py);ctx.stroke();}
+    ctx.setLineDash([]);ctx.fillStyle='rgba(148,163,184,.9)';ctx.font='11px system-ui';
+    ctx.textAlign='right';ctx.fillText('Estrellas: venden y ganan',a.right-6,a.top+14);ctx.fillText('Volumen con poco margen',a.right-6,a.bottom-8);
+    ctx.textAlign='left';ctx.fillText('Nicho rentable',a.left+6,a.top+14);ctx.fillText('Revisar: poca venta y poco margen',a.left+6,a.bottom-8);ctx.restore();}};
+  if(dbCharts['ch-prod'])dbCharts['ch-prod'].destroy();
+  dbCharts['ch-prod']=new Chart(document.getElementById('ch-prod'),{type:'bubble',
+    data:{datasets:[{label:'Productos',data:conM.map(p=>({x:+p.ingreso,y:+p.margen,r:4+14*Math.sqrt(+p.unidades/maxU)})),
+      backgroundColor:conM.map(p=>+p.margen<0?'rgba(226,75,74,.65)':p.estado==='a_pedido'?'rgba(186,117,23,.6)':'rgba(108,99,217,.55)'),borderColor:'rgba(255,255,255,.35)',borderWidth:1}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>{const p=conM[c.dataIndex];return [nomP(p),`Vendido ${dbFmt(p.ingreso)} · margen ${p.margen}% · ${dbFmtN(p.unidades)} u.`,`Margen bruto ${dbFmt(p.ganancia)}`+(p.cobertura<100?` (cobertura ${p.cobertura}%)`:'')];}}}},
+      scales:{x:{type:'logarithmic',title:{display:true,text:'Vendido en el período (S/, escala logarítmica)',color:'#94a3b8',font:{size:11}},ticks:{color:'#94a3b8',font:{size:10},callback:v=>{const e=Math.pow(10,Math.floor(Math.log10(v))),m=Math.round(v/e);return [1,2,5].includes(m)&&Math.abs(v-m*e)<1e-6*v?'S/'+dbFmtN(v):'';}},grid:{color:'rgba(148,163,184,.08)'}},
+        y:{grace:'12%',title:{display:true,text:'Margen % (sin IGV)',color:'#94a3b8',font:{size:11}},ticks:{color:'#94a3b8',font:{size:10},callback:v=>v+'%'},grid:{color:'rgba(148,163,184,.08)'}}}},
+    plugins:[cuadrantes]});
+  document.getElementById('prod-nota').textContent=`Los ${prod.length} productos con más venta. Tamaño del punto = unidades; rojo = margen negativo; ámbar = tiene líneas a pedido. Línea vertical: venta mediana (${dbFmt(medV)}); horizontal: margen promedio (${promM.toFixed(1)}%).`+(sinM?` ${sinM} sin costo conocido no aparecen.`:'');
   const marcas=await viApi('/api/marcas');
   dbSortTable('tbl-marcas',marcas,[
     {k:'marca',t:'Marca',fmt:v=>v},
     {k:'ventas',t:'Ventas',fmt:dbFmtN,num:1},
     {k:'unidades',t:'Unid.',fmt:dbFmtN,num:1},
-    {k:'ingreso',t:'Ingreso',fmt:dbFmt,num:1},
-    {k:'ganancia',t:'Ganancia',fmt:dbFmt,num:1},
-    {k:'margen',t:'Margen %',fmt:v=>v+'%',num:1}
+    {k:'ingreso',t:'Vendido',fmt:dbFmt,num:1},
+    {k:'ganancia',t:'Margen bruto (sin IGV)',fmt:dbFmt,num:1},
+    {k:'margen',t:'Margen %',fmt:v=>v==null?'<span style="color:var(--muted)">—</span>':v+'%',num:1}
   ],'ganancia');
 }
 
@@ -2117,11 +2245,18 @@ function pintarConciliacion(filas){
 
 async function dbCaja(){
   const pagos=await viApi('/api/metodos-pago-bi');
-  const cols=['#534AB7','#0F6E56','#D85A30','#BA7517','#D4537E','#378ADD','#E24B4A','#9333ea'];
-  dbMkChart('ch-pagos','doughnut',{labels:pagos.map(p=>p.metodo||'Sin nombre'),datasets:[{data:pagos.map(p=>+p.total),backgroundColor:cols,borderWidth:0}]},
-    {plugins:{legend:{position:'bottom',labels:{color:'#94a3b8',font:{size:11},padding:10}},tooltip:{callbacks:{label:c=>dbFmt(c.raw)}}}});
-  document.getElementById('pagos-tabla').innerHTML='<table class="dtable"><thead><tr><th>Método</th><th>N°</th><th>Total</th></tr></thead><tbody>'+
-    pagos.map(p=>`<tr><td>${p.metodo||'Sin nombre'}</td><td>${dbFmtN(p.cantidad)}</td><td style="color:var(--accent);font-weight:600">${dbFmt(p.total)}</td></tr>`).join('')+'</tbody></table>';
+  const tot=pagos.reduce((a,p)=>a+(+p.total||0),0);
+  const ord=[...pagos].sort((a,b)=>+b.total-+a.total);
+  const pct=v=>tot?(v/tot*100).toFixed(1)+'%':'—';
+  // Barras ordenadas (antes una dona: con más de 3 métodos no se podían comparar)
+  document.getElementById('ch-pagos').parentElement.style.height=Math.max(160,ord.length*30+40)+'px';
+  dbMkChart('ch-pagos','bar',{labels:ord.map(p=>p.metodo||'Sin nombre'),datasets:[{data:ord.map(p=>+p.total),backgroundColor:'#534AB7',borderRadius:4,maxBarThickness:22}]},
+    {indexAxis:'y',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`${dbFmt(c.raw)} · ${pct(c.raw)} · ${dbFmtN(ord[c.dataIndex].cantidad)} cobros`}}},
+     scales:{x:{beginAtZero:true,ticks:{color:'#94a3b8',font:{size:10},callback:v=>'S/'+dbFmtN(v)},grid:{color:'rgba(148,163,184,.08)'}},y:{ticks:{color:'#94a3b8',font:{size:11}},grid:{display:false}}}});
+  document.getElementById('pagos-tabla').innerHTML='<table class="dtable"><thead><tr><th>Método</th><th>N°</th><th>Total</th><th>%</th></tr></thead><tbody>'+
+    ord.map(p=>`<tr><td>${p.metodo||'Sin nombre'}</td><td>${dbFmtN(p.cantidad)}</td><td style="color:var(--accent);font-weight:600">${dbFmt(p.total)}</td><td>${pct(+p.total)}</td></tr>`).join('')+
+    `<tr style="font-weight:700"><td>Total</td><td>${dbFmtN(ord.reduce((a,p)=>a+ +p.cantidad,0))}</td><td>${dbFmt(tot)}</td><td></td></tr></tbody></table>`+
+    '<p class="card-note" style="margin-top:8px">Solo cobros registrados en el sistema (sin los de ventas canceladas o eliminadas). Si el rango usa el histórico del Excel, el total es menor que "Cobrado".</p>';
 }
 
 async function dbCRM(){
@@ -2175,7 +2310,7 @@ async function cargarEstadoActualizacion(){
   }catch(e){ if(box)box.style.display='none'; }
 }
 // Nombres legibles de los módulos
-const NOMBRE_MODULO={clientes_gestion:'Gestión de clientes',sync:'Sincronización web (en Sistemas)',auditoria:'Auditoría de catálogo',resumen:'Resumen de ventas (en Ventas e ingresos)',rentabilidad:'Rentabilidad (en Ventas e ingresos)',inventario:'Inventario',restock:'Restock',clientes_bi:'Clientes BI',caja_bi:'Ingresos y caja (en Ventas e ingresos)',crm:'CRM Kommo',reportes:'Contabilidad',pagos:'Métodos de pago (en Sistemas)',importaciones:'Importaciones',recepciones:'Recepciones',seguimiento:'Seguimiento (trackings y backorders)',conciliacion:'Conciliación de pagos online',cuentas_cobrar:'Cuentas por cobrar',saldo_favor:'Créditos',cotizador:'Cotizador rápido',precio_importado:'Precio importado (pedidos especiales)',bikes:'Bikes a pedido (bikes.kuranko.pe)',facturacion:'Facturación electrónica',gastos:'Compras y gastos (en Ventas y compras)',rendimiento:'Rendimiento (en Ventas y compras)'};
+const NOMBRE_MODULO={clientes_gestion:'Gestión de clientes',sync:'Sincronización web (en Sistemas)',auditoria:'Auditoría de catálogo',resumen:'Resumen de ventas (en Ventas e ingresos)',rentabilidad:'Rentabilidad (en Ventas e ingresos)',inventario:'Inventario',restock:'Restock',clientes_bi:'Clientes BI',caja_bi:'Ingresos y caja (en Ventas e ingresos)',crm:'CRM Kommo',reportes:'Contabilidad',pagos:'Métodos de pago (en Sistemas)',importaciones:'Importaciones',recepciones:'Recepciones',seguimiento:'Seguimiento (trackings y backorders)',conciliacion:'Conciliación de pagos online',cuentas_cobrar:'Cuentas por cobrar',saldo_favor:'Créditos',cotizador:'Cotizador rápido',precio_importado:'Precio importado (pedidos especiales)',bikes:'Bikes a pedido (bikes.kuranko.pe)',facturacion:'Facturación electrónica',gastos:'Compras y gastos (en Ventas y compras)',rendimiento:'Rendimiento (en Ventas y compras)',auditoria_vc:'Auditoría de ventas y compras (en Ventas y compras)'};
 let accesosCache={modulos_disponibles:[],usuarios:[]};
 async function cargarAccesos(){
   try{

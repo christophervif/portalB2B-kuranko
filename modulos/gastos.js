@@ -73,6 +73,9 @@ const CODIGOS_COMPRA = ['02', '18'];
 // Estados de venta válidos (mismo criterio que index.js: VV)
 const VV_SQL = "('paid','confirmed','pending_payment')";
 const REF_ENTRADA = 'App\\Models\\StockEntry';
+// Cobros que cuentan como dinero recibido: no anulados y de ventas que no estén
+// canceladas ni eliminadas (mismo criterio que Ventas e ingresos).
+const COBRO_VALIDO = `sp.voided_at IS NULL AND (s.id IS NULL OR (s.deleted_at IS NULL AND s.status <> 'cancelled'))`;
 // Fecha de hoy en Lima (UTC-5, sin horario de verano)
 const hoyLima = () => new Date(Date.now() - 5 * 3600e3).toISOString().slice(0, 10);
 const finDeMes = mes => mes + '-' + String(ultimoDia(mes)).padStart(2, '0');
@@ -206,6 +209,10 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
       // Columna nueva en gas_gastos (instalaciones anteriores no la tienen)
       try { await portalPool.query(`ALTER TABLE gas_gastos ADD COLUMN fijo_id INT UNSIGNED NULL AFTER fijo, ADD INDEX (fijo_id)`); }
       catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
+      // Mes al que corresponde el pago de un gasto fijo (el alquiler de setiembre pagado
+      // el 2 de octubre es de setiembre). NULL en pagos antiguos: se usa la fecha.
+      try { await portalPool.query(`ALTER TABLE gas_gastos ADD COLUMN fijo_mes CHAR(7) NULL AFTER fijo_id`); }
+      catch (e) { if (e.code !== 'ER_DUP_FIELDNAME') throw e; }
       const [[{ n }]] = await portalPool.query(`SELECT COUNT(*) AS n FROM gas_categorias`);
       if (!n) {
         await portalPool.query(`INSERT INTO gas_categorias (nombre, en_resultado, fijo_sugerido, orden) VALUES ?`,
@@ -285,13 +292,14 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
       if (!f) err('El gasto fijo no existe');
       fijo_id = f.id;
     }
+    const fijo_mes = fijo_id ? (esMes(b.fijo_mes) ? b.fijo_mes : b.fecha.slice(0, 7)) : null;
     return {
       fecha: b.fecha, company_id, cuenta_ref: cuenta.ref, cuenta_nombre: cuenta.nombre,
       cuenta_company_id: cuenta.company_id, categoria_id: cat.id,
       proveedor: recortar(b.proveedor, 120), ruc, descripcion: recortar(b.descripcion, 255),
       moneda, monto, tipo_cambio, monto_pen, comp_tipo,
       comp_numero: comp_tipo === 'ninguno' ? '' : recortar(b.comp_numero, 30).toUpperCase(),
-      fijo: fijo_id || b.fijo ? 1 : 0, fijo_id
+      fijo: fijo_id || b.fijo ? 1 : 0, fijo_id, fijo_mes
     };
   }
 
@@ -316,7 +324,7 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
   const SELECT_GASTO = `
     SELECT g.id, DATE_FORMAT(g.fecha, '%Y-%m-%d') AS fecha, g.company_id, g.cuenta_ref, g.cuenta_nombre, g.cuenta_company_id,
       g.categoria_id, c.nombre AS categoria, c.en_resultado, g.proveedor, g.ruc, g.descripcion, g.moneda, g.monto,
-      g.tipo_cambio, g.monto_pen, g.comp_tipo, g.comp_numero, g.fijo, g.fijo_id, g.cpe_id,
+      g.tipo_cambio, g.monto_pen, g.comp_tipo, g.comp_numero, g.fijo, g.fijo_id, g.fijo_mes, g.cpe_id,
       g.creado_por, g.creado_en, g.actualizado_por, g.actualizado_en
     FROM gas_gastos g LEFT JOIN gas_categorias c ON c.id = g.categoria_id`;
 
@@ -712,6 +720,7 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
   //                        días × días que faltan
   //   egresos proyectados = salido hasta hoy + gastos fijos pendientes (en su día
   //                        de vencimiento) + pagos de tarjeta que vencen este mes
+  //                        + promedio diario de gastos variables × días que faltan
   //   te queda para comprar = ingreso proyectado − egresos proyectados
   // Egresos = gastos pagados (no los cargados a tarjeta) + mercadería al contado +
   // pagos de tarjeta (mercadería, gastos y deuda anotada) en su fecha de pago.
@@ -734,28 +743,37 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
     const [cobDia] = await prodPool.query(`
       SELECT DATE_FORMAT(sp.paid_at, '%Y-%m-%d') AS dia, COALESCE(SUM(sp.amount), 0) AS t
       FROM sale_payments sp LEFT JOIN sales s ON s.id = sp.sale_id LEFT JOIN bank_accounts ba ON ba.id = sp.bank_account_id
-      WHERE sp.voided_at IS NULL AND sp.paid_at >= ? AND sp.paid_at < DATE_ADD(?, INTERVAL 1 DAY)
+      WHERE ${COBRO_VALIDO} AND sp.paid_at >= ? AND sp.paid_at < DATE_ADD(?, INTERVAL 1 DAY)
         AND COALESCE(ba.party_id, s.company_id) IN (${listaEmp})
       GROUP BY dia`, [ini, hoy]);
     const [[prom]] = await prodPool.query(`
       SELECT COALESCE(SUM(sp.amount), 0) AS t FROM sale_payments sp
       LEFT JOIN sales s ON s.id = sp.sale_id LEFT JOIN bank_accounts ba ON ba.id = sp.bank_account_id
-      WHERE sp.voided_at IS NULL AND sp.paid_at >= DATE_SUB(?, INTERVAL 90 DAY) AND sp.paid_at < ?
+      WHERE ${COBRO_VALIDO} AND sp.paid_at >= DATE_SUB(?, INTERVAL 90 DAY) AND sp.paid_at < ?
         AND COALESCE(ba.party_id, s.company_id) IN (${listaEmp})`, [ini, ini]);
     const [[mesPas]] = await prodPool.query(`
       SELECT COALESCE(SUM(sp.amount), 0) AS t FROM sale_payments sp
       LEFT JOIN sales s ON s.id = sp.sale_id LEFT JOIN bank_accounts ba ON ba.id = sp.bank_account_id
-      WHERE sp.voided_at IS NULL AND sp.paid_at >= ? AND sp.paid_at < ?
+      WHERE ${COBRO_VALIDO} AND sp.paid_at >= ? AND sp.paid_at < ?
         AND COALESCE(ba.party_id, s.company_id) IN (${listaEmp})`, [sumarMeses(mes, -1) + '-01', ini]);
     // Promedio diario: últimos 90 días antes de este mes (más estable que el ritmo de pocos días)
     const promDia = +prom.t / 90;
+    // Gastos variables (no fijos, sin tarjeta) por día en los mismos 90 días: también
+    // salen de caja aunque no estén programados (fletes, comisiones, publicidad…)
+    const tarjetasRefs = cuentas.filter(c => c.tipo === 'tarjeta').map(c => c.ref);
+    const [[gv]] = await portalPool.query(`
+      SELECT COALESCE(SUM(monto_pen), 0) AS t FROM gas_gastos
+      WHERE borrado_en IS NULL AND fijo_id IS NULL AND fijo = 0 AND company_id IN (${listaEmp})
+        AND fecha >= DATE_SUB(?, INTERVAL 90 DAY) AND fecha < ?
+        ${tarjetasRefs.length ? 'AND cuenta_ref NOT IN (?)' : ''}`, tarjetasRefs.length ? [ini, ini, tarjetasRefs] : [ini, ini]);
+    const promGastoDia = +gv.t / 90;
 
     // Egresos del mes por día
     const tarjetaRefs = new Set(cuentas.filter(c => c.tipo === 'tarjeta').map(c => c.ref));
     const [gas] = await portalPool.query(`
       SELECT DATE_FORMAT(fecha, '%Y-%m-%d') AS dia, cuenta_ref, SUM(monto_pen) AS t FROM gas_gastos
-      WHERE borrado_en IS NULL AND fecha BETWEEN ? AND ? AND company_id IN (${listaEmp})
-      GROUP BY dia, cuenta_ref`, [ini, fin]);
+      WHERE borrado_en IS NULL AND fecha BETWEEN ? AND ? AND COALESCE(cuenta_company_id, company_id) IN (${listaEmp})
+      GROUP BY dia, cuenta_ref`, [ini, fin]);   // por la empresa cuya cuenta pagó (es caja)
     const egr = {};   // dia → {gastos, mercaderia, tarjeta}
     const add = (dia, k, v) => { const e = egr[dia] = egr[dia] || { gastos: 0, mercaderia: 0, tarjeta: 0 }; e[k] += v; };
     gas.filter(g => !tarjetaRefs.has(g.cuenta_ref) && g.dia <= hoy).forEach(g => add(g.dia, 'gastos', +g.t));
@@ -786,7 +804,7 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
       }
       if (dia >= hoy) {
         if (accIp == null) { accIp = accI; accEp = accE; }
-        else accIp += promDia;
+        else { accIp += promDia; accEp += promGastoDia; }
         accEp += pendientes.filter(p => p.dia === dia).reduce((a, p) => a + p.monto, 0);
       }
       return { dia, ingresos: real ? r2(accI) : null, egresos: real ? r2(accE) : null,
@@ -795,7 +813,7 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
     const ultimo = serie[serie.length - 1];
     const totEgr = Object.values(egr).reduce((a, e) => ({ gastos: a.gastos + e.gastos, mercaderia: a.mercaderia + e.mercaderia, tarjeta: a.tarjeta + e.tarjeta }), { gastos: 0, mercaderia: 0, tarjeta: 0 });
     return {
-      hoy, mes, fin, dias_mes: dias.length, dia_hoy: +hoy.slice(8, 10), prom_dia: r2(promDia), mes_pasado: r2(mesPas.t),
+      hoy, mes, fin, dias_mes: dias.length, dia_hoy: +hoy.slice(8, 10), prom_dia: r2(promDia), prom_gasto_dia: r2(promGastoDia), mes_pasado: r2(mesPas.t),
       ingresos_hoy: r2(accI), egresos_hoy: r2(accE),
       egresos_detalle: { gastos: r2(totEgr.gastos), mercaderia: r2(totEgr.mercaderia), tarjeta: r2(totEgr.tarjeta) },
       ingresos_cierre: ultimo.ingresos_proy, egresos_cierre: ultimo.egresos_proy,
@@ -852,25 +870,37 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
         const [[ip]] = await prodPool.query(`
           SELECT COALESCE(SUM(sp.amount), 0) AS cobrado FROM sale_payments sp
           LEFT JOIN sales s ON s.id = sp.sale_id LEFT JOIN bank_accounts ba ON ba.id = sp.bank_account_id
-          WHERE sp.voided_at IS NULL AND COALESCE(ba.party_id, s.company_id) = ? AND sp.paid_at >= DATE_SUB(?, INTERVAL 90 DAY) AND sp.paid_at < ?`, [cid, hoy, hoy]);
+          WHERE ${COBRO_VALIDO} AND COALESCE(ba.party_id, s.company_id) = ? AND sp.paid_at >= DATE_SUB(?, INTERVAL 90 DAY) AND sp.paid_at < ?`, [cid, hoy, hoy]);
         const porCobrar = r2(pc.por_cobrar), ingresoDia = r2(+ip.cobrado / 90);
 
         const r = { company_id: cid, empresa: EMPRESAS_BI[cid], hoy, fin_mes: fin, necesita_saldo: !fotos.length,
           cuentas_sin_saldo: ctas.filter(c => !fotos.find(x => x.c.ref === c.ref)).map(c => c.nombre),
           comprometido: { fijos: fijosPend.map(f => ({ nombre: f.nombre, vence: f.vence, monto: r2(enSoles(f)), usd: f.moneda === 'USD' })),
             fijos_total: fijosPendTot, tarjeta: tarjetaEsteMes, total: r2(fijosPendTot + tarjetaEsteMes) },
-          por_cobrar: porCobrar, ingreso_dia: ingresoDia, fijos_usd_sin_tc: !tcUsd && fijosMes.fijos.some(f => f.moneda === 'USD') };
+          por_cobrar: porCobrar, ingreso_dia: ingresoDia, fijos_usd_sin_tc: !tcUsd && fijosMes.fijos.some(f => f.moneda === 'USD'),
+          // Para el calendario de pagos: los fijos del mes siguiente
+          fijos_siguiente: fijosSig.fijos.filter(f => f.company_id === cid && f.activo && !f.pagado && !tRefs.has(f.cuenta_ref))
+            .map(f => ({ nombre: f.nombre, vence: f.vence, monto: r2(enSoles(f)), usd: f.moneda === 'USD' })) };
 
         if (fotos.length) {
           // Movimientos desde la foto de CADA cuenta
-          let base = 0, cobros = 0, gastos = 0;
+          let base = 0, cobros = 0, gastos = 0, efectivoContado = false;
           for (const { c, f } of fotos) {
             base += +f.monto;
             if (c.origen === 'erp') {
-              const [[x]] = await prodPool.query(`SELECT COALESCE(SUM(amount), 0) AS t FROM sale_payments
-                WHERE voided_at IS NULL AND bank_account_id = ? AND paid_at >= DATE_ADD(?, INTERVAL 1 DAY) AND paid_at < DATE_ADD(?, INTERVAL 1 DAY)`,
+              const [[x]] = await prodPool.query(`SELECT COALESCE(SUM(sp.amount), 0) AS t FROM sale_payments sp
+                LEFT JOIN sales s ON s.id = sp.sale_id
+                WHERE ${COBRO_VALIDO} AND sp.bank_account_id = ? AND sp.paid_at >= DATE_ADD(?, INTERVAL 1 DAY) AND sp.paid_at < DATE_ADD(?, INTERVAL 1 DAY)`,
                 [c.ref.slice(3), f.fecha, hoy]);
               cobros += +x.t;
+            } else if (c.tipo === 'efectivo' && !efectivoContado) {
+              // Cobros sin cuenta bancaria (efectivo) de la empresa: entran a su caja de efectivo
+              const [[x]] = await prodPool.query(`SELECT COALESCE(SUM(sp.amount), 0) AS t FROM sale_payments sp
+                JOIN sales s ON s.id = sp.sale_id
+                WHERE ${COBRO_VALIDO} AND sp.bank_account_id IS NULL AND s.company_id = ?
+                  AND sp.paid_at >= DATE_ADD(?, INTERVAL 1 DAY) AND sp.paid_at < DATE_ADD(?, INTERVAL 1 DAY)`,
+                [cid, f.fecha, hoy]);
+              cobros += +x.t; efectivoContado = true;
             }
             const [[g]] = await portalPool.query(`SELECT COALESCE(SUM(monto_pen), 0) AS t FROM gas_gastos
               WHERE borrado_en IS NULL AND cuenta_ref = ? AND fecha > ? AND fecha <= ?`, [c.ref, f.fecha, hoy]);
@@ -908,7 +938,9 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
             const tarjetaHasta = cargos.filter(c => c.fecha_pago >= hoy && c.fecha_pago <= pagoHoy).reduce((a, c) => a + c.monto, 0);
             const proy = r.saldo.estimado - fijosPendTot - fijosHasta - tarjetaHasta;
             const dias = Math.max(0, Math.round((new Date(pagoHoy) - new Date(hoy)) / 864e5));
-            x.proyeccion = { fecha: pagoHoy, sin_ventas: r2(proy), con_ventas: r2(proy + porCobrar + ingresoDia * dias), dias,
+            // "Con ventas" = lo que entra al ritmo de cobro de los últimos 90 días. No se
+            // suma además lo por cobrar: ese ritmo ya incluye cobrar ventas a crédito.
+            x.proyeccion = { fecha: pagoHoy, sin_ventas: r2(proy), con_ventas: r2(proy + ingresoDia * dias), dias,
               fijos_hasta: r2(fijosHasta), tarjeta_hasta: r2(tarjetaHasta) };
             const tope = v => r2(Math.max(0, x.disponible == null ? v : Math.min(v, x.disponible)));
             x.puedes_cargar = { sin_ventas: tope(proy), con_ventas: tope(x.proyeccion.con_ventas) };
@@ -931,10 +963,11 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
       const emp = empresaValida(req.query.empresa);
       const [rows] = await portalPool.query(`
         SELECT DATE_FORMAT(g.fecha, '%Y-%m') AS mes, g.company_id, COALESCE(c.en_resultado, 1) AS en_resultado,
+          g.categoria_id, COALESCE(c.nombre, '(sin categoría)') AS categoria,
           SUM(g.monto_pen) AS total, SUM(CASE WHEN g.fijo = 1 THEN g.monto_pen ELSE 0 END) AS fijos
         FROM gas_gastos g LEFT JOIN gas_categorias c ON c.id = g.categoria_id
         WHERE g.borrado_en IS NULL AND g.fecha BETWEEN ? AND ? ${emp ? 'AND g.company_id = ' + emp : ''}
-        GROUP BY mes, g.company_id, COALESCE(c.en_resultado, 1) ORDER BY mes`, [ini, fin]);
+        GROUP BY mes, g.company_id, COALESCE(c.en_resultado, 1), g.categoria_id, c.nombre ORDER BY mes`, [ini, fin]);
       res.json({ desde: ini.slice(0, 7), hasta, filas: rows.map(r => ({ ...r, total: r2(r.total), fijos: r2(r.fijos), en_resultado: +r.en_resultado })) });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
@@ -951,7 +984,7 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
           proveedor: g.proveedor, ruc: g.ruc, moneda: g.moneda, monto: g.monto, dia: +g.fecha.slice(8, 10),
           frecuencia: FRECUENCIAS.includes(+b.frecuencia) ? +b.frecuencia : 1,
           cuenta_ref: g.cuenta_ref, desde_mes: g.fecha.slice(0, 7), creado_por: usuarioDe(req) }]);
-        g.fijo_id = rf.insertId; g.fijo = 1;
+        g.fijo_id = rf.insertId; g.fijo = 1; g.fijo_mes = g.fecha.slice(0, 7);
       }
       const [r] = await portalPool.query(`INSERT INTO gas_gastos SET ?`, [{ ...g, creado_por: usuarioDe(req) }]);
       res.json({ ok: true, id: r.insertId, fijo_id: g.fijo_id });
@@ -991,15 +1024,18 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
         ORDER BY f.activo DESC, f.dia, f.nombre`, todos ? [] : [mes]);
       // Los no mensuales (anual, semestral…) se pueden pagar hasta 2 meses antes
       // de su mes: el pago adelantado también los marca como pagados.
+      // Un pago cuenta para el mes al que CORRESPONDE (fijo_mes), no para el mes en
+      // que se pagó; los pagos antiguos sin fijo_mes se ubican por su fecha.
       const [pagos] = await portalPool.query(`
-        SELECT id, fijo_id, DATE_FORMAT(fecha, '%Y-%m-%d') AS fecha, monto_pen, cuenta_nombre, cuenta_company_id, company_id
-        FROM gas_gastos WHERE borrado_en IS NULL AND fijo_id IS NOT NULL AND fecha BETWEEN ? AND ?`,
-        [sumarMeses(mes, -2) + '-01', mes + '-' + ultimoDia(mes)]);
+        SELECT id, fijo_id, fijo_mes, DATE_FORMAT(fecha, '%Y-%m-%d') AS fecha, monto_pen, cuenta_nombre, cuenta_company_id, company_id
+        FROM gas_gastos WHERE borrado_en IS NULL AND fijo_id IS NOT NULL
+          AND ((fijo_mes IS NOT NULL AND fijo_mes BETWEEN ? AND ?) OR (fijo_mes IS NULL AND fecha BETWEEN ? AND ?))`,
+        [sumarMeses(mes, -2), mes, sumarMeses(mes, -2) + '-01', mes + '-' + ultimoDia(mes)]);
       const dmax = ultimoDia(mes);
       const lista = fijos.filter(f => todos || tocaEnMes(f, mes)).map(f => {
         const frec = +f.frecuencia || 1;
         const desdeVentana = frec === 1 ? mes : sumarMeses(mes, -Math.min(2, frec - 1));
-        const ps = pagos.filter(p => p.fijo_id === f.id && p.fecha.slice(0, 7) >= desdeVentana).map(p => ({ ...p, monto_pen: +p.monto_pen }));
+        const ps = pagos.filter(p => p.fijo_id === f.id && (p.fijo_mes || p.fecha.slice(0, 7)) >= desdeVentana).map(p => ({ ...p, monto_pen: +p.monto_pen }));
         return { id: f.id, nombre: f.nombre, company_id: f.company_id, categoria_id: f.categoria_id, categoria: f.categoria,
           proveedor: f.proveedor, ruc: f.ruc, moneda: f.moneda, monto: +f.monto, dia: f.dia, frecuencia: frec, cuenta_ref: f.cuenta_ref,
           proximo: todos ? (() => { let m = f.desde_mes; while (difMeses(m, mes) > 0) m = sumarMeses(m, frec); return m; })() : mes,
@@ -1133,14 +1169,18 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
     const emp = empresaValida(empresa);
     const p = [desde, hasta];
     const fe = emp ? 'AND g.company_id = ' + emp : '';
+    // Resultado: cada gasto en el mes al que CORRESPONDE (un fijo pagado tarde va a su
+    // mes, fijo_mes); la caja (por_cuenta, más abajo) sigue yendo por la fecha de pago.
+    const MES_RES = `COALESCE(g.fijo_mes, DATE_FORMAT(g.fecha, '%Y-%m'))`;
     const [porCat] = await portalPool.query(`
-      SELECT DATE_FORMAT(g.fecha, '%Y-%m') AS mes, g.company_id, g.categoria_id, c.nombre AS categoria,
+      SELECT ${MES_RES} AS mes, g.company_id, g.categoria_id, c.nombre AS categoria,
         COALESCE(c.en_resultado, 1) AS en_resultado,
         SUM(g.monto_pen) AS total, SUM(CASE WHEN g.fijo = 1 THEN g.monto_pen ELSE 0 END) AS fijos,
-        SUM(CASE WHEN g.fijo_id IS NOT NULL THEN g.monto_pen ELSE 0 END) AS fijos_plantilla
+        SUM(CASE WHEN g.fijo_id IS NOT NULL THEN g.monto_pen ELSE 0 END) AS fijos_plantilla,
+        SUM(CASE WHEN g.comp_tipo = 'factura' THEN g.monto_pen ELSE 0 END) AS total_factura
       FROM gas_gastos g LEFT JOIN gas_categorias c ON c.id = g.categoria_id
-      WHERE g.borrado_en IS NULL AND g.fecha BETWEEN ? AND ? ${fe}
-      GROUP BY mes, g.company_id, g.categoria_id, c.nombre, COALESCE(c.en_resultado, 1)`, p);
+      WHERE g.borrado_en IS NULL AND ${MES_RES} BETWEEN ? AND ? ${fe}
+      GROUP BY mes, g.company_id, g.categoria_id, c.nombre, COALESCE(c.en_resultado, 1)`, [desde.slice(0, 7), hasta.slice(0, 7)]);
     const [entre] = await portalPool.query(`
       SELECT DATE_FORMAT(g.fecha, '%Y-%m') AS mes, g.cuenta_company_id AS pagadora, g.company_id AS beneficiaria, SUM(g.monto_pen) AS total
       FROM gas_gastos g
@@ -1148,6 +1188,16 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
         AND g.cuenta_company_id <> g.company_id ${fe}
       GROUP BY mes, g.cuenta_company_id, g.company_id`, p);
     const [[primero]] = await portalPool.query(`SELECT DATE_FORMAT(MIN(fecha), '%Y-%m') AS mes FROM gas_gastos WHERE borrado_en IS NULL`);
+    // Primer mes con gastos de CADA empresa: una empresa que aún no anota gastos no
+    // debe salir con utilidad = margen completo
+    const [primeros] = await portalPool.query(`SELECT company_id, DATE_FORMAT(MIN(fecha), '%Y-%m') AS mes
+      FROM gas_gastos WHERE borrado_en IS NULL GROUP BY company_id`);
+    // Caja: lo que salió de cada empresa (la dueña de la cuenta que pagó)
+    const [porCuenta] = await portalPool.query(`
+      SELECT DATE_FORMAT(g.fecha, '%Y-%m') AS mes, COALESCE(g.cuenta_company_id, g.company_id) AS company_id, SUM(g.monto_pen) AS total
+      FROM gas_gastos g WHERE g.borrado_en IS NULL AND g.fecha BETWEEN ? AND ?
+        ${emp ? 'AND COALESCE(g.cuenta_company_id, g.company_id) = ' + emp : ''}
+      GROUP BY mes, COALESCE(g.cuenta_company_id, g.company_id)`, p);
     // Gastos fijos activos llevados a su costo MENSUAL (un anual de S/ 1,200 =
     // S/ 100 al mes), para el punto de equilibrio. Los de dólares se convierten
     // con el último tipo de cambio usado en un gasto.
@@ -1165,7 +1215,10 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
       fijosMes[f.company_id] = (fijosMes[f.company_id] || 0) + m;
     });
     return {
-      por_categoria: porCat.map(r => ({ ...r, total: r2(r.total), fijos: r2(r.fijos), fijos_plantilla: r2(r.fijos_plantilla), en_resultado: +r.en_resultado })),
+      por_categoria: porCat.map(r => ({ ...r, total: r2(r.total), fijos: r2(r.fijos), fijos_plantilla: r2(r.fijos_plantilla),
+        total_factura: r2(r.total_factura), en_resultado: +r.en_resultado })),
+      primer_mes_empresa: Object.fromEntries(primeros.map(r => [r.company_id, r.mes])),
+      por_cuenta: porCuenta.map(r => ({ mes: r.mes, company_id: +r.company_id, total: r2(r.total) })),
       entre: entre.map(r => ({ ...r, total: r2(r.total) })),
       primer_mes: primero && primero.mes,
       fijos_mensuales: Object.fromEntries(Object.entries(fijosMes).map(([k, v]) => [k, r2(v)])),
@@ -1178,6 +1231,7 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
   //   merc_caja      mercadería en el mes en que sale el dinero (contado = fecha de
   //                  compra; tarjeta = fecha de pago de la tarjeta)
   //   gastos_tarjeta gastos cargados a tarjeta en el mes (se restan: aún no sale dinero)
+  //   (por la empresa dueña de la cuenta o tarjeta que pagó, no la del gasto)
   //   pagos_tarjeta  esos gastos en el mes en que se paga la tarjeta
   async function cajaMensual({ desde, hasta, emp }) {
     const desdeAmplio = sumarMeses(desde.slice(0, 7), -3) + '-01';
@@ -1189,9 +1243,10 @@ module.exports = function registrarGastos({ app, authAdmin, requiereModulo, prod
     const dentro = f => f >= desde && f <= hasta;
     merc.forEach(m => { if ((!emp || m.company_id === emp) && dentro(m.fecha_pago)) fila(m.fecha_pago.slice(0, 7), m.company_id || 0).merc_caja += m.total; });
     gasT.forEach(g => {
-      if (emp && g.company_id !== emp) return;
-      if (dentro(g.fecha)) fila(g.fecha.slice(0, 7), g.company_id).gastos_tarjeta += g.monto_pen;
-      if (dentro(g.fecha_pago)) fila(g.fecha_pago.slice(0, 7), g.company_id).pagos_tarjeta += g.monto_pen;
+      const cid = g.cuenta_company_id || g.company_id;   // la empresa dueña de la tarjeta
+      if (emp && cid !== emp) return;
+      if (dentro(g.fecha)) fila(g.fecha.slice(0, 7), cid).gastos_tarjeta += g.monto_pen;
+      if (dentro(g.fecha_pago)) fila(g.fecha_pago.slice(0, 7), cid).pagos_tarjeta += g.monto_pen;
     });
     return Object.values(acc).map(x => ({ ...x, merc_caja: r2(x.merc_caja), gastos_tarjeta: r2(x.gastos_tarjeta), pagos_tarjeta: r2(x.pagos_tarjeta) }));
   }

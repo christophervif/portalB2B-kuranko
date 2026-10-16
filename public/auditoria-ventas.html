@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<script src="/tema.js"></script>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Auditoría de ventas y compras — Kuranko</title>
+<style>
+:root{
+  --bg:#0a1030;--surface:#111a44;--surface2:#0e1640;--surface3:#18224e;
+  --border:#212b54;--text:#eef1f8;--text2:#c6cee2;--muted:#8a93b4;--muted2:#a2abca;
+  --accent:#FFB30D;--accent-text:#000726;--accent-h:#e6a00c;--hover:#1a2450;--white:#ffffff;
+  --bg-ok:#163a29;--fg-ok:#6ee59a;--bg-warn:#3d3315;--fg-warn:#ffcb52;--bg-r:#3f1c20;--fg-r:#f79a9a;
+  --e1:#7C74E8;--e2:#1FB58C;
+  --radius:18px;--radius-sm:12px;--shadow-sm:0 2px 8px rgba(0,0,0,.10);
+}
+[data-theme="light"]{
+  --bg:#f6f8fd;--surface:#ffffff;--surface2:#fbfcff;--surface3:#f2f5fb;
+  --border:#e3e9f5;--text:#1a2140;--text2:#4a5680;--muted:#9aa3c0;--muted2:#727e9f;
+  --hover:#f2f5fb;--white:#1a2140;
+  --bg-ok:#e8f8ef;--fg-ok:#1f9c56;--bg-warn:#fdf5db;--fg-warn:#9a6b00;--bg-r:#fdeded;--fg-r:#dc4b4b;
+  --e1:#5B52C9;--e2:#0E8A68;
+  --shadow-sm:0 2px 10px rgba(30,45,90,.04);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{overflow-x:hidden}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px}
+.wrap{max-width:1240px;margin:0 auto;padding:1.25rem}
+.titulo{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.titulo h2{font-size:18px;color:var(--white)}
+.desc{font-size:12px;color:var(--muted);line-height:1.5;max-width:780px;margin-top:4px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.1rem;box-shadow:var(--shadow-sm);margin-bottom:14px;min-width:0}
+.btn{background:var(--accent);border:none;color:var(--accent-text);border-radius:var(--radius-sm);padding:9px 15px;font-size:13px;cursor:pointer;font-weight:600;white-space:nowrap}
+.btn:hover{background:var(--accent-h)}
+.btn:disabled{opacity:.5;cursor:default}
+.btn-sec{background:var(--surface3);border:1px solid var(--border);color:var(--text2)}
+.btn-sec:hover{background:var(--hover)}
+.btn-sm{padding:6px 11px;font-size:12px;border-radius:9px}
+.btn-xs{padding:4px 9px;font-size:11.5px;border-radius:8px}
+.fila{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.seg{display:inline-flex;background:var(--surface3);border:1px solid var(--border);border-radius:10px;padding:3px;gap:2px;flex-wrap:wrap}
+.seg button{background:none;border:none;color:var(--muted2);font-size:12.5px;font-weight:600;padding:6px 11px;border-radius:7px;cursor:pointer;white-space:nowrap}
+.seg button:hover{color:var(--text)}
+.seg button.on{background:var(--accent);color:var(--accent-text)}
+input,textarea{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:8px 10px;font-size:13px;font-family:inherit;min-width:0}
+input:focus,textarea:focus{outline:none;border-color:var(--accent)}
+input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px;cursor:pointer}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:14px}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px}
+.kpi .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
+.kpi .v{font-size:clamp(1.05rem,1.5vw,1.3rem);font-weight:700;color:var(--white);font-variant-numeric:tabular-nums;white-space:nowrap}
+.kpi .s{font-size:11px;color:var(--muted2);margin-top:3px}
+.kpi.acc{border-color:var(--accent)}
+.nav{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:4px}
+.nav .g{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:700;width:100%;margin-top:8px}
+.nav .g:first-child{margin-top:0}
+.nav a{font-size:12.5px;color:var(--text2);text-decoration:none;display:inline-flex;gap:6px;align-items:center}
+.nav a:hover{color:var(--accent)}
+.chip{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;white-space:nowrap}
+.chip.e1{background:color-mix(in srgb,var(--e1) 18%,transparent);color:var(--e1)}
+.chip.e2{background:color-mix(in srgb,var(--e2) 18%,transparent);color:var(--e2)}
+.chip.neu{background:var(--surface3);color:var(--text2);border:1px solid var(--border)}
+.chip.warn{background:var(--bg-warn);color:var(--fg-warn)}
+.chip.ok-c{background:var(--bg-ok);color:var(--fg-ok)}
+.chip.bad-c{background:var(--bg-r);color:var(--fg-r)}
+h3.grupo{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:22px 0 10px;font-weight:700}
+.rv-cab{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap}
+.rv-cab h4{font-size:15px;color:var(--white);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.rv-monto{font-size:13px;color:var(--text2);font-variant-numeric:tabular-nums;white-space:nowrap}
+.ayuda{font-size:12px;color:var(--muted2);line-height:1.5;margin:6px 0 10px;max-width:900px}
+.card.limpio{padding:.75rem 1.1rem}
+.card.limpio h4{font-size:13.5px;color:var(--text2);font-weight:600}
+.tabla-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{font-size:11px;color:var(--muted);font-weight:600;text-align:left;padding:7px 8px;border-bottom:1px solid var(--border);white-space:nowrap}
+td{padding:7px 8px;border-bottom:1px solid var(--border);vertical-align:top}
+tr:hover td{background:var(--hover)}
+tr.sel td{background:color-mix(in srgb,var(--accent) 9%,transparent)}
+.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.sub{font-size:11px;color:var(--muted)}
+.neg{color:var(--fg-r)}
+.vacio{color:var(--muted);text-align:center;padding:1.6rem;font-size:13px}
+.barra-sel{display:flex;gap:10px;align-items:center;justify-content:flex-end;margin-top:10px;flex-wrap:wrap}
+.aviso{border-radius:12px;padding:10px 12px;font-size:12.5px;line-height:1.5;margin-bottom:12px;background:var(--bg-warn);color:var(--fg-warn)}
+.aviso.err{background:var(--bg-r);color:var(--fg-r)}
+.modal-fondo{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:flex-start;justify-content:center;padding:8vh 12px;z-index:50}
+.modal-fondo.on{display:flex}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);width:100%;max-width:520px;padding:18px;box-shadow:0 20px 50px rgba(0,0,0,.35)}
+.modal h3{font-size:15px;color:var(--white);margin-bottom:8px}
+.modal ul{font-size:12px;color:var(--text2);margin:8px 0 12px 18px;max-height:160px;overflow:auto;line-height:1.6}
+.modal textarea{width:100%;min-height:70px;resize:vertical}
+.pie-modal{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--bg-ok);color:var(--fg-ok);padding:12px 18px;border-radius:12px;font-size:13px;display:none;z-index:100;border:1px solid var(--border);max-width:340px}
+.toast.err{background:var(--bg-r);color:var(--fg-r)}
+.cargando{color:var(--muted);padding:2rem;text-align:center}
+@media(max-width:700px){.ocultar-movil{display:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="titulo">
+    <div>
+      <h2>Auditoría de ventas y compras</h2>
+      <p class="desc">Incongruencias en las ventas, los cobros, el stock, los ingresos de mercadería y los gastos. Revisa cada una y márcala como <b>revisada</b>: deja de salir como pendiente pero queda guardada (con quién, cuándo y tu nota) en <b>Revisados</b>. Si los montos de algo ya revisado cambian, vuelve a aparecer como pendiente. El sistema solo se lee: las correcciones se hacen en el ERP.</p>
+    </div>
+    <button class="btn btn-sec" onclick="cargar()" id="btn-act">Actualizar</button>
+  </div>
+
+  <div class="card">
+    <div class="fila">
+      <div class="seg" id="f-vista">
+        <button data-v="pendientes" class="on" onclick="setVista('pendientes')">Pendientes</button>
+        <button data-v="revisados" onclick="setVista('revisados')">Revisados</button>
+        <button data-v="todo" onclick="setVista('todo')">Todo</button>
+      </div>
+      <div class="seg" id="f-empresa"></div>
+      <input type="search" id="f-q" placeholder="Buscar venta, SKU, producto, cliente…" style="flex:1;min-width:220px" oninput="clearTimeout(window._tq);window._tq=setTimeout(pintar,200)">
+    </div>
+    <div class="nav" id="nav" style="margin-top:12px"></div>
+  </div>
+
+  <div class="kpis" id="kpis"></div>
+  <div id="cuerpo"><div class="cargando">Revisando ventas, cobros, stock y compras…</div></div>
+  <p class="sub" id="pie" style="margin-top:10px"></p>
+</div>
+
+<div class="modal-fondo" id="modal" onclick="if(event.target===this)cerrarModal()">
+  <form class="modal" onsubmit="confirmarRevision(event)" autocomplete="off">
+    <h3 id="m-titulo">Marcar como revisado</h3>
+    <ul id="m-lista"></ul>
+    <label class="sub" for="m-nota">Nota (opcional): qué encontraste o qué se corrigió</label>
+    <textarea id="m-nota" maxlength="300" placeholder="Ej. descuento autorizado al cliente · costo del lote corregido · cobro anulado en el ERP" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.form.requestSubmit();}"></textarea>
+    <div class="pie-modal">
+      <button type="button" class="btn btn-sec" onclick="cerrarModal()">Cancelar</button>
+      <button type="submit" class="btn" id="m-ok">Marcar revisado</button>
+    </div>
+  </form>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+let TOKEN='';try{TOKEN=localStorage.getItem('admtoken')||'';}catch(e){}
+let D=null, VISTA='pendientes', EMPRESA='', SEL=new Set(), EXPANDIDO=new Set(), PEND_MARCA=[];
+const POR_PAGINA=50;
+const esc=t=>String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+const soles=n=>'S/ '+Number(n||0).toLocaleString('es-PE',{minimumFractionDigits:2,maximumFractionDigits:2});
+const fechaTxt=f=>f?String(f).slice(0,10).split('-').reverse().join('/'):'—';
+const fechaHora=f=>f?fechaTxt(f)+' '+String(f).slice(11,16):'';
+function toast(m,e){const t=document.getElementById('toast');t.textContent=m;t.className='toast'+(e?' err':'');t.style.display='block';clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',4000);}
+async function api(ep,method='GET',body){
+  const opt={method,headers:{'Authorization':'Bearer '+TOKEN}};
+  if(body){opt.headers['Content-Type']='application/json';opt.body=JSON.stringify(body);}
+  const r=await fetch(ep,opt);
+  if(r.status===401)throw new Error('Sesión del portal expirada — vuelve a entrar al panel.');
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok)throw new Error(d.error||'Error');
+  return d;
+}
+const empNom=id=>{const e=D&&D.empresas.find(x=>x.id===+id);return e?e.nombre:'';};
+const empChip=id=>id&&empNom(id)?`<span class="chip e${+id}">${esc(empNom(id).split(' ')[0])}</span>`:'<span class="sub">—</span>';
+const fmtMonto=(v,u)=>u==='u'?Number(v||0).toLocaleString('es-PE')+' u.':u==='%'?(v>0?'+':'')+Number(v||0).toLocaleString('es-PE',{maximumFractionDigits:1})+' %':soles(v);
+
+// ── Carga ──
+async function cargar(){
+  const b=document.getElementById('btn-act');b.disabled=true;b.textContent='Revisando…';
+  try{
+    D=await api('/api/auditoria-vc');
+    SEL.clear();pintarEmpresas();pintar();
+    document.getElementById('pie').textContent='Revisado el '+new Date(D.generado).toLocaleString('es-PE')+'.';
+  }catch(e){document.getElementById('cuerpo').innerHTML=`<div class="aviso err">${esc(e.message)}</div>`;}
+  finally{b.disabled=false;b.textContent='Actualizar';}
+}
+function setVista(v){VISTA=v;SEL.clear();document.querySelectorAll('#f-vista button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));pintar();}
+function setEmpresa(id){EMPRESA=id;SEL.clear();pintarEmpresas();pintar();}
+function pintarEmpresas(){
+  document.getElementById('f-empresa').innerHTML=`<button class="${EMPRESA===''?'on':''}" onclick="setEmpresa('')">Todas</button>`+
+    D.empresas.map(e=>`<button class="${String(EMPRESA)===String(e.id)?'on':''}" onclick="setEmpresa('${e.id}')">${esc(e.nombre)}</button>`).join('');
+}
+
+// ── Filtros ──
+function visible(it){
+  if(EMPRESA&&it.empresa!=null&&String(it.empresa)!==String(EMPRESA))return false;
+  if(VISTA==='pendientes'&&it.estado==='revisado')return false;
+  if(VISTA==='revisados'&&it.estado!=='revisado')return false;
+  const q=document.getElementById('f-q').value.trim().toLowerCase();
+  if(q&&![it.ref,it.texto,it.sku,it.detalle,it.revision&&it.revision.nota].some(x=>String(x||'').toLowerCase().includes(q)))return false;
+  return true;
+}
+const esPend=it=>it.estado!=='revisado';
+const enEmpresa=it=>!EMPRESA||it.empresa==null||String(it.empresa)===String(EMPRESA);
+
+// ── Pintar ──
+function pintar(){
+  if(!D)return;
+  const rvs=D.revisiones;
+  // KPIs (siempre sobre pendientes de la empresa elegida)
+  const pendDe=id=>{const r=rvs.find(x=>x.id===id);return r?r.items.filter(i=>esPend(i)&&enEmpresa(i)):[];};
+  const totPend=rvs.reduce((a,r)=>a+r.items.filter(i=>esPend(i)&&enEmpresa(i)).length,0);
+  const totRev=rvs.reduce((a,r)=>a+r.items.filter(i=>!esPend(i)&&enEmpresa(i)).length,0);
+  const perd=pendDe('v_perdida'), cobros=['c_pagada_saldo','c_de_mas','c_cancelada_cobro','c_eliminada_cobro','c_futuro'].flatMap(pendDe);
+  const errores=rvs.filter(r=>r.error);
+  document.getElementById('kpis').innerHTML=[
+    {l:'Pendientes de revisar',v:totPend.toLocaleString('es-PE'),s:`en ${rvs.filter(r=>r.items.some(i=>esPend(i)&&enEmpresa(i))).length} de ${rvs.length} revisiones`,a:1},
+    {l:'Ventas a pérdida',v:soles(perd.reduce((a,i)=>a+i.monto,0)),s:`${perd.length} línea${perd.length===1?'':'s'} por revisar`},
+    {l:'Cobros que no cuadran',v:soles(cobros.reduce((a,i)=>a+i.monto,0)),s:`${cobros.length} caso${cobros.length===1?'':'s'} por revisar`},
+    {l:'Revisados',v:totRev.toLocaleString('es-PE'),s:'guardados, ocultos de pendientes'},
+  ].map(k=>`<div class="kpi ${k.a?'acc':''}"><div class="l">${k.l}</div><div class="v">${k.v}</div><div class="s">${k.s}</div></div>`).join('');
+  // Índice por grupo
+  const grupos=[...new Set(rvs.map(r=>r.grupo))];
+  document.getElementById('nav').innerHTML=grupos.map(g=>`<div class="g">${esc(g)}</div>`+rvs.filter(r=>r.grupo===g).map(r=>{
+    const n=r.items.filter(i=>esPend(i)&&enEmpresa(i)).length;
+    const chip=r.error?'<span class="chip bad-c">error</span>':n?`<span class="chip warn">${n}</span>`:'<span class="chip ok-c">✓</span>';
+    return `<a href="#rv-${r.id}">${chip}${esc(r.titulo)}</a>`;}).join('')).join('');
+  // Cuerpo
+  let h=errores.length?`<div class="aviso err">No se pudieron correr ${errores.length} revisión(es): ${errores.map(r=>esc(r.titulo)).join(', ')}. El resto sí está al día.</div>`:'';
+  grupos.forEach(g=>{
+    h+=`<h3 class="grupo">${esc(g)}</h3>`;
+    rvs.filter(r=>r.grupo===g).forEach(r=>{h+=tarjeta(r);});
+  });
+  document.getElementById('cuerpo').innerHTML=h;
+}
+
+function tarjeta(r){
+  if(r.error)return `<div class="card" id="rv-${r.id}"><div class="rv-cab"><h4>${esc(r.titulo)} <span class="chip bad-c">error</span></h4></div><p class="ayuda">${esc(r.error)}</p></div>`;
+  const items=r.items.filter(visible);
+  const pend=r.items.filter(i=>esPend(i)&&enEmpresa(i));
+  if(!items.length){
+    const msg=VISTA==='revisados'?'Nada revisado aquí todavía.':pend.length?'Sin resultados con esta búsqueda.':'Sin pendientes.';
+    return `<div class="card limpio" id="rv-${r.id}"><div class="rv-cab"><h4>${pend.length?'':'<span class="chip ok-c">✓</span>'} ${esc(r.titulo)}</h4><span class="sub">${msg}</span></div></div>`;
+  }
+  const montoPend=r.unidad==='S/'?pend.reduce((a,i)=>a+(+i.monto||0),0):null;
+  const ver=EXPANDIDO.has(r.id)?items:items.slice(0,POR_PAGINA);
+  const selDeAqui=items.filter(i=>SEL.has(i.clave));
+  const todosSel=items.length&&items.every(i=>SEL.has(i.clave));
+  let h=`<div class="card" id="rv-${r.id}"><div class="rv-cab"><h4>${esc(r.titulo)} <span class="chip ${pend.length?'warn':'ok-c'}">${pend.length} pendiente${pend.length===1?'':'s'}</span>${r.revisados?`<span class="chip neu">${r.items.filter(i=>!esPend(i)&&enEmpresa(i)).length} revisados</span>`:''}</h4>
+    ${montoPend!=null&&pend.length?`<span class="rv-monto">${esc(r.monto)} pendiente: <b>${soles(montoPend)}</b></span>`:''}</div>
+    <p class="ayuda">${esc(r.ayuda)}</p>
+    <div class="tabla-wrap"><table><thead><tr>
+      <th><input type="checkbox" ${todosSel?'checked':''} onchange="selTodos('${r.id}',this.checked)" aria-label="Seleccionar todos"></th>
+      <th>Fecha</th><th>Referencia</th><th class="ocultar-movil">Empresa</th><th>Producto / cliente</th><th>Detalle</th><th class="num">${esc(r.monto)}</th><th></th></tr></thead><tbody>`;
+  ver.forEach(it=>{
+    const sel=SEL.has(it.clave);
+    const estado=it.estado==='revisado'
+      ?`<div class="sub">✓ ${esc(it.revision.usuario)} · ${fechaHora(it.revision.fecha)}${it.revision.nota?' · '+esc(it.revision.nota):''}</div>`
+      :it.estado==='cambio'?`<div><span class="chip warn" title="Revisado por ${esc(it.revision.usuario)} el ${fechaHora(it.revision.fecha)}${it.revision.nota?': '+esc(it.revision.nota):''}. Antes: ${esc(it.revision.resumen)}">cambió desde la revisión</span></div>`:'';
+    const boton=it.estado==='revisado'
+      ?`<button class="btn btn-sec btn-xs" onclick="reabrir(['${esc(it.clave)}'])">Reabrir</button>`
+      :`<button class="btn btn-xs" onclick="abrirModal(['${esc(it.clave)}'])">✓ Revisado</button>`;
+    h+=`<tr class="${sel?'sel':''}"><td><input type="checkbox" ${sel?'checked':''} onchange="selUno('${esc(it.clave)}',this.checked)" aria-label="Seleccionar"></td>
+      <td style="white-space:nowrap">${fechaTxt(it.fecha)}</td>
+      <td style="white-space:nowrap"><b>${esc(it.ref)}</b></td>
+      <td class="ocultar-movil">${empChip(it.empresa)}</td>
+      <td>${esc(it.texto)}${it.sku?`<div class="sub">${esc(it.sku)}</div>`:''}</td>
+      <td><span class="sub" style="font-size:12px;color:var(--text2)">${esc(it.detalle)}</span>${estado}</td>
+      <td class="num ${r.id==='v_perdida'?'neg':''}"><b>${fmtMonto(it.monto,r.unidad)}</b></td>
+      <td style="white-space:nowrap">${boton}</td></tr>`;
+  });
+  h+='</tbody></table></div>';
+  if(items.length>POR_PAGINA&&!EXPANDIDO.has(r.id))h+=`<div style="margin-top:8px"><button class="btn btn-sec btn-sm" onclick="EXPANDIDO.add('${r.id}');pintar()">Ver los ${items.length}</button></div>`;
+  if(r.truncado)h+=`<p class="sub" style="margin-top:6px">Se muestran los primeros 500: corrige o revisa estos para ver el resto.</p>`;
+  if(selDeAqui.length){
+    const pendSel=selDeAqui.filter(esPend), revSel=selDeAqui.filter(i=>!esPend(i));
+    h+=`<div class="barra-sel"><span class="sub">${selDeAqui.length} seleccionado${selDeAqui.length===1?'':'s'}</span>
+      ${revSel.length?`<button class="btn btn-sec btn-sm" onclick="reabrir(${esc(JSON.stringify(revSel.map(i=>i.clave)))})">Reabrir (${revSel.length})</button>`:''}
+      ${pendSel.length?`<button class="btn btn-sm" onclick="abrirModal(${esc(JSON.stringify(pendSel.map(i=>i.clave)))})">Marcar revisados (${pendSel.length})</button>`:''}</div>`;
+  }
+  return h+'</div>';
+}
+
+// ── Selección ──
+const itemPorClave=c=>{for(const r of D.revisiones){const i=r.items.find(x=>x.clave===c);if(i)return [i,r];}return [null,null];};
+function selUno(c,on){on?SEL.add(c):SEL.delete(c);pintar();}
+function selTodos(id,on){const r=D.revisiones.find(x=>x.id===id);r.items.filter(visible).forEach(i=>on?SEL.add(i.clave):SEL.delete(i.clave));pintar();}
+
+// ── Marcar revisado ──
+function abrirModal(claves){
+  PEND_MARCA=claves;
+  const its=claves.map(c=>itemPorClave(c));
+  document.getElementById('m-titulo').textContent=claves.length===1?'Marcar como revisado':`Marcar ${claves.length} como revisados`;
+  document.getElementById('m-lista').innerHTML=its.slice(0,12).map(([i,r])=>`<li>${esc(i.ref)} · ${esc(i.texto)} · ${fmtMonto(i.monto,r.unidad)}</li>`).join('')+(its.length>12?`<li>… y ${its.length-12} más</li>`:'');
+  document.getElementById('m-nota').value='';
+  document.getElementById('modal').classList.add('on');
+  document.getElementById('m-nota').focus();
+}
+function cerrarModal(){document.getElementById('modal').classList.remove('on');PEND_MARCA=[];}
+async function confirmarRevision(ev){
+  ev.preventDefault();
+  const b=document.getElementById('m-ok');b.disabled=true;
+  try{
+    const items=PEND_MARCA.map(c=>{const [i,r]=itemPorClave(c);return {clave:i.clave,huella:i.huella,resumen:`${i.ref} · ${i.texto} · ${fmtMonto(i.monto,r.unidad)}`.slice(0,400)};});
+    const nota=document.getElementById('m-nota').value.trim();
+    await api('/api/auditoria-vc/revisar','POST',{items,nota});
+    // Actualiza en memoria sin volver a correr todas las revisiones
+    const f=new Date(Date.now()-5*3600e3).toISOString().slice(0,16).replace('T',' ');   // hora de Lima
+    items.forEach(x=>{const [i]=itemPorClave(x.clave);i.estado='revisado';i.revision={usuario:'tú',fecha:f,nota,resumen:x.resumen};SEL.delete(x.clave);});
+    cerrarModal();pintar();toast(items.length===1?'Marcado como revisado':`${items.length} marcados como revisados`);
+  }catch(e){toast(e.message,true);}finally{b.disabled=false;}
+}
+async function reabrir(claves){
+  try{
+    await api('/api/auditoria-vc/reabrir','POST',{claves});
+    claves.forEach(c=>{const [i]=itemPorClave(c);if(i){i.estado='pendiente';i.revision=null;}SEL.delete(c);});
+    pintar();toast(claves.length===1?'Vuelve a pendientes':`${claves.length} vuelven a pendientes`);
+  }catch(e){toast(e.message,true);}
+}
+// Con la ventana abierta: Esc cancela, Enter confirma (Shift+Enter = salto de línea en la nota)
+document.addEventListener('keydown',e=>{
+  const abierto=document.getElementById('modal').classList.contains('on');
+  if(e.key==='Escape')cerrarModal();
+  else if(abierto&&e.key==='Enter'&&!e.shiftKey&&e.target.id!=='m-nota'){e.preventDefault();document.querySelector('#modal form').requestSubmit();}
+});
+
+cargar();
+</script>
+</body>
+</html>

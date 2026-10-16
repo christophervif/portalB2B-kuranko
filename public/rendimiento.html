@@ -82,13 +82,15 @@ th.sin-g{color:var(--muted)}
 #entre td{white-space:normal}
 #entre td:first-child{position:static}
 .toast{position:fixed;bottom:20px;right:20px;background:var(--bg-r);color:var(--fg-r);padding:12px 18px;border-radius:12px;font-size:13px;display:none;z-index:100;max-width:340px}
+.toast.ok{background:var(--bg-ok);color:var(--fg-ok)}
+details.card>summary{list-style-position:inside}
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="titulo">
     <h2>Rendimiento</h2>
-    <p class="desc">Cruce de <b>Ventas e ingresos</b> con <b>Compras y gastos</b>: cuánto te deja realmente cada empresa (utilidad), qué parte de las ventas se va en gastos, cuánto necesitas vender para cubrirlos y cuánto dinero entró y salió de verdad.</p>
+    <p class="desc">Cruce de <b>Ventas e ingresos</b> con <b>Compras y gastos</b>: cuánto te deja realmente cada empresa (utilidad operativa, <b>sin IGV</b>), qué parte de las ventas se va en gastos, cuánto necesitas vender para cubrirlos y cuánto dinero entró y salió de verdad (flujo de caja, con IGV porque es el dinero real).</p>
   </div>
 
   <div class="card">
@@ -116,14 +118,21 @@ th.sin-g{color:var(--muted)}
   <div id="avisos"></div>
   <div class="kpis" id="kpis"></div>
 
-  <div class="card">
-    <h3 id="graf-titulo">Margen bruto, gastos y utilidad por mes</h3>
-    <div style="position:relative;height:300px"><canvas id="graf" role="img" aria-label="Gráfico de margen bruto, gastos y utilidad neta por mes"></canvas></div>
-    <p class="sub" style="margin-top:6px">El detalle mes a mes está en el estado de resultados de abajo.</p>
+  <div class="dos">
+    <div class="card">
+      <h3 id="cas-titulo">De las ventas a la utilidad</h3>
+      <div style="position:relative;height:300px"><canvas id="graf-cascada" role="img" aria-label="Cascada de ventas netas a utilidad operativa"></canvas></div>
+      <p class="sub" style="margin-top:6px" id="cas-nota"></p>
+    </div>
+    <div class="card">
+      <h3 id="graf-titulo">Margen bruto, gastos y utilidad por mes</h3>
+      <div style="position:relative;height:300px"><canvas id="graf" role="img" aria-label="Gráfico de margen bruto, gastos y utilidad operativa por mes"></canvas></div>
+      <p class="sub" style="margin-top:6px">Sin IGV. El mes en curso va más claro: aún no está cerrado.</p>
+    </div>
   </div>
 
-  <div class="card"><h3>Estado de resultados</h3><div class="tabla-wrap" id="er"></div>
-    <p class="sub" style="margin-top:8px">Margen bruto = ventas × margen % de las líneas con costo conocido (la <b>cobertura</b> dice qué parte de lo vendido tiene costo). Los gastos solo cuentan desde el primer mes en que se anotaron; antes la utilidad no se puede calcular (—). Montos tal como están en el sistema.</p></div>
+  <div class="card"><h3>Estado de resultados (sin IGV)</h3><div class="tabla-wrap" id="er"></div>
+    <p class="sub" style="margin-top:8px" id="er-nota"></p></div>
 
   <div class="card"><h3>Punto de equilibrio</h3><div id="equilibrio"></div></div>
 
@@ -132,29 +141,42 @@ th.sin-g{color:var(--muted)}
     <div class="card"><h3>Entre empresas</h3><div id="entre"></div></div>
   </div>
 
-  <div class="card"><h3>Flujo de caja</h3><div class="tabla-wrap" id="flujo"></div>
-    <p class="sub" style="margin-top:8px">Dinero que entró (cobros, por la cuenta donde entró el pago) menos el que salió: gastos, retiros y préstamos, y mercadería (entradas del sistema valorizadas al costo). Lo que se compra <b>con tarjeta</b> (mercadería o gastos) cuenta en el mes en que <b>se paga la tarjeta</b>, no en el de la compra; lo de contado, en el mes de la compra. Un mes con utilidad puede tener flujo negativo si se compró mucha mercadería.</p></div>
+  <div class="card"><h3>Flujo de caja</h3>
+    <div style="position:relative;height:260px;margin-bottom:10px"><canvas id="graf-flujo" role="img" aria-label="Cobros, pagos y caja acumulada por mes"></canvas></div>
+    <div class="tabla-wrap" id="flujo"></div>
+    <p class="sub" style="margin-top:8px">Dinero que entró (cobros, por la cuenta donde entró el pago) menos el que salió (gastos, retiros y préstamos, por la empresa dueña de la cuenta que pagó, y mercadería). Con IGV, porque es el dinero real. Lo que se compra <b>con tarjeta</b> cuenta en el mes en que <b>se paga la tarjeta</b>; lo de contado, en el mes de la compra. Un mes con utilidad puede tener flujo negativo si se compró mucha mercadería.</p></div>
+
+  <details class="card" id="cfg-card">
+    <summary style="cursor:pointer;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Ajustes de IGV</summary>
+    <div id="cfg" style="margin-top:12px"></div>
+  </details>
 </div>
 <div class="toast" id="toast"></div>
 
 <script>
 let TOKEN='';try{TOKEN=localStorage.getItem('admtoken')||'';}catch(e){}
-let EMPRESA='', MESES=12, D=null, CH=null, M=null, CHM=null;
+let EMPRESA='', MESES=12, D=null, M=null, CFG=null;
+const CH={};
 const esc=t=>String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const soles=n=>n==null?'—':'S/ '+Number(n).toLocaleString('es-PE',{maximumFractionDigits:0});
 const pct=n=>n==null?'—':Number(n).toLocaleString('es-PE',{maximumFractionDigits:1})+'%';
 const MESN=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
 const mesTxt=(m,largo)=>{const [a,b]=m.split('-');return MESN[+b-1]+' '+(largo?a:a.slice(2));};
-const hoyMes=()=>new Date(Date.now()-5*3600e3).toISOString().slice(0,7);
-function toast(m){const t=document.getElementById('toast');t.textContent=m;t.style.display='block';clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',5000);}
-async function api(ep){
-  const r=await fetch(ep,{headers:{'Authorization':'Bearer '+TOKEN}});
+const hoyLima=()=>new Date(Date.now()-5*3600e3).toISOString().slice(0,10);
+const hoyMes=()=>hoyLima().slice(0,7);
+function toast(m,ok){const t=document.getElementById('toast');t.textContent=m;t.className='toast'+(ok?' ok':'');t.style.display='block';clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',5000);}
+async function api(ep,method='GET',body){
+  const opt={method,headers:{'Authorization':'Bearer '+TOKEN}};
+  if(body){opt.headers['Content-Type']='application/json';opt.body=JSON.stringify(body);}
+  const r=await fetch(ep,opt);
   if(r.status===401)throw new Error('Sesión del portal expirada — vuelve a entrar al panel.');
   const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'Error');return d;
 }
 const empNom=id=>{if(id==='T')return 'Total (las dos empresas)';const e=D&&D.empresas.find(x=>x.id===+id);return e?e.nombre:'Empresa '+id;};
 const empCorto=id=>empNom(id).split(' ')[0];
 const cssVar=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const conAlfa=(col,a)=>{const m=col.match(/^#([0-9a-f]{6})$/i);if(!m)return col;const n=parseInt(m[1],16);return `rgba(${n>>16},${(n>>8)&255},${n&255},${a})`;};
+function grafico(id,cfg){if(CH[id])CH[id].destroy();CH[id]=new Chart(document.getElementById(id),cfg);}
 
 function setEmpresa(id){EMPRESA=id;cargar();}
 function setMeses(n){MESES=n;document.querySelectorAll('#f-meses button').forEach(b=>b.classList.toggle('on',+b.dataset.v===n));cargar();}
@@ -173,29 +195,28 @@ async function cargar(){
 
 // ── Este mes: ingresos vs egresos acumulados y proyección al cierre ──
 async function cargarMes(){
-  try{M=await api('/api/rendimiento/mes'+(EMPRESA?'?empresa='+EMPRESA:''));pintarMes();}
+  try{M=await api('/api/rendimiento/mes'+(EMPRESA?'?empresa='+EMPRESA:''));pintarMes();if(D)pintarEquilibrio();}
   catch(e){document.getElementById('mes-kpis').innerHTML=`<div class="vacio">${esc(e.message)}</div>`;}
 }
 function pintarMes(){
-  const m=M, queda=m.queda_para_comprar;
+  const m=M, flujo=m.queda_para_comprar;
   document.getElementById('mes-titulo').textContent='Este mes · '+mesTxt(m.mes,true)+(EMPRESA?' · '+empNom(EMPRESA):'');
   document.getElementById('mes-kpis').innerHTML=[
-    {l:'Ingresos al cierre',v:soles(m.ingresos_cierre),s:`cobrado hasta hoy ${soles(m.ingresos_hoy)} · proyección`},
-    {l:'Egresos al cierre',v:soles(m.egresos_cierre),s:`pagado hasta hoy ${soles(m.egresos_hoy)} + lo que falta`},
-    {l:'Te quedaría para comprar',v:`<span class="${queda<0?'neg':'pos'}">${soles(queda)}</span>`,s:'este mes, si cobras al ritmo de siempre',a:1}
+    {l:'Cobros al cierre',v:soles(m.ingresos_cierre),s:`cobrado hasta hoy ${soles(m.ingresos_hoy)} · proyección`},
+    {l:'Pagos al cierre',v:soles(m.egresos_cierre),s:`pagado hasta hoy ${soles(m.egresos_hoy)} + lo que falta`},
+    {l:'Flujo proyectado del mes',v:`<span class="${flujo<0?'neg':'pos'}">${soles(flujo)}</span>`,s:'cobros − pagos de este mes. Lo que puedes comprar (con tu saldo) está en Compras y gastos',a:1}
   ].map(x=>`<div class="kpi ${x.a?'acc':''}"><div class="l">${x.l}</div><div class="v">${x.v}</div><div class="s">${x.s}</div></div>`).join('');
-  document.getElementById('mes-nota').innerHTML=`Línea continua: lo real hasta hoy (día ${m.dia_hoy} de ${m.dias_mes}). Punteada: proyección. Ingresos: cobros, y desde hoy ${soles(m.prom_dia)} por día (tu promedio de los últimos 90 días; el mes pasado cobraste ${soles(m.mes_pasado)}). Egresos: gastos pagados, mercadería al contado y pagos de tarjeta; lo que falta son los gastos fijos pendientes y la tarjeta que vence este mes. No incluye el dinero que ya tenías en el banco: eso está en "¿Cuánto puedo comprar hoy?" de Compras y gastos.`;
+  document.getElementById('mes-nota').innerHTML=`Línea continua: lo real hasta hoy (día ${m.dia_hoy} de ${m.dias_mes}). Punteada: proyección. Cobros: desde hoy ${soles(m.prom_dia)} por día (tu promedio de los últimos 90 días; el mes pasado cobraste ${soles(m.mes_pasado)}). Pagos: gastos pagados, mercadería al contado y pagos de tarjeta; lo que falta son los gastos fijos pendientes, la tarjeta que vence este mes${m.prom_gasto_dia?` y ${soles(m.prom_gasto_dia)} por día de gastos variables (promedio de 90 días)`:''}. No incluye la mercadería que vayas a comprar ni el dinero que ya tenías en el banco.`;
   document.getElementById('mes-pend').innerHTML=m.pendientes.length?'<table><tbody>'+m.pendientes.map(p=>`<tr><td style="text-align:left">${esc(p.concepto)}${p.vencido?' <span class="neg">(vencido)</span>':''}</td><td>${fechaD(p.dia)}</td><td>${soles(p.monto)}</td></tr>`).join('')+'</tbody></table>':'<span class="sub">Nada pendiente.</span>';
   const cI=cssVar('--s-margen'),cE=cssVar('--s-gastos'),grid=cssVar('--grid'),tx=cssVar('--muted');
   const lbl=m.serie.map(x=>+x.dia.slice(8,10));
   const ds=[
-    {label:'Ingresos',data:m.serie.map(x=>x.ingresos),borderColor:cI,backgroundColor:cI,borderWidth:2,pointRadius:0,tension:.2},
-    {label:'Ingresos (proyección)',data:m.serie.map(x=>x.ingresos_proy),borderColor:cI,backgroundColor:cI,borderWidth:2,borderDash:[6,5],pointRadius:0,tension:.2},
-    {label:'Egresos',data:m.serie.map(x=>x.egresos),borderColor:cE,backgroundColor:cE,borderWidth:2,pointRadius:0,stepped:true},
-    {label:'Egresos (proyección)',data:m.serie.map(x=>x.egresos_proy),borderColor:cE,backgroundColor:cE,borderWidth:2,borderDash:[6,5],pointRadius:0,stepped:true}
+    {label:'Cobros',data:m.serie.map(x=>x.ingresos),borderColor:cI,backgroundColor:cI,borderWidth:2,pointRadius:0,tension:.2},
+    {label:'Cobros (proyección)',data:m.serie.map(x=>x.ingresos_proy),borderColor:cI,backgroundColor:cI,borderWidth:2,borderDash:[6,5],pointRadius:0,tension:.2},
+    {label:'Pagos',data:m.serie.map(x=>x.egresos),borderColor:cE,backgroundColor:cE,borderWidth:2,pointRadius:0,stepped:true},
+    {label:'Pagos (proyección)',data:m.serie.map(x=>x.egresos_proy),borderColor:cE,backgroundColor:cE,borderWidth:2,borderDash:[6,5],pointRadius:0,stepped:true}
   ];
-  if(CHM)CHM.destroy();
-  CHM=new Chart(document.getElementById('graf-mes'),{type:'line',data:{labels:lbl,datasets:ds},options:{
+  grafico('graf-mes',{type:'line',data:{labels:lbl,datasets:ds},options:{
     responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
     scales:{x:{grid:{display:false},ticks:{color:tx,font:{size:11},maxTicksLimit:16},title:{display:true,text:'día del mes',color:tx,font:{size:11}}},
       y:{beginAtZero:true,grid:{color:grid},border:{display:false},ticks:{color:tx,font:{size:11},callback:v=>'S/ '+Number(v).toLocaleString('es-PE')}}},
@@ -205,97 +226,133 @@ function pintarMes(){
 }
 const fechaD=f=>f?f.slice(8,10)+'/'+f.slice(5,7):'';
 
+const grupoPrincipal=()=>EMPRESA?String(EMPRESA):'T';
 function pintar(){
   const d=D;
   document.getElementById('f-empresa').innerHTML=`<button class="${EMPRESA===''?'on':''}" onclick="setEmpresa('')">Todas</button>`+
     d.empresas.map(e=>`<button class="${String(EMPRESA)===String(e.id)?'on':''}" onclick="setEmpresa('${e.id}')"><span class="dot" style="background:var(--e${e.id})"></span>${esc(e.nombre)}</button>`).join('');
-  const g=EMPRESA?String(EMPRESA):'T';            // grupo principal (KPIs y gráfico)
-  const filas=d.resultado[g];
-  const conG=filas.filter(x=>x.con_gastos);
+  const g=grupoPrincipal(), filas=d.resultado[g], conG=filas.filter(x=>x.con_gastos);
+  const pm=d.primer_mes_grupo[g];
   // Avisos
   let av='';
-  if(!d.primer_mes_gastos)av+=`<div class="aviso">Todavía no hay gastos anotados en <b>Compras y gastos</b>. Por ahora solo se ve el margen bruto; la utilidad neta, el punto de equilibrio y el flujo de caja aparecen en cuanto anotes los gastos de un mes.</div>`;
-  else if(d.primer_mes_gastos>d.meses[0])av+=`<div class="aviso info">Los gastos se anotan desde <b>${mesTxt(d.primer_mes_gastos,true)}</b>. Antes de ese mes solo hay margen bruto (la utilidad sale "—").</div>`;
+  const sinG=(d.empresas_sin_gastos||[]).filter(c=>!EMPRESA||+EMPRESA===c);
+  if(!d.primer_mes_gastos)av+=`<div class="aviso">Todavía no hay gastos anotados en <b>Compras y gastos</b>. Por ahora solo se ve el margen bruto; la utilidad, el punto de equilibrio y el flujo de caja aparecen en cuanto anotes los gastos de un mes.</div>`;
+  else if(sinG.length)av+=`<div class="aviso">${sinG.map(c=>'<b>'+esc(empNom(c))+'</b>').join(' y ')} no ${sinG.length>1?'tienen':'tiene'} gastos anotados: su utilidad no se calcula${EMPRESA?'':', y la del total tampoco (sería solo margen, sin restar sus gastos)'}.</div>`;
+  else if(pm&&pm>d.meses[0])av+=`<div class="aviso info">Los gastos ${EMPRESA?'de esta empresa ':'de las dos empresas '}se anotan desde <b>${mesTxt(pm,true)}</b>. Antes de ese mes solo hay margen bruto (la utilidad sale "—").</div>`;
   if(d.mes_en_curso&&d.meses.includes(d.mes_en_curso))av+=`<div class="aviso info"><b>${mesTxt(d.mes_en_curso,true)}</b> está en curso: sus cifras todavía van a cambiar.</div>`;
   document.getElementById('avisos').innerHTML=av;
   // KPIs (ventana; la utilidad solo en los meses con gastos)
   const s=(arr,k)=>arr.reduce((a,x)=>a+(+x[k]||0),0);
-  const ventas=s(filas,'ventas'), mb=s(filas,'margen_bruto');
-  const vG=s(conG,'ventas'), mbG=s(conG,'margen_bruto'), gas=s(conG,'gastos'), util=s(conG,'utilidad'), flujo=s(conG,'flujo');
+  const conMB=filas.filter(x=>x.margen_bruto!=null);
+  const ventas=s(filas,'ventas_netas'), mb=s(conMB,'margen_bruto'), vMB=s(conMB,'ventas_netas');
+  const vG=s(conG,'ventas_netas'), gas=s(conG,'gastos'), util=s(conG,'utilidad'), flujo=s(conG,'flujo');
   const rango=conG.length?`${mesTxt(conG[0].mes)} – ${mesTxt(conG[conG.length-1].mes)}`:'';
   const k=[
-    {l:'Ventas',v:soles(ventas),s:`últimos ${d.meses.length} meses`,a:1},
-    {l:'Margen bruto',v:soles(mb),s:ventas?pct(mb/ventas*100)+' de las ventas':'—'},
+    {l:'Ventas (sin IGV)',v:soles(ventas),s:`últimos ${d.meses.length} meses`,a:1},
+    {l:'Margen bruto',v:soles(mb),s:vMB?pct(mb/vMB*100)+' de las ventas':'—'},
     {l:'Gastos',v:conG.length?soles(gas):'—',s:conG.length?`${pct(vG?gas/vG*100:null)} de las ventas · ${rango}`:'sin gastos anotados'},
-    {l:'Utilidad neta',v:conG.length?`<span class="${util<0?'neg':'pos'}">${soles(util)}</span>`:'—',s:conG.length?`${pct(vG?util/vG*100:null)} de las ventas · ${rango}`:'falta anotar gastos',a:1},
-    {l:'Flujo de caja',v:conG.length?`<span class="${flujo<0?'neg':''}">${soles(flujo)}</span>`:'—',s:conG.length?'cobros − pagos − compras · '+rango:'falta anotar gastos'}
+    {l:'Utilidad operativa',v:conG.length?`<span class="${util<0?'neg':'pos'}">${soles(util)}</span>`:'—',s:conG.length?`${pct(vG?util/vG*100:null)} de las ventas · ${rango} · antes de impuesto a la renta`:'falta anotar gastos',a:1},
+    {l:'Flujo de caja',v:conG.length?`<span class="${flujo<0?'neg':''}">${soles(flujo)}</span>`:'—',s:conG.length?'cobros − pagos − mercadería · '+rango:'falta anotar gastos'}
   ];
   document.getElementById('kpis').innerHTML=k.map(x=>`<div class="kpi ${x.a?'acc':''}"><div class="l">${x.l}</div><div class="v">${x.v}</div><div class="s">${x.s}</div></div>`).join('');
-  pintarGrafico(filas,g);
-  pintarER();pintarEquilibrio();pintarCategorias();pintarEntre();pintarFlujo();
+  pintarGrafico(filas);pintarCascada(g);
+  pintarER();pintarEquilibrio();pintarCategorias();pintarEntre();pintarFlujo();pintarConfig();
 }
 
-function pintarGrafico(filas,g){
-  document.getElementById('graf-titulo').textContent='Margen bruto, gastos y utilidad por mes'+(EMPRESA?' — '+empNom(EMPRESA):' — las dos empresas');
+function pintarGrafico(filas){
+  document.getElementById('graf-titulo').textContent='Margen bruto, gastos y utilidad por mes'+(EMPRESA?' — '+empCorto(EMPRESA):'');
   const cM=cssVar('--s-margen'),cG=cssVar('--s-gastos'),cU=cssVar('--s-utilidad'),grid=cssVar('--grid'),tx=cssVar('--muted');
+  const claro=(col,arr)=>arr.map(x=>x.en_curso?conAlfa(col,.4):col);
   const ds=[
-    {type:'bar',label:'Margen bruto',data:filas.map(x=>x.margen_bruto),backgroundColor:cM,borderRadius:4,borderSkipped:'start',maxBarThickness:28,order:2},
-    {type:'bar',label:'Gastos',data:filas.map(x=>x.gastos),backgroundColor:cG,borderRadius:4,borderSkipped:'start',maxBarThickness:28,order:2},
-    {type:'line',label:'Utilidad neta',data:filas.map(x=>x.utilidad),borderColor:cU,backgroundColor:cU,borderWidth:2,pointRadius:4,pointHoverRadius:6,tension:.25,spanGaps:false,order:1}
+    {type:'bar',label:'Margen bruto',data:filas.map(x=>x.margen_bruto),backgroundColor:claro(cM,filas),borderRadius:4,borderSkipped:'start',maxBarThickness:28,order:2},
+    {type:'bar',label:'Gastos',data:filas.map(x=>x.gastos),backgroundColor:claro(cG,filas),borderRadius:4,borderSkipped:'start',maxBarThickness:28,order:2},
+    {type:'line',label:'Utilidad operativa',data:filas.map(x=>x.utilidad),borderColor:cU,backgroundColor:cU,borderWidth:2,pointRadius:4,pointHoverRadius:6,tension:.25,spanGaps:false,order:1}
   ];
-  if(CH)CH.destroy();
-  CH=new Chart(document.getElementById('graf'),{data:{labels:filas.map(x=>mesTxt(x.mes)),datasets:ds},options:{
+  grafico('graf',{data:{labels:filas.map(x=>mesTxt(x.mes)),datasets:ds},options:{
     responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
     scales:{x:{grid:{display:false},ticks:{color:tx,font:{size:11}}},y:{grid:{color:grid},border:{display:false},ticks:{color:tx,font:{size:11},callback:v=>'S/ '+Number(v).toLocaleString('es-PE')}}},
     plugins:{legend:{position:'bottom',labels:{color:cssVar('--text2'),boxWidth:12,boxHeight:12,padding:14,font:{size:12}}},
-      tooltip:{callbacks:{title:it=>mesTxt(filas[it[0].dataIndex].mes,true),label:c=>`${c.dataset.label}: ${c.raw==null?'sin gastos anotados':soles(c.raw)}`}}}
+      tooltip:{callbacks:{title:it=>mesTxt(filas[it[0].dataIndex].mes,true)+(filas[it[0].dataIndex].en_curso?' (en curso)':''),label:c=>`${c.dataset.label}: ${c.raw==null?'sin gastos anotados':soles(c.raw)}`}}}
   }});
+}
+
+// Cascada del período con gastos: ventas netas → costo → margen → cada grupo de gastos → utilidad
+function pintarCascada(g){
+  const filas=D.resultado[g].filter(x=>x.con_gastos&&x.margen_bruto!=null);
+  const cv=document.getElementById('graf-cascada');
+  if(!filas.length){if(CH['graf-cascada']){CH['graf-cascada'].destroy();delete CH['graf-cascada'];}document.getElementById('cas-nota').textContent='Aparece cuando haya meses con gastos anotados y costo conocido.';return;}
+  const s=k=>filas.reduce((a,x)=>a+(+x[k]||0),0);
+  const ventas=s('ventas_netas'),costo=s('costo_ventas'),mb=s('margen_bruto'),util=s('utilidad');
+  const cats=(D.categorias[g]||[]).filter(c=>c.en_resultado);
+  const top=cats.slice(0,5), otras=cats.slice(5).reduce((a,c)=>a+c.total,0);
+  const pasos=[{l:'Ventas netas',v:ventas,t:'tot'},{l:'Costo',v:-costo},{l:'Margen bruto',v:mb,t:'tot'},
+    ...top.map(c=>({l:c.categoria.replace(/\s*\(.*\)$/,''),v:-c.total})),...(otras?[{l:'Otros gastos',v:-otras}]:[]),{l:'Utilidad operativa',v:util,t:'tot'}];
+  let acc=0;const datos=pasos.map(p=>{if(p.t){acc=p.v;return [0,p.v];}const a=acc;acc+=p.v;return [a,acc];});
+  const cM=cssVar('--s-margen'),cG=cssVar('--s-gastos'),tx=cssVar('--muted'),grid=cssVar('--grid'),cT=cssVar('--white');
+  grafico('graf-cascada',{type:'bar',data:{labels:pasos.map(p=>p.l),datasets:[{data:datos,backgroundColor:pasos.map(p=>p.t?(p.v<0?cG:cT):p.v<0?cG:cM),borderRadius:3,maxBarThickness:42}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>{const p=pasos[c.dataIndex];return `${p.t?'':p.v<0?'− ':'+ '}${soles(Math.abs(p.v))}`+(ventas?` (${pct(Math.abs(p.v)/ventas*100)} de las ventas)`:'');}}}},
+      scales:{x:{grid:{display:false},ticks:{color:tx,font:{size:10.5},maxRotation:40,autoSkip:false}},y:{beginAtZero:true,grid:{color:grid},ticks:{color:tx,font:{size:11},callback:v=>'S/ '+Number(v).toLocaleString('es-PE')}}}}});
+  document.getElementById('cas-titulo').textContent='De las ventas a la utilidad · '+mesTxt(filas[0].mes)+(filas.length>1?' – '+mesTxt(filas[filas.length-1].mes):'');
+  document.getElementById('cas-nota').textContent=`Sin IGV. Suma de los meses con gastos anotados${filas.some(x=>x.en_curso)?' (incluye el mes en curso)':''}. Cada barra roja es una categoría de gasto; las 5 mayores van por separado.`;
 }
 
 function filaTabla(etq,vals,total,clase,fmt){
   return `<tr class="${clase||''}"><td>${etq}</td>`+vals.map(v=>`<td class="${v==null||v===0?'cero':''}">${fmt(v)}</td>`).join('')+`<td>${fmt(total)}</td></tr>`;
 }
-function cabMeses(){return '<thead><tr><th></th>'+D.meses.map(m=>`<th class="${D.primer_mes_gastos&&m>=D.primer_mes_gastos?'':'sin-g'}" title="${D.primer_mes_gastos&&m>=D.primer_mes_gastos?'':'Sin gastos anotados'}">${mesTxt(m)}${m===D.mes_en_curso?' ·':''}</th>`).join('')+'<th>Total</th></tr></thead>';}
+function cabMeses(){const pm=D.primer_mes_grupo[grupoPrincipal()];return '<thead><tr><th></th>'+D.meses.map(m=>`<th class="${pm&&m>=pm?'':'sin-g'}" title="${pm&&m>=pm?'':'Sin gastos anotados'}">${mesTxt(m)}${m===D.mes_en_curso?' ·':''}</th>`).join('')+'<th>Total</th></tr></thead>';}
 const sum=(arr,k,soloG)=>{const xs=arr.filter(x=>!soloG||x.con_gastos);if(soloG&&!xs.length)return null;return xs.reduce((a,x)=>a+(+x[k]||0),0);};
 const nomGrupo=g=>g==='T'?'<b>Total (las dos empresas)</b>':`<span class="dot" style="background:var(--e${g})"></span><b>${esc(empNom(g))}</b>`;
 
 function pintarER(){
   let h='<table>'+cabMeses()+'<tbody>';
   D.grupos.forEach(g=>{
-    const f=D.resultado[g];
-    const v=sum(f,'ventas'),mb=sum(f,'margen_bruto'),vG=sum(f,'ventas',true),gas=sum(f,'gastos',true),u=sum(f,'utilidad',true);
+    const f=D.resultado[g], conMB=f.filter(x=>x.margen_bruto!=null);
+    const v=sum(f,'ventas_netas'),mb=sum(conMB,'margen_bruto'),vMB=sum(conMB,'ventas_netas'),vG=sum(f,'ventas_netas',true),gas=sum(f,'gastos',true),u=sum(f,'utilidad',true);
     if(D.grupos.length>1)h+=`<tr class="grupo"><td colspan="${D.meses.length+2}">${nomGrupo(g)}</td></tr>`;
-    h+=filaTabla('Ventas',f.map(x=>x.ventas),v,'',soles);
+    h+=filaTabla('Ventas netas',f.map(x=>x.ventas_netas),v,'',soles);
     h+=filaTabla('(−) Costo de lo vendido',f.map(x=>x.costo_ventas),sum(f,'costo_ventas'),'',soles);
     h+=filaTabla('= Margen bruto',f.map(x=>x.margen_bruto),mb,'res',soles);
-    h+=filaTabla('Margen bruto %',f.map(x=>x.margen_pct),v?mb/v*100:null,'pct',pct);
+    // % del total: solo sobre los meses que tienen margen (antes se dividía entre todas las ventas)
+    h+=filaTabla('Margen bruto %',f.map(x=>x.margen_pct),vMB?mb/vMB*100:null,'pct',pct);
     h+=filaTabla('(−) Gastos',f.map(x=>x.gastos),gas,'',soles);
-    h+=filaTabla('= Utilidad neta',f.map(x=>x.utilidad),u,'res',x=>x==null?'—':`<span class="${x<0?'neg':''}">${soles(x)}</span>`);
-    h+=filaTabla('Margen neto %',f.map(x=>x.utilidad_pct),vG&&u!=null?u/vG*100:null,'pct',pct);
+    h+=filaTabla('= Utilidad operativa',f.map(x=>x.utilidad),u,'res',x=>x==null?'—':`<span class="${x<0?'neg':''}">${soles(x)}</span>`);
+    h+=filaTabla('Margen operativo %',f.map(x=>x.utilidad_pct),vG&&u!=null?u/vG*100:null,'pct',pct);
     h+=filaTabla('Cobertura de costo',f.map(x=>x.cobertura),null,'pct',x=>x==null?'':pct(x));
   });
   document.getElementById('er').innerHTML=h+'</tbody></table>';
+  const c=D.config_igv;
+  document.getElementById('er-nota').innerHTML=`Todo <b>sin IGV</b>: ventas ÷ 1.18${c&&c.empresas_igv.length<D.empresas.length?' (solo en '+c.empresas_igv.map(empCorto).join(', ')+')':''}, costo ${c&&c.costo==='columna'&&c.columna_disponible?'sin impuesto deducible tomado del lote':c&&c.costo==='igual'?'del lote tal cual':'del lote ÷ 1.18'}, y a los gastos con factura se les resta el IGV (crédito fiscal). Si el IGV que pagas a SUNAT lo anotas como gasto, sácalo del resultado (categoría que no cuente en el resultado) para no restarlo dos veces. Margen bruto = ventas netas × margen % de las líneas con costo conocido (la <b>cobertura</b>). La utilidad es <b>operativa</b>: antes del impuesto a la renta, y solo desde el primer mes con gastos anotados de cada empresa.`;
 }
 
 function pintarEquilibrio(){
-  const gs=D.grupos;
+  if(!D)return;
+  const gs=D.grupos, hoy=hoyLima(), mesAct=hoy.slice(0,7), diaHoy=+hoy.slice(8,10), diasMes=new Date(Date.UTC(+hoy.slice(0,4),+hoy.slice(5,7),0)).getUTCDate();
   const html=gs.map(g=>{
     const e=D.equilibrio[g];
     if(!e)return `<div class="eq"><div class="nom">${nomGrupo(g)}</div><p class="sub">Falta al menos un mes con gastos anotados.</p></div>`;
     const meta=e.ventas_equilibrio_total, real=e.ventas_prom, max=Math.max(meta||0,real||0)*1.15||1;
     const dif=meta?real-meta:null;
+    // Al ritmo de este mes: ¿qué día llegas al equilibrio?
+    const act=D.resultado[g].find(x=>x.mes===mesAct);
+    let ritmo='';
+    if(act&&meta&&diaHoy>0){
+      const porDia=act.ventas_netas/diaHoy, proy=porDia*diasMes;
+      if(act.ventas_netas>=meta)ritmo=`<p class="pos" style="margin-top:6px">Este mes ya pasaste el equilibrio (${soles(act.ventas_netas)} vendidos).</p>`;
+      else if(porDia>0){const dia=Math.ceil(meta/porDia);ritmo=dia<=diasMes?`<p style="margin-top:6px">Al ritmo de este mes (${soles(porDia)} por día) llegas al equilibrio el <b>día ${dia}</b>.</p>`:`<p class="neg" style="margin-top:6px">Al ritmo de este mes (${soles(porDia)} por día) cerrarías en ${soles(proy)}: <b>no llegas</b> al equilibrio, faltarían ${soles(meta-proy)}.</p>`;}
+    }
     return `<div class="eq"><div class="nom">${nomGrupo(g)}</div>
-      <p>Con un margen bruto de <b>${pct(e.margen_pct)}</b>, para cubrir tus gastos fijos (<b>${soles(e.fijos_prom)}</b> al mes) necesitas vender <b>${soles(e.ventas_equilibrio_fijos)}</b>; para cubrir todos tus gastos (<b>${soles(e.gastos_prom)}</b>), <b>${soles(meta)}</b> al mes.</p>
+      <p>Con un margen bruto de <b>${pct(e.margen_pct)}</b>, para cubrir tus gastos fijos (<b>${soles(e.fijos_prom)}</b> al mes) necesitas vender <b>${soles(e.ventas_equilibrio_fijos)}</b> sin IGV; para cubrir todos tus gastos (<b>${soles(e.gastos_prom)}</b>), <b>${soles(meta)}</b> al mes.</p>
       <div class="meter" title="Ventas promedio vs punto de equilibrio"><div class="fill" style="width:${Math.min(100,real/max*100)}%"></div>${meta?`<div class="marca" style="left:${meta/max*100}%" title="Punto de equilibrio"></div>`:''}</div>
       <div class="meter-lbl"><span>Vendes en promedio ${soles(real)}</span><span>Equilibrio ${soles(meta)}</span></div>
       ${dif!=null?`<p style="margin-top:8px" class="${dif<0?'neg':'pos'}"><b>${dif<0?'Te faltan':'Estás'} ${soles(Math.abs(dif))} ${dif<0?'al mes para cubrir los gastos':'por encima del equilibrio'}</b> (${Math.abs(dif/meta*100).toFixed(0)}%).</p>`:''}
-      <p class="sub" style="margin-top:6px">${e.fijos_origen==='definidos'?'Gastos fijos: costo mensual de los gastos fijos definidos (los anuales o semestrales se reparten por mes)'+(e.fijos_usd_sin_tc?'; los fijos en dólares no se incluyen porque aún no hay un tipo de cambio registrado':'')+'. ':''}Ventas y margen: promedio de ${e.meses.map(m=>mesTxt(m)).join(', ')}.</p></div>`;
+      ${ritmo}
+      <p class="sub" style="margin-top:6px">${e.fijos_origen==='definidos'?'Gastos fijos: costo mensual de los gastos fijos definidos (los anuales o semestrales se reparten por mes)'+(e.fijos_usd_sin_tc?'; los fijos en dólares no se incluyen porque aún no hay un tipo de cambio registrado':'')+'. ':''}Ventas y margen sin IGV: promedio de ${e.meses.map(m=>mesTxt(m)).join(', ')}.</p></div>`;
   }).join('');
   document.getElementById('equilibrio').innerHTML=`<div class="eq-grid">${html}</div>`;
 }
 
 function pintarCategorias(){
-  const g=EMPRESA?String(EMPRESA):'T', cs=D.categorias[g]||[];
+  const g=grupoPrincipal(), cs=D.categorias[g]||[];
   document.getElementById('cat-titulo').textContent='Gastos como % de las ventas'+(EMPRESA?' — '+empCorto(EMPRESA):'');
   document.getElementById('categorias').innerHTML=cs.length?
     '<table><thead><tr><th>Categoría</th><th>Monto</th><th>% de ventas</th></tr></thead><tbody>'+
@@ -314,13 +371,24 @@ function pintarEntre(){
 }
 
 function pintarFlujo(){
-  if(!D.primer_mes_gastos){document.getElementById('flujo').innerHTML='<div class="vacio">Aparece cuando anotes los gastos de al menos un mes.</div>';return;}
+  const g=grupoPrincipal(), fg=D.resultado[g].filter(x=>x.con_gastos);
+  if(!fg.length){document.getElementById('flujo').innerHTML='<div class="vacio">Aparece cuando anotes los gastos de al menos un mes.</div>';if(CH['graf-flujo']){CH['graf-flujo'].destroy();delete CH['graf-flujo'];}return;}
+  // Gráfico: cobros arriba, pagos abajo, y la caja acumulada como línea
+  const cI=cssVar('--s-margen'),cE=cssVar('--s-gastos'),cU=cssVar('--s-utilidad'),tx=cssVar('--muted'),grid=cssVar('--grid');
+  let acG=0;const acumG=fg.map(x=>acG+=x.flujo);
+  grafico('graf-flujo',{data:{labels:fg.map(x=>mesTxt(x.mes)),datasets:[
+    {type:'bar',label:'Cobros',data:fg.map(x=>x.ingresos),backgroundColor:fg.map(x=>x.en_curso?conAlfa(cI,.4):cI),stack:'f',maxBarThickness:28,order:2},
+    {type:'bar',label:'Pagos y mercadería',data:fg.map(x=>-(x.gastos_caja+x.compras_caja)),backgroundColor:fg.map(x=>x.en_curso?conAlfa(cE,.4):cE),stack:'f',maxBarThickness:28,order:2},
+    {type:'line',label:'Caja acumulada',data:acumG,borderColor:cU,backgroundColor:cU,borderWidth:2,pointRadius:3,tension:.25,order:1}]},
+    options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+      scales:{x:{stacked:true,grid:{display:false},ticks:{color:tx,font:{size:11}}},y:{stacked:true,grid:{color:grid},ticks:{color:tx,font:{size:11},callback:v=>'S/ '+Number(v).toLocaleString('es-PE')}}},
+      plugins:{legend:{position:'bottom',labels:{color:cssVar('--text2'),boxWidth:12,font:{size:12}}},tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${soles(Math.abs(c.raw))}`}}}}});
   let h='<table>'+cabMeses()+'<tbody>';
-  D.grupos.forEach(g=>{
-    const f=D.resultado[g];
-    if(D.grupos.length>1)h+=`<tr class="grupo"><td colspan="${D.meses.length+2}">${nomGrupo(g)}</td></tr>`;
+  D.grupos.forEach(gr=>{
+    const f=D.resultado[gr];
+    if(D.grupos.length>1)h+=`<tr class="grupo"><td colspan="${D.meses.length+2}">${nomGrupo(gr)}</td></tr>`;
     const solo=k=>f.map(x=>x.con_gastos?x[k]:null);
-    h+=filaTabla('Ingresos cobrados',solo('ingresos'),sum(f,'ingresos',true),'',soles);
+    h+=filaTabla('Cobros',solo('ingresos'),sum(f,'ingresos',true),'',soles);
     h+=filaTabla('(−) Gastos y retiros pagados',solo('gastos_caja'),sum(f,'gastos_caja',true),'',soles);
     h+=filaTabla('(−) Mercadería pagada',solo('compras_caja'),sum(f,'compras_caja',true),'',soles);
     h+=filaTabla('= Flujo del mes',f.map(x=>x.flujo),sum(f,'flujo',true),'res',x=>x==null?'—':`<span class="${x<0?'neg':''}">${soles(x)}</span>`);
@@ -330,8 +398,29 @@ function pintarFlujo(){
   document.getElementById('flujo').innerHTML=h+'</tbody></table>';
 }
 
-// Si el panel cambia el tema, redibujar el gráfico con los colores del tema nuevo
-new MutationObserver(()=>{if(D)pintarGrafico(D.resultado[EMPRESA?String(EMPRESA):'T']);if(M)pintarMes();}).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+// ── Ajustes de IGV (los cambia el maestro; los demás los ven) ──
+async function pintarConfig(){
+  try{CFG=await api('/api/bi-config');}catch(e){document.getElementById('cfg').innerHTML=`<div class="vacio">${esc(e.message)}</div>`;return;}
+  const c=CFG, dis=c.maestro?'':'disabled';
+  const op=(v,t,ayuda)=>`<label style="display:flex;gap:8px;align-items:flex-start;margin:6px 0;font-size:13px;color:var(--text2)"><input type="radio" name="cfg-costo" value="${v}" ${c.costo===v?'checked':''} ${dis} style="margin-top:3px"><span><b>${t}</b><br><span class="sub">${ayuda}</span></span></label>`;
+  document.getElementById('cfg').innerHTML=`<p class="sub" style="margin-bottom:8px">Cómo se quitan los impuestos para el margen y la utilidad. ${c.maestro?'':'Solo el administrador maestro puede cambiarlo.'}</p>
+    <div class="lbl" style="margin:8px 0 2px">Costo del lote</div>
+    ${op('columna','Usar el costo sin impuesto deducible del lote','El ERP guarda en cada lote el costo sin IGV/IPM recuperable ("cost_price_without_refund"). Si un lote no lo tiene, se usa su costo ÷ 1.18.'+(c.columna_disponible?'':' <b>Esta base no tiene esa columna: se usará ÷ 1.18.</b>'))}
+    ${op('dividir','Dividir el costo del lote entre 1.18','Para cuando el costo del lote incluye el IGV.')}
+    ${op('igual','El costo del lote ya está sin impuesto','Se usa tal cual.')}
+    <div class="lbl" style="margin:12px 0 4px">Empresas que cobran IGV en sus ventas</div>
+    ${c.empresas.map(e=>`<label style="display:inline-flex;gap:6px;align-items:center;margin-right:16px;font-size:13px;color:var(--text2)"><input type="checkbox" class="cfg-emp" value="${e.id}" ${c.empresas_igv.includes(e.id)?'checked':''} ${dis}> ${esc(e.nombre)}</label>`).join('')}
+    <p class="sub" style="margin-top:4px">Desmarca una empresa si está en el Nuevo RUS (sus precios no llevan IGV).</p>
+    ${c.maestro?'<button class="btn btn-sm" style="margin-top:12px" onclick="guardarConfig()">Guardar ajustes</button>':''}`;
+}
+async function guardarConfig(){
+  const costo=(document.querySelector('input[name=cfg-costo]:checked')||{}).value;
+  const empresas_igv=[...document.querySelectorAll('.cfg-emp:checked')].map(x=>+x.value);
+  try{await api('/api/bi-config','PUT',{costo,empresas_igv});toast('Ajustes guardados',1);cargar();}catch(e){toast(e.message);}
+}
+
+// Si el panel cambia el tema, redibujar los gráficos con los colores del tema nuevo
+new MutationObserver(()=>{if(D){pintarGrafico(D.resultado[grupoPrincipal()]);pintarCascada(grupoPrincipal());pintarFlujo();}if(M)pintarMes();}).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
 
 document.getElementById('f-hasta').value=hoyMes();
 cargar();

@@ -5,6 +5,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Compras y gastos — Kuranko</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
 :root{
   --bg:#0a1030;--surface:#111a44;--surface2:#0e1640;--surface3:#18224e;
@@ -98,6 +99,16 @@ details.config summary{cursor:pointer;font-size:11px;font-weight:600;color:var(-
 .toast{position:fixed;bottom:20px;right:20px;background:var(--bg-ok);color:var(--fg-ok);padding:12px 18px;border-radius:12px;font-size:13px;display:none;z-index:100;border:1px solid var(--border);max-width:340px}
 .toast.err{background:var(--bg-r);color:var(--fg-r)}
 .oculto{display:none!important}
+.casc{margin-top:10px;display:grid;grid-template-columns:minmax(150px,auto) 1fr auto;gap:5px 10px;align-items:center;font-size:12px}
+.casc .et{color:var(--text2)}
+.casc .et.tot{color:var(--white);font-weight:700}
+.casc .pista{position:relative;height:14px;background:var(--surface3);border-radius:4px;min-width:80px}
+.casc .pista span{position:absolute;top:0;bottom:0;border-radius:4px}
+.casc .v{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.casc .v.tot{font-weight:700;color:var(--white)}
+.cal{margin-top:10px}
+.cal table td{padding:4px 6px;border-bottom:1px solid var(--border)}
+.cal .neg{color:var(--fg-r);font-weight:700}
 .cap-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px}
 .cap{border:1px solid var(--border);border-radius:14px;padding:14px;background:var(--surface2);min-width:0}
 .cap .nom{font-weight:700;color:var(--white);margin-bottom:8px}
@@ -179,7 +190,10 @@ details.config summary{cursor:pointer;font-size:11px;font-weight:600;color:var(-
     <div class="card"><h3>Por cuenta de salida</h3><div class="tabla-wrap" id="por-cuenta"></div></div>
   </div>
 
-  <div class="card"><h3 id="mm-titulo">Últimos 12 meses</h3><div class="tabla-wrap" id="mensual"></div></div>
+  <div class="card"><h3 id="mm-titulo">Últimos 12 meses</h3>
+    <div style="position:relative;height:270px;margin-bottom:6px"><canvas id="ch-mensual" role="img" aria-label="Gastos por mes y categoría"></canvas></div>
+    <p class="sub" id="mm-graf-nota" style="margin-bottom:12px"></p>
+    <div class="tabla-wrap" id="mensual"></div></div>
 
   <div class="card" id="merc-card">
     <h3 id="merc-titulo">Compras de mercadería</h3>
@@ -224,6 +238,8 @@ details.config summary{cursor:pointer;font-size:11px;font-weight:600;color:var(-
         <option value="recibo_honorarios">Recibo por honorarios</option><option value="ticket">Ticket</option><option value="recibo">Recibo simple</option></select></label>
       <label class="f">N° de comprobante<input id="g-comp-numero" maxlength="30" placeholder="F001-123" disabled></label>
       <div class="full aviso info oculto" id="g-fijo-info"></div>
+      <label class="f oculto" id="g-fijomes-caja">Corresponde al mes<input type="month" id="g-fijomes"></label>
+      <div class="sub oculto" id="g-fijomes-ayuda" style="align-self:end;padding-bottom:9px">El mes que se está pagando, aunque se pague después (alquiler de setiembre pagado en octubre = setiembre).</div>
       <div class="full fila" id="g-repetir-caja">
         <label class="chk"><input type="checkbox" id="g-fijo" onchange="document.getElementById('g-frec').classList.toggle('oculto',!this.checked||!!EDITANDO)"> <span id="g-fijo-lbl">Se repite: crear gasto fijo</span></label>
         <select id="g-frec" class="oculto" aria-label="Frecuencia"><option value="1">cada mes</option><option value="2">cada 2 meses</option><option value="3">cada 3 meses</option><option value="6">cada 6 meses</option><option value="12">cada año</option></select>
@@ -361,10 +377,15 @@ async function cargar(){
     if(MODO==='mes')pm.set('mes',document.getElementById('f-mes').value);
     else{pm.set('desde',document.getElementById('f-desde').value);pm.set('hasta',document.getElementById('f-hasta').value);}
     if(EMPRESA)pm.set('empresa',EMPRESA);
-    const [d,m,mc]=await Promise.all([api('/api/gastos?'+params()),api('/api/gastos/mensual?'+new URLSearchParams({hasta:MODO==='mes'?document.getElementById('f-mes').value:(document.getElementById('f-hasta').value||hoyLima()).slice(0,7),...(EMPRESA?{empresa:EMPRESA}:{})})),
-      api('/api/gastos/mercaderia?'+pm).catch(e=>({error:e.message}))]);
+    const hastaMes=MODO==='mes'?document.getElementById('f-mes').value:(document.getElementById('f-hasta').value||hoyLima()).slice(0,7);
+    const [ha,hm]=hastaMes.split('-').map(Number), desdeMes=new Date(Date.UTC(ha,hm-12,1)).toISOString().slice(0,10);
+    const finMes=new Date(Date.UTC(ha,hm,0)).toISOString().slice(0,10);
+    const [d,m,mc,vs]=await Promise.all([api('/api/gastos?'+params()),api('/api/gastos/mensual?'+new URLSearchParams({hasta:hastaMes,...(EMPRESA?{empresa:EMPRESA}:{})})),
+      api('/api/gastos/mercaderia?'+pm).catch(e=>({error:e.message})),
+      // Ventas por mes para "gastos como % de lo vendido" (si el usuario no tiene acceso a ventas, se omite)
+      api('/api/bi-serie?'+new URLSearchParams({agrupar:'mes',desde:desdeMes,hasta:finMes,...(EMPRESA?{empresa:EMPRESA}:{})})).catch(()=>null)]);
     if(n!==PET)return;
-    MERC=mc;DATOS=d;pintar(d);pintarMensual(m);pintarMercaderia();
+    MERC=mc;DATOS=d;pintar(d);pintarMensual(m,vs);pintarMercaderia();
     cargarCapacidad();
     if(MODO==='mes')cargarFijos();
   }catch(e){toast(e.message,true);}
@@ -374,13 +395,14 @@ function pintar(d){
   const porEmp=Object.fromEntries(r.por_empresa.map(x=>[x.company_id,x.total]));
   // Mercadería: se suma a los totales solo si no hay filtros que no le aplican
   const mOk=mercAplica()&&MERC&&!MERC.error, mTot=mOk?MERC.total:0, mEmp=id=>mOk?(MERC.por_empresa[id]||0):0;
-  const tot=t.total+mTot;
-  const kp=[{l:'Total salidas',v:soles(tot),s:mOk?`gastos ${soles(t.total)} + mercadería ${soles(mTot)}`:t.n+' registro'+(t.n===1?'':'s'),a:1},
-    {l:'Gastos del período',v:soles(t.en_resultado),s:'cuentan en el resultado'}];
-  if(mOk)kp.push({l:'Mercadería comprada',v:soles(mTot),s:MERC.entradas.length+' entrada'+(MERC.entradas.length===1?'':'s')+' de stock'});
-  if(!EMPRESA)OPC.empresas.forEach(e=>{const v=(porEmp[e.id]||0)+mEmp(e.id);kp.push({l:e.nombre,v:soles(v),s:tot?Math.round(v/tot*100)+'% del total'+(mOk?' · con mercadería':''):'—',dot:e.id});});
+  // Cada tarjeta, un solo criterio: gastos (lo anotado aquí), retiros, y la mercadería
+  // aparte porque va por fecha de ingreso al almacén y no es lo pagado.
+  const gastoEmp={};r.por_categoria.filter(c=>c.en_resultado).forEach(c=>Object.entries(c.por_empresa).forEach(([id,v])=>{gastoEmp[id]=(gastoEmp[id]||0)+v;}));
+  const kp=[{l:'Gastos del período',v:soles(t.en_resultado),s:t.n+' registro'+(t.n===1?'':'s')+' · cuentan en el resultado',a:1}];
+  if(!EMPRESA)OPC.empresas.forEach(e=>{const v=gastoEmp[e.id]||0;kp.push({l:'Gastos '+e.nombre,v:soles(v),s:t.en_resultado?Math.round(v/t.en_resultado*100)+'% de los gastos':'—',dot:e.id});});
   kp.push({l:'Gastos fijos',v:soles(t.fijos),s:'se repiten cada mes'});
   if(t.no_resultado)kp.push({l:'Retiros y préstamos',v:soles(t.no_resultado),s:'salida de dinero, no gasto'});
+  if(mOk)kp.push({l:'Mercadería ingresada',v:soles(mTot),s:MERC.entradas.length+' entrada'+(MERC.entradas.length===1?'':'s')+' · al costo, por fecha de ingreso'});
   document.getElementById('kpis').innerHTML=kp.map(k=>`<div class="kpi ${k.a?'acc':''}"><div class="l">${k.dot?`<span class="dot" style="background:var(--e${k.dot})"></span>`:''}${esc(k.l)}</div><div class="v">${k.v}</div><div class="s">${k.s}</div></div>`).join('');
   // Entre empresas: lo que cada una pagó por la otra y el saldo neto
   const ee=r.entre_empresas;
@@ -427,22 +449,46 @@ function pintar(d){
     `</tbody><tfoot><tr><td colspan="6">Total</td><td class="num">${soles(t.total)}</td><td></td></tr></tfoot></table>`
     :'<div class="vacio">No hay gastos con estos filtros. Usa <b>+ Nuevo gasto</b> para anotar el primero.</div>';
 }
-function pintarMensual(m){
+let CHM=null;
+const cssVar=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+function pintarMensual(m,vs){
+  window._ultMensual=[m,vs];
   const meses=[];const [a,b]=m.hasta.split('-').map(Number);
   for(let i=11;i>=0;i--){const d=new Date(Date.UTC(a,b-1-i,1));meses.push(d.toISOString().slice(0,7));}
-  const val=(cid,mes,campo)=>m.filas.filter(f=>f.mes===mes&&(cid==='T'||f.company_id===cid)).reduce((s,f)=>s+(campo==='gasto'?(f.en_resultado?f.total:0):campo==='fijos'?f.fijos:f.total),0);
+  const val=(cid,mes,campo)=>m.filas.filter(f=>f.mes===mes&&(cid==='T'||f.company_id===cid)).reduce((s,f)=>s+(campo==='gasto'?(f.en_resultado?f.total:0):campo==='retiros'?(f.en_resultado?0:f.total):campo==='fijos'?f.fijos:f.total),0);
   const grupos=EMPRESA?[+EMPRESA]:[...OPC.empresas.map(e=>e.id),'T'];
   document.getElementById('mm-titulo').textContent='Últimos 12 meses'+(EMPRESA?' — '+empNom(EMPRESA):' por empresa');
+  const hayRet=m.filas.some(f=>!f.en_resultado&&f.total);
   let h='<table class="mm"><thead><tr><th></th>'+meses.map(x=>`<th>${mesTxt(x)}</th>`).join('')+'<th>Total</th></tr></thead><tbody>';
   grupos.forEach(cid=>{
     const nom=cid==='T'?'Total':empNom(cid);
-    [['total','Egresos'],['fijos','de ellos fijos']].forEach(([campo,etq],i)=>{
+    [['gasto','Gastos'],['fijos','de ellos fijos'],...(hayRet?[['retiros','Retiros y préstamos']]:[])].forEach(([campo,etq],i)=>{
       const vals=meses.map(x=>val(cid,x,campo));
       h+=`<tr><td>${i===0?(cid==='T'?'<b>Total</b>':`<span class="dot" style="background:var(--e${cid})"></span><b>${esc(nom)}</b>`):''} <span class="sub">${etq}</span></td>`+
         vals.map(v=>`<td class="${v?'':'cero'}">${v?solesC(v):'—'}</td>`).join('')+`<td><b>${solesC(vals.reduce((s,v)=>s+v,0))}</b></td></tr>`;
     });
   });
   document.getElementById('mensual').innerHTML=h+'</tbody></table>';
+  // Gráfico: gastos (los que cuentan en el resultado) apilados por categoría — las 5
+  // mayores del año y "Otras" — y una línea con los gastos como % de lo vendido.
+  const fil=m.filas.filter(f=>f.en_resultado&&(!EMPRESA||f.company_id===+EMPRESA));
+  const porCat={};fil.forEach(f=>{porCat[f.categoria]=(porCat[f.categoria]||0)+f.total;});
+  const top=Object.entries(porCat).sort((x,y)=>y[1]-x[1]).slice(0,5).map(x=>x[0]);
+  const series=[...top,...(Object.keys(porCat).length>top.length?['Otras']:[])];
+  const PAL=['#3987e5','#d95926','#14A37F','#7C74E8','#c9a227','#8b93b8'];
+  const datos=series.map(c=>meses.map(x=>fil.filter(f=>f.mes===x&&(c==='Otras'?!top.includes(f.categoria):f.categoria===c)).reduce((s,f)=>s+f.total,0)));
+  const totMes=meses.map((x,i)=>datos.reduce((s,d)=>s+d[i],0));
+  const ventas=vs&&vs.filas?meses.map(x=>vs.filas.filter(f=>f.periodo===x).reduce((s,f)=>s+(+f.ventas||0),0)):null;
+  const pctV=ventas?meses.map((x,i)=>ventas[i]>0&&totMes[i]>0?Math.round(totMes[i]/ventas[i]*1000)/10:null):null;
+  const tx=cssVar('--muted'),grid='rgba(148,163,184,.12)';
+  const ds=series.map((c,i)=>({type:'bar',label:c,data:datos[i],backgroundColor:PAL[i],stack:'g',yAxisID:'y',order:2,maxBarThickness:34}));
+  if(pctV&&pctV.some(v=>v!=null))ds.push({type:'line',label:'% de lo vendido',data:pctV,yAxisID:'y2',borderColor:cssVar('--white'),backgroundColor:cssVar('--white'),borderWidth:2,pointRadius:3,tension:.25,order:1,spanGaps:true});
+  if(CHM)CHM.destroy();
+  CHM=new Chart(document.getElementById('ch-mensual'),{data:{labels:meses.map(mesTxt),datasets:ds},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+    scales:{x:{stacked:true,grid:{display:false},ticks:{color:tx,font:{size:11}}},y:{stacked:true,beginAtZero:true,grid:{color:grid},ticks:{color:tx,font:{size:11},callback:v=>'S/ '+Number(v).toLocaleString('es-PE')}},
+      y2:{display:ds.some(d=>d.yAxisID==='y2'),position:'right',beginAtZero:true,grid:{display:false},ticks:{color:tx,font:{size:11},callback:v=>v+'%'}}},
+    plugins:{legend:{position:'bottom',labels:{color:cssVar('--text2'),boxWidth:12,font:{size:11}}},tooltip:{callbacks:{label:c=>c.dataset.yAxisID==='y2'?`Gastos = ${c.raw}% de lo vendido`:`${c.dataset.label}: ${solesC(c.raw)}`,footer:it=>'Total gastos: '+solesC(totMes[it[0].dataIndex])}}}}});
+  document.getElementById('mm-graf-nota').textContent='Gastos que cuentan en el resultado, por categoría (las 5 mayores del período). '+(ds.some(d=>d.yAxisID==='y2')?'La línea es el total de gastos como % de lo vendido ese mes (eje derecho): si sube, los gastos crecen más rápido que las ventas. ':'')+(hayRet?'Retiros y préstamos no están en el gráfico (salen de caja pero no son gasto).':'');
 }
 
 // ── Formulario ──
@@ -502,6 +548,8 @@ function abrirForm(id,duplicar,fijo){
   const info=document.getElementById('g-fijo-info'), caja=document.getElementById('g-repetir-caja');
   const fInfo=FIJO_PAGO||(fijoDe&&FIJOS&&FIJOS.fijos.find(x=>x.id===fijoDe));
   info.classList.toggle('oculto',!(FIJO_PAGO||fijoDe));caja.classList.toggle('oculto',!!(FIJO_PAGO||fijoDe));
+  ['g-fijomes-caja','g-fijomes-ayuda'].forEach(id=>document.getElementById(id).classList.toggle('oculto',!(FIJO_PAGO||fijoDe)));
+  document.getElementById('g-fijomes').value=FIJO_PAGO?FIJO_PAGO.vence.slice(0,7):fijoDe?(g.fijo_mes||g.fecha.slice(0,7)):'';
   if(FIJO_PAGO||fijoDe)info.innerHTML=`📌 Pago del gasto fijo <b>${esc(fInfo?fInfo.nombre:'#'+fijoDe)}</b>${fInfo?' · '+frecTxt(fInfo.frecuencia):''}. ${FIJO_PAGO?'Elige la <b>cuenta</b> de donde salió el dinero y ajusta el monto si cambió.':''}`;
   document.getElementById('g-fijo').checked=!!(g&&g.fijo&&!duplicar);
   document.getElementById('g-fijo-lbl').textContent=EDITANDO?'Gasto fijo':'Se repite: crear gasto fijo';
@@ -531,6 +579,7 @@ async function guardar(ev){
   const gEd=EDITANDO&&DATOS.gastos.find(x=>x.id===EDITANDO);
   if(FIJO_PAGO)body.fijo_id=FIJO_PAGO.id;
   else if(gEd&&gEd.fijo_id)body.fijo_id=gEd.fijo_id;
+  if(body.fijo_id)body.fijo_mes=v('g-fijomes');
   else if(!EDITANDO&&body.fijo){body.crear_fijo=true;body.frecuencia=v('g-frec');}
   const b=document.getElementById('g-guardar');b.disabled=true;
   try{
@@ -543,6 +592,7 @@ async function borrarDesdeForm(){
   try{await api('/api/gastos/'+EDITANDO,'DELETE');toast('Gasto eliminado');cerrarForm();cargar();}catch(e){toast(e.message,true);}
 }
 document.addEventListener('keydown',e=>{if(e.key==='Escape')cerrarForm();});
+new MutationObserver(()=>{if(window._ultMensual)pintarMensual(..._ultMensual);}).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
 
 // ── Compras de mercadería (entradas de stock del sistema, solo lectura) ──
 function mercAplica(){
@@ -607,6 +657,29 @@ async function cargarCapacidad(){
   try{CAP=await api('/api/gastos/capacidad'+(EMPRESA?'?empresa='+EMPRESA:''));pintarCapacidad();}
   catch(e){document.getElementById('cap').innerHTML=`<div class="vacio">${esc(e.message)}</div>`;}
 }
+// Cascada horizontal: cada paso suma o resta desde donde quedó el anterior
+function cascada(pasos){
+  let acc=0,lo=0,hi=0;const filas=pasos.map(p=>{let a,b;
+    if(p.t==='tot'){a=0;b=p.v;acc=p.v;}else{a=acc;acc+=p.v;b=acc;}
+    lo=Math.min(lo,a,b);hi=Math.max(hi,a,b);return {...p,a,b};});
+  const span=(hi-lo)||1, x=v=>(v-lo)/span*100;
+  return '<div class="casc">'+filas.map(f=>{const izq=x(Math.min(f.a,f.b)),an=Math.max(.8,Math.abs(x(f.b)-x(f.a)));
+    const col=f.t==='tot'?(f.b<0?'var(--fg-r)':'var(--accent)'):f.v<0?'var(--fg-r)':'var(--fg-ok)';
+    return `<span class="et ${f.t==='tot'?'tot':''}">${esc(f.l)}</span><span class="pista"><span style="left:${izq}%;width:${an}%;background:${col}"></span></span><span class="v ${f.t==='tot'?'tot':''}">${f.t==='tot'||!f.v?'':f.v<0?'− ':'+ '}${soles(Math.abs(f.v))}</span>`;}).join('')+'</div>';
+}
+// Próximos 60 días: fijos pendientes, pagos de tarjeta, y el saldo que va quedando
+function calendario(r){
+  const hoy=r.hoy, lim=new Date(Date.parse(hoy+'T00:00:00Z')+60*864e5).toISOString().slice(0,10);
+  const ev=[...r.comprometido.fijos.map(f=>({f:f.vence<hoy?hoy:f.vence,c:f.nombre+(f.usd?' (US$)':''),m:f.monto,venc:f.vence<hoy})),
+    ...(r.fijos_siguiente||[]).map(f=>({f:f.vence,c:f.nombre+(f.usd?' (US$)':''),m:f.monto})),
+    ...(r.tarjetas||[]).flatMap(t=>t.proximos_pagos.map(p=>({f:p.fecha,c:'Pago '+t.nombre,m:p.monto})))]
+    .filter(e=>e.f<=lim&&e.m>0).sort((a,b)=>a.f.localeCompare(b.f));
+  if(!ev.length)return '';
+  let saldo=r.saldo?r.saldo.estimado:null;
+  return `<details class="cal" open><summary class="sub" style="cursor:pointer">Próximos pagos (60 días)${saldo!=null?' y saldo que va quedando':''}</summary><table><tbody>`+
+    ev.map(e=>{if(saldo!=null)saldo-=e.m;return `<tr><td style="white-space:nowrap">${fechaTxt(e.f)}</td><td>${esc(e.c)}${e.venc?' <span class="chip bad-c">vencido</span>':''}</td><td class="num">${soles(e.m)}</td>${saldo!=null?`<td class="num ${saldo<0?'neg':''}">${soles(saldo)}</td>`:''}</tr>`;}).join('')+
+    `</tbody></table>${saldo!=null?'<p class="sub" style="margin-top:4px">El saldo no suma lo que vayas cobrando: muestra cuándo necesitas haber cobrado.</p>':''}</details>`;
+}
 function pintarCapacidad(){
   const neg=v=>v<0?'neg':'';
   document.getElementById('cap').innerHTML='<div class="cap-grid">'+CAP.empresas.map(r=>{
@@ -617,7 +690,11 @@ function pintarCapacidad(){
       const s=r.saldo,c=r.comprometido;
       h+=`<div class="lbl">Puedes comprar al contado hoy</div><div class="big ${neg(r.puede_hoy)}">${soles(r.puede_hoy)}</div>
         <div class="sub" style="margin-top:4px">Si cobras lo pendiente (${soles(r.por_cobrar)}): <b>${soles(r.puede_con_cobros)}</b></div>
-        <details><summary>Cómo se calcula</summary><table>
+        ${cascada([{l:'Saldo anotado ('+fechaTxt(s.fecha_foto)+')',v:s.base,t:'tot'},{l:'Cobros desde entonces',v:s.cobros},{l:'Gastos pagados',v:-s.gastos},
+          {l:'Mercadería al contado',v:-s.merc_contado},{l:'Tarjeta ya pagada',v:-s.pagos_tarjeta},{l:'Saldo estimado hoy',v:s.estimado,t:'tot'},
+          {l:'Fijos pendientes del mes',v:-c.fijos_total},{l:'Tarjeta que vence el '+fechaTxt(r.fin_mes),v:-c.tarjeta},{l:'Puedes comprar hoy',v:r.puede_hoy,t:'tot'}])}
+        ${calendario(r)}
+        <details><summary>Detalle del cálculo</summary><table>
           <tr><td>Saldo anotado (${fechaTxt(s.fecha_foto)})</td><td class="num">${soles(s.base)}</td></tr>
           <tr><td>+ Cobros desde entonces</td><td class="num">${soles(s.cobros)}</td></tr>
           <tr><td>− Gastos pagados</td><td class="num">${soles(s.gastos)}</td></tr>
@@ -639,7 +716,7 @@ function pintarCapacidad(){
           :`<div class="sub" style="color:var(--fg-warn)">Sin deuda anotada: solo cuenta las compras registradas. <a href="#" onclick="abrirSaldos();return false" style="color:inherit">Anotar deuda</a></div>`}
         <div class="sub" style="margin-top:4px">Si compras hoy, lo pagas el <b>${fechaTxt(t.compra_hoy_se_paga)}</b>.</div>
         ${t.puedes_cargar?`<div style="margin-top:6px"><span class="lbl">Podrías cargar hoy</span><div style="font-size:1.25rem;font-weight:800;color:var(--white)">${soles(t.puedes_cargar.sin_ventas)}</div>
-          <div class="sub">Contando lo que vas a cobrar y vender hasta el ${fechaTxt(t.proyeccion.fecha)} (${t.proyeccion.dias} días al ritmo actual): <b>${soles(t.puedes_cargar.con_ventas)}</b></div></div>`:''}
+          <div class="sub">Contando lo que cobras al ritmo de los últimos 90 días hasta el ${fechaTxt(t.proyeccion.fecha)} (${t.proyeccion.dias} días): <b>${soles(t.puedes_cargar.con_ventas)}</b></div></div>`:''}
         ${t.proximos_pagos.length?`<div class="sub" style="margin-top:6px">Próximos pagos: ${t.proximos_pagos.map(p=>`${fechaTxt(p.fecha)} <b>${soles(p.monto)}</b>`).join(' · ')}</div>`:''}</div>`;
     });
     // Varias tarjetas comparten el mismo dinero para pagarlas: tope conjunto
@@ -647,7 +724,7 @@ function pintarCapacidad(){
     if(tjs.length>1){
       const disp=tjs.reduce((a,t)=>a+(t.disponible==null?Infinity:t.disponible),0);
       const proy=Math.max(0,Math.min(...tjs.map(t=>t.proyeccion.sin_ventas))), proyV=Math.max(0,Math.min(...tjs.map(t=>t.proyeccion.con_ventas)));
-      h+=`<div class="aviso info" style="margin-top:10px">Las tarjetas se pagan con el mismo dinero: <b>entre todas</b> podrías cargar hoy hasta <b>${soles(Math.min(proy,disp))}</b> (o ${soles(Math.min(proyV,disp))} contando lo que vas a cobrar y vender), no la suma de cada una.</div>`;
+      h+=`<div class="aviso info" style="margin-top:10px">Las tarjetas se pagan con el mismo dinero: <b>entre todas</b> podrías cargar hoy hasta <b>${soles(Math.min(proy,disp))}</b> (o ${soles(Math.min(proyV,disp))} contando lo que cobras al ritmo de los últimos 90 días), no la suma de cada una.</div>`;
     }
     return h+'</div>';
   }).join('')+'</div><p class="sub" style="margin-top:8px">Estimación: parte del último saldo que anotaste y suma o resta lo registrado en el sistema desde esa fecha. Si algo no se registró (un pago por fuera, una transferencia entre cuentas), el número se desvía: vuelve a anotar los saldos para corregirlo.</p>';

@@ -130,6 +130,8 @@ module.exports = function registrarSeguimiento({
     try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN api_at DATETIME NULL`); } catch (e) {}                        // última lectura por API
     try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN api_eventos JSON NULL`); } catch (e) {}                      // historial completo de eventos del courier (traducido)
     try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN api_entrega DATE NULL`); } catch (e) {}                       // fecha de entrega real según el courier
+    try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN importacion_id VARCHAR(80) NOT NULL DEFAULT ''`); } catch (e) {} // enlace con Importaciones (envío creado desde la factura)
+    try { await portalPool.query(`ALTER TABLE seg_envios ADD INDEX (importacion_id)`); } catch (e) {}
 
     // Token de seguimiento público por CLIENTE (link que se comparte al cliente).
     await portalPool.query(`
@@ -521,6 +523,7 @@ module.exports = function registrarSeguimiento({
         id: r.id, tracking: r.tracking, courier: r.courier,
         proveedor: esMaestro ? r.proveedor : '', n_factura: r.n_factura,
         estado: r.estado, fecha_estimada: isoDate(r.fecha_estimada), archivado: r.archivado ? 1 : 0,
+        importacion_id: r.importacion_id || '',
         hub: r.hub || '', fase: r.fase || 'transito',
         fecha_salida: isoDate(r.fecha_salida),
         fecha_hub: isoDate(r.fecha_hub),
@@ -862,6 +865,52 @@ module.exports = function registrarSeguimiento({
     } catch (e) {
       console.error('[seguimiento] envio guardar', e.message);
       res.status(500).json({ error: 'No se pudo guardar el envío' });
+    }
+  });
+
+  // ── Crear/actualizar un envío DESDE Importaciones ──────────────────────────
+  //    La factura se sube UNA sola vez en Importaciones; desde ahí se manda a
+  //    Seguimiento con sus líneas (SIN precios). Idempotente por importacion_id
+  //    (o por N° de factura): si el envío ya existe, SOLO actualiza las líneas y
+  //    datos de la factura, CONSERVANDO tracking, courier, hub, fase, ETA y estado.
+  app.post('/api/seguimiento/desde-importacion', authAdmin, mSeg, soloMaestroSeg, async (req, res) => {
+    try {
+      const b = req.body || {};
+      const impId = s(b.importacion_id).slice(0, 80);
+      const nFactura = s(b.n_factura).slice(0, 160);
+      if (!impId && !nFactura) return res.status(400).json({ error: 'Falta el N° de factura o la importación.' });
+      const items = Array.isArray(b.items) ? b.items.map(itemEnvio) : [];
+      if (!items.length) return res.status(400).json({ error: 'La factura no tiene líneas para enviar.' });
+
+      // ¿Ya existe un envío de esta importación/factura? (para no duplicar)
+      let prev = null;
+      if (impId) {
+        const [r1] = await portalPool.query(`SELECT * FROM seg_envios WHERE importacion_id = ? LIMIT 1`, [impId]);
+        if (r1.length) prev = r1[0];
+      }
+      if (!prev && nFactura) {
+        const [r2] = await portalPool.query(`SELECT * FROM seg_envios WHERE n_factura = ? ORDER BY creado_en ASC LIMIT 1`, [nFactura]);
+        if (r2.length) prev = r2[0];
+      }
+
+      const nuevo = !prev;
+      const id = prev ? prev.id : ('imp:' + (impId || cleanSku(nFactura) || Date.now().toString(36)).slice(0, 36));
+      if (prev) {
+        // Actualiza SOLO líneas y datos de factura; conserva tracking/logística/estado.
+        await portalPool.query(
+          `UPDATE seg_envios SET items = ?, proveedor = ?, n_factura = ?, importacion_id = ? WHERE id = ?`,
+          [JSON.stringify(items), s(b.proveedor).slice(0, 255), nFactura, (impId || s(prev.importacion_id)), id]);
+      } else {
+        await portalPool.query(
+          `INSERT INTO seg_envios (id, tracking, courier, proveedor, n_factura, estado, nota, items, creado_por, importacion_id)
+           VALUES (?,?,?,?,?,?,?,?,?,?)`,
+          [id, '', '', s(b.proveedor).slice(0, 255), nFactura, 'en_transito', '', JSON.stringify(items), quienEs(req), impId]);
+      }
+      await recomputarCoberturas(); // los SKU que vengan asignados ya marcan backorders
+      res.json({ ok: true, nuevo, id });
+    } catch (e) {
+      console.error('[seguimiento] desde-importacion', e.message);
+      res.status(500).json({ error: 'No se pudo enviar a seguimiento' });
     }
   });
 

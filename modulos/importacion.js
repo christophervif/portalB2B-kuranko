@@ -25,6 +25,15 @@ module.exports = function registrarImportacion({
 
   // ── Preparar las tablas del portal (se llama una vez al arrancar) ──────────
   async function prepararTablas() {
+    // Proveedores agregados a mano desde la pantalla (código del sistema + nombre).
+    // Complementan a los que se leen del sistema de ventas.
+    await portalPool.query(`
+      CREATE TABLE IF NOT EXISTS imp_proveedores (
+        codigo     VARCHAR(40)  PRIMARY KEY,
+        nombre     VARCHAR(120) NOT NULL DEFAULT '',
+        creado_por VARCHAR(80)  NOT NULL DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )`);
     // Tasas por partida arancelaria: un solo registro con el arreglo completo en JSON.
     await portalPool.query(`
       CREATE TABLE IF NOT EXISTS imp_partidas (
@@ -382,6 +391,110 @@ module.exports = function registrarImportacion({
     } catch (e) {
       console.error('[importacion] erp-diag', e.message);
       res.status(500).json({ error: 'No se pudo diagnosticar el ERP' });
+    }
+  });
+
+  // ── PROVEEDORES ─────────────────────────────────────────────────────────────
+  //  Antes la lista estaba fija en importacion.html y un proveedor nuevo del
+  //  sistema (ej. PR0022Robe) no aparecía. Ahora se arma con:
+  //    1) los proveedores del SISTEMA DE VENTAS (solo lectura): se busca en qué
+  //       tabla/columna viven los códigos "PR0000Xxxx" (se detecta solo, una vez);
+  //    2) los agregados a mano en el portal (imp_proveedores);
+  //    3) la lista fija de la página (la pone el navegador como respaldo).
+  //  Respuesta: { proveedores: [[codigo, nombre, origen]], fuente, error? }
+  const RE_COD_PROV = /^PR[0-9]{4}/i;
+  const COLS_COD  = ['code', 'codigo', 'supplier_code', 'provider_code', 'internal_code', 'short_code', 'cod', 'alias', 'reference', 'reference_code', 'abbreviation', 'slug'];
+  const COLS_NOMB = ['business_name', 'trade_name', 'commercial_name', 'name', 'nombre', 'razon_social', 'display_name', 'description', 'first_name'];
+  let _provPlan = null, _provPlanAt = 0;       // [{t, c, n}] tablas/columnas con códigos PR…
+  let _provCache = null, _provCacheAt = 0;
+  const PROV_TTL = 5 * 60 * 1000;
+
+  async function planProveedores(forzar) {
+    if (_provPlan && !forzar && (Date.now() - _provPlanAt) < 6 * 3600 * 1000) return _provPlan;
+    const [cols] = await prodPool.query(
+      `SELECT TABLE_NAME t, COLUMN_NAME c, DATA_TYPE d FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()`);
+    const porTabla = {};
+    cols.forEach(r => { (porTabla[r.t] = porTabla[r.t] || []).push({ c: r.c, d: String(r.d).toLowerCase() }); });
+    const esTexto = d => ['varchar', 'char', 'text', 'tinytext', 'mediumtext'].includes(d);
+    // Tablas con pinta de proveedor primero (suppliers, providers, parties…)
+    const prioridad = t => /suppl|provid|proveed|vendor/i.test(t) ? 0 : (/part(y|ies)|contact|compan|entit/i.test(t) ? 1 : 2);
+    const candidatos = [];
+    Object.keys(porTabla).forEach(t => {
+      const cs = porTabla[t];
+      const nombres = cs.map(x => x.c);
+      const n = COLS_NOMB.find(x => nombres.includes(x)) || null;
+      cs.filter(x => esTexto(x.d) && COLS_COD.includes(x.c.toLowerCase())).forEach(x => candidatos.push({ t, c: x.c, n, p: prioridad(t) }));
+    });
+    candidatos.sort((a, b) => a.p - b.p);
+    const plan = [];
+    for (const k of candidatos.slice(0, 40)) {
+      try {
+        const [r] = await prodPool.query('SELECT COUNT(*) n FROM `' + k.t + '` WHERE `' + k.c + "` REGEXP '^PR[0-9]{4}'");
+        if (r[0] && +r[0].n > 0) plan.push({ t: k.t, c: k.c, n: k.n, total: +r[0].n });
+      } catch (e) { /* sin permiso o tabla rara: se ignora */ }
+    }
+    _provPlan = plan; _provPlanAt = Date.now();
+    return plan;
+  }
+
+  async function proveedoresSistema(forzar) {
+    const plan = await planProveedores(forzar);
+    const out = new Map();
+    for (const { t, c, n } of plan) {
+      try {
+        const cols = await prodPool.query('SHOW COLUMNS FROM `' + t + '`').then(([r]) => new Set(r.map(x => x.Field)));
+        let selNom = n ? '`' + n + '`' : 'NULL';
+        if (n === 'business_name' && cols.has('first_name')) {
+          selNom = "COALESCE(NULLIF(TRIM(business_name),''), TRIM(CONCAT(COALESCE(first_name,''),' ',COALESCE(last_name,''))))";
+        }
+        const sinBorrados = cols.has('deleted_at') ? ' AND deleted_at IS NULL' : '';
+        const [rows] = await prodPool.query(
+          'SELECT TRIM(`' + c + '`) AS codigo, ' + selNom + ' AS nombre FROM `' + t + '` WHERE `' + c + "` REGEXP '^PR[0-9]{4}'" + sinBorrados + ' LIMIT 2000');
+        rows.forEach(r => {
+          const cod = String(r.codigo || '').trim();
+          if (!cod || !RE_COD_PROV.test(cod) || out.has(cod.toUpperCase())) return;
+          const nom = String(r.nombre || '').trim() || cod.slice(6) || cod;
+          out.set(cod.toUpperCase(), [cod, nom.slice(0, 120), 'sistema']);
+        });
+      } catch (e) { console.error('[importacion] proveedores', t + '.' + c, e.message); }
+    }
+    return { lista: [...out.values()], plan };
+  }
+
+  app.get('/api/importacion/proveedores', authAdmin, mImp, async (req, res) => {
+    const forzar = req.query.fresco === '1';
+    if (!forzar && _provCache && (Date.now() - _provCacheAt) < PROV_TTL) return res.json(_provCache);
+    let sis = { lista: [], plan: [] }, error = null;
+    try { sis = await proveedoresSistema(forzar); }
+    catch (e) { error = 'No se pudo leer los proveedores del sistema'; console.error('[importacion] proveedores', e.message); }
+    let manuales = [];
+    try {
+      const [rows] = await portalPool.query(`SELECT codigo, nombre FROM imp_proveedores ORDER BY codigo`);
+      manuales = rows.map(r => [r.codigo, r.nombre || r.codigo.slice(6) || r.codigo, 'portal']);
+    } catch (e) { console.error('[importacion] proveedores portal', e.message); }
+    const vistos = new Set(sis.lista.map(p => p[0].toUpperCase()));
+    const proveedores = sis.lista.concat(manuales.filter(p => !vistos.has(p[0].toUpperCase())));
+    const resp = { proveedores, fuente: sis.plan.map(p => p.t + '.' + p.c), error };
+    if (!error) { _provCache = resp; _provCacheAt = Date.now(); }
+    res.json(resp);
+  });
+
+  // Agregar (o renombrar) un proveedor a mano. El código debe ser el MISMO del sistema.
+  app.post('/api/importacion/proveedores', authAdmin, mImp, async (req, res) => {
+    try {
+      const codigo = String((req.body && req.body.codigo) || '').trim().replace(/\s+/g, '');
+      const nombre = String((req.body && req.body.nombre) || '').trim().slice(0, 120);
+      if (!/^PR[0-9]{4}[A-Za-z0-9]{1,30}$/.test(codigo)) return res.status(400).json({ error: 'El código debe tener la forma PR0022Robe (PR + 4 números + letras)' });
+      const quien = String((req.admin && (req.admin.usuario || req.admin.user)) || (req.user && req.user.usuario) || '').slice(0, 80);
+      await portalPool.query(
+        `INSERT INTO imp_proveedores (codigo, nombre, creado_por) VALUES (?, ?, ?)
+         ON DUPLICATE KEY UPDATE nombre = VALUES(nombre)`, [codigo, nombre || codigo.slice(6), quien]);
+      _provCache = null;
+      res.json({ ok: true, proveedor: [codigo, nombre || codigo.slice(6), 'portal'] });
+    } catch (e) {
+      console.error('[importacion] proveedores POST', e.message);
+      res.status(500).json({ error: 'No se pudo guardar el proveedor' });
     }
   });
 

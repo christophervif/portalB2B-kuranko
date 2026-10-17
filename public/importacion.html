@@ -151,7 +151,7 @@
   <div class="card">
     <h2>2 · Datos identificados <span class="hint">(la IA los llena; edítalos si hace falta)</span></h2>
     <div class="grid">
-      <div><label>Proveedor</label><select id="f_prov" onchange="updateCodigo()"></select></div>
+      <div><label>Proveedor <span id="provInfo" class="hint"></span></label><select id="f_prov" onchange="onProvChange()"></select></div>
       <div><label>Empresa (RUC)</label><select id="empresa" onchange="updateCodigo()"><option value="20514359661">DISEÑOS CORPORATIVOS (20514359661)</option><option value="10736768432">Christopher Villasante (10736768432)</option></select></div>
       <div><label>N° factura / invoice</label><input id="f_inv" placeholder="IN231741"></div>
       <div><label>Fecha de la factura</label><input id="f_fecha" type="date" title="Fecha de compra: la usa Compras y gastos para la tarjeta y la caja"></div>
@@ -385,7 +385,9 @@ async function cargarCatalogo(){
   // (las líneas que YA tienen SKU —p. ej. retomadas de un envío— lo conservan; solo se recalculan sus opciones)
   try{ if(typeof facMatches!=='undefined' && facMatches && facMatches.length){ facMatches=facMatches.map(l=>{const r=matchLinea(l);return l.sku?{...l,cand:_candConSku(l,r.cand)}:{...l,...r};}); renderFactura(); } }catch(e){}
 }
-const PROVEEDORES=[["PR0004Magu","MaguraUSA"],["PR0006Mond","Mondraker"],["PR0001Lord","LordGun"],["PR0002Binn","BikeInn"],["PR0003Jpra","Jpracing"],["PR0005OakC","OakComponents"],["PR000777de","77designz"],["PR0008Gemi","Gemini"],["PR0009Extr","Extralite"],["PR0010Fidl","Fidlock"],["PR0011Ebay","Ebay"],["PR0012Mona","Monark"],["PR0013Amaz","Amazon"],["PR0014R2Bi","R2Bike"],["PR0015Bdis","BikeDiscount"],["PR0016Bi24","Bike24"],["PR0017Worl","WorldWide Cyclery"],["PR0018Bcom","BikeComponents"],["PR0019AliE","AliExpress"],["PR0021Oiar","Oiartzun"],["PR0020NA","NA"]];
+// Lista de respaldo: la real se carga del sistema de ventas (+ los agregados a mano) en cargarProveedores().
+const PROV_FIJOS=[["PR0004Magu","MaguraUSA"],["PR0006Mond","Mondraker"],["PR0001Lord","LordGun"],["PR0002Binn","BikeInn"],["PR0003Jpra","Jpracing"],["PR0005OakC","OakComponents"],["PR000777de","77designz"],["PR0008Gemi","Gemini"],["PR0009Extr","Extralite"],["PR0010Fidl","Fidlock"],["PR0011Ebay","Ebay"],["PR0012Mona","Monark"],["PR0013Amaz","Amazon"],["PR0014R2Bi","R2Bike"],["PR0015Bdis","BikeDiscount"],["PR0016Bi24","Bike24"],["PR0017Worl","WorldWide Cyclery"],["PR0018Bcom","BikeComponents"],["PR0019AliE","AliExpress"],["PR0021Oiar","Oiartzun"],["PR0020NA","NA"]];
+let PROVEEDORES=PROV_FIJOS.slice();
 
 /* ---------- normalización + fuzzy (token_set_ratio via LCS) ---------- */
 const QUOTES={'»':'"','«':'"','”':'"','“':'"','″':'"','’':"'",'‘':"'",'′':"'",'–':'-','—':'-','―':'-'};
@@ -601,7 +603,7 @@ async function leerConIA(){
     if(obj&&!Array.isArray(obj)){
       if(obj.invoice)$('f_inv').value=obj.invoice;
       if(obj.date&&/^\d{4}-\d{2}-\d{2}/.test(String(obj.date))&&$('f_fecha'))$('f_fecha').value=String(obj.date).slice(0,10);
-      if(obj.proveedor){const c=matchProveedor(obj.proveedor);if(c){$('f_prov').value=c;provTxt=' · proveedor '+(($('f_prov').selectedOptions[0]||{}).textContent||'').split('(')[0];}else provTxt=' · proveedor "'+obj.proveedor+'" (no reconocido, elígelo)';}
+      if(obj.proveedor){const c=matchProveedor(obj.proveedor);if(c){$('f_prov').value=c;$('f_prov').dataset.prev=c;provTxt=' · proveedor '+(($('f_prov').selectedOptions[0]||{}).textContent||'').split('(')[0];}else provTxt=' · proveedor "'+obj.proveedor+'" (no reconocido, elígelo)';}
       if(obj.empresa_compradora)$('empresa').value=/dise[nñ]os/i.test(obj.empresa_compradora)?'20514359661':'10736768432';
       if(obj.envio!=null&&+obj.envio>0&&$('g_flete')){$('g_flete').value=+obj.envio;} // costo de envío → Flete (gastos CIF)
       updateCodigo();
@@ -1371,7 +1373,7 @@ function cargarImportacion(id){
   // lo ya calculado.
   items.forEach(it=>{ if(!it.tasas){ it.tasas=_tasasDeLista(it.partida, s.partidas)||_tasasPartida(it.partida)||null; } });
   if(s.dua&&s.dua.series){lastSeries=s.dua.series;lastTot=s.dua.tot||null;lastDuaHeader=s.dua.header||null;if($('duaDeclNum'))$('duaDeclNum').value=(s.dua.decl&&s.dua.decl.num)||'';if($('duaDeclFecha'))$('duaDeclFecha').value=(s.dua.decl&&s.dua.decl.fecha)||'';if(lastSeries.length)renderDuaAssign();}else{lastSeries=[];lastTot=null;lastDuaHeader=null;}
-  if(m){$('numImp').value=m.numImp||'';if(m.empresa)$('empresa').value=m.empresa;$('f_inv').value=m.invoice||'';if($('f_fecha'))$('f_fecha').value=m.fecha_factura||'';if(m.proveedor)$('f_prov').value=m.proveedor;}
+  if(m){$('numImp').value=m.numImp||'';if(m.empresa)$('empresa').value=m.empresa;$('f_inv').value=m.invoice||'';if($('f_fecha'))$('f_fecha').value=m.fecha_factura||'';if(m.proveedor){asegurarProveedor(m.proveedor,m.proveedorNombre);$('f_prov').value=m.proveedor;$('f_prov').dataset.prev=m.proveedor;}}
   RECEP_INGRESO=s.recep||null; // restaurar la info de recepción para el ingreso
   // Costeos ligados a un envío/recepción guardan también la tabla de la factura.
   if(Array.isArray(r.fac)&&r.fac.length){
@@ -2016,6 +2018,54 @@ function recepId(){
   return (inv?(base+'-'+inv):base).slice(0,78);
 }
 function syncModoView(){const v=$('modoView');if(v&&$('modo'))v.value=$('modo').value;}
+// ── Proveedores: sistema de ventas + agregados en el portal + lista fija ──
+function renderProvSelect(sel){
+  const el=$('f_prov');if(!el)return;
+  const v=sel!==undefined?sel:el.value;
+  el.innerHTML=PROVEEDORES.map(([c,n])=>`<option value="${esc(c)}">${esc(n)} (${esc(c)})</option>`).join('')
+    +'<option value="__nuevo__">➕ Agregar proveedor…</option><option value="__recargar__">↻ Volver a leer del sistema</option>';
+  if(v&&PROVEEDORES.some(p=>p[0]===v))el.value=v;
+}
+function asegurarProveedor(cod,nombre){ // para importaciones guardadas con un proveedor que ya no está en la lista
+  if(!cod||PROVEEDORES.some(p=>p[0]===cod))return;
+  PROVEEDORES.push([cod,(nombre||'').split('(')[0].trim()||cod.slice(6)||cod]);renderProvSelect();
+}
+async function cargarProveedores(fresco){
+  const info=$('provInfo');
+  try{
+    const r=await apiGet('/proveedores'+(fresco?'?fresco=1':''));
+    const mapa=new Map(PROV_FIJOS.map(p=>[p[0].toUpperCase(),[p[0],p[1]]]));
+    let nuevos=0;
+    (r&&r.proveedores||[]).forEach(([c,n])=>{const k=String(c).toUpperCase();if(!mapa.has(k)){mapa.set(k,[c,n]);nuevos++;}});
+    // conservar los que se agregaron en esta sesión o vienen de una importación abierta
+    PROVEEDORES.forEach(p=>{const k=p[0].toUpperCase();if(!mapa.has(k))mapa.set(k,p);});
+    PROVEEDORES=[...mapa.values()].sort((a,b)=>a[0].localeCompare(b[0]));
+    renderProvSelect();
+    if(info)info.textContent=(r&&r.error)?'(⚠ '+r.error+')':(r&&r.fuente&&r.fuente.length?'':'(no se encontraron códigos PR… en el sistema; agrégalos con ➕)');
+    if(fresco)alert('Lista actualizada: '+PROVEEDORES.length+' proveedores'+(nuevos?'':'')+'.');
+  }catch(e){ if(info)info.textContent='(⚠ '+e.message+')'; }
+}
+async function onProvChange(){
+  const el=$('f_prov');
+  if(el.value==='__recargar__'){el.value=el.dataset.prev||(PROVEEDORES[0]||[''])[0];await cargarProveedores(true);el.value=el.dataset.prev||el.value;updateCodigo();return;}
+  if(el.value==='__nuevo__'){
+    el.value=el.dataset.prev||(PROVEEDORES[0]||[''])[0];
+    const codigo=(prompt('Código del proveedor tal como está en el sistema (ej. PR0022Robe):','PR00')||'').trim().replace(/\s+/g,'');
+    if(!codigo)return;
+    if(!/^PR[0-9]{4}[A-Za-z0-9]{1,30}$/.test(codigo)){alert('El código debe ser PR + 4 números + letras, por ejemplo PR0022Robe.');return;}
+    const nombre=(prompt('Nombre del proveedor:',codigo.slice(6))||'').trim()||codigo.slice(6);
+    try{
+      const r=await fetch(API+'/proveedores',{method:'POST',headers:_authHeaders(true),body:JSON.stringify({codigo,nombre})});
+      const j=await r.json().catch(()=>({}));
+      if(!r.ok)throw new Error(j.error||('API '+r.status));
+    }catch(e){alert('No se pudo guardar el proveedor: '+e.message);return;}
+    const i=PROVEEDORES.findIndex(p=>p[0].toUpperCase()===codigo.toUpperCase());
+    if(i>=0)PROVEEDORES[i]=[PROVEEDORES[i][0],nombre];else PROVEEDORES.push([codigo,nombre]);
+    PROVEEDORES.sort((a,b)=>a[0].localeCompare(b[0]));
+    renderProvSelect(i>=0?PROVEEDORES.find(p=>p[0].toUpperCase()===codigo.toUpperCase())[0]:codigo);
+  }
+  el.dataset.prev=el.value;updateCodigo();
+}
 function matchProveedor(nombre){if(!nombre)return '';const nn=s=>normalize(s).replace(/\s+/g,'');const a=nn(nombre);if(!a)return '';for(const pr of PROVEEDORES){const b=nn(pr[1]);if(b&&b.length>=3&&(a.includes(b)||b.includes(a)))return pr[0];}return '';}
 function onPercepSel(){const otro=$('percepOtro');if(otro)otro.classList.toggle('hide',$('percepSel').value!=='otro');}
 function percepValue(){if($('modo')&&$('modo').value==='Courier')return 0;const s=$('percepSel')?$('percepSel').value:'0';if(s==='otro')return +($('percepOtro').value||0);return +s;}
@@ -2158,7 +2208,8 @@ function togglePreview(inputId,boxId,btnId){const f=$(inputId).files[0];const bo
   else{box.classList.add('hide');if($(btnId))$(btnId).textContent='👁 Ver documento';}}
 
 /* ---------- init ---------- */
-$('f_prov').innerHTML=PROVEEDORES.map(([c,n])=>`<option value="${c}">${n} (${c})</option>`).join('');
+renderProvSelect();$('f_prov').dataset.prev=$('f_prov').value;
+cargarProveedores();
 if(typeof pdfjsLib!=='undefined')pdfjsLib.GlobalWorkerOptions.workerSrc='/vendor/pdf.worker.min.js';
 renderLocales();renderItems();updateCodigo();recalcTCSunat();explicarTCSunat();aplicarModo();aplicarTipo();aplicarMonedaTC();recalcPercepLiq();
 // Datos que vienen del portal (catálogo de Renzo + tasas/memoria/importaciones guardadas)

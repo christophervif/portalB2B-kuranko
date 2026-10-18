@@ -779,9 +779,20 @@ module.exports = function registrarSincronizacion({ app, authAdmin, requiereModu
   let erpWritePool = null;
   const getErpWritePool = () => {
     if (erpWritePool) return erpWritePool;
-    const url = process.env.ERP_ESCRITURA_URL;
+    const url = (process.env.ERP_ESCRITURA_URL || '').trim();
     if (!url) return null;
-    erpWritePool = require('mysql2/promise').createPool(url + (url.includes('?') ? '&' : '?') + 'connectionLimit=2');
+    const mysql = require('mysql2/promise');
+    // Parseo manual para no romper si la clave tiene caracteres especiales (%, #, @, etc.).
+    // Pasamos la clave TAL CUAL (sin decodificar URI) como campo del objeto de conexión.
+    const m = /^mysql:\/\/([^:@]+):(.*)@([^:/@]+):(\d+)\/([^?]+)/.exec(url);
+    if (m) {
+      erpWritePool = mysql.createPool({
+        host: m[3], port: Number(m[4]), user: m[1], password: m[2], database: m[5],
+        connectionLimit: 2
+      });
+    } else {
+      erpWritePool = mysql.createPool(url); // formato no estándar: intento directo
+    }
     return erpWritePool;
   };
   app.post('/admin/erp-writeback-aplicar', authAdmin, requiereModulo('sync'), async (req, res) => {

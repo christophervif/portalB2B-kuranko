@@ -682,6 +682,150 @@ module.exports = function registrarSincronizacion({ app, authAdmin, requiereModu
     } catch (e) { res.status(500).json({ error: 'Error al vaciar: ' + e.message }); }
   });
 
+  // ── Vista previa del WRITE-BACK al ERP (SOLO LECTURA; no escribe nada) ─────────
+  // Genera un Excel con los cambios que se PROPONEN aplicar al ERP, para autorizar:
+  //   1) Vincular WooCommerce ID por SKU (productos que están en la web pero el ERP
+  //      tiene el woocommerce_id vacío).
+  //   2) Reservas de agotados: backorder_mode 'yes' (permitir) → 'notify'.
+  //   3) Imágenes: link del ERP que NO es de kuranko → link de kuranko (de la web).
+  app.get('/admin/erp-writeback-preview', authAdmin, requiereModulo('sync'), async (req, res) => {
+    try {
+      const esKuranko = (u) => /kuranko\.pe/i.test(String(u || ''));
+
+      // Web (sync_pendientes_web): SKUs que están en la web, con ID e imágenes.
+      let web = [];
+      try {
+        const [w] = await portalPool.query(
+          `SELECT TRIM(sku) AS sku, woocommerce_id, imagenes
+             FROM sync_pendientes_web WHERE woocommerce_id IS NOT NULL`);
+        web = w;
+      } catch (e) { /* el puente aún no recolectó */ }
+      const webPorSku = {};
+      web.forEach(w => { webPorSku[String(w.sku).trim().toLowerCase()] = w; });
+      const skusWeb = Object.keys(webPorSku);
+
+      // ERP: variaciones de esos SKUs (para ID e imágenes).
+      let erpVar = [];
+      if (skusWeb.length) {
+        const ph = skusWeb.map(() => '?').join(',');
+        const [rows] = await prodPool.query(
+          `SELECT pv.id AS vid, pv.product_id AS pid, TRIM(pv.sku) AS sku,
+                  pv.product_type AS tipo, pv.woocommerce_id AS wc_id
+             FROM product_variations pv
+            WHERE pv.deleted_at IS NULL AND LOWER(TRIM(pv.sku)) IN (${ph})`, skusWeb);
+        erpVar = rows;
+      }
+
+      // 1) Vincular ID: ERP con woocommerce_id NULL y SKU presente en la web.
+      const cambiosId = [];
+      erpVar.forEach(r => {
+        if (r.wc_id == null) {
+          const w = webPorSku[String(r.sku).trim().toLowerCase()];
+          if (w && w.woocommerce_id) cambiosId.push({ sku: r.sku, vid: r.vid, tipo: r.tipo, nuevo: w.woocommerce_id });
+        }
+      });
+
+      // 3) Imágenes del ERP (no kuranko) de esos productos vs imágenes kuranko de la web.
+      const vids = erpVar.map(r => r.vid);
+      const pids = [...new Set(erpVar.map(r => r.pid))];
+      let imgs = [];
+      if (vids.length || pids.length) {
+        const cond = [], args = [];
+        if (vids.length) { cond.push(`product_variation_id IN (${vids.map(() => '?').join(',')})`); args.push(...vids); }
+        if (pids.length) { cond.push(`product_id IN (${pids.map(() => '?').join(',')})`); args.push(...pids); }
+        const [ir] = await prodPool.query(
+          `SELECT id, product_id, product_variation_id, path FROM product_images
+            WHERE deleted_at IS NULL AND (${cond.join(' OR ')})`, args);
+        imgs = ir;
+      }
+      const vidToSku = {}, pidToSkus = {};
+      erpVar.forEach(r => { vidToSku[r.vid] = r.sku; (pidToSkus[r.pid] = pidToSkus[r.pid] || []).push(r.sku); });
+      const cambiosImg = [];
+      imgs.forEach(im => {
+        if (!im.path || esKuranko(im.path)) return;   // vacío o ya kuranko → no tocar
+        let skus = [];
+        if (im.product_variation_id != null && vidToSku[im.product_variation_id]) skus = [vidToSku[im.product_variation_id]];
+        else if (im.product_id != null && pidToSkus[im.product_id]) skus = pidToSkus[im.product_id];
+        for (const sku of skus) {
+          const w = webPorSku[String(sku).trim().toLowerCase()];
+          if (!w || !w.imagenes) continue;
+          const kuranko = String(w.imagenes).split(',').map(x => x.trim()).filter(x => esKuranko(x));
+          if (!kuranko.length) continue;
+          cambiosImg.push({ sku, img_id: im.id, actual: im.path, nuevo: kuranko[0], antes: im.path, despues: kuranko[0] });
+          break;
+        }
+      });
+
+      // 2) Reservas: backorder_mode 'yes' → 'notify' (todo el catálogo).
+      const [backs] = await prodPool.query(
+        `SELECT pv.id AS vid, TRIM(pv.sku) AS sku, pv.product_type AS tipo
+           FROM product_variations pv
+           JOIN product_variation_stocks pvs ON pvs.product_variation_id = pv.id
+          WHERE pv.deleted_at IS NULL AND pvs.backorder_mode = 'yes'
+          GROUP BY pv.id, TRIM(pv.sku), pv.product_type`);
+
+      // Respuesta en pantalla (JSON). Cada fila trae lo necesario para aplicar luego.
+      res.json({
+        vincularId: cambiosId.map(c => ({ sku: c.sku, vid: c.vid, tipo: c.tipo, nuevo: c.nuevo, antes: '(vacío)', despues: String(c.nuevo) })),
+        reservas: backs.map(c => ({ sku: c.sku, vid: c.vid, tipo: c.tipo, antes: 'permitir (yes)', despues: 'notify' })),
+        imagenes: cambiosImg.map(c => ({ sku: c.sku, img_id: c.img_id, actual: c.actual, nuevo: c.nuevo, antes: c.antes, despues: c.despues }))
+      });
+    } catch (e) { res.status(500).json({ error: 'Error al generar la vista previa: ' + e.message }); }
+  });
+
+  // ── Aplicar al ERP los cambios SELECCIONADOS (escribe con la cuenta portal_erp) ──
+  // Recibe { cambios: [ {tipo:'id'|'back'|'img', vid, img_id, nuevo, sku, antes, despues} ] }.
+  // Re-verifica cada condición en el propio UPDATE (idempotente) y registra un log.
+  let erpWritePool = null;
+  const getErpWritePool = () => {
+    if (erpWritePool) return erpWritePool;
+    const url = process.env.ERP_ESCRITURA_URL;
+    if (!url) return null;
+    erpWritePool = require('mysql2/promise').createPool(url + (url.includes('?') ? '&' : '?') + 'connectionLimit=2');
+    return erpWritePool;
+  };
+  app.post('/admin/erp-writeback-aplicar', authAdmin, requiereModulo('sync'), async (req, res) => {
+    try {
+      const pool = getErpWritePool();
+      if (!pool) return res.status(400).json({ error: 'Falta configurar ERP_ESCRITURA_URL (cuenta portal_erp) en Railway.' });
+      const cambios = Array.isArray(req.body && req.body.cambios) ? req.body.cambios : [];
+      if (!cambios.length) return res.status(400).json({ error: 'No se seleccionó ningún cambio.' });
+      try {
+        await portalPool.query(`CREATE TABLE IF NOT EXISTS sync_erp_writeback_log (
+          id INT AUTO_INCREMENT PRIMARY KEY, tipo VARCHAR(20), referencia VARCHAR(64),
+          sku VARCHAR(255), antes MEDIUMTEXT, despues MEDIUMTEXT,
+          aplicado_en DATETIME DEFAULT CURRENT_TIMESTAMP)`);
+      } catch (e) { /* log opcional */ }
+      let aplicados = 0, sinCambio = 0; const errores = [];
+      for (const c of cambios) {
+        try {
+          let r;
+          if (c.tipo === 'id') {
+            [r] = await pool.query(
+              `UPDATE product_variations SET woocommerce_id = ? WHERE id = ? AND woocommerce_id IS NULL`,
+              [c.nuevo, c.vid]);
+          } else if (c.tipo === 'back') {
+            [r] = await pool.query(
+              `UPDATE product_variation_stocks SET backorder_mode = 'notify'
+                WHERE product_variation_id = ? AND backorder_mode = 'yes'`, [c.vid]);
+          } else if (c.tipo === 'img') {
+            [r] = await pool.query(
+              `UPDATE product_images SET path = ? WHERE id = ? AND path NOT LIKE '%kuranko%'`,
+              [c.nuevo, c.img_id]);
+          } else { continue; }
+          if (r && r.affectedRows > 0) {
+            aplicados++;
+            try {
+              await portalPool.query(
+                `INSERT INTO sync_erp_writeback_log (tipo, referencia, sku, antes, despues) VALUES (?,?,?,?,?)`,
+                [c.tipo, String(c.vid || c.img_id || ''), c.sku || '', (c.antes || '').slice(0, 2000), (c.despues || '').slice(0, 2000)]);
+            } catch (e) { /* log opcional */ }
+          } else sinCambio++;
+        } catch (e) { errores.push({ ref: c.vid || c.img_id || '', error: e.message }); }
+      }
+      res.json({ ok: true, aplicados, sin_cambio: sinCambio, errores });
+    } catch (e) { res.status(500).json({ error: 'Error al aplicar: ' + e.message }); }
+  });
 
 
   return {};

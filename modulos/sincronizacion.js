@@ -721,7 +721,7 @@ module.exports = function registrarSincronizacion({ app, authAdmin, requiereModu
       erpVar.forEach(r => {
         if (r.wc_id == null) {
           const w = webPorSku[String(r.sku).trim().toLowerCase()];
-          if (w && w.woocommerce_id) cambiosId.push({ sku: r.sku, vid: r.vid, tipo: r.tipo, nuevo: w.woocommerce_id });
+          if (w && w.woocommerce_id) cambiosId.push({ sku: r.sku, vid: r.vid, pid: r.pid, tipo: r.tipo, nuevo: w.woocommerce_id });
         }
       });
 
@@ -783,7 +783,7 @@ module.exports = function registrarSincronizacion({ app, authAdmin, requiereModu
 
       // Respuesta en pantalla (JSON). Cada fila trae lo necesario para aplicar luego.
       res.json({
-        vincularId: cambiosId.map(c => ({ sku: c.sku, vid: c.vid, tipo: c.tipo, nuevo: c.nuevo, antes: '(vacío)', despues: String(c.nuevo) })),
+        vincularId: cambiosId.map(c => ({ sku: c.sku, vid: c.vid, pid: c.pid, ptipo: c.tipo, tipo: c.tipo, nuevo: c.nuevo, antes: '(vacío)', despues: String(c.nuevo) })),
         reservas: backs.map(c => ({ sku: c.sku, vid: c.vid, tipo: c.tipo, antes: 'permitir (yes)', despues: 'notify' })),
         imagenes: cambiosImg.map(c => ({ sku: c.sku, img_id: c.img_id, actual: c.actual, nuevo: c.nuevo, antes: c.antes, despues: c.despues }))
       });
@@ -832,6 +832,16 @@ module.exports = function registrarSincronizacion({ app, authAdmin, requiereModu
             [r] = await pool.query(
               `UPDATE product_variations SET woocommerce_id = ? WHERE id = ? AND woocommerce_id IS NULL`,
               [c.nuevo, c.vid]);
+            // Prolijo: en SIMPLE y VARIABLE, llenar también products.woocommerce_id (el campo de
+            // arriba) con el mismo ID. En VARIACIÓN hija NO se toca (ese campo es del padre).
+            // Requiere permiso UPDATE sobre products; si falta, se ignora sin romper la vinculación.
+            if ((c.ptipo === 'simple' || c.ptipo === 'variable') && c.pid) {
+              try {
+                await pool.query(
+                  `UPDATE products SET woocommerce_id = ? WHERE id = ? AND woocommerce_id IS NULL`,
+                  [c.nuevo, c.pid]);
+              } catch (e) { /* falta GRANT UPDATE(woocommerce_id) ON products: la fila igual quedó */ }
+            }
           } else if (c.tipo === 'back') {
             [r] = await pool.query(
               `UPDATE product_variation_stocks SET backorder_mode = 'notify'

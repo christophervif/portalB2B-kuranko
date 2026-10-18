@@ -740,19 +740,36 @@ module.exports = function registrarSincronizacion({ app, authAdmin, requiereModu
       }
       const vidToSku = {}, pidToSkus = {};
       erpVar.forEach(r => { vidToSku[r.vid] = r.sku; (pidToSkus[r.pid] = pidToSkus[r.pid] || []).push(r.sku); });
-      const cambiosImg = [];
+
+      // Agrupar las imágenes del ERP por SKU: las que YA son de kuranko y las que no.
+      const erpImgPorSku = {}; // skuLower -> { kuranko:Set<path>, noKuranko:[{img_id,path}] }
       imgs.forEach(im => {
-        if (!im.path || esKuranko(im.path)) return;   // vacío o ya kuranko → no tocar
-        let skus = [];
-        if (im.product_variation_id != null && vidToSku[im.product_variation_id]) skus = [vidToSku[im.product_variation_id]];
-        else if (im.product_id != null && pidToSkus[im.product_id]) skus = pidToSkus[im.product_id];
-        for (const sku of skus) {
-          const w = webPorSku[String(sku).trim().toLowerCase()];
-          if (!w || !w.imagenes) continue;
-          const kuranko = String(w.imagenes).split(',').map(x => x.trim()).filter(x => esKuranko(x));
-          if (!kuranko.length) continue;
-          cambiosImg.push({ sku, img_id: im.id, actual: im.path, nuevo: kuranko[0], antes: im.path, despues: kuranko[0] });
-          break;
+        if (!im.path) return;
+        let sku = null;
+        if (im.product_variation_id != null && vidToSku[im.product_variation_id]) sku = vidToSku[im.product_variation_id];
+        else if (im.product_id != null && pidToSkus[im.product_id]) sku = pidToSkus[im.product_id][0];
+        if (!sku) return;
+        const k = String(sku).trim().toLowerCase();
+        const e = (erpImgPorSku[k] = erpImgPorSku[k] || { kuranko: new Set(), noKuranko: [] });
+        if (esKuranko(im.path)) e.kuranko.add(im.path.trim());
+        else e.noKuranko.push({ img_id: im.id, path: im.path });
+      });
+
+      // Para cada SKU: reemplazar cada link NO-kuranko por una imagen kuranko de la web
+      // que el ERP AÚN NO tenga (para no duplicar las que ya están).
+      const cambiosImg = [];
+      Object.keys(erpImgPorSku).forEach(k => {
+        const e = erpImgPorSku[k];
+        if (!e.noKuranko.length) return;                 // no hay links viejos que cambiar
+        const w = webPorSku[k];
+        if (!w || !w.imagenes) return;
+        const webKuranko = String(w.imagenes).split(',').map(x => x.trim()).filter(x => esKuranko(x));
+        const faltantes = webKuranko.filter(u => !e.kuranko.has(u)); // las que el ERP no tiene
+        let i = 0;
+        for (const noK of e.noKuranko) {
+          if (i >= faltantes.length) break;              // no quedan imágenes nuevas que poner
+          const nuevo = faltantes[i++];
+          cambiosImg.push({ sku: (w.sku || k), img_id: noK.img_id, actual: noK.path, nuevo, antes: noK.path, despues: nuevo });
         }
       });
 

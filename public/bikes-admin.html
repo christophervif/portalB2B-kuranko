@@ -191,7 +191,7 @@ tr.off td{opacity:.45}
       <div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:0">Tus modelos</h3><p class="desc" id="modRes" style="margin:0"></p></div>
       <div class="row" style="margin:10px 0"><input id="modQ" placeholder="Buscar modelo…" style="flex:1;min-width:200px"><label class="muted"><input type="checkbox" id="modSin"> Solo incompletos</label></div>
       <div class="tbl" id="modTbl"></div>
-      <p class="desc" style="margin-top:8px"><b>Vitrina:</b> «Destacada» sale arriba en la tienda · «Novedad», «Lanzamiento» y «Usado» ponen una etiqueta · «Próximamente» muestra solo la silueta, sin nombre ni precio, con un botón «Avísame». <b>Margen:</b> rango entre el peor y el mejor caso de costos; si un envío o un número de cuotas no llega a tu mínimo, el precio sube lo justo (lo verás como «precio ajustado»).</p>
+      <p class="desc" style="margin-top:8px"><b>Vitrina:</b> «Destacada» sale arriba en la tienda · «Novedad», «Lanzamiento» y «Pre-owned» ponen una etiqueta · «Próximamente» muestra solo la silueta, sin nombre ni precio, con un botón «Avísame». <b>Margen:</b> rango entre el peor y el mejor caso de costos; si un envío o un número de cuotas no llega a tu mínimo, el precio sube lo justo (lo verás como «precio ajustado»).</p>
     </div>
     <div id="modEd"></div>
   </section>
@@ -542,7 +542,7 @@ function pintarModelos(){
     <td>${x.ebike?'<span class="muted">no vuela</span>':`<select data-modaer="${esc(x.marca+'|'+x.modelo)}">${['auto','si','no'].map(v=>`<option value="${v}" ${(md.aereo||'auto')===v?'selected':''}>${{auto:'Automático',si:'Siempre',no:'Nunca'}[v]}</option>`).join('')}</select>`}</td>
     <td style="white-space:nowrap"><label class="muted" style="display:block"><input type="checkbox" data-modflag="destacado" data-mod="${esc(x.marca+'|'+x.modelo)}" ${md.destacado?'checked':''}> Destacada</label>
       <label class="muted" style="display:block" title="La marca te confirmó que tiene unidades"><input type="checkbox" data-modflag="confirmado" data-mod="${esc(x.marca+'|'+x.modelo)}" ${md.confirmado?'checked':''}> Stock confirmado</label>
-      <select data-modflag="etiqueta" data-mod="${esc(x.marca+'|'+x.modelo)}" style="margin-top:4px">${[['','Sin etiqueta'],['novedad','Novedad'],['lanzamiento','Lanzamiento'],['proximamente','Próximamente (silueta)'],['usado','Usado']].map(([v,l])=>`<option value="${v}" ${(md.etiqueta||'')===v?'selected':''}>${l}</option>`).join('')}</select></td>
+      <select data-modflag="etiqueta" data-mod="${esc(x.marca+'|'+x.modelo)}" style="margin-top:4px">${[['','Sin etiqueta'],['novedad','Novedad'],['lanzamiento','Lanzamiento'],['proximamente','Próximamente (silueta)'],['usado','Pre-owned (usada)']].map(([v,l])=>`<option value="${v}" ${(md.etiqueta||'')===v?'selected':''}>${l}</option>`).join('')}</select></td>
     <td><button class="btn sec" style="padding:4px 10px;font-size:12px" data-moded="${esc(x.marca+'|'+x.modelo)}">Editar ficha</button><br><button class="btn sec" style="padding:4px 10px;font-size:12px;margin-top:4px" data-calc="${(E.skus.find(s=>s.marca===x.marca&&s.modelo===x.modelo&&s.activo)||{}).id||''}">Cálculo</button></td></tr>`}).join('')}</tbody></table>`;
   const ed=$('#modEd');
   if(!MOD_ED){ed.innerHTML='';return}

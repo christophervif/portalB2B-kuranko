@@ -381,6 +381,7 @@ a.card{text-decoration:none;cursor:pointer}
     <aside class="filters" id="filtros">
       <label>Buscar<input type="search" id="fQ" placeholder="Modelo, marca, componente…" autocomplete="off"></label>
       <label>Categoría<select id="fCat"></select></label>
+      <div class="flab" id="fEstW" hidden>Estado<div class="seg" id="fEst"></div></div>
       <div class="flab">Aro<div class="seg" id="fAro"></div></div>
       <label>Entrega<select id="fEta"><option value="all">Cualquier fecha</option><option value="lima">En tienda Kuranko</option><option value="30">En 30 días o menos</option><option value="75">En 75 días o menos</option></select></label>
       <label>Precio máximo <span class="num" id="fMaxL"></span><input type="range" id="fMax" min="5000" max="60000" step="1000" value="60000"></label>
@@ -479,7 +480,7 @@ document.getElementById('kScrim').onclick=()=>abrirPanel(false);
 document.getElementById('kMenuMovil').addEventListener('click',e=>{const b=e.target.closest('[data-acc]');if(!b)return;const li=b.closest('li');li.classList.toggle('abierto');b.textContent=li.classList.contains('abierto')?'−':'+'});
 // Buscador: busca primero en las bicis de esta tienda; abajo, el enlace para buscar repuestos y accesorios en kuranko.pe
 const normQ=t=>String(t||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9/.]+/g,' ').trim();
-const hayDe=m=>m._hay||(m._hay=normQ([m.marca,m.modelo,catsDe(m).join(' '),m.tag==='usado'?'usado':'',m.aro==='Mullet'?'mullet':m.aro&&'aro '+m.aro,m.rec,m.mat,m.matx,m.motor,(m.colores||[]).map(c=>c.n).join(' '),(m.specs||[]).map(x=>x.v).join(' '),m.tag==='proximamente'?'':m.desc].filter(Boolean).join(' ')));
+const hayDe=m=>m._hay||(m._hay=normQ([m.marca,m.modelo,catsDe(m).join(' '),m.tag==='usado'?'usado pre-owned preowned seminueva':'',m.aro==='Mullet'?'mullet':m.aro&&'aro '+m.aro,m.rec,m.mat,m.matx,m.motor,(m.colores||[]).map(c=>c.n).join(' '),(m.specs||[]).map(x=>x.v).join(' '),m.tag==='proximamente'?'':m.desc].filter(Boolean).join(' ')));
 function buscarBicis(q){const ts=normQ(q).split(' ').filter(Boolean);if(!ts.length||!D)return [];
   return D.modelos.filter(m=>m.tag!=='proximamente').map(m=>{const h=hayDe(m),n=normQ(m.marca+' '+m.modelo);if(!ts.every(t=>h.includes(t)))return null;return {m,s:ts.filter(t=>n.includes(t)).length}}).filter(Boolean).sort((a,b)=>b.s-a.s).map(x=>x.m)}
 function pintarBusqueda(){const q=document.getElementById('kBusQ').value.trim(),out=document.getElementById('kBusRes');if(!q){out.innerHTML='';return}
@@ -570,12 +571,14 @@ function resumen(m){
 }
 
 /* ---- filtros ---- */
-const F={q:'',marca:'all',cat:'all',aro:'all',eta:'all',max:60000,talla:'all',sort:'eta'};
+const F={q:'',marca:'all',cat:'all',est:'all',aro:'all',eta:'all',max:60000,talla:'all',sort:'eta'};
 function pintarFiltros(){
   const cnt={};D.modelos.forEach(m=>cnt[m.marca]=(cnt[m.marca]||0)+1);
   $('#brands').innerHTML=[['all','Todas',D.modelos.length],...D.marcas.map(b=>[b,b,cnt[b]||0])].map(([k,l,n])=>`<button class="chip" aria-pressed="${F.marca===k}" data-b="${esc(k)}">${k!=='all'&&(D.logos||{})[k]?`<img src="${esc(D.logos[k])}" alt="${esc(l)}">`:esc(l)}<span class="ct">${n}</span></button>`).join('');
   const cats=['all',...new Set(D.modelos.flatMap(catsDe))];
   $('#fCat').innerHTML=cats.map(c=>`<option value="${esc(c)}" ${F.cat===c?'selected':''}>${c==='all'?'Todas':esc(c)}</option>`).join('');
+  const hayPO=D.modelos.some(m=>m.tag==='usado');$('#fEstW').hidden=!hayPO;if(!hayPO)F.est='all';
+  $('#fEst').innerHTML=[['all','Todas'],['nueva','Nuevas'],['usado','Pre-owned']].map(([k,l])=>`<button type="button" aria-pressed="${F.est===k}" data-e="${k}">${l}</button>`).join('');
   const aros=['all',...new Set(D.modelos.map(m=>m.aro))];
   $('#fAro').innerHTML=aros.map(a=>`<button type="button" aria-pressed="${F.aro===a}" data-a="${esc(a)}">${a==='all'?'Todos':esc(a)}</button>`).join('');
   const tallas=['all',...TALLAS.filter(t=>D.modelos.some(m=>m.tallas.includes(t)))];
@@ -583,14 +586,14 @@ function pintarFiltros(){
   $('#fMaxL').textContent=F.max>=60000?'sin límite':M(F.max);
   contarFiltros();
 }
-function contarFiltros(){const n=[F.q,F.cat!=='all',F.aro!=='all',F.eta!=='all',F.max<60000,F.talla!=='all'].filter(Boolean).length;const c=$('#fCuenta');if(c)c.textContent=n||''}
+function contarFiltros(){const n=[F.q,F.cat!=='all',F.est!=='all',F.aro!=='all',F.eta!=='all',F.max<60000,F.talla!=='all'].filter(Boolean).length;const c=$('#fCuenta');if(c)c.textContent=n||''}
 // Línea de datos: aro, recorrido delantero/trasero y material
 const specPartes=m=>[['sa',m.aro?(m.aro==='Mullet'?'Mullet 29/27.5':'Aro '+m.aro):''],['sr',m.rd?(m.rt?m.rd+'/'+m.rt+' mm':m.rd+' mm'):m.rt?m.rt+' mm atrás':m.rec],['sm',m.matx||m.mat],['se',m.motor]].filter(x=>x[1]);
 const specLinea=m=>specPartes(m).map(x=>esc(x[1])).join(' · ');
 // En tarjetas y ficha: cada dato con su color (aro, recorrido, material, motor) para leerlo de un vistazo
 const specHTML=m=>specPartes(m).map(([c,t])=>`<span class="${c}">${esc(t)}</span>`).join('<i class="sep"> · </i>');
 const maxCuotas=m=>Math.max(0,...m.skus.flatMap(x=>(x.op||[]).flatMap(o=>Object.keys(o.cq||{}).map(Number))));
-const TAGS={novedad:'Novedad',lanzamiento:'Lanzamiento',usado:'Usado'};
+const TAGS={novedad:'Novedad',lanzamiento:'Lanzamiento',usado:'Pre-owned'};
 function cardHTML({m,r},i){
   if(m.tag==='proximamente')return `<button class="card pronto" data-pronto="${esc(m.marca)}"><div class="pic" style="color:var(--ink)"><img class="silueta" src="${esc(m.img||SIL_GEN)}" alt="Próximo lanzamiento de ${esc(m.marca)}" loading="lazy" onload="siluetear(this)" onerror="this.onerror=null;this.src=SIL_GEN"><span class="badge last">Próximamente</span></div>
     <div class="bd"><span class="br">${esc(m.marca)} · ${esc(m.cat||'')}</span><h3>Muy pronto</h3><span class="spec">Un nuevo modelo de ${esc(m.marca)} está por llegar.</span>
@@ -635,13 +638,13 @@ function pintarGrid(){
   let L=D.modelos.map(m=>({m,r:resumen(m)}));
   const pronto=L.filter(x=>x.m.tag==='proximamente'&&(F.marca==='all'||x.m.marca===F.marca));L=L.filter(x=>x.m.tag!=='proximamente');
   const ok=F.q?new Set(buscarBicis(F.q)):null;
-  L=L.filter(({m,r})=>(!ok||ok.has(m))&&(F.marca==='all'||m.marca===F.marca)&&(F.cat==='all'||catsDe(m).includes(F.cat))&&(F.aro==='all'||m.aro===F.aro)
+  L=L.filter(({m,r})=>(!ok||ok.has(m))&&(F.marca==='all'||m.marca===F.marca)&&(F.cat==='all'||catsDe(m).includes(F.cat))&&(F.est==='all'||(F.est==='usado')===(m.tag==='usado'))&&(F.aro==='all'||m.aro===F.aro)
     &&(F.max>=60000||r.min.pm<=F.max)&&(F.talla==='all'||m.skus.some(s=>s.t===F.talla&&s.d>0))
     &&(F.eta==='all'||(F.eta==='lima'?r.lima:dias(r.pronto.fm[1])<=+F.eta)));
   const S={eta:(a,b)=>(a.r.agotado-b.r.agotado)||a.r.pronto.fm[1].localeCompare(b.r.pronto.fm[1]),pa:(a,b)=>a.r.min.pm-b.r.min.pm,pd:(a,b)=>b.r.min.pm-a.r.min.pm,br:(a,b)=>a.m.marca.localeCompare(b.m.marca)||a.m.modelo.localeCompare(b.m.modelo)}[F.sort];
   L.sort(S);
   // Destacadas (y lo que viene), solo en la vista inicial sin filtros
-  const inicial=!F.q&&F.cat==='all'&&F.aro==='all'&&F.eta==='all'&&F.max>=60000&&F.talla==='all';
+  const inicial=!F.q&&F.cat==='all'&&F.est==='all'&&F.aro==='all'&&F.eta==='all'&&F.max>=60000&&F.talla==='all';
   const dest=inicial?L.filter(x=>x.m.dest):[];
   $('#destacadas').innerHTML=dest.length||(inicial&&pronto.length)?`<h2 class="dtit">Destacadas</h2><div class="grid dgrid">${[...dest,...(inicial?pronto:[])].map(cardHTML).join('')}</div><h2 class="dtit">Todo el catálogo</h2>`:'';
   $('#count').textContent=`${L.length} ${L.length===1?'modelo':'modelos'}`;
@@ -911,6 +914,7 @@ document.addEventListener('click',e=>{
   if(t.id==='waTop'){ev('whatsapp',{origen:'cabecera'})}
   if(t.dataset.b!==undefined&&t.closest('#brands')){F.marca=t.dataset.b;pintarFiltros();pintarGrid();ev('filtro',{marca:F.marca==='all'?null:F.marca})}
   else if(t.dataset.a!==undefined&&t.closest('#fAro')){F.aro=t.dataset.a;pintarFiltros();pintarGrid()}
+  else if(t.dataset.e!==undefined&&t.closest('#fEst')){F.est=t.dataset.e;pintarFiltros();pintarGrid()}
   else if(t.dataset.t!==undefined&&t.closest('#fTalla')){F.talla=t.dataset.t;pintarFiltros();pintarGrid()}
   else if(t.dataset.pronto){abrirAgenda('',t.dataset.pronto);ev('whatsapp',{origen:'proximamente',marca:t.dataset.pronto})}
   else if(t.classList.contains('card')){if(e.ctrlKey||e.metaKey||e.shiftKey||e.button===1)return;e.preventDefault();abrir(t.dataset.id)}

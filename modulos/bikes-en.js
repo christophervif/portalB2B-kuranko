@@ -226,7 +226,7 @@ module.exports = [
   ["?' (referencial)':''", "?' (approx.)':''"], ['id="compartir">Compartir</button>', 'id="compartir">Share</button>'], ['placeholder="Tu altura en cm"', 'placeholder="Your height in cm"'],
   ['data-pago="t"><b>Tarjeta</b>', 'data-pago="t"><b>Card</b>'], ["t.textContent='Copiado'", "t.textContent='Copied'"],
 
-  ["TAGS={novedad:'Novedad',lanzamiento:'Lanzamiento',usado:'Usado'};", "TAGS={novedad:'New',lanzamiento:'Launch',usado:'Used'};"], ['<h2 class="dtit">Destacadas</h2>', '<h2 class="dtit">Featured</h2>'],
+  ["TAGS={novedad:'Novedad',lanzamiento:'Lanzamiento',usado:'Pre-owned'};", "TAGS={novedad:'New',lanzamiento:'Launch',usado:'Pre-owned'};"], ['<div class="flab" id="fEstW" hidden>Estado<', '<div class="flab" id="fEstW" hidden>Condition<'], ["[['all','Todas'],['nueva','Nuevas'],['usado','Pre-owned']]", "[['all','All'],['nueva','New'],['usado','Pre-owned']]"], ['<h2 class="dtit">Destacadas</h2>', '<h2 class="dtit">Featured</h2>'],
   ['full" type="submit">Consultar</butt', 'full" type="submit">Check</butt'], ["fetch('/api/bikes/cabecera')", "fetch('/api/bikes/cabecera?lang=en')"],
 
   ["' (sale aprox. el '+fD(g.fecha)+')'", "' (leaving around '+fD(g.fecha)+')'"],

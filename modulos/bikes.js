@@ -1405,7 +1405,9 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       const extrasTotal = extras.reduce((a, e) => a + e.precio, 0);
       const total = p.pen + extrasTotal;
       const usdM = R.moneda_principal !== 'PEN';
-      const adelanto = usdM ? Math.round(Math.ceil(total / tc.usd * num(R.adelanto) / 100 / 10) * 10 * tc.usd) : ceil10(total * num(R.adelanto) / 100);
+      const stk = env === 'lima'; // unidad en stock: sin adelanto, se paga el 100% al recibir
+      const ciuStk = String(s.stock_ciudad || 'Lima').split(/\s*,\s*/).filter(Boolean).join(' y ');
+      const adelanto = stk ? 0 : usdM ? Math.round(Math.ceil(total / tc.usd * num(R.adelanto) / 100 / 10) * 10 * tc.usd) : ceil10(total * num(R.adelanto) / 100);
       const $ = v => usdM ? `US$ ${Math.round(v / tc.usd).toLocaleString('en-US')} (${soles(v)})` : soles(v);
       // Si la página mostró otro precio (cambió el TC o las reglas), avisar antes de guardar
       if (b.total_visto && Math.abs(num(b.total_visto) - total) >= 1 && !b.acepto_nuevo) {
@@ -1432,7 +1434,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       limpiarCache();
       intentos.set('ok:' + ip, [...(intentos.get('ok:' + ip) || []), Date.now()]);
 
-      const ENV_TXT = { lima: 'stock en Lima', aereo: 'aéreo', maritimo: 'marítimo', unidad: 'marítimo individual', grupo: 'marítimo en grupo' };
+      const ENV_TXT = { lima: 'stock en ' + ciuStk, aereo: 'aéreo', maritimo: 'marítimo', unidad: 'marítimo individual', grupo: 'marítimo en grupo' };
       let envTxt = ENV_TXT[env] || env;
       if (env === 'grupo') {
         const g = (await gruposPorMarca(R))[s.marca] || { min: Math.max(2, num(R.grupo_min) || 3), actual: 0, completos: 0 };
@@ -1441,19 +1443,19 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       const fechasTxt = `${fechaCorta(fechas[0])} – ${fechaCorta(fechas[1])}`;
       envTxt += pago === 'pp' ? ' · pago con Powerpay' : pago === 't' ? ' · tarjeta en 1 pago' : +pago > 1 ? ` · ${pago} cuotas sin intereses` : '';
       const msg = `Hola Kuranko, envié la solicitud de reserva ${codigo}: ${s.marca} ${s.modelo}${montajeRes && montajeRes !== 'Base' ? ' ' + montajeRes : ''}, talla ${s.talla}, color ${s.color}, envío ${envTxt}.\n` +
-        `Precio final: ${$(total)} · Adelanto al confirmar: ${$(adelanto)}\nEntrega estimada: ${fechasTxt}\nNombre: ${nombre} · DNI/RUC: ${doc}\n¿Me confirman la disponibilidad?`;
+        `Precio final: ${$(total)} · ${stk ? 'Pago del 100% al recibir' : 'Adelanto al confirmar: ' + $(adelanto)}\nEntrega estimada: ${fechasTxt}\nNombre: ${nombre} · DNI/RUC: ${doc}\n¿Me confirman la disponibilidad?`;
       const fila = (a, v) => `<tr><td style="padding:6px 10px;border-bottom:1px solid #eee;color:#666;font-size:14px">${escH(a)}</td><td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:14px;color:#111"><b>${escH(v)}</b></td></tr>`;
       const tabla = [['Bici', `${s.marca} ${s.modelo} ${s.montaje}`], ['Talla / color', `${s.talla} · ${s.color}`], ['Envío', envTxt], ['Entrega estimada', fechasTxt],
-        ['Extras', extras.map(e => e.nombre).join(', ') || '—'], ['Precio final', $(total)], [`Adelanto (${R.adelanto}%)`, $(adelanto)], ['Saldo al recibir', $(total - adelanto) + (usdM ? ' · fijo en dólares' : '')]].map(x => fila(...x)).join('');
+        ['Extras', extras.map(e => e.nombre).join(', ') || '—'], ['Precio final', $(total)], ...(stk ? [['Pago', 'El 100% al recibir la bici']] : [[`Adelanto (${R.adelanto}%)`, $(adelanto)], ['Saldo al recibir', $(total - adelanto) + (usdM ? ' · fijo en dólares' : '')]])].map(x => fila(...x)).join('');
       const caja = (titulo, extra) => `<div style="background:#f3f4f6;padding:16px;font-family:Arial,Helvetica,sans-serif"><div style="max-width:600px;margin:auto;background:#fff;border-radius:10px;padding:20px">
         <div style="font-size:20px;font-weight:bold;color:#111">${titulo}</div>${extra}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-top:12px">${tabla}</table></div></div>`;
       const wa = process.env.BIKES_WHATSAPP || '51963358335';
       const interno = caja(`Nueva solicitud de reserva ${escH(codigo)}`, `<p style="color:#444;font-size:14px">${escH(nombre)} · DNI/RUC ${escH(doc)} · WhatsApp ${escH(tel)}${email ? ' · ' + escH(email) : ''} · ${escH(ciudad)}${ref ? ' · vendedor: ' + escH(ref) : ''}</p>
         <p><a href="https://wa.me/51${escH(tel)}" style="background:#25d366;color:#fff;text-decoration:none;padding:10px 16px;border-radius:6px;font-weight:bold;font-size:14px">Escribir al cliente</a></p>`);
-      enviarCorreo((process.env.BIKES_EMAIL || 'info@kuranko.pe,ventas@kuranko.pe').split(',').map(x => x.trim()).filter(Boolean), `Solicitud ${codigo}: ${s.marca} ${s.modelo} ${s.talla} · ${$(total)} · confirmar con la marca`, interno, msg);
+      enviarCorreo((process.env.BIKES_EMAIL || 'info@kuranko.pe,ventas@kuranko.pe').split(',').map(x => x.trim()).filter(Boolean), `Solicitud ${codigo}: ${s.marca} ${s.modelo} ${s.talla} · ${$(total)} · ${stk ? 'en stock en ' + ciuStk : 'confirmar con la marca'}`, interno, msg);
       if (email) enviarCorreo([email], `Tu solicitud de reserva ${codigo} en Kuranko Bikes`, caja(`Recibimos tu solicitud ${escH(codigo)}`,
-        `<p style="color:#444;font-size:14px">Hola ${escH(nombre.split(' ')[0])}, no tienes que pagar nada todavía. Vamos a confirmar la disponibilidad con ${escH(s.marca)} y te escribiremos por WhatsApp al ${escH(tel)}, normalmente en menos de 24 horas hábiles.</p>
-         <p style="color:#444;font-size:14px">Cuando esté confirmada, separas tu bici con el adelanto de ${escH($(adelanto))} (link de pago, Yape, transferencia o en tienda; también en cuotas). El saldo lo pagas al recibirla. El precio se mantiene ${escH(R.validez_horas)} horas.</p>
+        `<p style="color:#444;font-size:14px">Hola ${escH(nombre.split(' ')[0])}, no tienes que pagar nada todavía. ${stk ? `Tu bici está en stock en ${escH(ciuStk)}: coordinaremos la entrega` : `Vamos a confirmar la disponibilidad con ${escH(s.marca)}`} y te escribiremos por WhatsApp al ${escH(tel)}, normalmente en menos de 24 horas hábiles.</p>
+         <p style="color:#444;font-size:14px">${stk ? 'Pagas el 100% al recibirla (link de pago, Yape, transferencia o en tienda; también en cuotas).' : `Cuando esté confirmada, separas tu bici con el adelanto de ${escH($(adelanto))} (link de pago, Yape, transferencia o en tienda; también en cuotas). El saldo lo pagas al recibirla.`} El precio se mantiene ${escH(R.validez_horas)} horas.</p>
          <p style="color:#444;font-size:14px"><a href="https://bikes.kuranko.pe/bikes/proforma/${escH(codigo)}?doc=${escH(doc)}">Descarga tu proforma</a>. Consulta el estado en bikes.kuranko.pe con tu código y DNI. WhatsApp: +${escH(wa)}</p>`), msg);
 
       res.json({ ok: true, codigo, doc, total, adelanto, saldo: total - adelanto, tc: tc.usd, fechas, envio: env, mensaje: msg, whatsapp: wa });
@@ -1577,7 +1579,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       const $ = v => usdM ? `US$ ${Math.round(num(v) / tc).toLocaleString('en-US')}` : soles(v);
       const $2 = v => usdM ? `<span class="s">${soles(v)}</span>` : '';
       const fc = iso => iso ? new Date(iso + 'T12:00:00Z').toLocaleDateString('es-PE', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }) : '';
-      const ENV = { lima: 'Unidad en tienda Kuranko', aereo: 'Aéreo', maritimo: 'Marítimo', unidad: 'Marítimo individual', grupo: 'Marítimo en grupo' };
+      const ENV = { lima: 'Unidad en stock', aereo: 'Aéreo', maritimo: 'Marítimo', unidad: 'Marítimo individual', grupo: 'Marítimo en grupo' };
       let extras = []; try { extras = JSON.parse(r.extras || '[]'); } catch (e) {}
       const gar = (info[r.marca] || {}).garantia || ((mods[r.marca + '|' + r.modelo] || {}).datos || {}).garantia || 'Garantía oficial del fabricante, gestionada por Kuranko en Lima.';
       const fila = (a, b, c = '') => `<tr><td>${a}</td><td class="n">${b}${c}</td></tr>`;
@@ -1606,13 +1608,12 @@ button{background:#FBB911;border:0;padding:10px 16px;font-weight:700;border-radi
 ${fila(`${escH(r.marca)} ${escH(r.modelo)} · incluye flete, seguro, desaduanaje, IGV y armado`, $(r.precio_bici), $2(r.precio_bici))}
 ${extras.map(e => fila(escH(e.nombre), e.precio ? $(e.precio) : 'incluido', e.precio ? $2(e.precio) : '')).join('')}
 <tr class="tot"><td>Precio final</td><td class="n">${$(r.total)}${$2(r.total)}</td></tr>
-${fila(`Adelanto (${num(R.adelanto)}%) para separar la unidad, al confirmar con la marca`, $(r.adelanto), $2(r.adelanto))}
-${fila(`Saldo al recibir la bicicleta${usdM ? ' (fijo en dólares)' : ''}`, $(num(r.total) - num(r.adelanto)), $2(num(r.total) - num(r.adelanto)))}
+${num(r.adelanto) ? fila(`Adelanto (${num(R.adelanto)}%) para separar la unidad, al confirmar con la marca`, $(r.adelanto), $2(r.adelanto)) + fila(`Saldo al recibir la bicicleta${usdM ? ' (fijo en dólares)' : ''}`, $(num(r.total) - num(r.adelanto)), $2(num(r.total) - num(r.adelanto))) : fila('Unidad en stock: pagas el 100% al recibir la bicicleta', $(r.total), $2(r.total))}
 </table>${usdM ? `<p class="chico">Tipo de cambio referencial: S/ ${tc.toFixed(3)} por dólar. Puedes pagar en dólares o en soles al tipo de cambio del día del pago.</p>` : ''}
 <h2>Formas de pago</h2><ul><li>Link de pago con tarjeta de crédito o débito${R.cuotas_bancos ? `; cuotas sin intereses con ${escH(R.cuotas_bancos)}` : ''}${num(R.powerpay_pct) > 0 ? '; otras tarjetas en cuotas con Powerpay' : ''}.</li><li>Yape, transferencia bancaria o pago en nuestra tienda.</li>${pg.cuentas ? `<li>${escH(pg.cuentas)}</li>` : ''}</ul>
 <h2>Garantía y soporte</h2><ul><li>${escH(gar)}</li><li>Bicicleta nueva, con comprobante de pago. Armado, ajuste de suspensión y fitting básico en nuestro taller de Magdalena.</li></ul>
-<h2>Condiciones</h2><ul><li>Esta proforma no obliga al pago: la unidad se separa recién con el adelanto, después de que la marca confirme la disponibilidad.</li>
-<li>Si la marca no puede entregar la unidad, devolvemos el 100% del adelanto.</li><li>Las fechas son estimadas y dependen de la marca, el transporte y la aduana. Te avisamos cualquier cambio.</li>
+<h2>Condiciones</h2><ul>${num(r.adelanto) ? `<li>Esta proforma no obliga al pago: la unidad se separa recién con el adelanto, después de que la marca confirme la disponibilidad.</li>
+<li>Si la marca no puede entregar la unidad, devolvemos el 100% del adelanto.</li>` : '<li>Esta proforma no obliga al pago. La unidad está en stock y se paga completa al recibirla.</li>'}<li>Las fechas son estimadas y dependen de la marca, el transporte y la aduana. Te avisamos cualquier cambio.</li>
 <li>El precio se mantiene hasta la fecha indicada arriba; luego puede actualizarse.</li></ul>
 </div></body></html>`;
       res.set('Cache-Control', 'no-store').type('html').send(html);

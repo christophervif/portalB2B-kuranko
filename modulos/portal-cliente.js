@@ -554,5 +554,6 @@ module.exports = function registrarPortalCliente({
   });
 
 
-  return { prepararTablas, _test: { destinatariosReporte } };
+  // authCliente y helpers se exponen para otros módulos del portal (propuestas de consignación)
+  return { prepararTablas, authCliente, correoEmpresa, destinatariosReporte, infoConsignaciones, _test: { destinatariosReporte } };
 };

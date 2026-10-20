@@ -211,6 +211,7 @@ let modRecepciones = null;
 let modSeguimiento = null;
 let modAsistencia = null;
 let modGestion = null;
+let modPropuestas = null;
 let modBikes = null;
 
 // Registro de endpoints del dashboard (inyectado directamente)
@@ -324,6 +325,11 @@ let modBikes = null;
   // ── Módulo Cotizador rápido (vendedores: buscador + precio mínimo FIFO) ──
   const modCotizador = require('./modulos/cotizador')({ app, authAdmin, requiereModulo, prodPool });
 
+  // ── Propuestas de reposición de consignación (Gestión de clientes → Propuestas; portal → Propuestas) ──
+  //    Usa el catálogo del cotizador (stock propio) y el login del portal del cliente.
+  modPropuestas = require('./modulos/propuestas-consignacion')({ app, authAdmin, requiereModulo, prodPool, portalPool,
+    authCliente: modPortal.authCliente, catalogo: modCotizador.catalogo, grupos: modGestion, portal: modPortal });
+
   // Precio importado: calculadora de pedidos especiales a tiendas online (reemplaza la hoja de Google)
   require('./modulos/precio-importado')({ app, authAdmin, requiereModulo, prodPool, VV, catalogo: modCotizador.catalogo,
     buscarInternet: modCotizador._test && modCotizador._test.buscarInternet });
@@ -394,6 +400,7 @@ app.listen(PORT, async () => {
   // Preparar tablas una vez al arrancar (evita que el primer login pague la espera)
   try {
     if (modGestion && modGestion.prepararTablas) await modGestion.prepararTablas();
+    if (modPropuestas && modPropuestas.prepararTablas) await modPropuestas.prepararTablas();
     if (modPortal && modPortal.prepararTablas) await modPortal.prepararTablas();
     if (modAuditoria && modAuditoria.prepararTablas) await modAuditoria.prepararTablas();
     if (modImportacion && modImportacion.prepararTablas) await modImportacion.prepararTablas();

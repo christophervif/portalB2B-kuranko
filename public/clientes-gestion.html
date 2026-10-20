@@ -127,6 +127,24 @@ details.ayuda ul{margin:6px 0 0 18px;line-height:1.6}
     <div class="seg" id="vistas">
       <button class="on" data-v="accesos" onclick="setVista('accesos')">Accesos<span class="cnt" id="cnt-accesos"></span></button>
       <button data-v="puntos" onclick="setVista('puntos')">Puntos de venta<span class="cnt" id="cnt-puntos"></span></button>
+      <button data-v="propuestas" onclick="setVista('propuestas')">Propuestas<span class="cnt" id="cnt-prop"></span></button>
+    </div>
+
+    <!-- ══════════ PROPUESTAS DE REPOSICIÓN ══════════ -->
+    <div id="v-propuestas" style="display:none">
+      <div class="desc" style="margin-top:10px">Propuestas de reposición para la consignación de cada tienda. El sistema carga las <b>obligatorias</b> (productos que se vendieron y hoy están agotados en la tienda); lo demás lo agregas tú. La tienda la ve en su portal y la acepta o rechaza; al aceptar te llega un correo para preparar la guía.</div>
+      <div class="fila">
+        <input id="pr-q" type="search" placeholder="Buscar tienda o consignación…" oninput="pintarPropuestas()" style="flex:1;min-width:200px">
+        <select id="pr-estado" onchange="pintarPropuestas()">
+          <option value="abiertas">Pendientes (borrador, enviada, aceptada)</option>
+          <option value="borrador">Borrador</option><option value="enviada">Enviada (esperando a la tienda)</option>
+          <option value="aceptada">Aceptada (por despachar)</option><option value="despachada">Despachada</option>
+          <option value="rechazada">Rechazada</option><option value="anulada">Anulada</option><option value="">Todas</option>
+        </select>
+        <button class="btn" onclick="nuevaPropuestaElegir()">+ Nueva propuesta</button>
+      </div>
+      <div class="desc" id="conteo-prop" style="margin-top:8px"></div>
+      <div class="tabla-wrap"><table id="tbl-prop"></table></div>
     </div>
 
     <!-- ══════════ ACCESOS ══════════ -->
@@ -191,6 +209,11 @@ details.ayuda ul{margin:6px 0 0 18px;line-height:1.6}
   </div>
 </div>
 
+<!-- ══════════ MODAL PROPUESTA ══════════ -->
+<div class="modal-bg" id="m-prop" onclick="if(event.target===this)cerrarProp()">
+  <div class="modal" id="prop" style="max-width:980px"></div>
+</div>
+
 <!-- ══════════ MODAL DETALLE ══════════ -->
 <div class="modal-bg" id="m-det" onclick="if(event.target===this)cerrar('m-det')">
   <div class="modal" id="det"></div>
@@ -247,9 +270,10 @@ let TOKEN = ''; try { TOKEN = localStorage.getItem('admtoken') || ''; } catch (e
 const $ = id => document.getElementById(id);
 function esc(t) { return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
 function showToast(m, e) { const t = $('toast'); t.textContent = m; t.className = 'toast' + (e ? ' err' : ''); t.style.display = 'block'; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', e ? 6000 : 3500); }
-async function api(ep, body) {
+async function api(ep, body, metodo, cuerpo) {
   const opt = { headers: { 'Authorization': 'Bearer ' + TOKEN } };
-  if (body !== undefined) { opt.method = 'POST'; opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body); }
+  if (metodo) { body = cuerpo; }
+  if (body !== undefined && body !== null) { opt.method = metodo || 'POST'; opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body); }
   const r = await fetch(ep, opt);
   if (r.status === 401) throw new Error('Sesión del panel expirada — vuelve a entrar.');
   const d = await r.json().catch(() => ({}));
@@ -316,6 +340,8 @@ function setVista(v) {
   document.querySelectorAll('#vistas button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
   $('v-accesos').style.display = v === 'accesos' ? '' : 'none';
   $('v-puntos').style.display = v === 'puntos' ? '' : 'none';
+  $('v-propuestas').style.display = v === 'propuestas' ? '' : 'none';
+  if (v === 'propuestas' && !PROPS) cargarPropuestas();
 }
 
 // ══════════════════ Accesos ══════════════════
@@ -428,7 +454,7 @@ function pintarPuntos() {
         <td>${chipFactura(c.factura, true)}${c.factura.estado === 'ok' && c.factura.nombre ? '<div class="sub">' + esc(c.factura.nombre) + '</div>' : ''}${c.factura.estado === 'mixto' ? '<div class="sub">' + esc(c.factura.rucs.join(', ')) + '</div>' : ''}</td>
         <td style="text-align:right;white-space:nowrap">${c.unidades ? N(c.unidades) + ' u.' : '<span class="sub">0</span>'}<div class="sub">${c.skus ? c.skus + ' SKU' : ''}</div></td>
         <td>${comp || '<span class="sub">sin ventas registradas</span>'}</td>
-        <td><button class="btn btn-sm btn-sec" onclick="asignarPuntoElegir(${c.id})">Asignar…</button></td></tr>`;
+        <td style="white-space:nowrap"><button class="btn btn-sm btn-sec" onclick="asignarPuntoElegir(${c.id})">Asignar…</button>${c.accesos.some(a => a.activo) ? ` <button class="btn btn-sm btn-sec" onclick="nuevaPropuesta(${c.id})" title="Propuesta de reposición">Propuesta</button>` : ''}</td></tr>`;
     }).join('') + '</tbody>';
 }
 async function asignarPunto(locId, userId) {
@@ -656,7 +682,7 @@ function abrirDetalle(id) {
     <div class="bloque"><h4>Consignaciones (lo que ve en "Mi consignación")</h4>
       ${u.consignaciones.map(c => `<div class="ruc-row"><div><div class="nom" style="color:var(--white)">${esc(c.nombre)} ${c.existe ? (c.activa ? '' : '<span class="chip c-r">inactiva</span>') : '<span class="chip c-r">no existe</span>'}</div>
           <div class="sub">${chipFactura(c.factura)}</div></div>
-          <div class="acc"><button class="btn btn-sm btn-r" onclick="quitarLoc(${u.id},${c.id})">Quitar</button></div></div>`).join('') || '<div class="desc">Sin consignación.</div>'}
+          <div class="acc">${c.activa && u.activo ? `<button class="btn btn-sm btn-sec" onclick="cerrar('m-det');nuevaPropuesta(${c.id})">Propuesta de reposición</button>` : ''}<button class="btn btn-sm btn-r" onclick="quitarLoc(${u.id},${c.id})">Quitar</button></div></div>`).join('') || '<div class="desc">Sin consignación.</div>'}
       <div class="desc" style="margin:8px 0 6px">El RUC al que se factura lo vendido sale de las <b>notas de cada consignación</b> en el ERP (escribe ahí el RUC de 11 dígitos). Si la tienda recibe mercadería a dos RUC, lo ideal es una consignación por RUC y agregar las dos aquí.</div>
       <div class="fila" style="margin-top:0"><div class="combo" id="cb-loc"></div><button class="btn btn-sm" onclick="agregarLoc(${u.id})">Agregar consignación</button></div>
     </div>
@@ -765,8 +791,158 @@ async function verComo(id) {
 }
 
 // ══════════════════ Arranque ══════════════════
+// ══════════════════ Propuestas de reposición ══════════════════
+let PROPS = null;          // lista de /api/propuestas
+let PROP = null;           // propuesta abierta en el editor
+let PROP_SIN_STOCK = [];   // obligatorias que Kuranko no puede reponer (sin stock propio)
+const EST_PROP = { borrador: ['Borrador', 'c-g'], enviada: ['Enviada', 'c-v'], aceptada: ['Aceptada · por despachar', 'c-w'],
+  despachada: ['Despachada', 'c-ok'], rechazada: ['Rechazada', 'c-r'], anulada: ['Anulada', 'c-g'] };
+const chipProp = e => { const [t, c] = EST_PROP[e] || [e, 'c-g']; return `<span class="chip ${c}">${t}</span>`; };
+const fechaHora = f => f ? new Date(f).toLocaleString('es-PE', { timeZone: 'America/Lima', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—';
+
+async function cargarPropuestas() {
+  $('conteo-prop').textContent = 'Cargando propuestas…';
+  try { PROPS = await api('/api/propuestas'); pintarPropuestas(); }
+  catch (e) { $('conteo-prop').textContent = e.message; }
+}
+function pintarPropuestas() {
+  if (!PROPS) return;
+  const est = $('pr-estado').value, q = norm($('pr-q').value.trim());
+  const pend = PROPS.filter(p => ['borrador', 'enviada', 'aceptada'].includes(p.estado));
+  $('cnt-prop').textContent = pend.length ? ' · ' + pend.length : '';
+  const l = PROPS.filter(p => (est === 'abiertas' ? ['borrador', 'enviada', 'aceptada'].includes(p.estado) : (!est || p.estado === est)) &&
+    (!q || norm(p.cliente + ' ' + p.consignacion + ' ' + p.usuario).includes(q)));
+  $('conteo-prop').textContent = `${l.length} propuestas`;
+  if (!l.length) { $('tbl-prop').innerHTML = '<tr><td class="vacio">No hay propuestas con este filtro. Crea una con "+ Nueva propuesta" o desde Puntos de venta.</td></tr>'; return; }
+  $('tbl-prop').innerHTML = `<thead><tr><th>N°</th><th>Tienda / consignación</th><th>Estado</th><th style="text-align:right">Unidades</th><th>Fechas</th><th></th></tr></thead><tbody>` +
+    l.map(p => `<tr class="clic" onclick="abrirPropuesta(${p.id})"><td class="mono">${p.id}</td>
+      <td><div class="nom">${esc(p.cliente || '—')}</div><div class="sub">${esc(p.consignacion)}</div></td>
+      <td>${chipProp(p.estado)}${p.nota_cliente ? '<div class="sub" title="' + esc(p.nota_cliente) + '">💬 comentario</div>' : ''}</td>
+      <td style="text-align:right;white-space:nowrap">${['aceptada', 'despachada'].includes(p.estado) ? `<b>${N(p.unidades_aceptadas)}</b> de ${N(p.unidades)}` : N(p.unidades)}<div class="sub">${p.lineas} líneas · ${p.obligatorias} oblig.</div></td>
+      <td class="sub" style="white-space:nowrap">creada ${fechaHora(p.creado_en)}${p.enviado_en ? '<br>enviada ' + fechaHora(p.enviado_en) : ''}${p.respondido_en ? '<br>respondida ' + fechaHora(p.respondido_en) : ''}${p.despachado_en ? '<br>despachada ' + fechaHora(p.despachado_en) + (p.guia ? ' · ' + esc(p.guia) : '') : ''}</td>
+      <td><button class="btn btn-sm btn-sec" onclick="event.stopPropagation();abrirPropuesta(${p.id})">Abrir</button></td></tr>`).join('') + '</tbody>';
+}
+function nuevaPropuestaElegir() {
+  if (!V) return;
+  abrirMini('Nueva propuesta de reposición', 'Elige la consignación (solo las que tienen un acceso activo al portal).',
+    () => V.consignaciones.filter(c => c.activa && c.accesos.some(a => a.activo)).map(c => ({ id: c.id, label: c.nombre,
+      sub: c.accesos.filter(a => a.activo).map(a => a.nombre).join(', ') + ' · ' + N(c.unidades) + ' u. en tienda' })),
+    it => { cerrar('m-det'); nuevaPropuesta(it.id); });
+}
+async function nuevaPropuesta(locId) {
+  try {
+    const r = await api('/api/propuestas', { location_id: locId });
+    PROP_SIN_STOCK = r.sin_stock || [];
+    showToast(`Propuesta creada con ${r.obligatorias} obligatoria(s)` + (PROP_SIN_STOCK.length ? ` · ${PROP_SIN_STOCK.length} agotadas sin stock en Kuranko` : ''));
+    if (r.varios_accesos.length) showToast('Ojo: esta consignación la ven varios accesos: ' + r.varios_accesos.join(', '), true);
+    setVista('propuestas'); await cargarPropuestas(); abrirPropuesta(r.id, true);
+  } catch (e) {
+    if (e.status === 409 && e.data && e.data.id) { showToast(e.message, true); setVista('propuestas'); abrirPropuesta(e.data.id); return; }
+    showToast(e.message, true);
+  }
+}
+async function abrirPropuesta(id, mantenerSinStock) {
+  if (!mantenerSinStock) PROP_SIN_STOCK = [];
+  try { PROP = await api('/api/propuestas/' + id); pintarPropuesta(); $('m-prop').classList.add('show'); }
+  catch (e) { showToast(e.message, true); }
+}
+function cerrarProp() { $('m-prop').classList.remove('show'); PROP = null; }
+function pintarPropuesta() {
+  const p = PROP, ed = p.estado === 'borrador';
+  const resp = ['aceptada', 'despachada', 'rechazada'].includes(p.estado);
+  const filas = p.items.map((i, n) => `<tr>
+      <td><div class="nom">${esc(i.nombre)}</div><div class="sub"><span class="mono">${esc(i.sku || '')}</span> · ${i.tipo === 'obligatorio' ? '<span class="chip c-r">Obligatorio</span>' : '<span class="chip c-g">Manual</span>'} ${esc(i.tipo === 'obligatorio' ? i.motivo : '')}</div></td>
+      <td style="text-align:right">${i.vendidas || '—'}</td><td style="text-align:right">${N(i.stock_consig)}</td>
+      <td style="text-align:right">${N(i.stock_propio)}</td>
+      <td style="text-align:right;white-space:nowrap">${ed ? `<input class="inp" type="number" min="0" max="9999" value="${i.cantidad}" data-n="${n}" oninput="PROP.items[${n}].cantidad=Math.max(0,parseInt(this.value)||0);sumaProp()" style="width:74px;text-align:right${i.cantidad > i.stock_propio ? ';border-color:var(--fg-warn)' : ''}">` : `<b>${i.cantidad}</b>`}
+        ${resp ? `<div class="sub">${p.estado === 'rechazada' ? '' : 'aceptó <b style="color:' + (i.cantidad_aceptada === i.cantidad ? 'var(--fg-ok)' : 'var(--fg-warn)') + '">' + (i.cantidad_aceptada ?? '—') + '</b>'}</div>` : ''}</td>
+      <td>${ed ? `<button class="btn btn-sm btn-r" title="Quitar" onclick="PROP.items.splice(${n},1);pintarPropuesta()">×</button>` : ''}</td></tr>`).join('');
+  const sinStock = PROP_SIN_STOCK.length && ed ? `<div class="aviso">Agotadas en la tienda pero <b>Kuranko no tiene stock</b> (no se incluyeron): ${PROP_SIN_STOCK.map(x => esc(x.nombre) + ' (vendió ' + x.vendidas + ')').join(', ')}.</div>` : '';
+  $('prop').innerHTML = `<button class="x" onclick="cerrarProp()">×</button>
+    <h3>Propuesta N° ${p.id} · ${esc(p.consignacion)} ${chipProp(p.estado)}</h3>
+    <div class="desc" style="margin-top:4px">${esc(p.cliente)} · usuario ${esc(p.usuario)} · ${p.factura_ruc ? 'factura a ' + esc(p.factura_nombre || '') + ' RUC ' + esc(p.factura_ruc) : 'RUC de facturación por definir (notas de la consignación)'} · creada por ${esc(p.creado_por)} ${fechaHora(p.creado_en)}${p.enviado_en ? ' · enviada ' + fechaHora(p.enviado_en) : ''}</div>
+    ${ed ? `<div class="fila"><span class="desc">Obligatorias = vendidas en los últimos</span>
+      <select id="pr-ventana" class="inp">${[30, 60, 90, 180, 365].map(d => `<option value="${d}" ${d === p.ventana ? 'selected' : ''}>${d} días</option>`).join('')}</select>
+      <span class="desc">y hoy agotadas en la tienda.</span><button class="btn btn-sm btn-sec" onclick="recalcularProp()">Recalcular obligatorias</button></div>` : ''}
+    ${sinStock}
+    ${p.respondido_en ? `<div class="aviso ${p.estado === 'rechazada' ? 'r' : 'i'}">Respondió ${esc(p.respondido_por)} el ${fechaHora(p.respondido_en)}${p.nota_cliente ? ' · Comentario: “' + esc(p.nota_cliente) + '”' : ''}</div>` : ''}
+    <div class="tabla-wrap" style="max-height:48vh"><table>
+      <thead><tr><th>Producto</th><th style="text-align:right" title="Vendidas desde esta consignación en la ventana">Vendió</th><th style="text-align:right">En tienda</th><th style="text-align:right">Stock Kuranko</th><th style="text-align:right">Cantidad</th><th></th></tr></thead>
+      <tbody>${filas || '<tr><td colspan="6" class="vacio">Sin productos. ' + (ed ? 'No hay obligatorias: agrega productos abajo.' : '') + '</td></tr>'}</tbody></table></div>
+    <div class="desc" id="prop-suma" style="margin-top:6px"></div>
+    ${ed ? `<div class="bloque"><h4>Agregar producto (lo que creas necesario)</h4>
+      <div class="fila" style="margin-top:0"><div class="combo" id="cb-prod"></div><input class="inp" id="prod-cant" type="number" min="1" value="1" style="width:80px"><button class="btn btn-sm" onclick="agregarProdProp()">Agregar</button></div></div>
+      <div class="bloque"><h4>Mensaje para la tienda (opcional)</h4><textarea class="inp" id="prop-nota" rows="2" style="width:100%" maxlength="1000">${esc(p.nota)}</textarea></div>`
+      : (p.nota ? `<div class="bloque"><h4>Mensaje para la tienda</h4><div class="desc">${esc(p.nota)}</div></div>` : '')}
+    <div class="fila" style="justify-content:flex-end;margin-top:16px">
+      ${['borrador', 'enviada'].includes(p.estado) ? `<button class="btn btn-sm btn-r" onclick="anularProp()">Anular</button>` : ''}
+      ${ed ? `<button class="btn btn-sec" onclick="guardarProp()">Guardar borrador</button><button class="btn" onclick="enviarProp()">Enviar a la tienda</button>` : ''}
+      ${p.estado === 'enviada' ? '<span class="desc">Esperando que la tienda la acepte en su portal.</span>' : ''}
+      ${p.estado === 'aceptada' ? `<input class="inp" id="prop-guia" placeholder="N° de guía (opcional)" style="width:200px"><button class="btn" onclick="despacharProp()">Marcar despachada</button>` : ''}
+      ${p.estado === 'despachada' ? `<span class="desc">Despachada ${fechaHora(p.despachado_en)} por ${esc(p.despachado_por || '')}${p.guia ? ' · guía ' + esc(p.guia) : ''}</span>` : ''}
+    </div>`;
+  sumaProp();
+  if (ed) combo('cb-prod', 'Buscar producto por SKU o nombre…', () => [], it => { PROP._sel = it; $('prod-cant').focus(); },
+    async q => (await api('/api/propuestas/productos/buscar?location_id=' + p.location_id + '&q=' + encodeURIComponent(q))).map(x => ({
+      key: 'p' + x.vid, id: x.vid, label: x.nombre, prod: x,
+      sub: `${x.sku || 's/SKU'} · stock Kuranko ${x.stock_propio} · en tienda ${x.en_consignacion}` })));
+}
+function sumaProp() {
+  if (!PROP || !$('prop-suma')) return;
+  const u = PROP.items.reduce((a, i) => a + (i.cantidad || 0), 0);
+  const exceso = PROP.items.filter(i => i.cantidad > i.stock_propio).length;
+  $('prop-suma').innerHTML = `${PROP.items.length} productos · <b>${N(u)}</b> unidades` + (exceso ? ` · <span style="color:var(--fg-warn)">${exceso} con más cantidad que el stock de Kuranko</span>` : '');
+}
+function agregarProdProp() {
+  const it = CB['cb-prod'] && CB['cb-prod'].get();
+  if (!it) return showToast('Busca y elige un producto de la lista', true);
+  const cant = Math.max(1, parseInt($('prod-cant').value) || 1);
+  const ya = PROP.items.find(i => Number(i.vid) === Number(it.id));
+  if (ya) ya.cantidad += cant;
+  else PROP.items.push({ vid: it.id, sku: it.prod.sku, nombre: it.prod.nombre, tipo: 'manual', motivo: '', vendidas: 0,
+    stock_consig: it.prod.en_consignacion, stock_propio: it.prod.stock_propio, cantidad: cant });
+  const nota = $('prop-nota') ? $('prop-nota').value : PROP.nota; PROP.nota = nota;
+  pintarPropuesta();
+}
+async function guardarProp(silencio) {
+  PROP.nota = $('prop-nota') ? $('prop-nota').value : PROP.nota;
+  const r = await api('/api/propuestas/' + PROP.id, null, 'PUT', { nota: PROP.nota, items: PROP.items.map(i => ({ vid: i.vid, cantidad: i.cantidad })) });
+  PROP = r.propuesta; if (!silencio) { pintarPropuesta(); showToast('Borrador guardado ✓'); }
+  cargarPropuestas();
+}
+async function recalcularProp() {
+  try {
+    await guardarProp(true);
+    const r = await api('/api/propuestas/' + PROP.id + '/recalcular', { ventana: Number($('pr-ventana').value) });
+    PROP = r.propuesta; PROP_SIN_STOCK = r.sin_stock || [];
+    pintarPropuesta(); showToast(r.agregadas ? `${r.agregadas} obligatoria(s) nuevas` : 'Sin obligatorias nuevas');
+  } catch (e) { showToast(e.message, true); }
+}
+async function enviarProp() {
+  try {
+    await guardarProp(true);
+    const u = PROP.items.reduce((a, i) => a + i.cantidad, 0);
+    if (!u) return pintarPropuesta(), showToast('La propuesta no tiene unidades', true);
+    if (!confirm(`¿Enviar la propuesta a ${PROP.cliente}? (${PROP.items.length} productos, ${u} unidades)\n\nLa verá en su portal y le llegará un correo. Ya no podrás editarla (sí anularla).`)) return pintarPropuesta();
+    const r = await api('/api/propuestas/' + PROP.id + '/enviar', {});
+    PROP = r.propuesta; pintarPropuesta(); cargarPropuestas();
+    showToast('Propuesta enviada ✓' + (r.correo_enviado ? ' · correo enviado' : ' · sin correo (revisa el correo del cliente)'));
+  } catch (e) { showToast(e.message, true); }
+}
+async function anularProp() {
+  if (!confirm('¿Anular esta propuesta? La tienda dejará de verla.')) return;
+  try { await api('/api/propuestas/' + PROP.id + '/anular', {}); showToast('Propuesta anulada'); cerrarProp(); cargarPropuestas(); }
+  catch (e) { showToast(e.message, true); }
+}
+async function despacharProp() {
+  try {
+    await api('/api/propuestas/' + PROP.id + '/despachar', { guia: $('prop-guia').value });
+    showToast('Marcada como despachada ✓'); abrirPropuesta(PROP.id); cargarPropuestas();
+  } catch (e) { showToast(e.message, true); }
+}
+
 if (!TOKEN) $('conteo-accesos').textContent = 'Entra al panel de administración para usar Gestión de clientes.';
-else cargar();
+else { cargar(); cargarPropuestas(); }
 </script>
 </body>
 </html>

@@ -165,7 +165,9 @@ tbody tr.clickable:hover td{background:var(--hover)}
       <button class="tab" onclick="tab('pagos',this)">Mis pagos</button>
       <button class="tab" onclick="tab('stock',this)">Mi consignación</button>
       <button class="tab" id="tab-transf-btn" onclick="tab('transf',this)">Transferencias</button>
+      <button class="tab" id="tab-prop-btn" onclick="tab('prop',this)" style="display:none">Propuestas <span id="prop-badge" class="badge badge-warn" style="display:none"></span></button>
     </div>
+    <div id="prop-aviso"></div>
 
     <div id="tab-compras" class="panel active">
       <div class="card">
@@ -205,6 +207,14 @@ tbody tr.clickable:hover td{background:var(--hover)}
         </div>
         <p class="muted" style="font-size:11px;margin-bottom:10px">Columna <b>Mov.</b>: cambios de los últimos 60 días — <span style="color:#4ade80">●</span> entrada · <span style="color:#60a5fa">●</span> devolución · <span style="color:#fbbf24">●</span> venta. Toca los puntos para ver las fechas.</p>
         <div id="stock-tabla"><div class="loading">Cargando...</div></div>
+      </div>
+    </div>
+
+    <div id="tab-prop" class="panel">
+      <div class="card">
+        <div class="card-head"><h3>Propuestas de reposición</h3></div>
+        <p class="muted" style="font-size:12px;margin-bottom:1rem">Kuranko te propone qué reponer en tu consignación. Revisa las cantidades (puedes bajarlas o poner 0 en lo que no quieras) y acéptala; con eso preparamos la guía.</p>
+        <div id="prop-lista"><div class="loading">Cargando...</div></div>
       </div>
     </div>
 
@@ -315,7 +325,7 @@ async function mostrarApp(){
   document.getElementById('app-screen').style.display='block';
   document.getElementById('wa-soporte').href=`https://wa.me/${WA_SOPORTE}?text=${encodeURIComponent('Hola Kuranko, tengo una consulta sobre mi portal.')}`;
   aplicarTema(document.documentElement.getAttribute('data-theme')||'dark');
-  await Promise.all([cargarSaldo(),cargarVentas(),cargarPagos(),cargarStock(),cargarTransferencias()]);
+  await Promise.all([cargarSaldo(),cargarVentas(),cargarPagos(),cargarStock(),cargarTransferencias(),cargarPropuestas()]);
 }
 async function cargarSaldo(){
   try{
@@ -464,6 +474,62 @@ async function cargarStock(){
         <td data-label="Movimientos">${indicadores(r,i)}</td>
         <td class="num" data-label="Disponible">${r.disponible}</td><td class="num" data-label="Vendido hist.">${r.vendido_hist}</td><td class="num" data-label="Precio">${r.precio?fmt(r.precio):'-'}</td></tr>`).join('')+`</tbody></table>`;
   }catch(e){showToast(e.message,true);}
+}
+// ── Propuestas de reposición (Kuranko propone, la tienda acepta) ──
+let propCache=[];
+const EST_P={enviada:['Por responder','badge-warn'],aceptada:['Aceptada · en preparación','badge-in'],despachada:['Despachada','badge-ok'],rechazada:['Rechazada','badge-r']};
+async function cargarPropuestas(){
+  try{propCache=await apiCall('/portal/propuestas');}catch(e){propCache=[];}
+  const pend=propCache.filter(p=>p.estado==='enviada').length;
+  document.getElementById('tab-prop-btn').style.display=propCache.length?'':'none';
+  const b=document.getElementById('prop-badge');b.style.display=pend?'':'none';b.textContent=pend;
+  document.getElementById('prop-aviso').innerHTML=pend?`<div class="card" style="border-color:var(--accent,#FFB30D);display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><span>📦 Tienes <b>${pend}</b> propuesta${pend>1?'s':''} de reposición para revisar.</span><button class="btn btn-sm" onclick="tab('prop',document.getElementById('tab-prop-btn'))">Ver propuesta</button></div>`:'';
+  renderPropuestas();
+}
+function renderPropuestas(){
+  const c=document.getElementById('prop-lista');
+  if(!propCache.length){c.innerHTML='<div class="muted">No tienes propuestas.</div>';return;}
+  c.innerHTML=propCache.map(p=>{
+    const [et,cl]=EST_P[p.estado]||[p.estado,''];
+    const abierta=p.estado==='enviada';
+    const filas=p.items.map(i=>`<tr><td data-label="Producto">${escP(i.nombre)}<br><span class="muted" style="font-size:11px">${escP(i.sku||'')} · ${escP(i.motivo)}</span></td>
+      <td class="num" data-label="Propuesto">${i.cantidad}</td>
+      <td class="num" data-label="${abierta?'Acepto':'Aceptado'}">${abierta?`<input type="number" min="0" max="${i.cantidad}" value="${i.cantidad}" data-prop="${p.id}" data-item="${i.id}" style="width:70px;text-align:right;padding:6px;border-radius:8px;border:1px solid var(--border);background:var(--surface3);color:var(--text)" oninput="if(+this.value>${i.cantidad})this.value=${i.cantidad};if(+this.value<0)this.value=0;totalProp(${p.id})">`:(i.cantidad_aceptada??'—')}</td></tr>`).join('');
+    return `<div style="border:1px solid var(--border);border-radius:12px;padding:1rem;margin-bottom:1rem${abierta?';border-color:var(--accent,#FFB30D)':''}">
+      <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:flex-start">
+        <div><b>Propuesta N° ${p.id}</b> · ${escP(p.consignacion)}<br><span class="muted" style="font-size:12px">Enviada ${fmtFecha(p.enviado_en)}${p.factura_ruc?' · Se factura a: '+escP(p.factura_nombre||'')+' RUC '+escP(p.factura_ruc):''}${p.guia?' · Guía '+escP(p.guia):''}</span></div>
+        <span class="badge ${cl}">${et}</span></div>
+      ${p.nota?`<p style="margin:10px 0;font-size:13px;background:var(--surface3);padding:8px 12px;border-radius:8px">${escP(p.nota)}</p>`:''}
+      <table class="responsive" style="margin-top:8px"><thead><tr><th>Producto</th><th class="num">Propuesto</th><th class="num">${abierta?'Acepto':'Aceptado'}</th></tr></thead><tbody>${filas}</tbody></table>
+      ${abierta?`<div class="muted" id="prop-total-${p.id}" style="font-size:12px;margin-top:6px"></div>
+        <textarea id="prop-com-${p.id}" rows="2" placeholder="Comentario para Kuranko (opcional)" style="width:100%;margin-top:8px;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--surface3);color:var(--text)"></textarea>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;flex-wrap:wrap">
+          <button class="btn btn-sec" onclick="responderProp(${p.id},'rechazar')">Rechazar</button>
+          <button class="btn btn-green" onclick="responderProp(${p.id},'aceptar')">Aceptar propuesta</button></div>`
+      :(p.nota_cliente?`<p class="muted" style="font-size:12px;margin-top:8px">Tu comentario: ${escP(p.nota_cliente)}</p>`:'')}
+    </div>`;}).join('');
+  propCache.filter(p=>p.estado==='enviada').forEach(p=>totalProp(p.id));
+}
+function totalProp(id){
+  const ins=[...document.querySelectorAll(`input[data-prop="${id}"]`)];
+  const t=ins.reduce((a,i)=>a+(parseInt(i.value)||0),0);
+  const p=propCache.find(x=>x.id===id);
+  const el=document.getElementById('prop-total-'+id); if(el)el.textContent=`Aceptas ${t} de ${p.unidades} unidades.`;
+}
+let respondiendoProp=false;
+async function responderProp(id,accion){
+  if(respondiendoProp)return;
+  const items=[...document.querySelectorAll(`input[data-prop="${id}"]`)].map(i=>({id:+i.dataset.item,cantidad:parseInt(i.value)||0}));
+  const t=items.reduce((a,i)=>a+i.cantidad,0);
+  if(accion==='aceptar'&&!t){showToast('Pusiste todo en 0. Si no quieres nada, usa Rechazar.',true);return;}
+  if(!confirm(accion==='aceptar'?`¿Aceptar la propuesta con ${t} unidades?`:'¿Rechazar esta propuesta?'))return;
+  respondiendoProp=true;
+  try{
+    await apiCall('/portal/propuestas/'+id+'/responder','POST',{accion,items,comentario:document.getElementById('prop-com-'+id).value});
+    showToast(accion==='aceptar'?'Propuesta aceptada ✓ Kuranko preparará la guía':'Propuesta rechazada');
+    cargarPropuestas();
+  }catch(e){showToast(e.message,true);}
+  finally{respondiendoProp=false;}
 }
 // RUC al que se factura lo vendido en cada consignación (lo define Kuranko)
 function escP(t){return String(t==null?'':t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}

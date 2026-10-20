@@ -1142,6 +1142,10 @@ async function abrirRecepcion(id){
     // una opción del admin y vive en Importación, no aquí.
     const soloLectura = rec.estado==='validada';
     document.getElementById('rec-acciones').style.display = soloLectura ? 'none' : '';
+    // El selector de almacén y el botón de extras son los MISMOS elementos para todas las
+    // recepciones: si antes se abrió una confirmada quedaron deshabilitados. Se rehabilitan aquí.
+    selA.disabled=false;
+    { const eb=document.querySelector('[onclick="recAbrirExtras()"]'); if(eb)eb.disabled=false; }
     if(soloLectura){
       document.querySelectorAll('#rec-almacen, #rec-items input, #rec-items select, #rec-items textarea, #rec-items button').forEach(el=>{ el.disabled=true; });
       const eb=document.querySelector('[onclick="recAbrirExtras()"]'); if(eb)eb.disabled=true;

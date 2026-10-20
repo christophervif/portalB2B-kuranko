@@ -872,10 +872,26 @@ async function enviarARecepcion(){
 // Eliminar una recepción — solo si aún NO fue validada por el almacén.
 async function eliminarRecepcionImp(id, nfact){
   const r=(recepListaCache||[]).find(x=>x.id===id);
-  if(r && r.estado==='validada'){ alert('No se puede eliminar: el almacén ya la validó.'); return; }
-  if(!confirm('¿Eliminar la recepción de la factura "'+(nfact||'')+'"? Esto la quita de la lista del almacén. (Solo se puede si aún no fue validada.)')) return;
-  try{ await recApi('/api/recepcion/'+encodeURIComponent(id),'DELETE'); await cargarRecepLista(); }
+  let force='';
+  if(r && r.estado==='validada'){
+    // Recepción ya confirmada por el almacén: solo el maestro, con doble confirmación
+    // (sirve para limpiar una recepción duplicada o de una importación que se borró).
+    if(!esMaestroImp()){ alert('No se puede eliminar: el almacén ya la validó.'); return; }
+    if(!confirm('⚠ El almacén YA CONFIRMÓ esta recepción (factura "'+(nfact||'')+'"'+(r.almacen_nombre?', almacén '+r.almacen_nombre:'')+').\n\nEliminarla borra también lo que el almacén contó. Úsalo solo si es un duplicado o su importación ya no existe.\n\n¿Eliminar de todas formas?')) return;
+    if(prompt('Para confirmar escribe ELIMINAR')!=='ELIMINAR') return;
+    force='?force=1';
+  } else if(!confirm('¿Eliminar la recepción de la factura "'+(nfact||'')+'"? Esto la quita de la lista del almacén.')) return;
+  try{ await recApi('/api/recepcion/'+encodeURIComponent(id)+force,'DELETE'); await cargarRecepLista(); }
   catch(e){ alert('No se pudo eliminar: '+e.message); }
+}
+// Recepción ligada a una importación guardada (por recepId, o por N° de factura + proveedor).
+async function recepcionDeGuardada(rec){
+  const m=(rec&&rec.meta)||{};
+  const normF=x=>String(x==null?'':x).replace(/[^A-Za-z0-9]/g,'').toUpperCase();
+  const prov=normF((m.proveedorNombre||m.proveedor||'').split('(')[0]);
+  let todas=[]; try{ todas=await recApi('/api/recepciones?incluir_archivadas=1')||[]; }catch(e){ return null; }
+  return todas.find(r=>(m.recepId&&r.id===m.recepId)) ||
+         todas.find(r=>normF(m.invoice)&&normF(r.n_factura)===normF(m.invoice)&&(!prov||normF(r.proveedor)===prov)&&!r.archivada) || null;
 }
 // Lista de TODAS las facturas en recepción (pendientes + validadas), una tras otra.
 async function cargarRecepLista(){
@@ -898,8 +914,8 @@ async function cargarRecepLista(){
     const marca=(r.id===cur)?' style="border-color:#f59e0b;background:#fff7ed"':'';
     const idJs=String(r.id).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
     // Botón eliminar: SOLO si aún no fue validada por el almacén (pendiente/borrador) y eres maestro.
-    const puedeBorrar = esMaestroImp() && r.estado!=='validada';
-    const btnDel = puedeBorrar ? `<button class="btn-sm" title="Eliminar esta recepción (aún no validada)" style="float:right;color:#b91c1c;border-color:#f3b0b0" onclick="event.stopPropagation();eliminarRecepcionImp('${idJs}','${esc(r.n_factura||'').replace(/'/g,"\\'")}')">🗑</button>` : '';
+    const puedeBorrar = esMaestroImp();
+    const btnDel = puedeBorrar ? `<button class="btn-sm" title="${r.estado==='validada'?'Eliminar (ya validada: pide doble confirmación)':'Eliminar esta recepción'}" style="float:right;color:#b91c1c;border-color:#f3b0b0" onclick="event.stopPropagation();eliminarRecepcionImp('${idJs}','${esc(r.n_factura||'').replace(/'/g,"\\'")}')">🗑</button>` : '';
     return `<div class="btn-sm" style="display:block;width:100%;text-align:left;margin:5px 0;padding:9px 11px"${marca} onclick="abrirRecepEnImp('${idJs}')">
       ${btnDel}<b>${esc(r.proveedor||'(sin proveedor)')}</b> · Fact. ${esc(r.n_factura||'—')} ${est}${dif}
       <span class="hint">(${r.n_items} ítem(s)${r.almacen_nombre?(' · '+esc(r.almacen_nombre)):''})</span>${r.id===cur?' — <b>esta importación</b>':''}
@@ -989,10 +1005,37 @@ function _facCargadaCoincide(r){
   const invN=normF(inv);
   return !!(invN && normF(r.n_factura)===invN && normF(r.proveedor)===normF(prov));
 }
+// Precios de la FACTURA para cada ítem de una recepción (la recepción no guarda precios:
+// se toman de la factura cargada ahora o del costeo guardado al enviarla al almacén).
+function preciosDeRecep(r,esActual){
+  const g=_savedDeRecep(r);
+  const fuente=(esActual&&typeof facMatches!=='undefined'&&facMatches&&facMatches.length)?facMatches:((g&&g.fac)||[]);
+  let mon=(esActual&&$('curFactSel'))?$('curFactSel').value:((g&&g.state&&g.state.cur&&g.state.cur.fact)||'');
+  if(!/^[A-Z]{3}$/.test(mon))mon=''; // 'auto' u otro: sin símbolo de moneda
+  const lin=fuente.filter(x=>x.item||x.desc||x.sku);
+  const nC=x=>String(x==null?'':x).replace(/[^A-Za-z0-9]/g,'').toUpperCase();
+  const usados=new Set(); let k=0;
+  const porItem=(r.items||[]).map(it=>{
+    if(it.es_extra)return null;
+    let j=k++;
+    // por posición; si el código no coincide, se busca el mismo código de factura
+    if(!lin[j]||(nC(lin[j].item)&&nC(it.codigo)&&nC(lin[j].item)!==nC(it.codigo))){
+      j=lin.findIndex((x,ix)=>!usados.has(ix)&&nC(x.item)&&nC(x.item)===nC(it.codigo));
+    }
+    if(j<0||!lin[j])return null;
+    usados.add(j);
+    const x=lin[j],unit=+x.exw||0,tot=(x.total!==''&&x.total!=null)?+x.total:unit*(+x.qty||0);
+    return {unit,total:tot};
+  });
+  return {porItem,mon,hay:porItem.some(Boolean)};
+}
+function _fmtP(n,mon){return n==null||isNaN(n)?'—':(mon?mon+' ':'')+(+n).toLocaleString('es-PE',{minimumFractionDigits:2,maximumFractionDigits:2});}
 function renderRecepEstado(){
   const det=$('recepDetalle'); const r=recepImp; if(!det||!r)return;
   const est=r.estado, val=est==='validada';
   const esActual = _facCargadaCoincide(r); // ¿es la factura cargada ahora en la app?
+  const PR=preciosDeRecep(r,esActual);
+  const celP=i=>{const p=PR.porItem[i];return `<td class="n">${p?_fmtP(p.unit,PR.mon):'—'}</td><td class="n">${p?_fmtP(p.total,PR.mon):'—'}</td>`;};
   const badge = val?'<span class="badge b-exact">validada</span>':(est==='borrador'?'<span class="badge b-rev">en progreso</span>':'<span class="badge b-rev">pendiente</span>');
   const conDif=(r.items||[]).filter(i=>i.cuadra===false||['falta','sobra','no_llego','extra'].includes(i.estado_item)).length;
   const rows=(r.items||[]).map((it,i)=>{
@@ -1005,7 +1048,7 @@ function renderRecepEstado(){
         <td>${esc(it.desc||'')} <span class="badge" style="background:#cffafe;color:#0e7490">✂ subdividido</span></td>
         <td class="sku">${esc(it.sku_sugerido||'')}</td>
         <td>${subList}<div style="font-size:11px;color:#64748b">${modoTxt}</div></td>
-        <td class="n">${it.cantidad==null?'—':it.cantidad}</td>
+        <td class="n">${it.cantidad==null?'—':it.cantidad}</td>${celP(i)}
         <td class="n">${it.cant_recibida==null?'—':it.cant_recibida}</td>
         <td><span class="badge b-exact">parte de factura</span></td></tr>`;
     }
@@ -1030,7 +1073,7 @@ function renderRecepEstado(){
       <td>${it.es_extra?'<i>llegó, no estaba en la factura</i>':esc(it.desc||'')}</td>
       <td class="sku" title="sugerido por el sistema">${esc(it.sku_sugerido||'')}${it.es_extra?'':(' '+recepConfBadge(it.confianza))}</td>
       <td>${skuCell}</td>
-      <td class="n">${it.cantidad==null?'—':it.cantidad}</td>
+      <td class="n">${it.cantidad==null?'—':it.cantidad}</td>${celP(i)}
       <td class="n" style="${dif?'color:#b91c1c;font-weight:700':''}">${recib}</td>
       <td>${estadoCell}</td>
     </tr>`;
@@ -1050,8 +1093,10 @@ function renderRecepEstado(){
     ${(r.validado_en||r.modificada_en)?('<div style="font-size:11px;margin-top:2px;color:#94a3b8">'+(r.validado_en?('confirmada '+_recFecha(r.validado_en)):'')+(r.modificada_en?(' · ✎ modificada '+_recFecha(r.modificada_en)):'')+'</div>'):''}
     ${val?'':'<div class="hint" style="margin-top:6px">Aún no confirmado por el almacén. Actualiza con ↻ Actualizar.</div>'}
     <div class="tw" style="margin-top:8px"><table>
-      <thead><tr><th>Cód. factura</th><th>Descripción</th><th>SKU sugerido</th><th>SKU confirmado</th><th class="n">Cant. factura</th><th class="n">Cant. recibida</th><th>Estado</th></tr></thead>
-      <tbody>${rows}</tbody></table></div>
+      <thead><tr><th>Cód. factura</th><th>Descripción</th><th>SKU sugerido</th><th>SKU confirmado</th><th class="n">Cant. factura</th><th class="n">Precio unit. factura</th><th class="n">Total factura</th><th class="n">Cant. recibida</th><th>Estado</th></tr></thead>
+      <tbody>${rows}</tbody>
+      ${PR.hay?`<tfoot><tr><td colspan="5" style="text-align:right;font-weight:700">Total factura</td><td></td><td class="n" style="font-weight:700">${_fmtP(PR.porItem.reduce((a,p)=>a+(p?p.total:0),0),PR.mon)}</td><td colspan="2"></td></tr></tfoot>`:''}</table></div>
+    ${PR.hay?'':'<div class="hint" style="margin-top:4px">Sin precios: no encuentro la factura de esta recepción (ábrela en Factura → SKU o en 💾 Guardadas).</div>'}
     <div class="actions" style="margin-top:10px">
       ${esMaestroImp()?'<button class="btn-sm" onclick="recepGuardarCorreccion()">💾 Guardar correcciones de SKU</button>':''}
       ${(esMaestroImp()&&val&&!r.archivada)?'<button class="btn-sm" style="border-color:#fca5a5;color:#b91c1c" title="Quita el bloqueo para que el almacén pueda modificar y reconfirmar la recepción" onclick="recepReabrir()">🔓 Reabrir para el almacén</button>':''}
@@ -1361,7 +1406,22 @@ async function marcarSubidasERP(){
   _erpChkAt=Date.now();
   _erpPintaTodo(); // rebusca las celdas actuales y pinta el resultado
 }
-function eliminarImportacion(id){if(!confirm('¿Eliminar esta importación guardada?'))return;saved=saved.filter(r=>r.id!==id);apiSend('/importaciones/'+encodeURIComponent(id),'DELETE');renderSavedList();}
+async function eliminarImportacion(id){
+  if(!confirm('¿Eliminar esta importación guardada?'))return;
+  const rec=saved.find(r=>r.id===id);
+  saved=saved.filter(r=>r.id!==id);apiSend('/importaciones/'+encodeURIComponent(id),'DELETE');renderSavedList();
+  // Si tenía una recepción en el almacén que sigue activa (no archivada), ofrecer borrarla también
+  // para que no quede una recepción "huérfana" en la lista del almacenero.
+  try{
+    const r=await recepcionDeGuardada(rec);
+    if(r&&!r.archivada&&!saved.some(x=>x.meta&&(x.meta.recepId===r.id))){
+      if(r.estado==='validada'){ alert('Ojo: la recepción de la factura "'+(r.n_factura||'')+'" sigue en la pestaña Recepción (el almacén ya la confirmó). Si era un duplicado, elimínala desde Recepción con 🗑.'); }
+      else if(confirm('Esta importación tenía una recepción en el almacén (factura "'+(r.n_factura||'')+'", '+r.estado+').\n\n¿Eliminarla también para que no le quede al almacenero?')){
+        await recApi('/api/recepcion/'+encodeURIComponent(r.id),'DELETE'); if(typeof cargarRecepLista==='function')cargarRecepLista();
+      }
+    }
+  }catch(e){}
+}
 function cargarImportacion(id){
   const r=saved.find(x=>x.id===id);if(!r)return;const s=r.state,m=r.meta;
   if($('tipoImp'))$('tipoImp').value=(r.tipo||(s.real&&s.real.enabled?'Compra':'Cotización'));

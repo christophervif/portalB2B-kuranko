@@ -441,6 +441,15 @@ function computeImport(s){
   const B14=+s.gastos.cif.flete||0,B15=+s.gastos.cif.seguro||0,B16=+s.gastos.cif.otros||0;const B12=B14+B15+B16;
   const B20=+s.gastos.origen.imo||0,B21=+s.gastos.origen.eur1||0;const B18=B20+B21+(+s.gastos.origen.pickup||0)+(+s.gastos.origen.otros||0);
   const F11=sum(s.gastos.locales.map(g=>g.monto));const F13=localesIGV?F11/1.18*0.18:0;const F12=F11-F13;
+  // Cada grupo de gastos (CIF, origen, locales) se pasa a soles con SU PROPIO T.C. y se
+  // lleva a la MONEDA DE CÁLCULO del costo teórico:
+  //  - factura USD → el costo se arma en USD y al final se multiplica por el TC facturación;
+  //    por eso un gasto en soles/EUR se pasa a soles (× su T.C.) y luego a USD (÷ TC facturación),
+  //    para que al multiplicar al final vuelva a valer exactamente su monto en soles.
+  //  - factura en otra moneda → todo se arma en soles (× su T.C.).
+  const aCalc=(x,M,L)=>(J1==='USD')?(M==='USD'?x:(I1?x*L/I1:0)):x*L;
+  // Base de aduanas (impuestos teóricos, en USD): soles ÷ TC SUNAT dólar; otra moneda × TC SUNAT ÷ TC SUNAT dólar.
+  const aAdu=(x,M)=>M==='USD'?x:(M==='PEN'?(I4?x/I4:0):(I4?x*I3/I4:0));
   const R=s.real||{};const M8=R.enabled?(+R.M8||0):0;const N8=R.enabled?(+R.N8||0):0;const O8=M8+N8;
   const N14=+R.N14||0,N15=+R.N15||0,N20=+R.N20||0,N21=+R.N21||0;const denom=N14+N15+N20+N21;
   const O14=denom?M8*N14/denom:0,O15=denom?M8*N15/denom:0,O16=N8,O20=denom?M8*N20/denom:0,O21=denom?M8*N21/denom:0;
@@ -461,19 +470,19 @@ function computeImport(s){
   const sIMOsi=sum(it.filter(r=>r.imo==='si').map(r=>r.subEXW)),sAVnb=sum(it.filter(r=>r.avLibRaw!=='').map(r=>r.subEXW));
   it.forEach(r=>{r.factorIMO=(r.avLibRaw!==''&&sIMOsi)?r.subEXW/sIMOsi:0;r.factorEUR1=(r.avLibRaw!==''&&sAVnb)?r.subEXW/sAVnb:0;});
   const facPror=r=>(s.prorateo==='PESO'?r.factorPeso:r.factorEXW),facProrFOB=r=>(s.prorateo==='PESO'?r.factorPeso:r.factorFOB);
-  it.forEach(r=>{const core=(B18-B20-B21)*facPror(r);r.gastosOrigen=(M2==='USD'&&J1==='USD')?core+B20*r.factorIMO+B21*r.factorEUR1:L2*(core+B20*r.factorIMO+B21*r.factorEUR1);
+  it.forEach(r=>{const core=(B18-B20-B21)*facPror(r);r.gastosOrigen=aCalc(core+B20*r.factorIMO+B21*r.factorEUR1,M2,L2);
     r.fobItem=(J1==='USD')?r.gastosOrigen+r.subEXW:r.gastosOrigen+r.subEXW*I1;});
   const sumFOB=sum(it.map(r=>r.fobItem));it.forEach(r=>{r.factorFOB=sumFOB===0?0:r.fobItem/sumFOB;});
-  it.forEach(r=>{r.gastosCIF=(M1==='USD'&&J1==='USD')?(B12-B14)*r.factorFOB+B14*facProrFOB(r):L1*(B12-B14)*r.factorFOB+L1*B14*facProrFOB(r);r.cifItem=r.gastosCIF+r.fobItem;});
-  it.forEach(r=>{const t1=(M2==='USD')?(B18-B20-B21)*r.factorEXW:(B18-B20-B21)*r.factorEXW*I3/I4;const exwAdu=(r.exwAduanas==='')?r.subEXW:r.exwAduanas*r.cantidad;
+  it.forEach(r=>{r.gastosCIF=aCalc((B12-B14)*r.factorFOB+B14*facProrFOB(r),M1,L1);r.cifItem=r.gastosCIF+r.fobItem;});
+  it.forEach(r=>{const t1=aAdu((B18-B20-B21)*r.factorEXW,M2);const exwAdu=(r.exwAduanas==='')?r.subEXW:r.exwAduanas*r.cantidad;
     const t2=(J1==='USD')?exwAdu:exwAdu*I3/I4;r.fobAduUSD=t1+t2;});
   const sumFobAdu=sum(it.map(r=>r.fobAduUSD));
   it.forEach(r=>{r.pSeguro=rateR(r,'seguro');r.pAV=rateR(r,'av');r.pISC=rateR(r,'isc');r.pIGV=rateR(r,'igv');r.pIPM=rateR(r,'ipm');r.pPercep=percep;
     r.seguro=(D15==='')?r.fobAduUSD*r.pSeguro:(sumFobAdu?D15*r.fobAduUSD/sumFobAdu:0);
-    const cifCore=(M1==='USD'&&M2==='USD')?r.factorEXW*B12+(B20+B21)*r.factorEXW:r.factorEXW*B12*I3/I4+(B20+B21)*r.factorEXW*I3/I4;r.cifAduUSD=r.fobAduUSD+r.seguro+cifCore;});
+    const cifCore=aAdu(r.factorEXW*B12,M1)+aAdu((B20+B21)*r.factorEXW,M2);r.cifAduUSD=r.fobAduUSD+r.seguro+cifCore;});
   it.forEach(r=>{r.avTeo=r.cifAduUSD*r.pAV;r.av=r.avTeo*(1-(r.avLibRaw===''?0:r.avLibRaw));r.iscTeo=r.cifAduUSD*r.pISC;r.isc=r.cifAduUSD*r.pISC;
     r.baseTeo=r.cifAduUSD+r.avTeo+r.iscTeo;r.base=r.cifAduUSD+r.av+r.isc;r.igvTeo=r.baseTeo*r.pIGV;r.igv=r.base*r.pIGV;r.ipmTeo=r.baseTeo*r.pIPM;r.ipm=r.base*r.pIPM;
-    r.percep=(r.base+r.igv+r.ipm)*r.pPercep;r.gastosLoc=(M3==='USD'&&J1==='USD')?F12*r.factorFOB:F12*r.factorFOB*L3;});
+    r.percep=(r.base+r.igv+r.ipm)*r.pPercep;r.gastosLoc=aCalc(F12*r.factorFOB,M3,L3);});
   const sAV=sum(it.map(r=>r.av)),sIGV=sum(it.map(r=>r.igv)),sIPM=sum(it.map(r=>r.ipm)),sPer=sum(it.map(r=>r.percep)),sISC=sum(it.map(r=>r.isc));
   // Los impuestos teóricos están en USD (base de aduanas). Si la factura NO es USD, se pasan a soles con el TC SUNAT dólar antes de sumarlos al costo (que ya está en soles). Si es USD, se mantienen en USD y todo el costo se convierte al final con el TC facturación.
   const tcTax=(J1==='USD')?1:I4;

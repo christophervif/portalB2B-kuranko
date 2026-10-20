@@ -1,0 +1,2425 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin — Portal B2B Kuranko</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/hammerjs/2.0.8/hammer.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-zoom/2.0.1/chartjs-plugin-zoom.min.js"></script>
+<style>
+/* ── Recepción de mercadería ── */
+.rec-badge{display:inline-block;min-width:18px;padding:0 5px;margin-left:4px;border-radius:9px;background:#e11d48;color:#fff;font-size:11px;font-weight:800;line-height:18px;text-align:center;vertical-align:middle}
+.rec-card{background:var(--surface,#111a44);border:1px solid var(--border,#212b54);border-radius:12px;padding:14px;margin:10px 0;cursor:pointer}
+.rec-card:hover{background:var(--hover,#1a2450)}
+.rec-card .r-top{display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap}
+.rec-chip{font-size:11px;font-weight:800;padding:3px 9px;border-radius:20px;white-space:nowrap}
+.rec-chip.pend{background:var(--bg-warn,#3d3315);color:var(--fg-warn,#ffcb52)}
+.rec-chip.bor{background:#1e335e;color:#8fb8ff}
+.rec-chip.val{background:var(--bg-ok,#163a29);color:var(--fg-ok,#6ee59a)}
+.rec-chip.dif{background:var(--bg-r,#3f1c20);color:var(--fg-r,#f79a9a)}
+.rec-item{background:var(--surface,#111a44);border:1px solid var(--border,#212b54);border-radius:12px;padding:12px;margin:10px 0}
+.rec-item.ok{border-left:4px solid #22c55e}
+.rec-item.diff{border-left:4px solid #ef4444}
+.rec-item .ri-desc{font-weight:700;font-size:14px;margin-bottom:2px}
+.rec-item .ri-cod{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--muted,#8a93b4)}
+.rec-field{margin-top:8px}
+.rec-field label{display:block;font-size:12px;font-weight:700;color:var(--text2,#c6cee2);margin-bottom:3px}
+.rec-input{width:100%;padding:9px;border:1px solid var(--border,#cbd5e1);border-radius:8px;background:var(--surface2,#0e1640);color:var(--text,#eef1f8);font-size:14px;box-sizing:border-box}
+.rec-cuadra{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.rec-cuadra button{flex:1;min-width:90px;padding:9px;border-radius:8px;border:1px solid var(--border,#cbd5e1);background:var(--surface2,#0e1640);color:var(--text2,#c6cee2);font-weight:700;font-size:13px;cursor:pointer}
+.rec-cuadra button.on-si{background:#14532d;border-color:#22c55e;color:#bbf7d0}
+.rec-cuadra button.on-no{background:#4c1d24;border-color:#ef4444;color:#fecaca}
+.rec-sug{margin-top:6px;position:relative}
+.rec-sug-list{position:absolute;left:0;right:0;z-index:20;background:var(--surface,#111a44);border:1px solid var(--border,#212b54);border-radius:8px;max-height:220px;overflow:auto;display:none}
+.rec-sug-list div{padding:8px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--border,#212b54)}
+.rec-sug-list div:hover{background:var(--hover,#1a2450)}
+.rec-sug-list .rs-sku{font-family:ui-monospace,Menlo,monospace;font-weight:700}
+@media(max-width:640px){#tab-recepciones .card{padding:12px}}
+</style>
+<style>
+:root{
+  --bg:#0a1030;--surface:#111a44;--surface2:#0e1640;--surface3:#18224e;
+  --border:#212b54;--text:#eef1f8;--text2:#c6cee2;--muted:#8a93b4;--muted2:#a2abca;
+  --accent:#FFB30D;--accent-text:#000726;--accent-h:#e6a00c;--hover:#1a2450;--white:#ffffff;
+  --bg-ok:#163a29;--fg-ok:#6ee59a;--bg-warn:#3d3315;--fg-warn:#ffcb52;--bg-r:#3f1c20;--fg-r:#f79a9a;
+  --radius:18px;--radius-sm:12px;--radius-lg:22px;
+  --shadow:0 4px 20px rgba(0,0,0,.16);--shadow-sm:0 2px 8px rgba(0,0,0,.10);
+}
+[data-theme="light"]{
+  --bg:#f6f8fd;--surface:#ffffff;--surface2:#fbfcff;--surface3:#f2f5fb;
+  --border:#eaeff8;--text:#1a2140;--text2:#4a5680;--muted:#9aa3c0;--muted2:#727e9f;
+  --accent:#FFB30D;--accent-text:#000726;--accent-h:#e6a00c;--hover:#f6f8fd;--white:#1a2140;
+  --bg-ok:#e8f8ef;--fg-ok:#1f9c56;--bg-warn:#fdf5db;--fg-warn:#9a6b00;--bg-r:#fdeded;--fg-r:#dc4b4b;
+  --radius:18px;--radius-sm:12px;--radius-lg:22px;
+  --shadow:0 4px 24px rgba(30,45,90,.05);--shadow-sm:0 2px 10px rgba(30,45,90,.04);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;transition:background .2s,color .2s}
+.header{background:var(--surface);border-bottom:1px solid var(--border);padding:1rem 1.5rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
+.header h1{font-size:1rem;font-weight:600;color:var(--white)}
+.header .sub{font-size:12px;color:var(--muted)}
+.btn{background:var(--accent);border:none;color:var(--accent-text);border-radius:var(--radius-sm);padding:10px 20px;font-size:13px;cursor:pointer;font-weight:600;transition:background .15s,transform .1s,box-shadow .15s;box-shadow:var(--shadow-sm)}
+.btn:hover{background:var(--accent-h);box-shadow:var(--shadow)}.btn:active{transform:scale(.97)}
+.btn-sec{background:var(--surface3);border:1px solid var(--border);color:var(--text2);box-shadow:none}
+.btn-sm{padding:6px 14px;font-size:12px;border-radius:10px}
+.btn-danger{background:var(--bg-r);color:var(--fg-r);box-shadow:none}.btn-ok{background:var(--bg-ok);color:var(--fg-ok);box-shadow:none}
+.wrap{max-width:1100px;margin:0 auto;padding:1.5rem}
+.login-box{max-width:380px;margin:5rem auto;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:2.25rem;position:relative;box-shadow:var(--shadow)}
+.login-box h2{font-size:1.1rem;margin-bottom:.5rem;color:var(--white)}
+.login-box p{font-size:13px;color:var(--muted);margin-bottom:1.5rem}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:12px;color:var(--muted2);margin-bottom:4px}
+.field input,.field select{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:11px 13px;font-size:16px;transition:border-color .15s}
+.field input:focus,.field select:focus{outline:none;border-color:var(--accent)}
+.err{font-size:13px;color:var(--fg-r);margin-top:8px;display:none}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-bottom:1.5rem;overflow-x:auto}
+.tab{font-size:13px;padding:10px 17px;cursor:pointer;border:none;background:none;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;flex-shrink:0;transition:color .15s}
+.tab:hover{color:var(--text2)}
+.tab.active{color:var(--white);border-bottom-color:var(--accent)}
+.panel{display:none}.panel.active{display:block}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.75rem;margin-bottom:1.35rem;box-shadow:var(--shadow-sm)}
+.card h3{font-size:14px;font-weight:600;margin-bottom:6px;color:var(--white)}
+.card .desc{font-size:12px;color:var(--muted);margin-bottom:1.15rem;line-height:1.6}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:8px;color:var(--muted2);font-weight:500;font-size:11px;border-bottom:1px solid var(--border);text-transform:uppercase}
+td{padding:8px;border-bottom:1px solid var(--border);color:var(--text2)}
+tr:hover td{background:var(--hover)}
+.badge{font-size:11px;padding:3px 10px;border-radius:20px;font-weight:600}
+.badge-on{background:var(--bg-ok);color:var(--fg-ok)}.badge-off{background:var(--bg-r);color:var(--fg-r)}
+.badge-warn{background:var(--bg-warn);color:var(--fg-warn)}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--bg-ok);color:var(--fg-ok);padding:13px 20px;border-radius:var(--radius-sm);font-size:13px;display:none;z-index:100;border:1px solid var(--border);max-width:320px;box-shadow:var(--shadow)}
+.toast.err{background:var(--bg-r);color:var(--fg-r)}
+.search{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:10px 13px;font-size:14px;margin-bottom:10px}
+.muted{color:var(--muted);font-size:12px}
+.loading{text-align:center;padding:2rem;color:var(--muted)}
+@media(max-width:600px){
+  .wrap{padding:1rem}
+  table.cardmode thead{display:none}
+  table.cardmode,table.cardmode tbody,table.cardmode tr,table.cardmode td{display:block;width:100%}
+  table.cardmode tbody tr{background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;padding:6px}
+  table.cardmode td{border:none;padding:6px 10px;display:flex;justify-content:space-between;align-items:center;gap:10px;text-align:right}
+  table.cardmode td::before{content:attr(data-label);color:var(--muted);font-size:11px;text-transform:uppercase;font-weight:600;text-align:left}
+  table.cardmode td[data-label="Acciones"]{flex-wrap:wrap;justify-content:flex-end}
+}
+.modulos-check{display:flex;flex-wrap:wrap;gap:10px 20px;margin:8px 0}
+.chk{display:inline-flex;align-items:center;gap:7px;font-size:13px;cursor:pointer;white-space:nowrap}
+.chk input{cursor:pointer;margin:0;flex:none}
+.acc-row{border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:12px}
+.acc-head{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.pill{display:inline-block;background:var(--accent);color:var(--accent-text);border-radius:12px;padding:3px 10px;font-size:12px;margin:2px}
+.cod{background:rgba(0,0,0,.25);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-family:monospace;font-size:13px;margin:8px 0;line-height:1.7}
+.cod-inline{font-family:monospace;background:rgba(0,0,0,.2);padding:2px 6px;border-radius:5px}
+.estado-box{border-radius:8px;padding:10px 14px;font-size:13px;line-height:1.5}
+.estado-box.activo{background:#fef3c7;color:#92400e;border:1px solid #fcd34d}
+.estado-box.inactivo{background:rgba(22,163,74,.12);color:#16a34a;border:1px solid rgba(22,163,74,.3)}
+.tabla{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}
+.tabla th{background:var(--surface3);color:var(--white);padding:8px 10px;text-align:left;white-space:nowrap}
+.tabla td{padding:7px 10px;border-bottom:1px solid var(--border)}
+.tabla tr:hover{background:rgba(0,0,0,.03)}
+.subtabs{display:flex;gap:6px;border-bottom:1px solid var(--border);margin-bottom:14px}
+.subtab{background:none;border:none;color:var(--muted);padding:8px 14px;font-size:14px;cursor:pointer;border-bottom:2px solid transparent;font-weight:600}
+.subtab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.subpanel{display:none}
+.subpanel.active{display:block}
+.filtros-fila{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.filtros-fila select,.filtros-fila input{flex:1;min-width:180px;padding:9px 12px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--surface2);color:inherit;font-size:13px;transition:border-color .15s}
+.filtros-fila select:focus,.filtros-fila input:focus{outline:none;border-color:var(--accent)}
+.dbcard{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:1.15rem;margin-bottom:1.15rem;box-shadow:var(--shadow-sm)}
+.dbcard h4{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:1rem}
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:1.25rem}
+.kpi{background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:1.1rem}
+.kpi-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
+.kpi-val{font-size:1.3rem;font-weight:600;color:var(--white)}
+.kpi-sub{font-size:11px;color:var(--accent);margin-top:3px}
+.kpi.accent{border-color:var(--accent)}
+.card-note{font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.5}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem}
+.deudas-tbl{width:100%;border-collapse:collapse;font-size:13px;min-width:640px}
+.deudas-tbl th{background:var(--surface3);color:var(--muted2);padding:10px 12px;text-align:left;white-space:nowrap;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.03em}
+.deudas-tbl td{padding:11px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+.deudas-tbl tr.deu-main{cursor:pointer;transition:background .12s}
+.deudas-tbl tr.deu-main:hover td{background:var(--hover)}
+.deudas-tbl tr.deu-venta{cursor:pointer}
+.deudas-tbl tr.deu-venta:hover td{background:var(--surface3)}
+.deu-arrow{display:inline-block;transition:transform .15s;color:var(--muted);font-size:11px}
+.ct-ico{cursor:pointer;font-size:15px;margin:0 3px;opacity:.85;transition:opacity .12s}
+.ct-ico:hover{opacity:1}
+#deu-tabla{overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-sm)}
+.deudas-tbl thead th:first-child{border-top-left-radius:var(--radius)}
+.deudas-tbl thead th:last-child{border-top-right-radius:var(--radius)}
+@media(max-width:700px){.two-col{grid-template-columns:1fr}}
+.dtable{width:100%;border-collapse:collapse;font-size:13px}
+.dtable th{text-align:left;padding:7px 8px;color:var(--muted);font-weight:600;font-size:11px;border-bottom:1px solid var(--border);cursor:pointer;user-select:none;white-space:nowrap}
+.dtable th:hover{color:var(--white)}
+.dtable th.sortable::after{content:' ⇅';color:var(--muted);font-size:10px}
+.dtable th.sort-asc::after{content:' ↑';color:var(--accent)}
+.dtable th.sort-desc::after{content:' ↓';color:var(--accent)}
+.dtable td{padding:8px;border-bottom:1px solid var(--border)}
+.dtable tr:last-child td{border:none}
+.dtable tr:hover td{background:var(--hover)}
+.badge{font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600}
+.badge-g{background:var(--bg-ok);color:var(--fg-ok);padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600}.badge-y{background:var(--bg-warn);color:var(--fg-warn);padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600}.badge-r{background:var(--bg-r);color:var(--fg-r);padding:2px 9px;border-radius:20px;font-size:11px;font-weight:600}
+.badge-alto{background:#3C3489;color:#CECBF6}.badge-medio{background:#633806;color:#FAC775}.badge-bajo{background:#444441;color:#D3D1C7}
+.empresa-card{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:1rem;margin-bottom:10px}
+/* ── Ventas e ingresos: selector de empresa, controles del gráfico, tabla mes a mes ── */
+.vi-barra{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;margin-bottom:14px}
+.seg{display:inline-flex;background:var(--surface3);border:1px solid var(--border);border-radius:10px;padding:3px;gap:2px;flex-wrap:wrap}
+.seg button{background:none;border:none;color:var(--muted2);font-size:13px;font-weight:600;padding:7px 12px;border-radius:7px;cursor:pointer;white-space:nowrap}
+.seg button:hover{color:var(--text)}
+.seg button.on{background:var(--accent);color:var(--accent-text)}
+.seg.sm button{font-size:12px;padding:5px 10px}
+.vi-emp-lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+.vi-ctrl{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin-bottom:10px}
+.vi-ctrl span{font-size:12px;color:var(--muted)}
+.vi-presets{display:flex;gap:6px;flex-wrap:wrap}
+.mm-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius-sm)}
+.mm{border-collapse:collapse;font-size:12.5px;min-width:100%}
+.mm th,.mm td{padding:7px 10px;border-bottom:1px solid var(--border);text-align:right;white-space:nowrap}
+.mm thead th{background:var(--surface3);color:var(--muted2);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.03em}
+.mm th:first-child,.mm td:first-child{position:sticky;left:0;background:var(--surface2);text-align:left;z-index:1}
+.mm thead th:first-child{background:var(--surface3)}
+.mm tr.mm-grupo td{background:var(--surface3);font-weight:700;color:var(--text);text-align:left;font-size:12px;letter-spacing:.02em}
+.mm tr.mm-grupo td:first-child{background:var(--surface3)}
+.mm td .dv{display:block;font-size:10.5px;font-weight:600;margin-top:1px}
+.mm td .dv.up{color:var(--fg-ok)}.mm td .dv.dn{color:var(--fg-r)}.mm td .dv.eq{color:var(--muted)}
+.mm td.cero{color:var(--muted)}
+.mm tr:hover td{background:var(--hover)}
+.cob-ok{color:var(--fg-ok)}.cob-warn{color:var(--fg-warn)}.cob-bad{color:var(--fg-r)}
+.kpi-d{font-size:10.5px;color:var(--muted);margin-top:5px;line-height:1.4}
+.kpi-d .up{color:var(--fg-ok);font-weight:700}.kpi-d .dn{color:var(--fg-r);font-weight:700}.kpi-d .eq{font-weight:700}
+.empresa-name{font-size:14px;font-weight:600;margin-bottom:10px}
+.empresa-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.estat{background:var(--surface3);border-radius:8px;padding:8px}
+.estat-label{font-size:11px;color:var(--muted);margin-bottom:3px}.estat-val{font-size:15px;font-weight:600}
+.ret-bar{background:var(--surface3);border-radius:20px;height:8px;overflow:hidden;margin-top:6px}
+.ret-fill{height:100%;border-radius:20px;background:var(--accent)}
+.legend{display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+.legend span{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.db-aviso{border-radius:6px;padding:10px 14px;margin-bottom:8px;font-size:13px;line-height:1.5}
+.db-aviso-y{background:rgba(186,117,23,.12);border-left:3px solid #BA7517}
+.db-aviso-r{background:rgba(226,75,74,.12);border-left:3px solid #E24B4A}
+@media(max-width:700px){
+  table.responsive thead{display:none}
+  table.responsive,table.responsive tbody,table.responsive tr,table.responsive td{display:block;width:100%}
+  table.responsive tr{background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;padding:6px 4px}
+  table.responsive td{border:none !important;padding:7px 12px;display:flex;justify-content:space-between;align-items:center;text-align:right;gap:12px}
+  table.responsive td::before{content:attr(data-label);color:var(--muted);font-size:11px;text-transform:uppercase;font-weight:600;text-align:left;flex-shrink:0}
+  table.responsive td[data-label=""]::before,table.responsive td:not([data-label])::before{content:none}
+  table.responsive{min-width:0 !important}
+  .kpi-grid{grid-template-columns:1fr 1fr}
+  .two-col{grid-template-columns:1fr}
+  .filtros-fila{flex-direction:column;align-items:stretch}
+  .filtros-fila input,.filtros-fila select,.filtros-fila .btn{width:100%}
+  .filtros-fila label{width:100%}
+  .filtros-fila label input{margin-top:2px}
+  /* Tablas nuevas (deudas, conciliación): mantener encabezado, scroll horizontal cómodo */
+  .deudas-tbl{font-size:12px;min-width:560px}
+  .deudas-tbl thead th{padding:8px 8px;font-size:10px}
+  .deudas-tbl td{padding:9px 8px}
+  #deu-tabla,#conc-tabla{-webkit-overflow-scrolling:touch}
+  .dbcard{padding:12px}
+  .card{padding:1.15rem}
+}
+/* ── Launcher de apps (pantalla inicial tipo escritorio) ── */
+#launcher{padding:8px 0 24px}
+.launcher-saludo{font-size:15px;color:var(--text-soft,#8ea0d0);margin-bottom:20px}
+.launcher-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:16px;max-width:760px}
+.app-card{border:1px solid var(--border);border-radius:18px;padding:24px 14px;text-align:center;background:var(--surface);cursor:pointer;transition:transform .12s,box-shadow .15s,background .15s;box-shadow:var(--shadow-sm)}
+.app-card:hover{transform:translateY(-3px);box-shadow:0 8px 24px rgba(0,0,0,.18);background:var(--surface3)}
+.app-card:active{transform:translateY(-1px)}
+.app-card .ico{font-size:34px;line-height:1;margin-bottom:10px;display:block}
+.app-card .nom{font-size:13px;font-weight:600;color:var(--text)}
+.btn-inicio{background:var(--surface3);color:var(--text);border:1px solid var(--border)}
+/* Puntitos de acceso por usuario (solo visibles para el maestro) */
+.app-card{position:relative}
+.acc-dots{position:absolute;top:9px;right:10px;display:flex;gap:4px}
+.acc-dot{width:7px;height:7px;border-radius:50%;display:inline-block;opacity:.75;cursor:default}
+</style>
+</head>
+<body>
+
+<div id="login-screen">
+  <div class="login-box">
+    <button class="btn btn-sec btn-sm" id="theme-btn-login" onclick="toggleTema()" style="position:absolute;top:1rem;right:1rem">🌙</button>
+    <h2>🔐 Panel de Administración</h2>
+    <p>Portal B2B Kuranko — acceso solo para administrador</p>
+    <div class="field"><label>Usuario</label><input type="text" id="adm-user" autocomplete="username"></div>
+    <div class="field"><label>Contraseña</label><input type="password" id="adm-pass" autocomplete="current-password"></div>
+    <button class="btn" style="width:100%" onclick="loginAdmin()">Ingresar</button>
+    <div class="err" id="login-err"></div>
+  </div>
+</div>
+
+<div id="app-screen" style="display:none">
+  <div class="header">
+    <div><h1>Panel de Administración</h1><div class="sub">Portal B2B Kuranko</div></div>
+    <div>
+      <button class="btn btn-inicio btn-sm" id="btn-inicio" onclick="irInicio()" style="display:none">🏠 Inicio</button>
+      <button class="btn btn-sec btn-sm" id="theme-btn" onclick="toggleTema()">🌙</button>
+      <button class="btn btn-sec btn-sm" onclick="logout()">Salir</button>
+    </div>
+  </div>
+  <div class="wrap">
+    <div id="launcher">
+      <div class="launcher-saludo">Elige una herramienta para empezar</div>
+      <div class="launcher-grid" id="launcher-grid"></div>
+    </div>
+    <div class="tabs" id="tabs-bar" style="display:none">
+      <button class="tab active" onclick="tab('clientes_gestion',this)">Gestión de clientes</button>
+      <button class="tab" data-modulos="resumen,caja_bi,rentabilidad,gastos,rendimiento,auditoria_vc" onclick="tab('ventas_ingresos',this)">Ventas y compras</button>
+      <button class="tab" onclick="tab('cotizador',this)">Cotizador</button>
+      <button class="tab" onclick="tab('precio_importado',this)">Precio importado</button>
+      <button class="tab" onclick="tab('bikes',this)">Bikes a pedido</button>
+      <button class="tab" onclick="tab('asistencia',this)">Asistencia</button>
+      <button class="tab" data-modulos="conciliacion" onclick="tab('conciliacion',this)">Conciliación</button>
+      <button class="tab" onclick="tab('clientes_bi',this)">Clientes BI</button>
+      <button class="tab" data-modulos="cuentas_cobrar" onclick="tab('cuentas_cobrar',this)">Cuentas por cobrar</button>
+      <button class="tab" data-modulos="saldo_favor" onclick="tab('saldo_favor',this)">Créditos</button>
+      <button class="tab" onclick="tab('inventario',this)">Inventario</button>
+      <button class="tab" data-modulos="inventario" onclick="tab('promociones',this)">Promociones</button>
+      <button class="tab" onclick="tab('restock',this)">Restock</button>
+      <button class="tab" onclick="tab('facturacion',this)">Facturación</button>
+      <button class="tab" onclick="tab('reportes',this)">Contabilidad</button>
+      <button class="tab" onclick="tab('auditoria',this)">Auditoría de catálogo</button>
+      <button class="tab" onclick="tab('crm',this)">CRM Kommo</button>
+      <button class="tab" onclick="tab('importaciones',this)">Importaciones</button>
+      <button class="tab" onclick="tab('recepciones',this)">Recepciones <span id="rec-badge" class="rec-badge" style="display:none">0</span></button>
+      <button class="tab" onclick="tab('seguimiento',this)">Seguimiento <span id="seg-badge" class="rec-badge" style="display:none">0</span></button>
+      <button class="tab" data-modulos="sync,pagos,accesos" onclick="tab('sistemas',this)">Sistemas</button>
+    </div>
+
+    <div id="tab-clientes_gestion" class="panel active">
+      <div class="card" style="padding:0;overflow:hidden">
+        <iframe id="gest-frame" title="Gestión de clientes"
+          style="width:100%;height:calc(100vh - 150px);min-height:560px;border:0;display:block"></iframe>
+      </div>
+    </div>
+
+    <div id="tab-auditoria" class="panel">
+      <div class="card" style="padding:0;overflow:hidden">
+        <iframe id="aud-frame" title="Auditoría de catálogo"
+          style="width:100%;height:calc(100vh - 150px);min-height:560px;border:0;display:block"></iframe>
+      </div>
+    </div>
+
+    <div id="tab-ventas_ingresos" class="panel">
+      <div class="subtabs" id="vc-subtabs">
+        <button class="subtab active" id="vc-t-ventas" onclick="vcSub('ventas')">Ventas e ingresos</button>
+        <button class="subtab" id="vc-t-gastos" data-modulo="gastos" onclick="vcSub('gastos')">Compras y gastos</button>
+        <button class="subtab" id="vc-t-rendimiento" data-modulo="rendimiento" onclick="vcSub('rendimiento')">Rendimiento</button>
+        <button class="subtab" id="vc-t-auditoria-ventas" data-modulo="auditoria_vc" onclick="vcSub('auditoria-ventas')">Auditoría</button>
+      </div>
+      <div class="subpanel active" id="vc-ventas">
+      <div class="card">
+        <div class="vi-barra">
+          <span class="vi-emp-lbl">Empresa</span>
+          <div class="seg" id="vi-empresas"><button class="on" data-emp="" onclick="viSetEmpresa('',this)">Todas</button></div>
+        </div>
+        <div class="filtros-fila" style="align-items:center">
+          <label style="font-size:13px">Mes: <input type="month" class="db-mes" onchange="dbAplicarMes(this)"></label>
+          <label style="font-size:13px">Desde: <input type="date" class="db-desde"></label>
+          <label style="font-size:13px">Hasta: <input type="date" class="db-hasta"></label>
+          <button class="btn" onclick="dbCargarActual()">Actualizar</button>
+        </div>
+        <div class="vi-presets" style="margin:-4px 0 14px">
+          <button class="btn btn-sec btn-sm" onclick="viPreset('30d')">Últimos 30 días</button>
+          <button class="btn btn-sec btn-sm" onclick="viPreset('90d')">Últimos 90 días</button>
+          <button class="btn btn-sec btn-sm" onclick="viPreset('anio')">Este año</button>
+          <button class="btn btn-sec btn-sm" onclick="viPreset('12m')">Últimos 12 meses</button>
+          <button class="btn btn-sec btn-sm" onclick="viPreset('todo')" id="vi-preset-todo" style="display:none">Todo el histórico</button>
+        </div>
+        <div id="kpis-grid" class="kpi-grid"></div>
+
+        <div class="dbcard"><h4 id="vi-graf-titulo">Evolución</h4>
+          <div class="vi-ctrl">
+            <span>Ver por</span>
+            <div class="seg sm" id="vi-agrupar">
+              <button data-v="dia" class="on" onclick="viSetAgrupar('dia')">Día</button>
+              <button data-v="semana" onclick="viSetAgrupar('semana')">Semana</button>
+              <button data-v="mes" onclick="viSetAgrupar('mes')">Mes</button>
+            </div>
+            <span>Métrica</span>
+            <div class="seg sm" id="vi-metrica">
+              <button data-v="ventas" class="on" onclick="viSetMetrica('ventas')">Ventas S/</button>
+              <button data-v="ingresos" onclick="viSetMetrica('ingresos')">Cobrado S/</button>
+              <button data-v="vc" onclick="viSetMetrica('vc')">Vendido vs cobrado</button>
+              <button data-v="num_ventas" onclick="viSetMetrica('num_ventas')">N° ventas</button>
+              <button data-v="ticket" onclick="viSetMetrica('ticket')">Ticket prom.</button>
+              <button data-v="margen" onclick="viSetMetrica('margen')">Margen bruto S/</button>
+              <button data-v="compras" onclick="viSetMetrica('compras')">Mercadería ingresada</button>
+            </div>
+          </div>
+          <p class="card-note" id="vi-graf-nota"></p>
+          <div style="position:relative;height:320px"><canvas id="ch-dias"></canvas></div>
+          <div id="vi-zoom-hint" style="font-size:11px;color:var(--muted);margin-top:6px">Arrastra para desplazarte · rueda del mouse o pellizca para acercar · doble clic para restablecer el zoom</div>
+        </div>
+
+        <div class="dbcard"><h4 id="mm-titulo">Mes a mes por empresa</h4>
+          <div class="vi-ctrl"><span>Comparar con</span>
+            <div class="seg sm" id="vi-mmcomp">
+              <button data-v="anterior" class="on" onclick="viSetMmComp('anterior')">Mes anterior</button>
+              <button data-v="anio" onclick="viSetMmComp('anio')">Mismo mes del año pasado</button>
+            </div></div>
+          <p class="card-note"><b>Ventas</b>, <b>N° de ventas</b>, <b>ticket</b> y <b>margen</b> van por la empresa que gestiona la venta; <b>cobrado</b>, por la empresa dueña de la cuenta donde entró el pago; <b>mercadería ingresada</b> son las entradas de stock tipo compra o importación, al costo del lote. El margen es sin IGV.</p>
+          <div class="mm-wrap"><table class="mm" id="tbl-mm"></table></div>
+          <div id="mm-nota" style="font-size:11px;color:var(--muted);margin-top:8px"></div>
+        </div>
+
+        <details class="dbcard" id="hist-card">
+          <summary style="cursor:pointer;font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Histórico del Excel <span id="hist-estado-mini" style="text-transform:none;letter-spacing:0;font-weight:500"></span></summary>
+          <div style="margin-top:12px">
+            <p class="card-note">Ventas, ingresos y compras del Excel que usabas antes del sistema. <b>Antes de la fecha de corte</b> el panel usa el Excel; <b>desde el corte</b>, el sistema. Así las ventas que se migraron al sistema no se cuentan dos veces. Rentabilidad, productos, marcas, métodos de pago y B2B/B2C siguen saliendo solo del sistema.</p>
+            <div id="hist-estado" style="font-size:13px;margin-bottom:10px"></div>
+            <div id="hist-maestro" class="filtros-fila" style="align-items:center;display:none">
+              <label style="font-size:13px">Fecha de corte: <input type="date" id="hist-corte" style="min-width:150px"></label>
+              <button class="btn btn-sm" onclick="histGuardarCorte()">Guardar corte</button>
+              <button class="btn btn-sec btn-sm" id="hist-usar-sug" style="display:none" onclick="histUsarSugerido()">Usar sugerido</button>
+              <label class="btn btn-sec btn-sm" style="cursor:pointer;flex:0 0 auto;min-width:0">Cargar archivo… <input type="file" accept=".json,application/json" style="display:none" onchange="histSubir(this)"></label>
+              <button class="btn btn-danger btn-sm" id="hist-borrar" style="display:none" onclick="histBorrar()">Quitar histórico</button>
+            </div>
+            <div id="hist-comp"></div>
+          </div>
+        </details>
+
+        <div class="two-col">
+          <div class="dbcard" id="vi-card-empresas"><h4>Por empresa</h4><div id="empresas-box"></div></div>
+          <div class="dbcard"><h4>B2B vs B2C</h4><div style="position:relative;height:220px"><canvas id="ch-tipo"></canvas></div></div>
+        </div>
+        <div class="two-col">
+          <div class="dbcard"><h4>Cobros por método de pago</h4><div style="position:relative;height:240px"><canvas id="ch-pagos"></canvas></div></div>
+          <div class="dbcard"><h4>Detalle de cobros</h4><div id="pagos-tabla"></div></div>
+        </div>
+        <div class="dbcard" style="border-top:2px solid var(--accent);padding-top:14px">
+          <h4>Rentabilidad</h4>
+          <p class="card-note">Margen bruto por método FIFO y <b>sin IGV</b>: venta sin IGV menos el costo del lote sin impuesto deducible. Es antes de gastos: la utilidad está en Rendimiento. Solo cuenta las líneas con costo conocido; la <b>cobertura</b> indica qué parte de lo vendido tiene costo (si es baja, el margen es menos confiable).</p>
+        </div>
+        <div id="rent-kpis" class="kpi-grid"></div>
+        <div id="rent-avisos"></div>
+        <div class="dbcard"><h4>Rentabilidad por canal (B2B vs B2C)</h4>
+          <div style="overflow-x:auto"><table class="dtable" id="tbl-canal"></table></div></div>
+        <div class="dbcard"><h4>Productos: cuánto venden y cuánto ganan</h4>
+          <p class="card-note" id="prod-nota"></p>
+          <div style="position:relative" id="ch-prod-wrap"><canvas id="ch-prod"></canvas></div></div>
+        <div class="dbcard"><h4>Productos con margen bajo o negativo</h4>
+          <p class="card-note">Productos con al menos S/100 vendidos y costo conocido, del peor margen al mejor. En rojo, los que se vendieron por debajo del costo.</p>
+          <div style="overflow-x:auto"><table class="dtable" id="tbl-margen-bajo"></table></div></div>
+        <div class="dbcard"><h4>Rentabilidad por marca</h4>
+          <div style="overflow-x:auto"><table class="dtable" id="tbl-marcas"></table></div></div>
+      </div>
+      </div>
+      <div class="subpanel" id="vc-gastos">
+        <div class="card" style="padding:0;overflow:hidden">
+          <iframe id="gastos-frame" title="Compras y gastos"
+            style="width:100%;height:calc(100vh - 200px);min-height:560px;border:0;display:block"></iframe>
+        </div>
+      </div>
+      <div class="subpanel" id="vc-rendimiento">
+        <div class="card" style="padding:0;overflow:hidden">
+          <iframe id="rendimiento-frame" title="Rendimiento"
+            style="width:100%;height:calc(100vh - 200px);min-height:560px;border:0;display:block"></iframe>
+        </div>
+      </div>
+      <div class="subpanel" id="vc-auditoria-ventas">
+        <div class="card" style="padding:0;overflow:hidden">
+          <iframe id="auditoria-ventas-frame" title="Auditoría de ventas y compras"
+            style="width:100%;height:calc(100vh - 200px);min-height:560px;border:0;display:block"></iframe>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-conciliacion" class="panel">
+      <div class="card">
+        <div class="dbcard">
+          <h4>Conciliación de pagos online</h4>
+          <p class="card-note">Ingresos registrados en el Google Sheet (Izipay, Mercado Pago) verificados contra lo que tiene el sistema. Filtra por fecha de voucher.</p>
+          <div class="filtros-fila" style="align-items:center;gap:8px;flex-wrap:wrap">
+            <label style="font-size:13px">Día: <input type="date" id="conc-dia" onchange="concUsarDia()"></label>
+            <span style="color:var(--muted);font-size:12px">o rango:</span>
+            <label style="font-size:13px">Desde: <input type="date" id="conc-desde"></label>
+            <label style="font-size:13px">Hasta: <input type="date" id="conc-hasta"></label>
+            <button class="btn" onclick="cargarConciliacion()">Cargar</button>
+            <button class="btn btn-sec btn-sm" onclick="concHoy()">Hoy</button>
+            <button class="btn btn-sec btn-sm" onclick="concAyer()">Ayer</button>
+          </div>
+          <div id="conc-resumen" style="margin:8px 0;font-size:13px;color:var(--muted)"></div>
+          <div id="conc-tabla" style="overflow-x:auto"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-sistemas" class="panel">
+      <div class="card">
+        <div class="subtabs">
+          <button class="subtab active" id="sis-t-sync" data-modulo="sync" onclick="subtabSis('sync')">Sincronización web</button>
+          <button class="subtab" id="sis-t-pagos" data-modulo="pagos" onclick="subtabSis('pagos')">Métodos de pago</button>
+          <button class="subtab" id="sis-t-accesos" data-modulo="accesos" onclick="subtabSis('accesos')">Control de accesos</button>
+        </div>
+      </div>
+      <div id="sis-sync" class="subpanel active">
+      <div class="card">
+        <h3>Reporte de sincronización con la web</h3>
+        <div class="desc">Descarga el estado de la última sincronización ERP → kuranko.pe en Excel. Se genera al momento y no se almacena. Tiene tres pestañas:<br>
+        <b>Variaciones:</b> todo lo que cambió en la última corrida (stock, precio y también nombre, publicado, visibilidad, categorías, etiquetas, etc. en la columna "Campos actualizados").<br>
+        <b>Actualizados en WooCommerce:</b> lo mismo pero solo lo que efectivamente se aplicó en la web.<br>
+        <b>Alertas de vinculación:</b> todo lo que cambió pero <b>no se sincronizó</b>, con el motivo (SKU no coincide, ID no existe en la web, error al escribir, etc.).</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn" onclick="descargarReporteSync()">Descargar reporte (Excel)</button>
+          <button class="btn" onclick="exportarProductosSinId()" title="Productos del ERP sin ID, con el ID y las imágenes que el puente encontró en la web">Exportar productos sin ID</button>
+        </div>
+        <div class="desc" style="font-size:12px;margin-top:6px">"Exportar productos sin ID": Excel con dos pestañas. <b>"Con ID (en la web)"</b> = los que el puente encontró en WooCommerce por SKU, ya con su ID e imágenes de la web (listos para vincular). <b>"Sin ID (por crear)"</b> = los que no están en la web todavía, con su info del sistema. El puente recolecta el ID y las imágenes en su corrida (cada pocas horas).</div>
+        <div id="sync-result" class="muted" style="margin-top:10px"></div>
+      </div>
+
+      <div class="card">
+        <h3>Corregir datos en el sistema (ERP)</h3>
+        <div class="desc">Vista previa <b>(solo lectura)</b> de los cambios que se escribirían de vuelta al sistema: <b>vincular el WooCommerce ID</b> por SKU, pasar <b>reservas de agotados</b> de "permitir" a "notify", y reemplazar <b>links de imagen</b> que no son de kuranko por los de kuranko. Revisa aquí antes de aplicar; no se escribe nada hasta que confirmes.</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+          <button class="btn" onclick="verCambiosErp()">Ver cambios propuestos</button>
+        </div>
+        <div id="erp-wb-result" class="muted" style="margin-top:10px"></div>
+        <div id="erp-wb-panel" style="margin-top:10px"></div>
+      </div>
+        <div id="sync-result" class="muted" style="margin-top:10px"></div>
+      </div>
+      <div class="card">
+        <h3>Actualización completa manual</h3>
+        <div class="desc">Normalmente el puente solo actualiza lo que cambió. Si necesitas forzar una revisión de <b>todos</b> los productos (por ejemplo, tras cambios masivos en el ERP), solicítala aquí. <b>No se ejecuta al instante:</b> se aplicará en la próxima sincronización automática de las 2 AM (hora Perú), para no sobrecargar la web. Igual valida que coincidan WooCommerce ID y SKU.</div>
+        <div id="solicitud-estado" class="estado-box" style="display:none"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+          <button class="btn" id="btn-solicitar" onclick="solicitarActualizacion()">Solicitar actualización completa</button>
+          <button class="btn danger" id="btn-cancelar" onclick="cancelarActualizacion()" style="display:none">Cancelar solicitud</button>
+        </div>
+        <div id="solicitud-result" class="muted" style="margin-top:10px"></div>
+      </div>
+
+      <div class="card">
+        <h3>Sincronizar SKUs específicos</h3>
+        <div class="desc">¿Ajustaste el stock de algunos productos y quieres forzar su actualización sin remover todo? Pega aquí la columna de SKUs (cópiala de tu Excel y pégala tal cual, uno por línea). Se <b>suman</b> a los que ya iban a actualizarse en la próxima corrida de las 2 AM, y se fuerzan aunque no hayan cambiado. Los SKUs que no existan en el ERP aparecerán en Alertas de vinculación.</div>
+        <textarea id="sync-skus" rows="6" placeholder="Pega aquí los SKUs (uno por línea)&#10;R03LIQ11ST0003&#10;F02FRE05MA0009&#10;..." style="width:100%;box-sizing:border-box;padding:10px;border-radius:10px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-family:monospace;font-size:13px;resize:vertical"></textarea>
+        <div id="sync-skus-cola" class="muted" style="margin:8px 0;font-size:13px"></div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:6px 0;cursor:pointer">
+          <input type="checkbox" id="sync-skus-oferta">
+          <span>También actualizar el <b>precio oferta</b> de estos productos (si el ERP no tiene oferta, se deja vacío y se muestra el precio regular).</span>
+        </label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">
+          <button class="btn" onclick="encolarSkus()">Poner en cola</button>
+          <button class="btn danger" id="btn-vaciar-cola" onclick="vaciarColaSkus()" style="display:none">Vaciar cola</button>
+        </div>
+        <div id="sync-skus-result" class="muted" style="margin-top:10px"></div>
+      </div>
+    </div>
+      <div id="sis-pagos" class="subpanel">
+      <div class="card">
+        <h3>Métodos de pago que ven los clientes</h3>
+        <div class="desc">Lo que escribas aquí es lo que verán tus clientes al tocar "¿Cómo pagar?" en su portal. Puedes incluir saltos de línea. Deja un campo vacío si no quieres mostrar ese método.</div>
+        <div class="field">
+          <label>Transferencia / Depósito</label>
+          <textarea id="pago-transferencia" rows="4" placeholder="Ej:&#10;Banco BCP - Cuenta Corriente Soles&#10;N° 123-4567890-1-23&#10;CCI: 002-123-004567890123-45&#10;Titular: Diseños Corporativos SAC&#10;RUC: 20514359661"></textarea>
+        </div>
+        <div class="field">
+          <label>Yape / Plin</label>
+          <textarea id="pago-yape" rows="3" placeholder="Ej:&#10;Yape: 999 888 777 (Christopher Villasante)&#10;Plin: 999 888 777"></textarea>
+        </div>
+        <div class="field">
+          <label>Tarjeta (Izipay)</label>
+          <textarea id="pago-tarjeta" rows="3" placeholder="Ej:&#10;Escríbenos por WhatsApp y te enviamos un link de pago seguro de Izipay para pagar con tu tarjeta Visa, Mastercard, Amex o Diners."></textarea>
+        </div>
+        <button class="btn" onclick="guardarMetodosPago()">Guardar métodos de pago</button>
+        <div id="pagos-result" class="muted" style="margin-top:10px"></div>
+      </div>
+    </div>
+      <div id="sis-accesos" class="subpanel">
+      <div class="card">
+        <h3>Usuarios administradores</h3>
+        <div class="desc">Los usuarios de tu equipo se configuran en las variables de Railway (rápido y seguro). Aquí ves los que están activos y qué módulos puede ver cada uno.</div>
+        <div id="acc-lista" class="muted">Cargando...</div>
+      </div>
+      <div class="card">
+        <h3>¿Cómo agregar o cambiar un usuario?</h3>
+        <div class="desc">
+          En Railway → tu servicio del portal → pestaña <b>Variables</b>, agrega estas tres variables por cada usuario (numeradas del 2 en adelante):
+          <div class="cod">
+            ADMIN2_USER = supervisor<br>
+            ADMIN2_PASSWORD = suClaveSegura<br>
+            ADMIN2_MODULOS = usuarios,vincular,crear
+          </div>
+          Para un segundo usuario usa <b>ADMIN3_USER</b>, <b>ADMIN3_PASSWORD</b>, <b>ADMIN3_MODULOS</b>, y así.<br><br>
+          <b>Módulos disponibles</b> (escríbelos separados por coma, sin espacios): <span id="acc-modulos-lista" class="cod-inline"></span><br><br>
+          Tras guardar las variables, Railway reinicia el portal solo y el usuario ya puede entrar. Para quitar un usuario, borra sus variables.
+        </div>
+      </div>
+    </div>
+    </div>
+
+    <div id="tab-inventario" class="panel">
+      <div class="card" style="padding:0;overflow:hidden">
+        <iframe id="inv-frame" title="Inventario"
+          style="width:100%;height:calc(100vh - 150px);min-height:560px;border:0;display:block"></iframe>
+      </div>
+    </div>
+
+    <div id="tab-promociones" class="panel">
+      <div class="card" style="padding:0;overflow:hidden">
+        <iframe id="promo-frame" title="Promociones"
+          style="width:100%;height:calc(100vh - 150px);min-height:560px;border:0;display:block"></iframe>
+      </div>
+    </div>
+
+    <div id="tab-restock" class="panel">
+      <div class="card" style="padding:0;overflow:hidden">
+        <iframe id="restock-frame" title="Restock"
+          style="width:100%;height:calc(100vh - 150px);min-height:560px;border:0;display:block"></iframe>
+      </div>
+    </div>
+
+    <div id="tab-clientes_bi" class="panel">
+      <div class="card" style="padding:0;overflow:hidden">
+        <iframe id="cbi-frame" title="Clientes BI"
+          style="width:100%;height:calc(100vh - 150px);min-height:560px;border:0;display:block"></iframe>
+      </div>
+    </div>
+
+    <div id="tab-crm" class="panel">
+      <div class="card">
+        <button class="btn" onclick="dbCargarActual()" style="margin-bottom:12px">Actualizar</button>
+        <div id="crm-kpis" class="kpi-grid"></div>
+        <div class="dbcard"><h4>Tareas vencidas</h4><div style="overflow-x:auto"><table class="dtable" id="tbl-tareas"></table></div></div>
+        <div class="dbcard"><h4>Pipelines</h4><div id="crm-pipelines"></div></div>
+      </div>
+    </div>
+
+    <div id="tab-reportes" class="panel">
+      <div class="card" style="padding:0;overflow:hidden">
+        <iframe id="cont-frame" title="Contabilidad"
+          style="width:100%;height:calc(100vh - 150px);min-height:560px;border:0;display:block"></iframe>
+      </div>
+    </div>
+
+    <div id="tab-importaciones" class="panel">
+      <div class="card" style="padding:0;overflow:hidden">
+        <iframe id="imp-frame" title="Importaciones — costeo"
+          style="width:100%;height:calc(100vh - 150px);min-height:560px;border:0;display:block"></iframe>
+      </div>
+    </div>
+
+    <div id="tab-seguimiento" class="panel">
+      <div class="card" style="padding:0;overflow:hidden">
+        <iframe id="seg-frame" title="Seguimiento — trackings y backorders"
+          style="width:100%;height:calc(100vh - 150px);min-height:560px;border:0;display:block"></iframe>
+      </div>
+    </div>
+
+    <div id="tab-cuentas_cobrar" class="panel">
+      <div class="card" style="padding:0;overflow:hidden">
+        <iframe id="cxc-frame" title="Cuentas por cobrar"
+          style="width:100%;height:calc(100vh - 150px);min-height:560px;border:0;display:block"></iframe>
+      </div>
+    </div>
+
+    <div id="tab-facturacion" class="panel">
+      <div class="card" style="padding:0;overflow:hidden">
+        <iframe id="fe-frame" title="Facturación electrónica"
+          style="width:100%;height:calc(100vh - 150px);min-height:560px;border:0;display:block"></iframe>
+      </div>
+    </div>
+
+    <div id="tab-cotizador" class="panel">
+      <div class="card" style="padding:0;overflow:hidden">
+        <iframe id="cot-frame" title="Cotizador rápido"
+          style="width:100%;height:calc(100vh - 150px);min-height:560px;border:0;display:block"></iframe>
+      </div>
+    </div>
+
+    <div id="tab-precio_importado" class="panel">
+      <div class="card" style="padding:0;overflow:hidden">
+        <iframe id="pimp-frame" title="Precio importado"
+          style="width:100%;height:calc(100vh - 150px);min-height:560px;border:0;display:block"></iframe>
+      </div>
+    </div>
+
+    <div id="tab-bikes" class="panel">
+      <div class="card" style="padding:0;overflow:hidden">
+        <iframe id="bikes-frame" title="Bikes a pedido"
+          style="width:100%;height:calc(100vh - 150px);min-height:560px;border:0;display:block"></iframe>
+      </div>
+    </div>
+
+    <div id="tab-asistencia" class="panel">
+      <div class="card" style="padding:0;overflow:hidden">
+        <iframe id="asis-frame" title="Asistencia" allow="geolocation"
+          style="width:100%;height:calc(100vh - 150px);min-height:560px;border:0;display:block"></iframe>
+      </div>
+    </div>
+
+    <div id="tab-saldo_favor" class="panel">
+      <div class="card" style="padding:0;overflow:hidden">
+        <iframe id="saldo-frame" title="Créditos"
+          style="width:100%;height:calc(100vh - 150px);min-height:560px;border:0;display:block"></iframe>
+      </div>
+    </div>
+
+    <div id="tab-recepciones" class="panel">
+      <!-- LISTA de recepciones -->
+      <div id="rec-lista-vista">
+        <div class="card">
+          <h3>Recepción de mercadería</h3>
+          <div class="desc">Cargas de compra enviadas desde Importación. Confirma lo que llegó, valida el SKU de cada ítem e indica el almacén de ingreso.</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px">
+            <select id="rec-filtro" onchange="cargarRecepciones()" style="padding:8px;border:1px solid var(--border,#cbd5e1);border-radius:8px">
+              <option value="pendientes">Pendientes por confirmar</option>
+              <option value="validada">Ya validadas</option>
+              <option value="">Todas</option>
+            </select>
+            <button class="btn btn-sm" onclick="cargarRecepciones()">↻ Actualizar</button>
+            <span id="rec-lista-status" class="muted"></span>
+          </div>
+        </div>
+        <div id="rec-cards"></div>
+        <div id="rec-archivadas" style="margin-top:10px"></div>
+      </div>
+
+      <!-- DETALLE / validación de una recepción -->
+      <div id="rec-detalle-vista" style="display:none">
+        <div class="card">
+          <button class="btn btn-sec btn-sm" onclick="recVolver()">← Volver</button>
+          <div id="rec-cab" style="margin-top:10px"></div>
+          <div style="margin-top:10px">
+            <label style="font-weight:700;font-size:13px">Almacén de ingreso</label>
+            <select id="rec-almacen" onchange="recAutoGuardar()" style="width:100%;max-width:420px;padding:9px;border:1px solid var(--border,#cbd5e1);border-radius:8px;margin-top:4px">
+              <option value="">— Elige el almacén —</option>
+            </select>
+          </div>
+        </div>
+        <div id="rec-items"></div>
+        <!-- FUERA DE FACTURA: se maneja APARTE (no entra al costeo ni a la DUA). No se mezcla con los ítems de la factura. -->
+        <div class="card" style="border:1px dashed #c4b5fd;background:rgba(124,58,237,.06)">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+            <div>
+              <div style="font-weight:700;color:#6d28d9">📦 Productos fuera de factura</div>
+              <div class="muted" style="font-size:12px">Llegaron pero NO estaban en la factura. Se guardan aparte: no se prorratean ni pasan al costeo/DUA.</div>
+            </div>
+            <button class="btn btn-sec" type="button" onclick="recAbrirExtras()">Ver / agregar <span id="rec-extras-count" style="background:#7c3aed;color:#fff;border-radius:10px;padding:1px 8px;font-size:12px;display:none">0</span></button>
+          </div>
+        </div>
+        <div class="card" id="rec-acciones" style="position:sticky;bottom:0;z-index:5">
+          <div id="rec-detalle-status" class="muted" style="margin-bottom:8px"></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <button class="btn btn-sec" onclick="recGuardar(false)">💾 Guardar borrador</button>
+            <button class="btn" onclick="recGuardar(true)">✓ Confirmar recepción</button>
+            <span id="rec-autosave" class="muted" style="font-size:12px">· se guarda solo</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- POPUP: productos fuera de factura (separado de los ítems de la factura) -->
+<div id="rec-extras-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(15,23,42,.55);padding:16px;overflow:auto">
+  <div class="card" style="max-width:560px;margin:22px auto">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+      <div style="font-weight:800;font-size:16px;color:#6d28d9">📦 Productos fuera de factura</div>
+      <button class="btn btn-sec btn-sm" type="button" onclick="recCerrarExtras()">✕ Cerrar</button>
+    </div>
+    <div class="muted" style="font-size:12px;margin:6px 0 10px">Lo que llegó y NO estaba en la factura. Se guarda aparte: no se prorratea, no pasa al costeo ni a la DUA; queda en su propia exportación.</div>
+    <div id="rec-extras-list"></div>
+    <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-sec" type="button" onclick="recAgregarExtra()">➕ Agregar producto</button>
+      <button class="btn" type="button" onclick="recCerrarExtras()">Listo</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let TOKEN='',API='';
+let ES_MAESTRO=false,MIS_MODULOS=[];
+
+// Tema
+function aplicarTema(t){document.documentElement.setAttribute('data-theme',t);localStorage.setItem('tema_admin',t);avisarTemaIframes(t);const ic=t==='light'?'☀️':'🌙';['theme-btn','theme-btn-login'].forEach(id=>{const b=document.getElementById(id);if(b)b.textContent=ic;});}
+// Sincroniza el tema con las mini-apps en iframe (cotizador, CxC, créditos, seguimiento, importaciones)
+function avisarTemaIframes(t){document.querySelectorAll('iframe').forEach(f=>{try{if(f.contentWindow)f.contentWindow.postMessage({tipo:'tema',tema:t},location.origin);}catch(e){}});}
+// Si el tema se cambia desde otra pestaña del panel, esta también se actualiza (y sus iframes)
+window.addEventListener('storage',e=>{if(e.key==='tema_admin'&&(e.newValue==='light'||e.newValue==='dark'))aplicarTema(e.newValue);});
+function toggleTema(){const a=document.documentElement.getAttribute('data-theme')||'dark';aplicarTema(a==='light'?'dark':'light');}
+(function(){const g=localStorage.getItem('tema_admin');if(g)document.documentElement.setAttribute('data-theme',g);else{const c=window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches;document.documentElement.setAttribute('data-theme',c?'light':'dark');}})();
+
+function showToast(m,e){const t=document.getElementById('toast');t.textContent=m;t.className='toast'+(e?' err':'');t.style.display='block';setTimeout(()=>t.style.display='none',3500);}
+async function apiCall(ep,method='GET',body){
+  const opt={method,headers:{'Authorization':'Bearer '+TOKEN}};
+  if(body){opt.headers['Content-Type']='application/json';opt.body=JSON.stringify(body);}
+  const r=await fetch(API+ep,opt);
+  if(r.status===401){logout();throw new Error('Sesión expirada');}
+  const d=await r.json();if(!r.ok)throw new Error(d.error||'Error');return d;
+}
+async function loginAdmin(){
+  const u=document.getElementById('adm-user').value.trim();
+  const p=document.getElementById('adm-pass').value;
+  const e=document.getElementById('login-err');e.style.display='none';
+  try{
+    const r=await fetch(API+'/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({usuario:u,password:p})});
+    const d=await r.json();if(!r.ok)throw new Error(d.error);
+    TOKEN=d.token;localStorage.setItem('admtoken',TOKEN);
+    ES_MAESTRO=!!d.maestro;MIS_MODULOS=Array.isArray(d.modulos)?d.modulos:[];
+    localStorage.setItem('admmaestro',ES_MAESTRO?'1':'0');
+    localStorage.setItem('admmodulos',MIS_MODULOS.join(','));
+    mostrarApp();
+  }catch(err){e.textContent=err.message;e.style.display='block';}
+}
+function logout(){TOKEN='';ES_MAESTRO=false;MIS_MODULOS=[];localStorage.removeItem('admtoken');localStorage.removeItem('admmaestro');localStorage.removeItem('admmodulos');localStorage.removeItem('admtab');document.getElementById('app-screen').style.display='none';document.getElementById('login-screen').style.display='block';}
+function tab(id,btn){
+  // Si venimos del launcher, asegurar que la barra de pestañas esté visible
+  const lz=document.getElementById('launcher'); if(lz)lz.style.display='none';
+  const tb=document.getElementById('tabs-bar'); if(tb)tb.style.display='';
+  const bi=document.getElementById('btn-inicio'); if(bi)bi.style.display='';
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));document.getElementById('tab-'+id).classList.add('active');btn.classList.add('active');try{localStorage.setItem('admtab',id);}catch(e){}cargarDatosTab(id);}
+
+// Desde Seguimiento (iframe): abrir en Importaciones la factura guardada de un envío.
+// Si la app de importaciones ya está abierta, la retoma ahí mismo (sin recargarla).
+window.irAImportacion=function(impId){
+  const btn=[...document.querySelectorAll('.tab')].find(b=>/tab\('importaciones'/.test(b.getAttribute('onclick')||''));
+  if(btn) tab('importaciones',btn);
+  const fr=document.getElementById('imp-frame'); if(!fr) return;
+  try{ const w=fr.contentWindow; if(fr.src && w && typeof w.retomarDesdeEnvio==='function'){ w.retomarDesdeEnvio(impId); return; } }catch(e){}
+  fr.src='/importacion.html?retomar='+encodeURIComponent(impId)+'&v='+Date.now();
+};
+
+// Muestra u oculta las pestañas según los permisos del usuario que entró
+function aplicarPermisos(){
+  const botones=document.querySelectorAll('.tab');
+  let primeraVisible=null;
+  botones.forEach(b=>{
+    const m=(b.getAttribute('onclick')||'').match(/tab\('([^']+)'/);
+    if(!m)return;
+    const modulo=m[1];
+    const grupo=b.getAttribute('data-modulos'); // pestaña que agrupa varios módulos
+    let visible;
+    if(grupo){
+      // Visible si es maestro o tiene alguno de los módulos del grupo.
+      // 'accesos' no cuenta para abrir el grupo (es solo-maestro).
+      const mods=grupo.split(',').filter(x=>x!=='accesos');
+      visible=ES_MAESTRO||mods.some(x=>MIS_MODULOS.includes(x));
+    }
+    else if(modulo==='accesos') visible=ES_MAESTRO;             // solo el maestro
+    else if(modulo==='asistencia') visible=true;                // todos marcan su jornada
+    else if(ES_MAESTRO) visible=true;                           // maestro ve todo
+    else visible=MIS_MODULOS.includes(modulo);                 // secundario: según permisos
+    b.style.display=visible?'':'none';
+    b.classList.remove('active');
+    if(visible&&!primeraVisible)primeraVisible=b;
+  });
+  // Sub-pestañas dentro de los grupos: ocultar las que no tenga permitidas
+  document.querySelectorAll('.subtab[data-modulo]').forEach(st=>{
+    const mod=st.getAttribute('data-modulo');
+    let ok;
+    if(mod==='accesos') ok=ES_MAESTRO;
+    else ok=ES_MAESTRO||MIS_MODULOS.includes(mod);
+    st.style.display=ok?'':'none';
+  });
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  // Construir el launcher con las apps visibles
+  construirLauncher();
+  // Badge de recepciones pendientes (para maestro o supervisor con el módulo)
+  if((ES_MAESTRO||MIS_MODULOS.includes('recepciones'))&&typeof actualizarBadgeRecepciones==='function')actualizarBadgeRecepciones();
+  // Si había una pestaña abierta antes de recargar y el usuario aún puede verla, volver a ella.
+  // Si no, mostrar el launcher (pantalla de inicio).
+  let recordada=null;
+  try{recordada=localStorage.getItem('admtab');}catch(e){}
+  const btnRec=recordada?Array.from(document.querySelectorAll('.tab')).find(b=>{
+    const mm=(b.getAttribute('onclick')||'').match(/tab\('([^']+)'/);
+    return mm&&mm[1]===recordada&&b.style.display!=='none';
+  }):null;
+  if(btnRec)abrirApp(recordada);
+  else irInicio();
+}
+
+// Íconos (emoji) para cada pestaña/app
+const APP_ICONOS={
+  clientes_gestion:'👤', ventas_ingresos:'📊', clientes_bi:'👥',
+  inventario:'📦', restock:'🔁', reportes:'💰', auditoria:'🔍',
+  crm:'📣', sistemas:'⚙️', promociones:'🏷️', importaciones:'🚢', recepciones:'📥', seguimiento:'🚚',
+  conciliacion:'🧾', cuentas_cobrar:'💸', saldo_favor:'💵', cotizador:'🧮', precio_importado:'🌍', bikes:'🚲', asistencia:'⏱️', facturacion:'📄'
+};
+
+// Genera las tarjetas del launcher a partir de las pestañas visibles (respeta permisos)
+function construirLauncher(){
+  const grid=document.getElementById('launcher-grid');
+  if(!grid)return;
+  grid.innerHTML='';
+  document.querySelectorAll('.tab').forEach(b=>{
+    if(b.style.display==='none')return; // oculta por permisos
+    const m=(b.getAttribute('onclick')||'').match(/tab\('([^']+)'/);
+    if(!m)return;
+    const id=m[1];
+    // Nombre limpio (sin el badge de conteo que algunos tabs incluyen)
+    const clon=b.cloneNode(true); const bd=clon.querySelector('.rec-badge'); if(bd)bd.remove();
+    const nombre=clon.textContent.trim();
+    const ico=APP_ICONOS[id]||'▫️';
+    const card=document.createElement('div');
+    card.className='app-card';
+    card.onclick=()=>abrirApp(id);
+    const badgeLauncher = id==='recepciones' ? '<span class="rec-badge" id="launch-rec-badge" style="display:none">0</span>' : '';
+    card.innerHTML='<span class="ico">'+ico+'</span><span class="nom">'+nombre+' '+badgeLauncher+'</span>';
+    card.dataset.app=id;
+    card.dataset.modulos=(b.getAttribute('data-modulos')||id).split(',').filter(x=>x!=='accesos').join(',');
+    grid.appendChild(card);
+  });
+  if(ES_MAESTRO) pintarPuntosAcceso();
+  if(typeof actualizarBadgeRecepciones==='function' && (ES_MAESTRO||MIS_MODULOS.includes('recepciones'))) actualizarBadgeRecepciones();
+}
+
+// Puntitos de color en el launcher: cada color = un usuario adicional (no el maestro).
+// El puntito aparece en las apps a las que ese usuario tiene acceso. Solo lo ve el maestro.
+const COLORES_USUARIO=['#8fa3bf','#b5a48a','#8fb3a0','#b39aa8','#a39bbf','#9fb0b8','#b8a99a','#a8b39a'];
+function escHtml(t){return String(t).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+async function pintarPuntosAcceso(){
+  let usuarios=[];
+  try{ usuarios=(await apiCall('/admin/accesos','GET')).usuarios||[]; }catch(e){ return; }
+  document.querySelectorAll('#launcher-grid .acc-dots').forEach(d=>d.remove());
+  if(!usuarios.length)return;
+  const col=i=>COLORES_USUARIO[i%COLORES_USUARIO.length];
+  document.querySelectorAll('#launcher-grid .app-card').forEach(card=>{
+    const mods=(card.dataset.modulos||'').split(',').filter(Boolean);
+    const conAcceso=usuarios.map((u,i)=>({u,i})).filter(x=>(x.u.modulos||[]).some(m=>mods.includes(m)));
+    if(!conAcceso.length)return;
+    const box=document.createElement('span');
+    box.className='acc-dots';
+    box.innerHTML=conAcceso.map(x=>'<span class="acc-dot" title="'+escHtml(x.u.username)+'" style="background:'+col(x.i)+'"></span>').join('');
+    card.appendChild(box);
+  });
+}
+
+// Abre una app desde el launcher (muestra las pestañas y activa la elegida)
+function abrirApp(id){
+  document.getElementById('launcher').style.display='none';
+  document.getElementById('tabs-bar').style.display='';
+  document.getElementById('btn-inicio').style.display='';
+  const btn=Array.from(document.querySelectorAll('.tab')).find(b=>{
+    const mm=(b.getAttribute('onclick')||'').match(/tab\('([^']+)'/);
+    return mm&&mm[1]===id;
+  });
+  if(btn)tab(id,btn);
+}
+
+// Vuelve a la pantalla de inicio (launcher)
+function irInicio(){
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  document.getElementById('tabs-bar').style.display='none';
+  document.getElementById('btn-inicio').style.display='none';
+  document.getElementById('launcher').style.display='';
+  try{localStorage.removeItem('admtab');}catch(e){}
+}
+
+async function mostrarApp(){
+  document.getElementById('login-screen').style.display='none';
+  document.getElementById('app-screen').style.display='block';
+  aplicarTema(document.documentElement.getAttribute('data-theme')||'dark');
+  aplicarPermisos();
+  revisarJornada();
+  // No cargamos todo de golpe: cada pestaña carga sus datos al abrirse (ver cargarDatosTab).
+}
+// Si al entrar aún no marcó su entrada de hoy, abre Asistencia directamente
+async function revisarJornada(){
+  if(ES_MAESTRO)return;
+  try{
+    const r=await fetch(API+'/api/asistencia/mi-estado',{headers:{'Authorization':'Bearer '+TOKEN}});
+    if(!r.ok)return;
+    const e=await r.json();
+    if(e.controlar&&e.siguiente==='entrada')abrirApp('asistencia');
+  }catch(err){}
+}
+// Carga los datos que necesita cada pestaña, solo cuando se abre
+const tabsCargadas={};
+function cargarDatosTab(id){
+  if(id==='clientes_gestion'){
+    // Gestión de clientes en iframe (public/clientes-gestion.html); comparte token/origen. Carga perezosa.
+    const fr=document.getElementById('gest-frame');
+    if(fr&&!fr.src){fr.src='/clientes-gestion.html?v='+Date.now();}
+  }
+  else if(id==='sistemas'){
+    // Grupo: Sincronización web + Métodos de pago + Control de accesos
+    cargarEstadoActualizacion();
+    if(typeof cargarMetodosPago==='function')cargarMetodosPago();
+    if(ES_MAESTRO&&typeof cargarAccesos==='function')cargarAccesos();
+  }
+  else if(id==='ventas_ingresos'){
+    // "Ventas y compras": sub-pestañas Ventas e ingresos / Compras y gastos / Rendimiento.
+    // Abre la última usada si el usuario tiene permiso; si no, la primera permitida.
+    let sub='ventas';
+    try{sub=localStorage.getItem('vc_sub')||'ventas';}catch(e){}
+    if(!vcPuede(sub))sub=Object.keys(VC_MODS).find(vcPuede)||'ventas';
+    vcSub(sub);
+  }
+  else if(id==='conciliacion'){
+    // Pestaña independiente: solo prepara la fecha (hoy). Los datos del Google Sheet
+    // + sistema se traen solo al pulsar Cargar/Hoy/Ayer, así que no consume nada al abrir.
+    concInitDia();
+  }
+  else if(id==='sync'){cargarEstadoActualizacion();}
+  else if(id==='auditoria'){
+    // Auditoría de catálogo + chequeo de empresas en iframe (public/auditoria.html); comparte token/origen.
+    const fr=document.getElementById('aud-frame');
+    if(fr&&!fr.src){fr.src='/auditoria.html?v='+Date.now();}
+  }
+  else if(id==='clientes_bi'){
+    // Clientes BI en iframe (public/clientes-bi.html); comparte token/origen. Carga perezosa.
+    const fr=document.getElementById('cbi-frame');
+    if(fr&&!fr.src){fr.src='/clientes-bi.html?v='+Date.now();}
+  }
+  else if(['resumen','rentabilidad','caja_bi','crm'].includes(id)){
+    dbInitFechas('tab-'+id);
+    if(!dbCargadas[id])dbCargarModulo(id);
+  }
+  else if(id==='reportes'){
+    // Contabilidad (reporte de pagos + kardex) en iframe (public/contabilidad.html); comparte token/origen.
+    const fr=document.getElementById('cont-frame');
+    if(fr&&!fr.src){fr.src='/contabilidad.html?v='+Date.now();}
+  }
+  else if(id==='pagos'){cargarMetodosPago();}
+  else if(id==='recepciones'){cargarRecepciones();}
+  else if(id==='accesos'){cargarAccesos();}
+  else if(id==='importaciones'){
+    // Carga la app de importaciones en el iframe solo la 1a vez que se abre la pestaña.
+    // Comparte el mismo origen, así que la app lee el token admin de localStorage.
+    const fr=document.getElementById('imp-frame');
+    if(fr&&!fr.src){fr.src='/importacion.html?v='+Date.now();} // ?v evita que el iframe quede cacheado con una versión vieja
+  }
+  else if(id==='seguimiento'){
+    // App de seguimiento (trackings + backorders) en iframe; lee el token de localStorage.
+    const fr=document.getElementById('seg-frame');
+    if(fr&&!fr.src){fr.src='/seguimiento.html?v='+Date.now();}
+  }
+  else if(id==='cuentas_cobrar'){
+    // App de cuentas por cobrar (deudas) en iframe; comparte token/origen. Carga perezosa.
+    const fr=document.getElementById('cxc-frame');
+    if(fr&&!fr.src){fr.src='/cuentas-por-cobrar.html?v='+Date.now();}
+  }
+  else if(id==='facturacion'){
+    // Facturación electrónica en iframe (public/facturacion.html); comparte token/origen.
+    const fr=document.getElementById('fe-frame');
+    if(fr&&!fr.src){fr.src='/facturacion.html?v='+Date.now();}
+  }
+  else if(id==='cotizador'){
+    // Cotizador rápido en iframe; comparte token/origen. Carga perezosa.
+    const fr=document.getElementById('cot-frame');
+    if(fr&&!fr.src){fr.src='/cotizador.html?v='+Date.now();}
+  }
+  else if(id==='asistencia'){
+    // Asistencia (marcar jornada + control) en iframe (public/asistencia.html); comparte token/origen.
+    const fr=document.getElementById('asis-frame');
+    if(fr&&!fr.src){fr.src='/asistencia.html?v='+Date.now();}
+  }
+  else if(id==='bikes'){
+    // Bikes a pedido: reservas, métricas, catálogo, importador y reglas (public/bikes-admin.html)
+    const fr=document.getElementById('bikes-frame');
+    if(fr&&!fr.src){fr.src='/bikes-admin.html?v='+Date.now();}
+  }
+  else if(id==='precio_importado'){
+    // Calculadora de precio para pedidos especiales importados (public/precio-importado.html)
+    const fr=document.getElementById('pimp-frame');
+    if(fr&&!fr.src){fr.src='/precio-importado.html?v='+Date.now();}
+  }
+  else if(id==='inventario'){
+    // Inventario (foto del stock hoy) en iframe (public/inventario.html); comparte token/origen.
+    const fr=document.getElementById('inv-frame');
+    if(fr&&!fr.src){fr.src='/inventario.html?v='+Date.now();}
+  }
+  else if(id==='promociones'){
+    // Promociones recomendadas en iframe (public/promociones.html); comparte token/origen.
+    const fr=document.getElementById('promo-frame');
+    if(fr&&!fr.src){fr.src='/promociones.html?v='+Date.now();}
+  }
+  else if(id==='restock'){
+    // Restock en iframe (public/restock.html); comparte token/origen.
+    const fr=document.getElementById('restock-frame');
+    if(fr&&!fr.src){fr.src='/restock.html?v='+Date.now();}
+  }
+  else if(id==='saldo_favor'){
+    // App de Créditos (public/creditos.html) en iframe; comparte token/origen. Carga perezosa.
+    const fr=document.getElementById('saldo-frame');
+    if(fr&&!fr.src){fr.src='/creditos.html?v='+Date.now();}
+  }
+}
+
+// Gestión de clientes → public/clientes-gestion.html (iframe) + modulos/clientes-gestion.js
+
+// ══════════════ RECEPCIÓN DE MERCADERÍA ══════════════
+let REC_ALMACENES=[], REC_CATALOGO=null, REC_ACTUAL=null;
+const recEsc=(s)=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+async function recCargarAlmacenes(){
+  if(REC_ALMACENES.length)return REC_ALMACENES;
+  try{ REC_ALMACENES=await apiCall('/api/recepcion/almacenes','GET'); }catch(e){ REC_ALMACENES=[]; }
+  return REC_ALMACENES;
+}
+async function recCargarCatalogo(){
+  if(REC_CATALOGO)return REC_CATALOGO;
+  try{ REC_CATALOGO=await apiCall('/api/recepcion/catalogo','GET'); }catch(e){ REC_CATALOGO=[]; }
+  REC_CATMAP=null; // reconstruir el mapa nombre↔SKU con el catálogo ya cargado
+  return REC_CATALOGO;
+}
+async function actualizarBadgeRecepciones(){
+  try{ const d=await apiCall('/api/recepciones/pendientes-count','GET'); const n=(d&&d.n)||0;
+    [document.getElementById('rec-badge'),document.getElementById('launch-rec-badge')].forEach(el=>{
+      if(!el)return; if(n>0){el.textContent=n;el.style.display='';}else{el.style.display='none';}
+    }); }catch(e){}
+}
+async function cargarRecepciones(){
+  const st=document.getElementById('rec-lista-status'), cont=document.getElementById('rec-cards');
+  document.getElementById('rec-detalle-vista').style.display='none';
+  document.getElementById('rec-lista-vista').style.display='';
+  if(st)st.textContent='Cargando...';
+  const filtro=document.getElementById('rec-filtro').value;
+  const qs = filtro==='pendientes' ? '?pendientes=1' : (filtro ? '?estado='+filtro : '');
+  try{
+    const lista=await apiCall('/api/recepciones'+qs,'GET');
+    actualizarBadgeRecepciones();
+    if(st)st.textContent = lista.length ? '' : 'No hay recepciones en este filtro.';
+    cont.innerHTML = lista.map(r=>recCardHtml(r,false)).join('');
+    // Archivadas (recepciones ya costeadas): ocultas pero desplegables para verlas.
+    renderRecArchivadas();
+  }catch(e){ if(st)st.textContent=''; showToast(e.message,true); }
+}
+// Fecha corta (dd/mm/aa hh:mm) para las marcas pequeñas de confirmación/modificación.
+function recFechaCorta(dt){ if(!dt)return ''; const d=new Date(dt); if(isNaN(d))return String(dt);
+  const p=n=>String(n).padStart(2,'0'); return p(d.getDate())+'/'+p(d.getMonth()+1)+'/'+String(d.getFullYear()).slice(2)+' '+p(d.getHours())+':'+p(d.getMinutes()); }
+function recCardHtml(r,archivada){
+  const est = archivada?'arch':(r.estado==='validada'?'val':(r.estado==='borrador'?'bor':'pend'));
+  const etq = archivada?'Archivada · costeada':(r.estado==='validada'?'Validada':(r.estado==='borrador'?'Borrador':'Pendiente'));
+  const dif = r.con_diferencias>0 ? `<span class="rec-chip dif">${r.con_diferencias} c/dif.</span>` : '';
+  const alm = r.almacen_nombre ? ' · 📦 '+recEsc(r.almacen_nombre) : '';
+  const bg = archivada?' style="opacity:.85"':'';
+  const chipStyle = archivada?' style="background:#ede9fe;color:#6d28d9"':'';
+  const lock = (r.estado==='validada' && !archivada) ? ' · 🔒' : '';
+  const modif = r.modificada_en ? ' · <span style="color:#b45309">✎ modificada</span>' : '';
+  return `<div class="rec-card"${bg} onclick="abrirRecepcion('${recEsc(r.id)}')">
+    <div class="r-top">
+      <div><b>${recEsc(r.codigo||r.importacion_id||r.id)||'(sin código)'}</b> <span class="muted">· Factura ${recEsc(r.n_factura)||'—'}</span></div>
+      <div style="display:flex;gap:6px"><span class="rec-chip ${est}"${chipStyle}>${etq}</span>${dif}</div>
+    </div>
+    <div class="muted" style="margin-top:6px;font-size:13px">${r.n_items} ítem(s)${alm}${r.validado_por?(' · por '+recEsc(r.validado_por)):''}${lock}${modif}</div>
+  </div>`;
+}
+async function renderRecArchivadas(){
+  const box=document.getElementById('rec-archivadas'); if(!box)return;
+  box.innerHTML='';
+  let arch=[];
+  try{ const todas=await apiCall('/api/recepciones?incluir_archivadas=1','GET'); arch=(todas||[]).filter(r=>r.archivada); }
+  catch(e){ return; }
+  if(!arch.length) return;
+  box.innerHTML=`<details style="border:1px dashed var(--border,#cbd5e1);border-radius:10px;padding:8px 10px;background:rgba(124,58,237,.04)">
+    <summary style="cursor:pointer;font-weight:700;color:#6d28d9">🗄 Archivadas — ya costeadas (${arch.length}) <span class="muted" style="font-weight:400">· clic para ver</span></summary>
+    <div style="margin-top:8px">${arch.map(r=>recCardHtml(r,true)).join('')}</div>
+  </details>`;
+}
+async function abrirRecepcion(id){
+  try{
+    const [rec]=await Promise.all([apiCall('/api/recepcion/'+encodeURIComponent(id),'GET'), recCargarAlmacenes(), recCargarCatalogo()]);
+    REC_ACTUAL=rec;
+    document.getElementById('rec-lista-vista').style.display='none';
+    document.getElementById('rec-detalle-vista').style.display='';
+    document.getElementById('rec-detalle-status').textContent='';
+    // Cabecera: código de importación arriba; factura/empresa debajo; y (pequeño) la
+    // fecha de confirmación y si hubo modificación. Si está confirmada, banner de bloqueo
+    // (para TODOS por igual; el admin la reabre desde Importación).
+    document.getElementById('rec-cab').innerHTML=
+      `<div style="font-weight:800;font-size:16px">${recEsc(rec.codigo||rec.importacion_id||rec.id)||'(sin código)'}</div>
+       <div class="muted" style="font-size:13px">Factura ${recEsc(rec.n_factura)||'—'} · ${recEsc(rec.empresa)||''} · ${rec.items.length} ítem(s)</div>
+       ${(rec.validado_en||rec.modificada_en)?('<div style="font-size:11px;margin-top:2px;color:#94a3b8">'+(rec.validado_en?('confirmada '+recFechaCorta(rec.validado_en)):'')+(rec.modificada_en?(' · ✎ modificada '+recFechaCorta(rec.modificada_en)):'')+'</div>'):''}
+       ${rec.estado==='validada'?'<div style="margin-top:8px;background:#fef9c3;border:1px solid #fde68a;border-radius:8px;padding:7px 10px;font-weight:700;color:#854d0e">🔒 Confirmada y bloqueada. Un administrador puede reabrirla desde Importación.</div>':''}`;
+    // Almacén
+    const selA=document.getElementById('rec-almacen');
+    selA.innerHTML='<option value="">— Elige el almacén —</option>'+REC_ALMACENES.map(a=>
+      `<option value="${a.id}" data-codigo="${recEsc(a.codigo||'')}" ${String(rec.almacen_id)===String(a.id)?'selected':''}>${recEsc(a.nombre)}${a.codigo?(' ('+recEsc(a.codigo)+')'):''}</option>`).join('');
+    // Ítems (los EXTRA se editan aparte en su popup)
+    const md=document.getElementById('rec-extras-modal'); if(md)md.style.display='none';
+    renderRecItems();
+    // Recepción IGUAL PARA TODOS: si está confirmada, queda en SOLO LECTURA para
+    // cualquiera (se deshabilitan los campos y se ocultan los botones). Reabrir es
+    // una opción del admin y vive en Importación, no aquí.
+    const soloLectura = rec.estado==='validada';
+    document.getElementById('rec-acciones').style.display = soloLectura ? 'none' : '';
+    // El selector de almacén y el botón de extras son los MISMOS elementos para todas las
+    // recepciones: si antes se abrió una confirmada quedaron deshabilitados. Se rehabilitan aquí.
+    selA.disabled=false;
+    { const eb=document.querySelector('[onclick="recAbrirExtras()"]'); if(eb)eb.disabled=false; }
+    if(soloLectura){
+      document.querySelectorAll('#rec-almacen, #rec-items input, #rec-items select, #rec-items textarea, #rec-items button').forEach(el=>{ el.disabled=true; });
+      const eb=document.querySelector('[onclick="recAbrirExtras()"]'); if(eb)eb.disabled=true;
+    }
+    window.scrollTo(0,0);
+  }catch(e){ showToast(e.message,true); }
+}
+// Almacén DESTINO por ítem: nota libre, opcional y REFERENCIAL (a dónde se transferirá
+// después del ingreso). No elige de una lista ni toca el ERP; solo se guarda como texto.
+function recDestinoField(it,i){
+  return `<div class="rec-field"><label>Nota <span style="color:#94a3b8;font-weight:400">(opcional · referencial · a dónde se transferirá)</span></label>
+    <input class="rec-input" value="${recEsc(it.destino||'')}" oninput="recSetDestino(${i},this.value)" placeholder="ej. Tienda Centro, Surco, bodega 2…" maxlength="120"></div>`;
+}
+function recSetDestino(i,val){ if(REC_ACTUAL&&REC_ACTUAL.items[i]) REC_ACTUAL.items[i].destino=val; recAutoGuardar(); }
+function renderRecItems(){
+  const rec=REC_ACTUAL, cont=document.getElementById('rec-items');
+  cont.innerHTML=rec.items.map((it,i)=>{
+    if(it.es_extra) return ''; // los EXTRA van aparte, en su propio popup (no en la lista de factura)
+    const sku = it.sku_confirmado || it.sku_sugerido || '';
+    const nomAsig = recNombreSku(sku);
+    const skuBloque = `<div class="rec-field">
+        <label>Producto del sistema (busca por nombre o SKU) ${it.sku_sugerido?('· sugerido: '+recEsc(it.sku_sugerido)):''}</label>
+        <div class="rec-sug">
+          <input class="rec-input rec-sku-inp" data-i="${i}" value="${recEsc(sku)}" placeholder="Escribe el nombre o SKU del producto..."
+                 oninput="recBuscarSku(${i},this.value)" onblur="setTimeout(()=>recCerrarSug(${i}),180)" autocomplete="off">
+          <div class="rec-sug-list" id="rec-sug-${i}"></div>
+        </div>
+        <div class="rec-sku-name" id="rec-nom-${i}" style="font-size:12px;margin-top:4px;color:${nomAsig?'#15803d':'#b91c1c'};font-weight:600">${nomAsig?('✓ '+recEsc(nomAsig)):(sku?'⚠ SKU no está en el catálogo':'Sin producto asignado')}</div>
+      </div>`;
+    // ── Ítem de la factura SUBDIVIDIDO en 2+ SKU (parte de la factura) ──
+    if(it.sub && it.sub.length){
+      const modo=it.split_modo||'precio';
+      const subRows=it.sub.map((sx,j)=>{
+        const nm=recNombreSku(sx.sku_confirmado||'');
+        return `<div style="border:1px solid var(--border,#e2e8f0);border-radius:8px;padding:8px;margin-top:6px">
+          <div style="display:flex;justify-content:space-between;align-items:center"><b>SKU ${j+1}</b>${it.sub.length>2?`<button type="button" onclick="recDelSubRow(${i},${j})" style="color:#b91c1c;background:none;border:none;cursor:pointer;font-size:15px">✕</button>`:''}</div>
+          <div class="rec-sug">
+            <input class="rec-input" value="${recEsc(sx.sku_confirmado||'')}" placeholder="Nombre o SKU del producto..." oninput="recBuscarSkuSub(${i},${j},this.value)" onblur="setTimeout(()=>recCerrarSubSug(${i},${j}),180)" autocomplete="off">
+            <div class="rec-sug-list" id="rec-subsug-${i}-${j}"></div>
+          </div>
+          <div style="font-size:12px;margin-top:3px;font-weight:600;color:${nm?'#15803d':'#b91c1c'}">${nm?('✓ '+recEsc(nm)):(sx.sku_confirmado?'⚠ no está en el catálogo':'sin producto')}</div>
+          ${modo==='cant'?`<div class="rec-field"><label>Cantidad de este SKU</label><input class="rec-input" type="number" min="0" step="any" value="${sx.cant_recibida==null?'':sx.cant_recibida}" oninput="recSetSubCant(${i},${j},this.value)" placeholder="cantidad"></div>`:''}
+        </div>`;
+      }).join('');
+      return `<div class="rec-item diff" data-i="${i}" style="border-left:4px solid #0891b2">
+        <div class="ri-desc" style="color:#0e7490">✂ Subdividido: ${recEsc(it.desc)||'(sin descripción)'} <button type="button" onclick="recQuitarSub(${i})" title="Deshacer subdivisión" style="float:right;background:none;border:none;color:#b91c1c;cursor:pointer;font-weight:700">deshacer ✕</button></div>
+        <div class="ri-cod">Cód. factura: ${recEsc(it.codigo)||'—'} · Cant. factura: <b>${it.cantidad==null?'—':it.cantidad}</b> · <i>cuenta como parte de la factura</i></div>
+        <div class="rec-field"><label>Tipo de subdivisión</label>
+          <div class="rec-cuadra">
+            <button type="button" class="${modo==='precio'?'on-si':''}" onclick="recSetSubModo(${i},'precio')">Kit (mismo N°, divide el precio)</button>
+            <button type="button" class="${modo==='cant'?'on-si':''}" onclick="recSetSubModo(${i},'cant')">Repartir cantidad</button>
+          </div></div>
+        ${modo==='precio'?`<div class="rec-field"><label>¿Cuántos llegaron? <span style="color:#94a3b8;font-weight:400">(aplica a cada SKU del kit)</span></label>
+          <input class="rec-input" type="number" min="0" step="any" value="${it.cant_recibida==null?'':it.cant_recibida}" oninput="recSetRecibida(${i},this.value)" placeholder="cantidad recibida">
+          <div id="rec-difcalc-${i}" style="font-size:12px;margin-top:5px;font-weight:700">${recDifTexto(it)}</div></div>`:''}
+        ${subRows}
+        <div style="margin-top:8px"><button class="btn btn-sec btn-sm" onclick="recAddSubRow(${i})">+ agregar otro SKU</button></div>
+        ${recDestinoField(it,i)}
+      </div>`;
+    }
+    // ── Ítem de la factura ──
+    const cuadra = it.cuadra;
+    const cls = (cuadra===false||['falta','sobra','no_llego'].includes(it.estado_item))?'diff':(cuadra===true?'ok':'');
+    return `<div class="rec-item ${cls}" data-i="${i}">
+      <div class="ri-desc">🧾 En factura: ${recEsc(it.desc)||'(sin descripción)'}</div>
+      <div class="ri-cod">Cód. factura: ${recEsc(it.codigo)||'—'} · Cant. factura: <b>${it.cantidad==null?'—':it.cantidad}</b></div>
+      <div style="margin:6px 0">Sugerido por el sistema: ${recConfianza(it.confianza)}</div>
+      ${skuBloque}
+      <div style="margin:4px 0 2px"><button class="btn btn-sec btn-sm" type="button" onclick="recSubdividir(${i})" title="Esta línea de la factura son 2+ SKU (kit sin SKU único, o reparto de cantidad)">✂ Subdividir en 2+ SKU</button></div>
+      <div class="rec-field">
+        <label>¿Cuadra la cantidad que llegó?</label>
+        <div class="rec-cuadra">
+          <button type="button" class="${cuadra===true?'on-si':''}" onclick="recSetCuadra(${i},true)">✓ Sí, llegó completo</button>
+          <button type="button" class="${cuadra===false?'on-no':''}" onclick="recSetCuadra(${i},false)">✗ No cuadra</button>
+        </div>
+      </div>
+      <div class="rec-field rec-recibida" data-i="${i}" style="${cuadra===false?'':'display:none'}">
+        <label>¿Cuánto llegó realmente? <span style="color:#94a3b8;font-weight:400">(pon 0 si no llegó nada)</span></label>
+        <input class="rec-input" type="number" step="any" min="0" value="${it.cant_recibida==null?'':it.cant_recibida}"
+               oninput="recSetRecibida(${i},this.value)" placeholder="Cantidad recibida">
+        <div id="rec-difcalc-${i}" style="font-size:12px;margin-top:5px;font-weight:700">${recDifTexto(it)}</div>
+      </div>
+      ${recDestinoField(it,i)}
+    </div>`;
+  }).join('');
+  recActualizarContadorExtras();
+}
+// ══════════ FUERA DE FACTURA (EXTRAS): viven aparte, en su propio popup ══════════
+// Se guardan en REC_ACTUAL.items con es_extra:true (el backend ya los separa), pero
+// NO se muestran en la lista de la factura: se editan solo en el popup.
+function recExtrasIdx(){ return REC_ACTUAL ? REC_ACTUAL.items.map((it,i)=>it.es_extra?i:-1).filter(i=>i>=0) : []; }
+function recActualizarContadorExtras(){
+  const b=document.getElementById('rec-extras-count'); if(!b)return;
+  const n=recExtrasIdx().length; b.textContent=n; b.style.display=n?'':'none';
+}
+function renderRecExtras(){
+  const cont=document.getElementById('rec-extras-list'); if(!cont||!REC_ACTUAL)return;
+  const idxs=recExtrasIdx();
+  cont.innerHTML = idxs.length ? idxs.map(i=>{
+    const it=REC_ACTUAL.items[i]; const sku=it.sku_confirmado||''; const nom=recNombreSku(sku);
+    return `<div class="rec-item diff" data-i="${i}" style="border-left:4px solid #7c3aed">
+      <div class="ri-desc" style="color:#6d28d9">➕ Fuera de factura <button type="button" onclick="recQuitarExtra(${i})" title="Quitar" style="float:right;color:#b91c1c;background:none;border:none;font-size:16px;cursor:pointer">✕</button></div>
+      <div class="rec-field">
+        <label>Producto del sistema (busca por nombre o SKU)</label>
+        <div class="rec-sug">
+          <input class="rec-input rec-sku-inp" data-i="${i}" value="${recEsc(sku)}" placeholder="Escribe el nombre o SKU del producto..."
+                 oninput="recBuscarSku(${i},this.value)" onblur="setTimeout(()=>recCerrarSug(${i}),180)" autocomplete="off">
+          <div class="rec-sug-list" id="rec-sug-${i}"></div>
+        </div>
+        <div class="rec-sku-name" id="rec-nom-${i}" style="font-size:12px;margin-top:4px;color:${nom?'#15803d':'#b91c1c'};font-weight:600">${nom?('✓ '+recEsc(nom)):(sku?'⚠ SKU no está en el catálogo':'Sin producto asignado')}</div>
+      </div>
+      <div class="rec-field">
+        <label>¿Cuánto llegó?</label>
+        <input class="rec-input" type="number" step="any" min="0" value="${it.cant_recibida==null?'':it.cant_recibida}"
+               oninput="recSetCampoExtra(${i},this.value)" placeholder="Cantidad que llegó">
+      </div>
+      <div class="rec-field">
+        <label>Nota (opcional)</label>
+        <input class="rec-input" value="${recEsc(it.nota||'')}" oninput="recSetNotaExtra(${i},this.value)" placeholder="p. ej. muestra, regalo, repuesto suelto">
+      </div>
+      ${recDestinoField(it,i)}
+    </div>`;
+  }).join('') : '<div class="muted" style="font-size:13px;padding:6px 0">Todavía no agregaste nada fuera de factura. Usa “➕ Agregar producto”.</div>';
+  recActualizarContadorExtras();
+}
+function recAbrirExtras(){ const m=document.getElementById('rec-extras-modal'); if(!m)return; renderRecExtras(); m.style.display=''; }
+function recCerrarExtras(){ const m=document.getElementById('rec-extras-modal'); if(m)m.style.display='none'; recAutoGuardar(); }
+function recAgregarExtra(){
+  REC_ACTUAL.items.push({codigo:'',desc:'(no estaba en la factura)',cantidad:null,sku_sugerido:'',sku_confirmado:'',cuadra:false,cant_recibida:null,estado_item:'extra',nota:'',es_extra:true});
+  renderRecExtras(); // solo el popup; NO la lista de la factura
+}
+function recQuitarExtra(i){ REC_ACTUAL.items.splice(i,1); renderRecExtras(); recAutoGuardar(); }
+function recSetCampoExtra(i,val){ REC_ACTUAL.items[i].cant_recibida = (val===''?null:Number(val)); recAutoGuardar(); }
+function recSetNotaExtra(i,val){ if(REC_ACTUAL.items[i]) REC_ACTUAL.items[i].nota = val; recAutoGuardar(); }
+// ── Subdivisión de una línea de factura en 2+ SKU (por defecto KIT / divide precio) ──
+function recSubdividir(i){
+  const it=REC_ACTUAL.items[i];
+  it.split_modo='precio';
+  it.sub=[{sku_confirmado:(it.sku_confirmado||it.sku_sugerido||''),cant_recibida:(it.cant_recibida==null?it.cantidad:it.cant_recibida)},
+          {sku_confirmado:'',cant_recibida:null}];
+  if(it.cant_recibida==null)it.cant_recibida=it.cantidad; // cantidad del kit por defecto = la de factura
+  renderRecItems(); recAutoGuardar();
+}
+function recQuitarSub(i){ const it=REC_ACTUAL.items[i]; it.sub=[]; it.split_modo=''; renderRecItems(); recAutoGuardar(); }
+function recSetSubModo(i,m){ REC_ACTUAL.items[i].split_modo=m; renderRecItems(); recAutoGuardar(); }
+function recAddSubRow(i){ REC_ACTUAL.items[i].sub.push({sku_confirmado:'',cant_recibida:null}); renderRecItems(); recAutoGuardar(); }
+function recDelSubRow(i,j){
+  const it=REC_ACTUAL.items[i]; it.sub.splice(j,1);
+  if(it.sub.length<2){ // si queda 1, deja de ser subdivisión: conserva ese SKU como normal
+    const q=it.sub[0]||{}; it.sku_confirmado=q.sku_confirmado||''; it.sub=[]; it.split_modo='';
+  }
+  renderRecItems(); recAutoGuardar();
+}
+function recSetSubCant(i,j,v){ REC_ACTUAL.items[i].sub[j].cant_recibida=(v===''?null:Number(v)); recAutoGuardar(); }
+function recElegirSkuSub(i,j,sku){ REC_ACTUAL.items[i].sub[j].sku_confirmado=sku; recCerrarSubSug(i,j); renderRecItems(); recAutoGuardar(); }
+function recCerrarSubSug(i,j){ const b=document.getElementById('rec-subsug-'+i+'-'+j); if(b)b.style.display='none'; }
+function recBuscarSkuSub(i,j,q){
+  const box=document.getElementById('rec-subsug-'+i+'-'+j); if(!box)return;
+  REC_ACTUAL.items[i].sub[j].sku_confirmado=q.trim();
+  const qtok=recNorm(q).split(' ').filter(Boolean);
+  if(!qtok.length){ box.style.display='none'; return; }
+  const cat=REC_CATALOGO||[]; const res=[];
+  for(let k=0;k<cat.length && res.length<25;k++){ const hay=recNorm((cat[k][0]||'')+' '+(cat[k][1]||'')); if(qtok.every(t=>hay.includes(t))) res.push(cat[k]); }
+  const diag=`<div style="padding:6px 10px;font-size:11px;color:#475569;background:#f1f5f9;border-bottom:1px solid #e2e8f0">catálogo: ${cat.length} · coincidencias: ${res.length}</div>`;
+  const its=res.map(([s,n])=>`<div onmousedown="recElegirSkuSub(${i},${j},'${recEsc(s).replace(/'/g,"\\'")}')" style="padding:9px 10px;cursor:pointer;color:#0f172a;border-bottom:1px solid #eef2f7"><b style="font-family:ui-monospace,Menlo,monospace">${recEsc(s)}</b> — ${recEsc(n)}</div>`).join('')||`<div style="padding:9px 10px;color:#64748b">${cat.length?'Sin coincidencias':'⚠ el catálogo no cargó'}</div>`;
+  box.innerHTML=diag+its;
+  box.style.position='static';box.style.left='';box.style.top='';box.style.right='';box.style.width='auto';
+  box.style.background='#ffffff';box.style.border='1px solid #cbd5e1';box.style.borderRadius='8px';box.style.marginTop='4px';box.style.color='#0f172a';box.style.maxHeight='240px';box.style.overflow='auto';
+  box.style.display='block';
+}
+function recSetCuadra(i,val){
+  const it=REC_ACTUAL.items[i];
+  it.cuadra=val;
+  if(val===true){ it.estado_item='ok'; it.cant_recibida=it.cantidad; }
+  else { it.cant_recibida=null; it.estado_item=''; } // esperamos que ponga la cantidad real
+  renderRecItems(); recAutoGuardar();
+}
+// Deriva el estado (faltó/sobró/no llegó/cuadra) comparando lo recibido con lo facturado.
+function recEstadoDeCantidad(it){
+  const f=Number(it.cantidad)||0, r=it.cant_recibida;
+  if(r==null||r==='')return '';
+  if(Number(r)===0)return 'no_llego';
+  if(Number(r)<f)return 'falta';
+  if(Number(r)>f)return 'sobra';
+  return 'ok';
+}
+function recDifTexto(it){
+  const f=Number(it.cantidad)||0;
+  if(it.cant_recibida==null||it.cant_recibida==='')return '<span style="color:#94a3b8">Escribe cuánto llegó</span>';
+  const r=Number(it.cant_recibida);
+  if(r===0)return '<span style="color:#dc2626">✗ No llegó nada</span>';
+  if(r<f)return '<span style="color:#d97706">Faltaron '+(f-r)+' (llegaron '+r+' de '+f+')</span>';
+  if(r>f)return '<span style="color:#d97706">Sobraron '+(r-f)+' (llegaron '+r+' de '+f+')</span>';
+  return '<span style="color:#16a34a">✓ Cuadra ('+r+')</span>';
+}
+function recSetRecibida(i,val){
+  const it=REC_ACTUAL.items[i];
+  it.cant_recibida = (val===''?null:Number(val));
+  it.estado_item = recEstadoDeCantidad(it);
+  const el=document.getElementById('rec-difcalc-'+i); if(el)el.innerHTML=recDifTexto(it);
+  recAutoGuardar();
+}
+let REC_CATMAP=null;
+// Normaliza para buscar: minúsculas, sin acentos, sin signos, palabras separadas por espacio.
+function recNorm(s){ return String(s==null?'':s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').trim(); }
+// Badge del nivel de confianza del SKU sugerido (viene del match de la factura en Importación).
+function recConfianza(t){
+  const m={ exact:['✓ Coincide seguro (código)','#dcfce7','#166534'],
+    mem:['✓ Ya confirmado antes','#dcfce7','#166534'],
+    alta:['Probable (por nombre)','#dbeafe','#1e40af'],
+    manual:['Elegido a mano','#dbeafe','#1e40af'],
+    rev:['⚠ Revísalo bien','#fef9c3','#854d0e'],
+    no:['✗ Sin sugerencia — elígelo tú','#fee2e2','#991b1b'] };
+  const x=m[t]||m['no'];
+  return '<span style="display:inline-block;font-size:11px;font-weight:800;padding:2px 9px;border-radius:20px;background:'+x[1]+';color:'+x[2]+'">'+x[0]+'</span>';
+}
+function recNombreSku(sku){
+  if(!sku)return '';
+  if(!REC_CATMAP){ REC_CATMAP={}; (REC_CATALOGO||[]).forEach(([s,n])=>{REC_CATMAP[String(s).toLowerCase()]=n||'';}); }
+  return REC_CATMAP[String(sku).trim().toLowerCase()]||'';
+}
+function recBuscarSku(i,q){
+  const box=document.getElementById('rec-sug-'+i); if(!box)return;
+  REC_ACTUAL.items[i].sku_confirmado=q.trim();
+  const nomEl=document.getElementById('rec-nom-'+i);
+  if(nomEl){ const nm=recNombreSku(q.trim()); nomEl.textContent=nm?('✓ '+nm):(q.trim()?'⚠ SKU no está en el catálogo':'Sin producto asignado'); nomEl.style.color=nm?'#15803d':'#b91c1c'; }
+  const qtok=recNorm(q).split(' ').filter(Boolean);
+  if(!qtok.length){ box.style.display='none'; return; }
+  const cat=REC_CATALOGO||[];
+  const res=[];
+  for(let k=0;k<cat.length && res.length<25;k++){
+    const hay=recNorm((cat[k][0]||'')+' '+(cat[k][1]||''));
+    if(qtok.every(t=>hay.includes(t))) res.push(cat[k]); // ignora signos y orden de palabras
+  }
+  // Línea diagnóstico (nos dice si el catálogo llegó y cuántas coincidencias hay)
+  const diag=`<div style="padding:6px 10px;font-size:11px;color:#475569;background:#f1f5f9;border-bottom:1px solid #e2e8f0">catálogo: ${cat.length} · coincidencias: ${res.length}</div>`;
+  const items=res.map(([sku,name])=>`<div onmousedown="recElegirSku(${i},'${recEsc(sku).replace(/'/g,"\\'")}')" style="padding:9px 10px;cursor:pointer;color:#0f172a;border-bottom:1px solid #eef2f7"><b style="font-family:ui-monospace,Menlo,monospace">${recEsc(sku)}</b> — ${recEsc(name)}</div>`).join('')
+    || `<div style="padding:9px 10px;color:#64748b">${cat.length?'Sin coincidencias':'⚠ el catálogo no cargó (0 SKUs)'}</div>`;
+  box.innerHTML=diag+items;
+  // EN LÍNEA + colores forzados de alto contraste (por si el tema oscuro lo ocultaba)
+  box.style.position='static'; box.style.left=''; box.style.top=''; box.style.right=''; box.style.width='auto';
+  box.style.background='#ffffff'; box.style.border='1px solid #cbd5e1'; box.style.borderRadius='8px';
+  box.style.marginTop='4px'; box.style.color='#0f172a'; box.style.maxHeight='240px'; box.style.overflow='auto';
+  box.style.display='block';
+}
+function recElegirSku(i,sku){ REC_ACTUAL.items[i].sku_confirmado=sku; recCerrarSug(i); if(REC_ACTUAL.items[i]&&REC_ACTUAL.items[i].es_extra) renderRecExtras(); else renderRecItems(); recAutoGuardar(); }
+function recCerrarSug(i){ const box=document.getElementById('rec-sug-'+i); if(box)box.style.display='none'; }
+function recVolver(){ cargarRecepciones(); }
+// Guardado automático de borrador conforme el almacenero avanza (silencioso, con rebote).
+let recAutoTimer=null, recAutoEnCurso=false;
+function recAutoGuardar(){
+  if(!REC_ACTUAL || REC_ACTUAL.estado==='validada') return; // no auto-guardar una ya validada
+  const ind=document.getElementById('rec-autosave'); if(ind)ind.textContent='· editando…';
+  clearTimeout(recAutoTimer);
+  recAutoTimer=setTimeout(()=>{ recGuardar(false,true); }, 900);
+}
+async function recGuardar(confirmar, silent){
+  const rec=REC_ACTUAL; if(!rec)return;
+  const st=document.getElementById('rec-detalle-status');
+  const ind=document.getElementById('rec-autosave');
+  const selA=document.getElementById('rec-almacen');
+  const opA=selA.selectedOptions[0];
+  const almId=selA.value, almNom=opA?(opA.textContent||'').replace(/\s*\([^)]*\)\s*$/,'').trim():'', almCod=opA?(opA.dataset.codigo||''):'';
+  // Ítems de la factura y ítems EXTRA (no facturados) por separado
+  const items=rec.items.filter(it=>!it.es_extra).map(it=>({codigo:it.codigo,sku_sugerido:it.sku_sugerido,sku_confirmado:it.sku_confirmado||'',
+    cuadra:it.cuadra,cant_recibida:it.cant_recibida,estado_item:it.estado_item||'',nota:it.nota||'',destino:it.destino||'',
+    split_modo:it.split_modo||'',sub:(it.sub||[]).map(x=>({sku_confirmado:x.sku_confirmado||'',cant_recibida:x.cant_recibida}))}));
+  const extras=rec.items.filter(it=>it.es_extra).map(it=>({sku_confirmado:it.sku_confirmado||'',cant_recibida:it.cant_recibida,nota:it.nota||'',destino:it.destino||''}));
+  // Validar extras: deben tener SKU (solo al confirmar)
+  const extrasSinSku=extras.filter(e=>!e.sku_confirmado).length;
+  if(confirmar && extrasSinSku){ showToast('Falta elegir el producto (SKU) de '+extrasSinSku+' ítem(s) fuera de factura.',true); recAbrirExtras(); return; }
+  if(!silent) st.textContent = confirmar?'Confirmando...':'Guardando...';
+  else if(ind){ if(recAutoEnCurso)return; recAutoEnCurso=true; ind.textContent='· guardando…'; }
+  try{
+    // Recepción igual para todos: siempre se guarda/confirma por /validacion. Una vez
+    // confirmada queda bloqueada (el backend la protege); las correcciones y el reabrir
+    // son opciones del admin y se hacen desde Importación.
+    const d=await apiCall('/api/recepcion/'+encodeURIComponent(rec.id)+'/validacion','PUT',
+      {almacen_id:almId?Number(almId):null,almacen_nombre:almNom,almacen_codigo:almCod,items,extras,confirmar});
+    if(!silent) st.textContent = confirmar?'✓ Recepción confirmada.':'✓ Borrador guardado.';
+    if(d&&d.estado) rec.estado=d.estado; // p.ej. queda 'borrador' tras el auto-guardado
+    if(ind && silent){ const hh=new Date(); ind.textContent='· guardado '+String(hh.getHours()).padStart(2,'0')+':'+String(hh.getMinutes()).padStart(2,'0'); }
+    actualizarBadgeRecepciones();
+    if(confirmar) setTimeout(cargarRecepciones,700);
+  }catch(e){
+    if(!silent){ st.textContent=''; showToast(e.message,true); }
+    else if(ind) ind.textContent='· no se pudo guardar (reintenta al seguir)';
+  } finally { if(silent) recAutoEnCurso=false; }
+}
+
+async function descargarReporteSync(){
+  const res=document.getElementById('sync-result');
+  res.textContent='Generando reporte...';
+  try{
+    const r=await fetch(API+'/admin/reporte-sync',{headers:{'Authorization':'Bearer '+TOKEN}});
+    if(!r.ok){const d=await r.json();throw new Error(d.error||'Error');}
+    const blob=await r.blob();
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;
+    a.download=nombreArchivo('reporte-sync','xlsx');
+    document.body.appendChild(a);a.click();a.remove();
+    URL.revokeObjectURL(url);
+    res.textContent='✓ Reporte descargado.';
+  }catch(e){res.textContent='';showToast(e.message,true);}
+}
+async function exportarProductosSinId(){
+  const res=document.getElementById('sync-result');
+  res.textContent='Generando Excel de productos sin ID...';
+  try{
+    const r=await fetch(API+'/admin/pendientes-web-csv?web=1',{headers:{'Authorization':'Bearer '+TOKEN}});
+    if(!r.ok){let m='No se pudo generar el Excel';try{m=(await r.json()).error||m;}catch(e){}throw new Error(m);}
+    const blob=await r.blob();
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;a.download=nombreArchivo('productos-sin-id','xlsx');
+    document.body.appendChild(a);a.click();a.remove();
+    URL.revokeObjectURL(url);
+    res.textContent='✓ Excel descargado.';
+  }catch(e){res.textContent='';showToast(e.message,true);}
+}
+// ── Corregir datos en el ERP (vista en pantalla + aplicar seleccionados) ──
+let ERP_WB=null;
+async function verCambiosErp(){
+  const res=document.getElementById('erp-wb-result');
+  const panel=document.getElementById('erp-wb-panel');
+  res.textContent='Cargando cambios propuestos...'; panel.innerHTML='';
+  try{
+    const r=await fetch(API+'/admin/erp-writeback-preview',{headers:{'Authorization':'Bearer '+TOKEN}});
+    if(!r.ok){let m='No se pudo cargar';try{m=(await r.json()).error||m;}catch(e){}throw new Error(m);}
+    ERP_WB=await r.json();
+    renderErpWb();
+    res.textContent='';
+  }catch(e){res.textContent='';showToast(e.message,true);}
+}
+function erpEsc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function renderErpWb(){
+  const panel=document.getElementById('erp-wb-panel');
+  const d=ERP_WB||{};
+  const tabla=(titulo,filas,cols,tipo)=>{
+    if(!filas||!filas.length) return `<h4 style="margin-top:14px">${titulo} <span class="muted">(0)</span></h4><div class="muted" style="margin-bottom:6px">Sin cambios.</div>`;
+    let h=`<h4 style="margin-top:14px">${titulo} <span class="muted">(${filas.length})</span> <label style="font-size:12px;font-weight:normal;margin-left:8px"><input type="checkbox" onclick="erpTodos('${tipo}',this.checked)"> seleccionar todos</label></h4>`;
+    h+='<div style="overflow:auto;max-height:340px;border:1px solid var(--border,#ccc);border-radius:8px"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="position:sticky;top:0;background:#000726;color:#fff"><th style="padding:6px"></th>'+cols.map(c=>`<th style="padding:6px;text-align:left">${c.h}</th>`).join('')+'</tr></thead><tbody>';
+    filas.forEach((f,i)=>{ h+=`<tr style="border-top:1px solid var(--border,#eee)"><td style="padding:6px"><input type="checkbox" class="erp-chk-${tipo}" data-i="${i}"></td>`+cols.map(c=>`<td style="padding:6px;word-break:break-all">${erpEsc(f[c.k])}</td>`).join('')+'</tr>'; });
+    h+='</tbody></table></div>';
+    return h;
+  };
+  panel.innerHTML=
+    tabla('Vincular WooCommerce ID',d.vincularId,[{h:'SKU',k:'sku'},{h:'Tipo',k:'tipo'},{h:'ID nuevo',k:'nuevo'}],'id')+
+    tabla('Reservas → notify',d.reservas,[{h:'SKU',k:'sku'},{h:'Tipo',k:'tipo'},{h:'Antes',k:'antes'},{h:'Después',k:'despues'}],'back')+
+    tabla('Imágenes → kuranko',d.imagenes,[{h:'SKU',k:'sku'},{h:'Link actual',k:'actual'},{h:'Link kuranko',k:'nuevo'}],'img')+
+    `<div style="margin-top:14px"><button class="btn" onclick="aplicarCambiosErp()">Aplicar seleccionados al sistema</button></div>`;
+}
+function erpTodos(tipo,on){document.querySelectorAll('.erp-chk-'+tipo).forEach(c=>c.checked=on);}
+async function aplicarCambiosErp(){
+  const d=ERP_WB||{}; const sel=[];
+  const recoger=(tipo,arr)=>{document.querySelectorAll('.erp-chk-'+tipo+':checked').forEach(c=>{const f=(arr||[])[+c.dataset.i]; if(f) sel.push(Object.assign({},f,{tipo}));});};
+  recoger('id',d.vincularId); recoger('back',d.reservas); recoger('img',d.imagenes);
+  if(!sel.length){showToast('No seleccionaste ningún cambio',true);return;}
+  if(!confirm('¿Aplicar '+sel.length+' cambio(s) al sistema (ERP)? Esto escribe en la base del sistema.'))return;
+  const res=document.getElementById('erp-wb-result'); res.textContent='Aplicando '+sel.length+' cambio(s)...';
+  try{
+    const r=await fetch(API+'/admin/erp-writeback-aplicar',{method:'POST',headers:{'Authorization':'Bearer '+TOKEN,'Content-Type':'application/json'},body:JSON.stringify({cambios:sel})});
+    const j=await r.json(); if(!r.ok)throw new Error(j.error||'Error al aplicar');
+    res.textContent=`✓ Aplicados: ${j.aplicados}. Sin cambio: ${j.sin_cambio}. Errores: ${(j.errores||[]).length}.`;
+    showToast('Cambios aplicados: '+j.aplicados,false);
+    verCambiosErp();
+  }catch(e){res.textContent='';showToast(e.message,true);}
+}
+// ── Cola de SKUs específicos ──
+async function verColaSkus(){
+  try{
+    const d=await apiCall('/admin/sync-cola-sku','GET');
+    const cont=document.getElementById('sync-skus-cola');
+    const btnV=document.getElementById('btn-vaciar-cola');
+    if(d.total>0){
+      const oferta=d.con_oferta>0?` · ${d.con_oferta} con precio oferta`:'';
+      cont.innerHTML=`<b>${d.total}</b> SKU(s) en cola, esperando la próxima corrida${oferta}.`;
+      if(btnV)btnV.style.display='';
+    }else{
+      cont.textContent='No hay SKUs en cola.';
+      if(btnV)btnV.style.display='none';
+    }
+  }catch(e){/* nada */}
+}
+async function encolarSkus(){
+  const ta=document.getElementById('sync-skus');
+  const res=document.getElementById('sync-skus-result');
+  const texto=(ta.value||'').trim();
+  if(!texto){res.textContent='Pega al menos un SKU.';return;}
+  const oferta=document.getElementById('sync-skus-oferta').checked;
+  res.textContent='Guardando en cola...';
+  try{
+    const d=await apiCall('/admin/sync-cola-sku','POST',{skus:texto,actualizar_oferta:oferta});
+    res.innerHTML=`✓ ${d.mensaje}`+(d.ya_estaban>0?` (${d.ya_estaban} ya estaban en cola)`:'');
+    ta.value='';
+    document.getElementById('sync-skus-oferta').checked=false;
+    verColaSkus();
+  }catch(e){res.textContent='';showToast(e.message,true);}
+}
+async function vaciarColaSkus(){
+  if(!confirm('¿Vaciar la cola de SKUs pendientes? No se sincronizarán.'))return;
+  try{
+    const d=await apiCall('/admin/sync-cola-sku-vaciar','POST',{});
+    document.getElementById('sync-skus-result').textContent=`Cola vaciada (${d.vaciados} SKU).`;
+    verColaSkus();
+  }catch(e){showToast(e.message,true);}
+}
+
+async function solicitarActualizacion(){
+  if(!confirm('¿Solicitar una actualización completa? Se aplicará en la próxima sincronización de las 2 AM (no al instante).'))return;
+  const res=document.getElementById('solicitud-result');
+  res.textContent='Registrando solicitud...';
+  try{
+    const r=await apiCall('/admin/solicitar-actualizacion','POST',{});
+    res.textContent='✓ '+r.mensaje;
+    cargarEstadoActualizacion();
+  }catch(e){res.textContent='';showToast(e.message,true);}
+}
+async function cancelarActualizacion(){
+  if(!confirm('¿Cancelar la solicitud de actualización completa pendiente?'))return;
+  const res=document.getElementById('solicitud-result');
+  res.textContent='Cancelando...';
+  try{
+    const r=await apiCall('/admin/cancelar-actualizacion','POST',{});
+    res.textContent=r.canceladas>0?'✓ Solicitud cancelada.':'No había ninguna solicitud pendiente.';
+    cargarEstadoActualizacion();
+  }catch(e){res.textContent='';showToast(e.message,true);}
+}
+function esc(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+// Auditoría de catálogo y chequeo de empresas → public/auditoria.html (iframe)
+// Promociones recomendadas → public/promociones.html (iframe)
+// Inventario (capital parado, ubicaciones, salud del stock) → public/inventario.html (iframe)
+// Restock → public/restock.html (iframe)
+
+function subtabSis(cual){
+  // Grupo Sistemas: sync | pagos | accesos
+  ['sync','pagos','accesos'].forEach(x=>{
+    const p=document.getElementById('sis-'+x), t=document.getElementById('sis-t-'+x);
+    if(p)p.classList.toggle('active',x===cual);
+    if(t)t.classList.toggle('active',x===cual);
+  });
+  if(cual==='sync')cargarEstadoActualizacion();
+  if(cual==='pagos'&&typeof cargarMetodosPago==='function')cargarMetodosPago();
+  if(cual==='accesos'&&typeof cargarAccesos==='function')cargarAccesos();
+}
+
+// Reporte de pagos y Kardex valorizado → public/contabilidad.html (iframe)
+
+// Nombre de archivo con marca de tiempo (lo usan las descargas de otras pestañas)
+function nombreArchivo(base, ext, periodo){
+  const d=new Date();const p=n=>String(n).padStart(2,'0');
+  const stamp=`${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
+  const suf=periodo?('-'+periodo):'';
+  return `${base}-${stamp}${suf}.${ext}`;
+}
+
+// ══════════ DASHBOARD BI ══════════
+let dbCharts={}, dbCargadas={};
+const dbFmt=n=>new Intl.NumberFormat('es-PE',{style:'currency',currency:'PEN',maximumFractionDigits:0}).format(n||0);
+const dbFmtN=n=>new Intl.NumberFormat('es-PE').format(n||0);
+// Lee las fechas del panel actualmente visible (cada panel tiene su barra .db-desde/.db-hasta)
+// Devuelve el contenedor cuyos filtros de fecha se deben usar:
+// si el panel activo tiene subpaneles (grupos), el subpanel activo manda.
+function dbContenedorActivo(){
+  const panel=document.querySelector('.panel.active');
+  if(!panel)return null;
+  const sub=panel.querySelector('.subpanel.active');
+  return (sub&&sub.querySelector('.db-desde'))?sub:panel;
+}
+function dbFechasPanelActivo(){
+  const cont=dbContenedorActivo();
+  if(!cont)return '';
+  const d=cont.querySelector('.db-desde'), h=cont.querySelector('.db-hasta');
+  return (d&&h&&d.value&&h.value)?`?desde=${d.value}&hasta=${h.value}`:'';
+}
+async function dbApi(ep){
+  const p=dbFechasPanelActivo();
+  const sep=p?(ep.includes('?')?'&'+p.slice(1):p):'';
+  return apiCall(ep+sep,'GET');
+}
+function dbMkChart(id,type,data,opts){
+  if(dbCharts[id])dbCharts[id].destroy();
+  const el=document.getElementById(id); if(!el)return;
+  dbCharts[id]=new Chart(el,{type,data,options:{responsive:true,maintainAspectRatio:false,...opts}});
+}
+// Tabla ordenable genérica del dashboard
+const dbTableState={};
+function dbSortTable(id,data,cols,defaultSort){
+  dbTableState[id]={data,cols,sortKey:dbTableState[id]?.sortKey||defaultSort,dir:dbTableState[id]?.dir||'desc'};
+  dbRenderTable(id);
+}
+function dbRenderTable(id){
+  const st=dbTableState[id];const{data,cols,sortKey,dir}=st;
+  const sorted=[...data].sort((a,b)=>{
+    let x=a[sortKey],y=b[sortKey];const col=cols.find(c=>c.k===sortKey);
+    if(col&&col.num){x=parseFloat(x)||0;y=parseFloat(y)||0;return dir==='asc'?x-y:y-x;}
+    x=(x||'').toString();y=(y||'').toString();return dir==='asc'?x.localeCompare(y):y.localeCompare(x);
+  });
+  const t=document.getElementById(id);
+  t.classList.add('responsive');
+  t.innerHTML='<thead><tr>'+cols.map(c=>{
+    const cls=c.k===sortKey?(dir==='asc'?'sort-asc':'sort-desc'):'sortable';
+    return `<th class="${cls}" onclick="dbChangeSort('${id}','${c.k}')">${c.t}</th>`;
+  }).join('')+'</tr></thead><tbody>'+
+    sorted.map(r=>'<tr>'+cols.map(c=>`<td data-label="${c.t}">${c.fmt(r[c.k],r)}</td>`).join('')+'</tr>').join('')+'</tbody>';
+}
+function dbChangeSort(id,key){
+  const st=dbTableState[id];
+  if(st.sortKey===key)st.dir=st.dir==='asc'?'desc':'asc';else{st.sortKey=key;st.dir='desc';}
+  dbRenderTable(id);
+}
+// Pone fechas por defecto (últimos 30 días) en el panel si están vacías
+function dbInitFechas(panelId){
+  const panel=document.getElementById(panelId); if(!panel)return;
+  const d=panel.querySelector('.db-desde'), h=panel.querySelector('.db-hasta');
+  if(d&&h&&!d.value){
+    // En hora local (con toISOString, después de las 7 p. m. "hasta" salía mañana)
+    h.value=viIso(new Date());
+    d.value=viIso(new Date(Date.now()-29*864e5));
+  }
+}
+// Carga la data de una pestaña BI (llamada desde cargarDatosTab, solo la 1a vez)
+async function dbCargarModulo(id){
+  try{
+    if(id==='resumen')await dbResumen();
+    else if(id==='rentabilidad')await dbRentabilidad();
+    else if(id==='caja_bi')await dbCaja();
+    else if(id==='crm')await dbCRM();
+    dbCargadas[id]=1;
+  }catch(e){showToast('Dashboard: '+e.message,true);}
+}
+// Botón "Actualizar" dentro de un panel: recarga esa pestaña con las fechas nuevas
+function dbAplicarMes(elemento){
+  // Rellena el desde/hasta del panel (o subpanel) donde está este selector de mes
+  const panel=elemento.closest('.subpanel')||elemento.closest('.panel'); if(!panel)return;
+  const valorMes=elemento.value; if(!valorMes)return;
+  const [a,m]=valorMes.split('-').map(Number);
+  const ultimo=new Date(a,m,0).getDate();
+  const desde=`${a}-${String(m).padStart(2,'0')}-01`;
+  const hasta=`${a}-${String(m).padStart(2,'0')}-${String(ultimo).padStart(2,'0')}`;
+  const d=panel.querySelector('.db-desde'), h=panel.querySelector('.db-hasta');
+  if(d)d.value=desde; if(h)h.value=hasta;
+}
+// ── "Ventas y compras": sub-pestañas ──
+const VC_MODS={ventas:['resumen','caja_bi','rentabilidad'],gastos:['gastos'],rendimiento:['rendimiento'],'auditoria-ventas':['auditoria_vc']};
+function vcPuede(sub){return ES_MAESTRO||(VC_MODS[sub]||[]).some(m=>MIS_MODULOS.includes(m));}
+function vcSub(sub){
+  if(!vcPuede(sub))return;
+  Object.keys(VC_MODS).forEach(k=>{
+    document.getElementById('vc-'+k).classList.toggle('active',k===sub);
+    const t=document.getElementById('vc-t-'+k);t.classList.toggle('active',k===sub);t.style.display=vcPuede(k)?'':'none';
+  });
+  try{localStorage.setItem('vc_sub',sub);}catch(e){}
+  if(sub==='ventas'){
+    dbInitFechas('tab-ventas_ingresos');
+    if(!dbCargadas['resumen'])dbCargarModulo('resumen');
+    if(!dbCargadas['caja_bi'])dbCargarModulo('caja_bi');
+    if(!dbCargadas['rentabilidad'])dbCargarModulo('rentabilidad');
+  }else{
+    // Compras y gastos / Rendimiento en iframe (public/gastos.html, public/rendimiento.html).
+    // Rendimiento se recarga cada vez para tomar los gastos recién anotados.
+    const fr=document.getElementById(sub+'-frame');
+    if(fr&&(!fr.src||sub==='rendimiento'))fr.src='/'+sub+'.html?v='+Date.now();
+  }
+}
+function dbCargarActual(){
+  const panel=document.querySelector('.panel.active'); if(!panel)return;
+  let id=panel.id.replace('tab-','');
+  // El panel unificado recarga sus dos módulos con el mismo filtro
+  if(id==='ventas_ingresos'){
+    dbCargadas['resumen']=0; dbCargadas['caja_bi']=0; dbCargadas['rentabilidad']=0;
+    dbCargarModulo('resumen'); dbCargarModulo('caja_bi'); dbCargarModulo('rentabilidad');
+    return;
+  }
+  dbCargadas[id]=0;
+  dbCargarModulo(id);
+}
+
+// ══════════ VENTAS E INGRESOS: filtro por empresa, gráfico agrupado y mes a mes ══════════
+let viEmpresa='', viAgrupar='dia', viMetrica='ventas', viEmpresas=[], viSerie=null, viSerieAnt=null, viMmComp='anterior';
+// Colores fijos por empresa (legibles en tema claro y oscuro); 0 = total
+const VI_COL={1:'#6C63D9',2:'#14A37F',0:'#8b93b8'}, VI_COL_T='#FFB30D', VI_COL_ANT='#8b93b8';
+const VI_MESES=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+const VI_METRICAS={
+  ventas:{t:'Ventas',din:1,nota:'Valor vendido (con IGV), por la empresa que gestiona la venta y su fecha de venta.'},
+  ingresos:{t:'Cobrado',din:1,nota:'Dinero cobrado, por la empresa dueña de la cuenta donde entró el pago y su fecha de pago. No cuenta cobros de ventas canceladas o eliminadas.'},
+  vc:{t:'Vendido vs cobrado',din:1,nota:'Barras: lo vendido. Línea: lo cobrado. Cuando la línea queda por debajo de las barras, estás vendiendo a crédito.'},
+  num_ventas:{t:'N° de ventas',din:0,nota:'Cantidad de ventas, por la empresa que gestiona la venta.'},
+  ticket:{t:'Ticket promedio',din:1,nota:'Ventas ÷ N° de ventas del período.'},
+  margen:{t:'Margen bruto (sin IGV)',din:1,nota:'Venta sin IGV − costo sin impuesto deducible, de las líneas con costo conocido (la cobertura está en Mes a mes).'},
+  compras:{t:'Mercadería ingresada',din:1,nota:'Entradas de stock tipo compra o importación, por fecha de ingreso al almacén y al costo del lote. No es lo pagado: eso está en Rendimiento → Flujo de caja.'}
+};
+const viNomEmp=id=>{const e=viEmpresas.find(x=>x.id===+id);return e?e.nombre:(+id?'Empresa '+id:'Sin asignar');};
+const viCorto=id=>viNomEmp(id).split(' ')[0];
+const viIso=d=>{const z=new Date(d.getTime()-d.getTimezoneOffset()*6e4);return z.toISOString().slice(0,10);};
+// Mismo período un año antes ('2026-03' → '2025-03'; el 29/02 pasa a 28/02)
+const viMenosAnio=p=>{const s=(+p.slice(0,4)-1)+p.slice(4);return s.endsWith('-02-29')?s.slice(0,8)+'28':s;};
+const viMesPrev=p=>{const [a,m]=p.split('-').map(Number);return m===1?`${a-1}-12`:`${a}-${String(m-1).padStart(2,'0')}`;};
+// Período (día / lunes de la semana / mes) que contiene a hoy
+function viPeriodoActual(ag){
+  const h=new Date();
+  if(ag==='mes')return viIso(h).slice(0,7);
+  if(ag==='semana'){const d=new Date(h);d.setDate(d.getDate()-((d.getDay()+6)%7));return viIso(d);}
+  return viIso(h);
+}
+function viRango(){
+  const c=document.getElementById('tab-ventas_ingresos');
+  const d=c.querySelector('.db-desde').value, h=c.querySelector('.db-hasta').value;
+  return {desde:d,hasta:h};
+}
+function viQS(extra){
+  const q=new URLSearchParams(); const {desde,hasta}=viRango();
+  if(desde&&hasta){q.set('desde',desde);q.set('hasta',hasta);}
+  if(viEmpresa)q.set('empresa',viEmpresa);
+  Object.entries(extra||{}).forEach(([k,v])=>q.set(k,v));
+  return '?'+q.toString();
+}
+const viApi=(ep,extra)=>apiCall(ep+viQS(extra),'GET');
+
+// Botones de empresa (se arman una vez con la lista del servidor)
+async function viInitEmpresas(){
+  if(viEmpresas.length)return;
+  try{viEmpresas=await apiCall('/api/empresas-bi','GET');}catch(e){viEmpresas=[{id:1,nombre:'Diseños Corporativos SAC'},{id:2,nombre:'Christopher Villasante F.'}];}
+  const box=document.getElementById('vi-empresas'); if(!box)return;
+  box.innerHTML=`<button class="${viEmpresa?'':'on'}" data-emp="" onclick="viSetEmpresa('',this)">Todas</button>`+
+    viEmpresas.map(e=>`<button class="${+viEmpresa===e.id?'on':''}" data-emp="${e.id}" onclick="viSetEmpresa('${e.id}',this)">${e.nombre}</button>`).join('');
+}
+function viSetEmpresa(id,btn){
+  viEmpresa=id;
+  document.querySelectorAll('#vi-empresas button').forEach(b=>b.classList.toggle('on',b===btn));
+  dbCargarActual();
+}
+function viMarcar(boxId,v){document.querySelectorAll('#'+boxId+' button').forEach(b=>b.classList.toggle('on',b.dataset.v===v));}
+function viDiasRango(){const {desde,hasta}=viRango();if(!desde||!hasta)return 0;return (new Date(hasta)-new Date(desde))/864e5+1;}
+function viSetAgrupar(v){
+  viAgrupar=v; viMarcar('vi-agrupar',v);
+  // Agrupar por mes/semana un rango corto deja 1-2 barras: se amplía el rango solo
+  if(v==='mes'&&viDiasRango()<60){showToast('Vista por mes: rango ampliado a los últimos 12 meses');viPreset('12m');return;}
+  if(v==='semana'&&viDiasRango()<28){showToast('Vista por semana: rango ampliado a los últimos 90 días');viPreset('90d');return;}
+  viCargarSerie().catch(e=>showToast('Gráfico: '+e.message,true));
+}
+function viSetMetrica(v){viMetrica=v;viMarcar('vi-metrica',v);viDibujar();}
+function viSetMmComp(v){viMmComp=v;viMarcar('vi-mmcomp',v);viMesAMes().catch(e=>showToast('Mes a mes: '+e.message,true));}
+function viPreset(cual){
+  const c=document.getElementById('tab-ventas_ingresos');
+  const hoy=new Date(); let d=new Date(hoy);
+  if(cual==='30d')d=new Date(hoy.getTime()-29*864e5);
+  else if(cual==='90d')d=new Date(hoy.getTime()-89*864e5);
+  else if(cual==='anio')d=new Date(hoy.getFullYear(),0,1);
+  else if(cual==='12m')d=new Date(hoy.getFullYear(),hoy.getMonth()-11,1);
+  else if(cual==='todo'&&viHist)d=new Date(viHist.excel_desde+'T00:00:00');
+  c.querySelector('.db-desde').value=viIso(d);
+  c.querySelector('.db-hasta').value=viIso(hoy);
+  const m=c.querySelector('.db-mes'); if(m)m.value='';
+  dbCargarActual();
+}
+
+// Lista completa de períodos del rango (para que los huecos salgan en cero)
+function viPeriodos(desde,hasta,agrupar){
+  const out=[]; if(!desde||!hasta)return out;
+  const [a1,m1,d1]=desde.split('-').map(Number),[a2,m2,d2]=hasta.split('-').map(Number);
+  if(agrupar==='mes'){
+    for(let a=a1,m=m1;a<a2||(a===a2&&m<=m2);){out.push(`${a}-${String(m).padStart(2,'0')}`);m++;if(m>12){m=1;a++;}}
+    return out;
+  }
+  let d=new Date(a1,m1-1,d1); const fin=new Date(a2,m2-1,d2);
+  if(agrupar==='semana'){const wd=(d.getDay()+6)%7;d.setDate(d.getDate()-wd);}
+  while(d<=fin){out.push(viIso(d));d.setDate(d.getDate()+(agrupar==='semana'?7:1));}
+  return out;
+}
+function viEtiqueta(p,agrupar,larga){
+  if(agrupar==='mes'){const [a,m]=p.split('-');return VI_MESES[+m-1]+' '+(larga?a:a.slice(2));}
+  const [a,m,d]=p.split('-');
+  if(agrupar==='semana')return (larga?'Semana del ':'Sem ')+d+'/'+m+(larga?'/'+a:'');
+  return larga?d+'/'+m+'/'+a:d+'/'+m;
+}
+// Agrega las filas del servidor en {periodo: {cid: {...}}}
+function viIndexar(filas){
+  const idx={};
+  (filas||[]).forEach(r=>{(idx[r.periodo]=idx[r.periodo]||{})[r.company_id]=r;});
+  return idx;
+}
+const VI_VACIO={ventas:0,num_ventas:0,ingresos:0,margen:0,base_margen:0,ingreso_items:0,compras:0,ventas_netas:0,margen_neto:0,base_neta:0};
+// Suma varias filas (para el total o para una empresa)
+function viSumar(celdas){
+  const t={...VI_VACIO}; (celdas||[]).forEach(c=>{if(c)Object.keys(VI_VACIO).forEach(k=>t[k]+=+c[k]||0);}); return t;
+}
+function viValor(c,m){
+  if(!c)return 0;
+  if(m==='ticket')return c.num_ventas>0?c.ventas/c.num_ventas:0;
+  if(m==='margen')return +c.margen_neto||0;
+  if(m==='margen_pct')return c.base_neta>0?c.margen_neto/c.base_neta*100:null;
+  if(m==='cobertura')return c.ingreso_items>0?c.base_margen/c.ingreso_items*100:null;
+  return +c[m]||0;
+}
+// Celda de una empresa o del total (cid='T') en un período
+function viCelda(idx,p,cid){
+  const fila=idx[p]||{};
+  if(cid==='T')return viSumar(Object.values(fila));
+  return fila[cid]||{...VI_VACIO};
+}
+function viGruposVisibles(filas){
+  // Una empresa elegida → solo ella. Todas → cada empresa (+ "Sin asignar" si hay
+  // ventas del Excel sin forma de pago) + total.
+  if(viEmpresa)return [+viEmpresa];
+  const sinAsig=(filas||[]).some(r=>r.company_id===0&&(+r.ventas||+r.compras||+r.ingresos));
+  return [...viEmpresas.map(e=>e.id),...(sinAsig?[0]:[]),'T'];
+}
+const viFechaTxt=f=>f?f.split('-').reverse().join('/'):'';
+const viCobCls=v=>v==null?'':v>=90?'cob-ok':v>=70?'cob-warn':'cob-bad';
+
+async function viCargarSerie(){
+  const {desde,hasta}=viRango(); if(!desde||!hasta)return;
+  // Por mes: también el mismo rango un año antes (línea "año anterior")
+  const pAnt=viAgrupar==='mes'?viApi('/api/bi-serie',{agrupar:'mes',desde:viMenosAnio(desde),hasta:viMenosAnio(hasta)}).catch(()=>null):Promise.resolve(null);
+  const [s,a]=await Promise.all([viApi('/api/bi-serie',{agrupar:viAgrupar}),pAnt]);
+  viSerie=s; viSerie.periodos=viPeriodos(desde,hasta,viAgrupar);
+  viSerieAnt=a&&a.filas&&a.filas.length?a:null;
+  viDibujar();
+}
+function viDibujar(){
+  if(!viSerie)return;
+  const m=viMetrica, meta=VI_METRICAS[m], ag=viSerie.agrupar, per=viSerie.periodos, idx=viIndexar(viSerie.filas);
+  const fmt=v=>v==null?'—':meta.din?dbFmt(v):dbFmtN(Math.round(v));
+  const esDia=ag==='dia', iAct=per.indexOf(viPeriodoActual(ag));
+  const principal=viEmpresa?+viEmpresa:'T';
+  document.getElementById('vi-graf-titulo').textContent=meta.t+' por '+({dia:'día',semana:'semana',mes:'mes'}[ag])+(viEmpresa?' — '+viNomEmp(viEmpresa):'');
+  const hi=viSerie.historico;
+  document.getElementById('vi-graf-nota').textContent=meta.nota+
+    (esDia?' Las líneas son el promedio de los últimos 7 días; las barras claras, cada día.':'')+
+    (ag==='mes'&&viSerieAnt&&m!=='vc'?' La línea punteada gris es el mismo mes del año anterior.':'')+
+    (iAct>=0&&!esDia?' La última barra (más clara) está en curso.':'')+
+    (hi&&hi.usado?` Antes del ${viFechaTxt(hi.corte)} los datos vienen del Excel histórico.`:'');
+  document.getElementById('vi-zoom-hint').style.display=esDia?'':'none';
+  // La barra del período en curso va más clara: aún no está completa
+  const colores=col=>per.map((p,i)=>i===iAct&&!esDia?col+'66':col);
+  // Promedio de 7 días (el ticket: ventas ÷ N° de esos 7 días)
+  const movil=(cid,met)=>per.map((p,i)=>{const w=per.slice(Math.max(0,i-6),i+1).map(q=>viCelda(idx,q,cid));const t=viSumar(w);return met==='ticket'?viValor(t,'ticket'):viValor(t,met)/w.length;});
+  let datasets;
+  if(m==='vc'){
+    const col=principal==='T'?'#6C63D9':(VI_COL[principal]||'#6C63D9'), cel=per.map(p=>viCelda(idx,p,principal));
+    datasets=esDia?[
+      {type:'line',label:'Vendido (media 7 días)',data:movil(principal,'ventas'),borderColor:col,backgroundColor:col,borderWidth:2,pointRadius:0,tension:.3,order:1},
+      {type:'line',label:'Cobrado (media 7 días)',data:movil(principal,'ingresos'),borderColor:VI_COL_T,backgroundColor:VI_COL_T,borderWidth:2,pointRadius:0,tension:.3,order:1},
+      {type:'bar',label:'Vendido cada día',data:cel.map(c=>c.ventas),backgroundColor:'rgba(148,163,184,.25)',borderRadius:2,maxBarThickness:14,order:3}
+    ]:[
+      {type:'bar',label:'Vendido',data:cel.map(c=>c.ventas),backgroundColor:colores(col),borderRadius:4,maxBarThickness:38,order:2},
+      {type:'line',label:'Cobrado',data:cel.map(c=>c.ingresos),borderColor:VI_COL_T,backgroundColor:VI_COL_T,borderWidth:2,pointRadius:3,tension:.3,order:1}
+    ];
+  }else{
+    const grupos=viGruposVisibles(viSerie.filas);
+    datasets=grupos.map(cid=>{
+      const col=cid==='T'?VI_COL_T:(VI_COL[cid]||'#8b93b8');
+      if(esDia)return {type:'line',label:(cid==='T'?'Total':viNomEmp(cid))+' (media 7 días)',data:movil(cid,m),borderColor:col,backgroundColor:col,borderWidth:2,borderDash:cid==='T'&&grupos.length>1?[5,4]:[],pointRadius:0,pointHoverRadius:4,tension:.3,order:1};
+      const data=per.map(p=>viValor(viCelda(idx,p,cid),m));
+      if(cid==='T')return {type:'line',label:'Total',data,borderColor:VI_COL_T,backgroundColor:VI_COL_T,borderWidth:2,borderDash:[5,4],pointRadius:3,pointHoverRadius:5,tension:.3,order:0};
+      return {type:'bar',label:viNomEmp(cid),data,backgroundColor:colores(col),borderRadius:4,maxBarThickness:38,order:1};
+    });
+    if(esDia)datasets.push({type:'bar',label:'Cada día'+(viEmpresa?'':' (total)'),data:per.map(p=>viValor(viCelda(idx,p,principal),m)),backgroundColor:'rgba(148,163,184,.25)',borderRadius:2,maxBarThickness:14,order:3});
+    if(ag==='mes'&&viSerieAnt){
+      const idxA=viIndexar(viSerieAnt.filas);
+      // Sin datos ese mes del año pasado → hueco (no un cero que parezca caída)
+      datasets.push({type:'line',label:(viEmpresa?viCorto(viEmpresa):'Total')+' año anterior',spanGaps:false,data:per.map(p=>idxA[viMenosAnio(p)]?viValor(viCelda(idxA,viMenosAnio(p),principal),m):null),borderColor:VI_COL_ANT,backgroundColor:VI_COL_ANT,borderWidth:1.5,borderDash:[2,3],pointRadius:2,tension:.3,order:0});
+    }
+  }
+  dbMkChart('ch-dias','bar',{labels:per.map(p=>viEtiqueta(p,ag,false)),datasets},{
+    interaction:{mode:'index',intersect:false},
+    scales:{
+      x:{ticks:{color:'#94a3b8',font:{size:10},maxRotation:0,autoSkip:true,maxTicksLimit:16},grid:{color:'rgba(148,163,184,.08)'}},
+      y:{beginAtZero:true,ticks:{color:'#94a3b8',font:{size:10},callback:v=>meta.din?'S/'+dbFmtN(v):dbFmtN(v)},grid:{color:'rgba(148,163,184,.08)'}}
+    },
+    plugins:{
+      legend:{display:datasets.length>1,position:'bottom',labels:{color:'#94a3b8',font:{size:11},padding:10,boxWidth:14}},
+      tooltip:{callbacks:{title:it=>viEtiqueta(per[it[0].dataIndex],ag,true)+(it[0].dataIndex===iAct?' (en curso)':''),label:c=>c.dataset.label+': '+fmt(c.raw)}},
+      zoom:esDia?{pan:{enabled:true,mode:'x'},zoom:{wheel:{enabled:true},pinch:{enabled:true},mode:'x'},limits:{x:{minRange:3}}}:{pan:{enabled:false},zoom:{wheel:{enabled:false},pinch:{enabled:false}}}
+    }
+  });
+  const cv=document.getElementById('ch-dias');
+  if(cv&&!cv._dblSet){cv.addEventListener('dblclick',()=>{const ch=dbCharts['ch-dias'];if(ch&&ch.resetZoom)ch.resetZoom();});cv._dblSet=true;}
+}
+
+// Tabla "Mes a mes": 12 meses hasta el mes de la fecha "Hasta"; si el rango
+// elegido es más largo, lo cubre completo (máximo 36 meses). Cada cifra se compara
+// con el mes anterior o con el mismo mes del año pasado; el mes en curso, contra
+// los MISMOS días del mes de comparación (no contra un mes completo).
+async function viMesAMes(){
+  const {desde:dRango,hasta}=viRango(); if(!hasta)return;
+  const [a,mm]=hasta.split('-').map(Number);
+  let ini=new Date(a,mm-12,1);
+  if(dRango){const [da,dm]=dRango.split('-').map(Number);const ir=new Date(da,dm-1,1);const tope=new Date(a,mm-36,1);
+    if(ir<ini)ini=ir<tope?tope:ir;}
+  const desde=viIso(ini), desdeExt=viIso(new Date(ini.getFullYear()-1,ini.getMonth(),1));
+  const hoy=new Date(), mesActual=viIso(hoy).slice(0,7);
+  const meses=viPeriodos(desde,hasta,'mes'), enCurso=meses.includes(mesActual);
+  const compDe=p=>viMmComp==='anio'?viMenosAnio(p):viMesPrev(p);
+  let parcial=null, parcialMes=null;
+  const pParcial=(async()=>{
+    if(!enCurso)return null;
+    const base=viMmComp==='anio'?new Date(hoy.getFullYear()-1,hoy.getMonth(),1):new Date(hoy.getFullYear(),hoy.getMonth()-1,1);
+    const ult=new Date(base.getFullYear(),base.getMonth()+1,0).getDate();
+    const fin=new Date(base.getFullYear(),base.getMonth(),Math.min(hoy.getDate(),ult));
+    parcialMes=viIso(base).slice(0,7);
+    return viApi('/api/bi-serie',{agrupar:'mes',desde:viIso(base),hasta:viIso(fin)});
+  })();
+  const [r,rp]=await Promise.all([viApi('/api/bi-serie',{agrupar:'mes',desde:desdeExt,hasta}),pParcial]);
+  if(rp)parcial=viIndexar(rp.filas);
+  const idx=viIndexar(r.filas);
+  document.getElementById('mm-titulo').textContent='Mes a mes'+(viEmpresa?' — '+viNomEmp(viEmpresa):' por empresa')+' · '+viEtiqueta(meses[0],'mes',true)+' a '+viEtiqueta(meses[meses.length-1],'mes',true);
+  const filasMet=[
+    {k:'ventas',t:'Ventas',f:dbFmt,d:'pct'},
+    {k:'ingresos',t:'Cobrado',f:dbFmt,d:'pct'},
+    {k:'num_ventas',t:'N° ventas',f:dbFmtN,d:'pct'},
+    {k:'ticket',t:'Ticket prom.',f:dbFmt,d:'pct'},
+    {k:'margen_pct',t:'Margen bruto % (sin IGV)',f:v=>v==null?'—':v.toFixed(1)+'%',d:'pp'},
+    {k:'cobertura',t:'Cobertura costo',f:v=>v==null?'—':`<span class="${viCobCls(v)}">${v.toFixed(0)}%</span>`,d:null},
+    {k:'compras',t:'Mercadería ingresada',f:dbFmt,d:'pct'},
+  ];
+  const delta=(act,ant,tipo)=>{
+    if(!tipo||act==null||ant==null)return '';
+    if(tipo==='pp'){const x=act-ant;const c=Math.abs(x)<0.05?'eq':x>0?'up':'dn';return `<span class="dv ${c}">${x>0?'+':''}${x.toFixed(1)} pp</span>`;}
+    if(!ant)return '';   // sin dato con qué comparar
+    const x=(act-ant)/Math.abs(ant)*100;const c=Math.abs(x)<0.5?'eq':x>0?'up':'dn';
+    return `<span class="dv ${c}">${x>0?'▲':x<0?'▼':''} ${Math.abs(x).toFixed(0)}%</span>`;
+  };
+  const cab='<thead><tr><th>Métrica</th>'+meses.map(p=>`<th${p===mesActual?' title="En curso: se compara contra los mismos días"':''}>${viEtiqueta(p,'mes',false)}${p===mesActual?' <span style="color:var(--fg-warn)">●</span>':''}</th>`).join('')+'<th>Total del período</th></tr></thead>';
+  let cuerpo='<tbody>';
+  viGruposVisibles(r.filas.filter(f=>f.periodo>=desde.slice(0,7))).forEach(cid=>{
+    const nom=cid==='T'?'Total (todas)':viNomEmp(cid);
+    const col=cid==='T'?VI_COL_T:(VI_COL[cid]||'#8b93b8');
+    cuerpo+=`<tr class="mm-grupo"><td colspan="${meses.length+2}"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${col};margin-right:7px"></span>${nom}</td></tr>`;
+    const celdas=meses.map(p=>viCelda(idx,p,cid));
+    const comps=meses.map(p=>p===mesActual&&parcial?viCelda(parcial,parcialMes,cid):viCelda(idx,compDe(p),cid));
+    const tot=viSumar(celdas);
+    filasMet.forEach(fm=>{
+      cuerpo+=`<tr><td>${fm.t}</td>`+celdas.map((c,i)=>{
+        const v=viValor(c,fm.k), ant=viValor(comps[i],fm.k);
+        const cero=(v===0||v==null);
+        return `<td class="${cero?'cero':''}">${fm.f(v)}${delta(v,ant,fm.d)}</td>`;
+      }).join('')+`<td style="font-weight:700">${fm.f(viValor(tot,fm.k))}</td></tr>`;
+    });
+  });
+  document.getElementById('tbl-mm').innerHTML=cab+cuerpo+'</tbody>';
+  const NOM_COD={'16':'saldo inicial','05':'devolución recibida','11':'transferencia','21':'entrada de producción','28':'ajuste','99':'otros'};
+  const otras=(r.otras_entradas||[]);
+  document.getElementById('mm-nota').innerHTML=
+    `Debajo de cada cifra: variación contra ${viMmComp==='anio'?'el mismo mes del año pasado':'el mes anterior'}${enCurso?'; el mes en curso (●) se compara contra los mismos días':''}. `+
+    `Mercadería ingresada = entradas con código SUNAT ${r.codigos_compra.join(' y ')} (compra e importación). `+
+    (otras.length?`Otras entradas de stock desde ${viEtiqueta(desdeExt.slice(0,7),'mes',true)} que <b>no</b> se cuentan como compra: `+otras.map(o=>`código ${o.codigo}${NOM_COD[o.codigo]?' ('+NOM_COD[o.codigo]+')':''} ${dbFmt(o.total)}`).join(' · ')+'.':'');
+}
+
+// ── Histórico del Excel: estado, comparación con el sistema y fecha de corte ──
+let viHist=null, viHistSug=null;
+async function histCargar(){
+  const est=document.getElementById('hist-estado'), mini=document.getElementById('hist-estado-mini');
+  const panelM=document.getElementById('hist-maestro'); panelM.style.display=ES_MAESTRO?'':'none';
+  try{
+    const c=await apiCall('/api/historico/comparacion','GET');
+    viHist=c.cargado?c:null;
+    document.getElementById('vi-preset-todo').style.display=viHist?'':'none';
+    document.getElementById('hist-borrar').style.display=viHist?'':'none';
+    if(!c.cargado){
+      mini.textContent='· no cargado';
+      est.innerHTML=ES_MAESTRO?'Aún no hay histórico. Carga el archivo <b>historico-excel.json</b> con el botón "Cargar archivo…".':'Aún no hay histórico cargado (lo carga el administrador maestro).';
+      document.getElementById('hist-comp').innerHTML='';document.getElementById('hist-usar-sug').style.display='none';
+      return;
+    }
+    viHistSug=c.sugerido;
+    mini.textContent=`· Excel del ${viFechaTxt(c.excel_desde)} al ${viFechaTxt(c.excel_hasta)} · corte ${viFechaTxt(c.corte)}`;
+    document.getElementById('hist-corte').value=c.corte||'';
+    document.getElementById('hist-usar-sug').style.display=(c.sugerido&&c.sugerido!==c.corte)?'':'none';
+    est.innerHTML=`Excel cargado: <b>${viFechaTxt(c.excel_desde)}</b> a <b>${viFechaTxt(c.excel_hasta)}</b>. `+
+      `Primera venta registrada en el sistema: <b>${c.primera_venta_sistema?viFechaTxt(c.primera_venta_sistema):'—'}</b>. `+
+      `Corte actual: <b>${viFechaTxt(c.corte)}</b>`+(c.sugerido&&c.sugerido!==c.corte?` · corte sugerido según la comparación: <b>${viFechaTxt(c.sugerido)}</b>`:' (coincide con el sugerido)')+'.';
+    const filas=c.filas||[];
+    if(!filas.length){document.getElementById('hist-comp').innerHTML='';return;}
+    document.getElementById('hist-comp').innerHTML=
+      '<p class="card-note" style="margin-top:6px">Meses donde el sistema ya tiene ventas, comparados con el Excel. Si el sistema tiene bastante menos que el Excel, ese mes todavía se registraba en el Excel (o solo se migró una parte); si tiene lo mismo o más, ya manda el sistema. <b>Fuente usada</b> indica qué toma el panel con el corte actual.</p>'+
+      '<div class="mm-wrap"><table class="mm"><thead><tr><th>Mes</th><th>Ventas Excel</th><th>Ventas sistema</th><th>Sistema / Excel</th><th>N° Excel</th><th>N° sistema</th><th style="text-align:left">Fuente usada</th></tr></thead><tbody>'+
+      filas.map(f=>{
+        const ex=f.excel.ventas, si=f.sistema.ventas, ratio=ex>0?si/ex*100:null;
+        const cls=ratio==null?'':ratio>=90?'cob-ok':ratio>=50?'cob-warn':'cob-bad';
+        const ini=f.mes+'-01', fin=viIso(new Date(+f.mes.slice(0,4),+f.mes.slice(5,7),0));
+        const fuente=!c.corte?'Sistema':fin<c.corte?'Excel':ini>=c.corte?'Sistema':'Excel hasta el '+viFechaTxt(viIso(new Date(new Date(c.corte+'T00:00:00').getTime()-864e5)))+', luego sistema';
+        return `<tr><td>${viEtiqueta(f.mes,'mes',true)}</td><td>${dbFmt(ex)}</td><td>${dbFmt(si)}</td><td class="${cls}">${ratio==null?'solo sistema':ratio.toFixed(0)+'%'}</td><td>${dbFmtN(f.excel.num_ventas)}</td><td>${dbFmtN(f.sistema.num_ventas)}</td><td style="text-align:left">${fuente}</td></tr>`;
+      }).join('')+'</tbody></table></div>';
+  }catch(e){est.textContent='Histórico: '+e.message;}
+}
+async function histGuardarCorte(){
+  const v=document.getElementById('hist-corte').value; if(!v)return showToast('Elige una fecha de corte',true);
+  try{await apiCall('/api/historico/corte','PUT',{corte:v});showToast('Corte guardado: '+viFechaTxt(v));await histCargar();dbCargarActual();}
+  catch(e){showToast(e.message,true);}
+}
+function histUsarSugerido(){if(viHistSug){document.getElementById('hist-corte').value=viHistSug;histGuardarCorte();}}
+async function histSubir(inp){
+  const f=inp.files&&inp.files[0]; inp.value=''; if(!f)return;
+  try{
+    const d=JSON.parse(await f.text());
+    const r=await apiCall('/api/historico','POST',d);
+    showToast(`Histórico cargado: ${viFechaTxt(r.desde)} a ${viFechaTxt(r.hasta)}`);
+    await histCargar(); dbCargarActual();
+  }catch(e){showToast('No se pudo cargar: '+e.message,true);}
+}
+async function histBorrar(){
+  if(!confirm('¿Quitar el histórico del Excel? El panel volverá a usar solo el sistema.'))return;
+  try{await apiCall('/api/historico','DELETE');showToast('Histórico quitado');await histCargar();dbCargarActual();}
+  catch(e){showToast(e.message,true);}
+}
+
+// Rangos para comparar los KPIs: el período anterior del mismo largo y el mismo
+// período del año pasado
+function viRangosComparacion(desde,hasta){
+  if(!desde||!hasta)return null;
+  const d=new Date(desde+'T00:00:00'), h=new Date(hasta+'T00:00:00');
+  const dias=Math.round((h-d)/864e5)+1;
+  const antH=new Date(d); antH.setDate(antH.getDate()-1);
+  const antD=new Date(antH); antD.setDate(antD.getDate()-dias+1);
+  return {ant:{desde:viIso(antD),hasta:viIso(antH)},anio:{desde:viMenosAnio(desde),hasta:viMenosAnio(hasta)}};
+}
+// "▲ 12 % vs período anterior · ▼ 3 % vs año pasado"
+function viDeltaKpi(act,ant,anio){
+  const uno=(b,txt)=>{
+    if(b==null||!isFinite(b)||!b)return '';
+    const x=(act-b)/Math.abs(b)*100, c=Math.abs(x)<0.5?'eq':x>0?'up':'dn';
+    return `<span class="${c}">${x>0?'▲':x<0?'▼':'='} ${Math.abs(x).toFixed(0)}%</span> ${txt}`;
+  };
+  const p=[uno(ant,'vs período anterior'),uno(anio,'vs año pasado')].filter(Boolean);
+  return p.length?`<div class="kpi-d">${p.join(' · ')}</div>`:'';
+}
+
+async function dbResumen(){
+  await viInitEmpresas();
+  if(!window._histCargado){window._histCargado=1;histCargar();}
+  const {desde,hasta}=viRango(), rc=viRangosComparacion(desde,hasta);
+  const serieDe=r=>rc?viApi('/api/bi-serie',{agrupar:'mes',...r}).catch(()=>null):Promise.resolve(null);
+  const [k,,sAnt,sAnio]=await Promise.all([viApi('/api/kpis'),viCargarSerie(),serieDe(rc&&rc.ant),serieDe(rc&&rc.anio)]);
+  // Totales del rango a partir de la serie (cobros y mercadería con su propia regla de empresa)
+  const tot=viSumar((viSerie&&viSerie.filas)||[]);
+  const tA=sAnt&&sAnt.filas.length?viSumar(sAnt.filas):null, tY=sAnio&&sAnio.filas.length?viSumar(sAnio.filas):null;
+  const dl=m=>viDeltaKpi(viValor(tot,m),tA?viValor(tA,m):null,tY?viValor(tY,m):null);
+  const mgPct=viValor(tot,'margen_pct'), cob=viValor(tot,'cobertura');
+  const sist=k.solo_sistema_desde?'sistema, desde '+viFechaTxt(k.solo_sistema_desde):null;
+  document.getElementById('kpis-grid').innerHTML=[
+    {l:'Valor de ventas',v:dbFmt(tot.ventas),s:dbFmtN(tot.num_ventas)+' ventas'+(+k.pago_pendiente>0?` · ${dbFmt(k.pago_pendiente)} con pago pendiente`:''),d:dl('ventas'),a:1},
+    {l:'Cobrado',v:dbFmt(tot.ingresos),s:'dinero que entró en el período',d:dl('ingresos'),a:1},
+    {l:'Margen bruto (sin IGV)',v:dbFmt(tot.margen_neto),s:(mgPct==null?'sin costo conocido':mgPct.toFixed(1)+'% de lo vendido con costo')+(cob!=null?` · cobertura <span class="${viCobCls(cob)}">${cob.toFixed(0)}%</span>`:''),d:dl('margen')},
+    {l:'Ticket promedio',v:dbFmt(viValor(tot,'ticket')),s:'por venta',d:dl('ticket')},
+    {l:'Por cobrar',v:dbFmt(k.por_cobrar),s:sist||'deuda de estas ventas (igual que Cuentas por cobrar)'},
+    {l:'Clientes únicos',v:dbFmtN(k.clientes_unicos),s:sist||'en el período'},
+    {l:'Canceladas',v:dbFmtN(k.canceladas),s:sist||'ventas anuladas'},
+  ].map(x=>`<div class="kpi ${x.a?'accent':''}"><div class="kpi-label">${x.l}</div><div class="kpi-val">${x.v}</div><div class="kpi-sub">${x.s}</div>${x.d||''}</div>`).join('');
+  // Por empresa: solo tiene sentido con "Todas"
+  const cardEmp=document.getElementById('vi-card-empresas');
+  cardEmp.style.display=viEmpresa?'none':'';
+  // Con una sola empresa, "B2B vs B2C" ocupa todo el ancho de la fila
+  cardEmp.parentElement.style.gridTemplateColumns=viEmpresa?'1fr':'';
+  if(!viEmpresa){
+    const porEmp={};(viSerie.filas||[]).forEach(r=>{(porEmp[r.company_id]=porEmp[r.company_id]||[]).push(r);});
+    document.getElementById('empresas-box').innerHTML=viEmpresas.map(e=>{
+      const t=viSumar(porEmp[e.id]||[]);const mg=viValor(t,'margen_pct');
+      return `<div class="empresa-card"><div class="empresa-name"><span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${VI_COL[e.id]||'#8b93b8'};margin-right:7px"></span>${e.nombre}</div>
+      <div class="empresa-grid">
+        <div class="estat"><div class="estat-label">Ventas</div><div class="estat-val">${dbFmt(t.ventas)}</div></div>
+        <div class="estat"><div class="estat-label">Cobrado</div><div class="estat-val">${dbFmt(t.ingresos)}</div></div>
+        <div class="estat"><div class="estat-label">N° ventas</div><div class="estat-val">${dbFmtN(t.num_ventas)}</div></div>
+        <div class="estat"><div class="estat-label">Ticket prom.</div><div class="estat-val">${dbFmt(viValor(t,'ticket'))}</div></div>
+        <div class="estat"><div class="estat-label">Margen (sin IGV)</div><div class="estat-val">${mg==null?'—':mg.toFixed(1)+'%'}</div></div>
+        <div class="estat"><div class="estat-label">Mercadería ingresada</div><div class="estat-val">${dbFmt(t.compras)}</div></div>
+      </div></div>`;}).join('');
+  }
+  const [tipo]=await Promise.all([viApi('/api/tipo-cliente'),viMesAMes()]);
+  // B2B vs B2C: barras horizontales con monto y % (una dona no deja comparar)
+  const totTipo=tipo.reduce((a,t)=>a+(+t.total||0),0)||1;
+  const tipoOrd=[...tipo].sort((a,b)=>+b.total-+a.total);
+  document.getElementById('ch-tipo').parentElement.style.height=Math.max(120,tipoOrd.length*52+30)+'px';
+  dbMkChart('ch-tipo','bar',{labels:tipoOrd.map(t=>`${t.tipo} · ${Math.round(+t.total/totTipo*100)}%`),datasets:[{data:tipoOrd.map(t=>+t.total),backgroundColor:tipoOrd.map(t=>t.is_company?'#6C63D9':'#14A37F'),borderRadius:4,maxBarThickness:30}]},
+    {indexAxis:'y',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>{const t=tipoOrd[c.dataIndex];return `${dbFmt(c.raw)} · ${dbFmtN(t.ventas)} ventas · ${dbFmtN(t.clientes)} clientes`;}}}},
+     scales:{x:{beginAtZero:true,ticks:{color:'#94a3b8',font:{size:10},callback:v=>'S/'+dbFmtN(v)},grid:{color:'rgba(148,163,184,.08)'}},y:{ticks:{color:'#94a3b8',font:{size:12}},grid:{display:false}}}});
+}
+
+async function dbRentabilidad(){
+  await viInitEmpresas();
+  const [r,cfg]=await Promise.all([viApi('/api/rentabilidad'),apiCall('/api/bi-config','GET').catch(()=>null)]);
+  const cob=r.cobertura==null?null:+r.cobertura;
+  document.getElementById('rent-kpis').innerHTML=[
+    {l:'Vendido con costo (sin IGV)',v:dbFmt(r.ingreso_neto),s:'líneas con lote asignado',a:1},
+    {l:'Costo (sin impuesto)',v:dbFmt(r.costo_neto),s:'FIFO, costo del lote'},
+    {l:'Margen bruto (sin IGV)',v:dbFmt(r.ganancia_neta),s:'venta − costo, antes de gastos',a:1},
+    {l:'Margen %',v:r.margen_promedio==null?'—':r.margen_promedio+'%',s:'sobre lo vendido con costo'},
+    {l:'Ventas a pedido sin costo',v:dbFmt(r.ingreso_pendiente),s:dbFmtN(r.lineas_pedido)+' líneas: su margen se conoce al llegar'},
+    {l:'Cobertura de costo',v:cob==null?'—':`<span class="${viCobCls(cob)}">${cob.toFixed(0)}%</span>`,s:'de lo vendido tiene costo'},
+  ].map(x=>`<div class="kpi ${x.a?'accent':''}"><div class="kpi-label">${x.l}</div><div class="kpi-val">${x.v}</div><div class="kpi-sub">${x.s}</div></div>`).join('');
+  let avisos='';
+  if(+r.ingreso_pendiente>0)avisos+=`<div class="db-aviso db-aviso-y">⏸️ <b>${dbFmt(r.ingreso_pendiente)}</b> en ${dbFmtN(r.lineas_pedido)} líneas <b>"a pedido"</b>: el producto aún no llega, su costo se conocerá al ingresarlo. La venta y el dinero sí cuentan; el margen queda pendiente.</div>`;
+  if(+r.lineas_falla>0)avisos+=`<div class="db-aviso db-aviso-r">⚠️ <b>${dbFmtN(r.lineas_falla)} líneas con costo no vinculado</b>: no tienen lote asignado ni están a pedido, así que no entran en el margen. Están listadas en <b>Auditoría</b> para corregirlas.</div>`;
+  if(cob!=null&&cob<70)avisos+=`<div class="db-aviso db-aviso-r">⚠️ Solo el <b>${cob.toFixed(0)}%</b> de lo vendido tiene costo conocido: el margen de este período se calcula sobre una parte pequeña de las ventas y puede no ser representativo.</div>`;
+  if(cfg)avisos+=`<p class="card-note" style="margin:4px 0 10px">Montos sin IGV: venta ÷ 1.18 ${cfg.empresas_igv.length===viEmpresas.length?'(las dos empresas cobran IGV)':cfg.empresas_igv.length?'en '+cfg.empresas_igv.map(viCorto).join(', '):'(ninguna empresa con IGV)'}; costo ${cfg.costo==='columna'&&cfg.columna_disponible?'sin impuesto deducible, tomado del lote':cfg.costo==='igual'?'del lote tal cual':'del lote ÷ 1.18'}. Se cambia en Rendimiento → Ajustes de IGV.</p>`;
+  document.getElementById('rent-avisos').innerHTML=avisos;
+  const [canal,bajo]=await Promise.all([viApi('/api/rentabilidad-canal'),viApi('/api/margen-bajo')]);
+  document.getElementById('tbl-canal').innerHTML='<thead><tr><th>Canal</th><th>Ventas</th><th>Vendido</th><th>Ticket prom.</th><th>Margen bruto (sin IGV)</th><th>Margen %</th><th>Cobertura</th></tr></thead><tbody>'+
+    (canal.length?canal.map(c=>`<tr><td>${c.tipo}</td><td>${dbFmtN(c.ventas)}</td><td>${dbFmt(c.ingreso)}</td><td>${dbFmt(c.ticket)}</td><td>${dbFmt(c.ganancia)}</td><td style="font-weight:700">${c.margen==null?'—':c.margen+'%'}</td><td>${c.cobertura==null?'—':`<span class="${viCobCls(+c.cobertura)}">${(+c.cobertura).toFixed(0)}%</span>`}</td></tr>`).join('')
+      :'<tr><td colspan="7" style="text-align:center;color:var(--muted)">Sin ventas en el período</td></tr>')+'</tbody>';
+  dbSortTable('tbl-margen-bajo',bajo,[
+    {k:'producto',t:'Producto',fmt:(v,r)=>`${v}${r.variacion&&r.variacion!==v?' <span style="color:var(--muted)">('+r.variacion+')</span>':''}`},
+    {k:'sku',t:'SKU',fmt:v=>`<span style="color:var(--muted);font-size:11px">${v||'-'}</span>`},
+    {k:'unidades',t:'Unid.',fmt:dbFmtN,num:1},
+    {k:'ingreso_neto',t:'Vendido sin IGV',fmt:dbFmt,num:1},
+    {k:'costo',t:'Costo sin imp.',fmt:dbFmt,num:1},
+    {k:'ganancia',t:'Margen',fmt:v=>`<span class="${+v<0?'cob-bad':''}">${dbFmt(v)}</span>`,num:1},
+    {k:'margen',t:'Margen %',fmt:v=>`<span class="badge ${+v<0?'badge-r':+v<10?'badge-y':'badge-g'}">${v}%</span>`,num:1}
+  ],'margen');
+  if(dbTableState['tbl-margen-bajo'].dir!=='asc'&&dbTableState['tbl-margen-bajo'].sortKey==='margen'){dbTableState['tbl-margen-bajo'].dir='asc';dbRenderTable('tbl-margen-bajo');}
+  // Productos: cuánto venden (X) contra cuánto ganan (Y). Las líneas parten en la venta
+  // mediana y el margen promedio: cuatro zonas para decidir qué hacer con cada uno.
+  const prod=await viApi('/api/top-productos');
+  const conM=prod.filter(p=>p.margen!=null), sinM=prod.length-conM.length;
+  const ventasOrd=conM.map(p=>+p.ingreso).sort((a,b)=>a-b);
+  const medV=ventasOrd.length?ventasOrd[Math.floor(ventasOrd.length/2)]:0;
+  const sumN=conM.reduce((a,p)=>a+ +p.ingreso_neto_conf,0), promM=sumN?conM.reduce((a,p)=>a+ +p.ganancia,0)/sumN*100:0;
+  const maxU=Math.max(1,...conM.map(p=>+p.unidades));
+  const nomP=p=>p.producto+(p.variacion&&p.variacion!==p.producto?' ('+p.variacion+')':'');
+  document.getElementById('ch-prod-wrap').style.height='380px';
+  const cuadrantes={id:'cuadrantes',afterDraw(ch){const {ctx,chartArea:a,scales:{x,y}}=ch;if(!conM.length)return;ctx.save();ctx.strokeStyle='rgba(148,163,184,.55)';ctx.setLineDash([4,4]);ctx.lineWidth=1;
+    const px=x.getPixelForValue(medV),py=y.getPixelForValue(promM);
+    if(px>=a.left&&px<=a.right){ctx.beginPath();ctx.moveTo(px,a.top);ctx.lineTo(px,a.bottom);ctx.stroke();}
+    if(py>=a.top&&py<=a.bottom){ctx.beginPath();ctx.moveTo(a.left,py);ctx.lineTo(a.right,py);ctx.stroke();}
+    ctx.setLineDash([]);ctx.fillStyle='rgba(148,163,184,.9)';ctx.font='11px system-ui';
+    ctx.textAlign='right';ctx.fillText('Estrellas: venden y ganan',a.right-6,a.top+14);ctx.fillText('Volumen con poco margen',a.right-6,a.bottom-8);
+    ctx.textAlign='left';ctx.fillText('Nicho rentable',a.left+6,a.top+14);ctx.fillText('Revisar: poca venta y poco margen',a.left+6,a.bottom-8);ctx.restore();}};
+  if(dbCharts['ch-prod'])dbCharts['ch-prod'].destroy();
+  dbCharts['ch-prod']=new Chart(document.getElementById('ch-prod'),{type:'bubble',
+    data:{datasets:[{label:'Productos',data:conM.map(p=>({x:+p.ingreso,y:+p.margen,r:4+14*Math.sqrt(+p.unidades/maxU)})),
+      backgroundColor:conM.map(p=>+p.margen<0?'rgba(226,75,74,.65)':p.estado==='a_pedido'?'rgba(186,117,23,.6)':'rgba(108,99,217,.55)'),borderColor:'rgba(255,255,255,.35)',borderWidth:1}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>{const p=conM[c.dataIndex];return [nomP(p),`Vendido ${dbFmt(p.ingreso)} · margen ${p.margen}% · ${dbFmtN(p.unidades)} u.`,`Margen bruto ${dbFmt(p.ganancia)}`+(p.cobertura<100?` (cobertura ${p.cobertura}%)`:'')];}}}},
+      scales:{x:{type:'logarithmic',title:{display:true,text:'Vendido en el período (S/, escala logarítmica)',color:'#94a3b8',font:{size:11}},ticks:{color:'#94a3b8',font:{size:10},callback:v=>{const e=Math.pow(10,Math.floor(Math.log10(v))),m=Math.round(v/e);return [1,2,5].includes(m)&&Math.abs(v-m*e)<1e-6*v?'S/'+dbFmtN(v):'';}},grid:{color:'rgba(148,163,184,.08)'}},
+        y:{grace:'12%',title:{display:true,text:'Margen % (sin IGV)',color:'#94a3b8',font:{size:11}},ticks:{color:'#94a3b8',font:{size:10},callback:v=>v+'%'},grid:{color:'rgba(148,163,184,.08)'}}}},
+    plugins:[cuadrantes]});
+  document.getElementById('prod-nota').textContent=`Los ${prod.length} productos con más venta. Tamaño del punto = unidades; rojo = margen negativo; ámbar = tiene líneas a pedido. Línea vertical: venta mediana (${dbFmt(medV)}); horizontal: margen promedio (${promM.toFixed(1)}%).`+(sinM?` ${sinM} sin costo conocido no aparecen.`:'');
+  const marcas=await viApi('/api/marcas');
+  dbSortTable('tbl-marcas',marcas,[
+    {k:'marca',t:'Marca',fmt:v=>v},
+    {k:'ventas',t:'Ventas',fmt:dbFmtN,num:1},
+    {k:'unidades',t:'Unid.',fmt:dbFmtN,num:1},
+    {k:'ingreso',t:'Vendido',fmt:dbFmt,num:1},
+    {k:'ganancia',t:'Margen bruto (sin IGV)',fmt:dbFmt,num:1},
+    {k:'margen',t:'Margen %',fmt:v=>v==null?'<span style="color:var(--muted)">—</span>':v+'%',num:1}
+  ],'ganancia');
+}
+
+// Clientes BI → public/clientes-bi.html (iframe)
+
+// ══════════ Conciliación de pagos online (Google Sheet) ══════════
+// Mapa empresa del Sheet (texto) → company_id del sistema
+const CONC_EMPRESA_ID={'DISEÑOS CORPORATIVOS SAC':1,'CHRISTOPHER VILLASANTE F.':2};
+const CONC_ID_EMPRESA={1:'DISEÑOS CORPORATIVOS SAC',2:'CHRISTOPHER VILLASANTE F.'};
+const concFmt=n=>'S/ '+Number(n||0).toLocaleString('es-PE',{minimumFractionDigits:2});
+function concParams(){
+  const p=new URLSearchParams();
+  const d=document.getElementById('conc-desde').value;
+  const h=document.getElementById('conc-hasta').value;
+  if(d)p.set('desde',d); if(h)p.set('hasta',h);
+  return p;
+}
+// Selector de día rápido: al elegir un día, llena desde y hasta con esa fecha
+function concUsarDia(){
+  const dia=document.getElementById('conc-dia').value;
+  if(!dia)return;
+  document.getElementById('conc-desde').value=dia;
+  document.getElementById('conc-hasta').value=dia;
+  cargarConciliacion();
+}
+function concFijarDia(fechaISO){
+  document.getElementById('conc-dia').value=fechaISO;
+  document.getElementById('conc-desde').value=fechaISO;
+  document.getElementById('conc-hasta').value=fechaISO;
+  cargarConciliacion();
+}
+function concHoy(){ concFijarDia(new Date().toISOString().split('T')[0]); }
+function concAyer(){ concFijarDia(new Date(Date.now()-864e5).toISOString().split('T')[0]); }
+function concInitDia(){
+  // Al abrir, dejar el día de hoy puesto (sin cargar solo)
+  const hoy=new Date().toISOString().split('T')[0];
+  const dia=document.getElementById('conc-dia');
+  if(dia&&!dia.value){
+    dia.value=hoy;
+    document.getElementById('conc-desde').value=hoy;
+    document.getElementById('conc-hasta').value=hoy;
+  }
+}
+
+async function cargarConciliacion(){
+  const resumen=document.getElementById('conc-resumen');
+  const cont=document.getElementById('conc-tabla');
+  resumen.textContent='Cargando (sistema + Google Sheet)...';
+  cont.innerHTML='';
+  try{
+    const qs=concParams().toString();
+    const [sheet,sistema]=await Promise.all([
+      apiCall('/api/conciliacion-sheet?'+qs,'GET'),
+      apiCall('/api/conciliacion-sistema?'+qs,'GET')
+    ]);
+    // Armar mapa combinado: clave = empresaId|||codigoCanal
+    const combinado={};
+    // Del sheet (empresa texto → id)
+    Object.entries(sheet.porEmpresaCanal||{}).forEach(([k,monto])=>{
+      const [emp,canal]=k.split('|||');
+      const eid=CONC_EMPRESA_ID[emp.toUpperCase()]||emp;
+      const clave=eid+'|||'+canal;
+      combinado[clave]=combinado[clave]||{empresa:eid,canal,sistema:0,sheet:0};
+      combinado[clave].sheet+=monto;
+    });
+    // Del sistema (company_id + code)
+    (sistema||[]).forEach(r=>{
+      if(!r.metodo_code)return;
+      const eid=(r.company_id==null)?'null':r.company_id;
+      const clave=eid+'|||'+r.metodo_code;
+      combinado[clave]=combinado[clave]||{empresa:eid,canal:r.metodo_code,sistema:0,sheet:0};
+      combinado[clave].sistema+=Number(r.total);
+    });
+    pintarConciliacion(Object.values(combinado));
+    resumen.textContent=`Sheet: ${concFmt(sheet.total)} (${sheet.num} vouchers) · Sistema: ${concFmt((sistema||[]).reduce((s,r)=>s+Number(r.total),0))}`;
+  }catch(e){resumen.textContent='';showToast('Error al conciliar: '+e.message,true);}
+}
+function pintarConciliacion(filas){
+  const cont=document.getElementById('conc-tabla');
+  // Solo los canales que existen en el Google Sheet (pagos online).
+  // Los métodos que el Sheet no reporta (Yape, efectivo, etc.) no se concilian aquí.
+  const online=filas.filter(f=>f.sheet>0);
+  if(!online.length){cont.innerHTML='<div class="muted">No hay pagos online en el Google Sheet para esa fecha.</div>';return;}
+  const porEmp={};
+  online.forEach(f=>{(porEmp[f.empresa]=porEmp[f.empresa]||[]).push(f);});
+  let html='';
+  Object.keys(porEmp).sort().forEach(eid=>{
+    const nombre=CONC_ID_EMPRESA[eid]||(eid==='null'||eid==='undefined'||!eid?'Sin empresa asignada':'Empresa '+eid);
+    html+=`<div style="font-weight:700;margin:14px 0 6px;color:var(--white)">${esc(nombre)}</div>`;
+    html+='<table class="deudas-tbl"><thead><tr><th>Canal</th><th style="text-align:right">Google Sheet</th><th style="text-align:right">Sistema</th><th style="text-align:right">Diferencia</th><th style="text-align:center">Estado</th></tr></thead><tbody>';
+    let tSheet=0,tSist=0;
+    porEmp[eid].sort((a,b)=>a.canal.localeCompare(b.canal)).forEach(f=>{
+      const dif=f.sistema-f.sheet;
+      const ok=Math.abs(dif)<0.01;
+      tSheet+=f.sheet; tSist+=f.sistema;
+      html+=`<tr>
+        <td>${esc(f.canal)}</td>
+        <td style="text-align:right">${concFmt(f.sheet)}</td>
+        <td style="text-align:right">${concFmt(f.sistema)}</td>
+        <td style="text-align:right;color:${ok?'var(--fg-ok)':'var(--fg-r)'};font-weight:600">${concFmt(dif)}</td>
+        <td style="text-align:center">${ok?'<span class="badge-g" style="font-size:9px">cuadra</span>':'<span class="badge-r" style="font-size:9px">revisar</span>'}</td>
+      </tr>`;
+    });
+    const difT=tSist-tSheet;
+    html+=`<tr style="border-top:2px solid var(--border);font-weight:700">
+      <td>Total</td>
+      <td style="text-align:right">${concFmt(tSheet)}</td>
+      <td style="text-align:right">${concFmt(tSist)}</td>
+      <td style="text-align:right;color:${Math.abs(difT)<0.01?'var(--fg-ok)':'var(--fg-r)'}">${concFmt(difT)}</td>
+      <td></td></tr>`;
+    html+='</tbody></table>';
+  });
+  cont.innerHTML=html;
+}
+
+async function dbCaja(){
+  const pagos=await viApi('/api/metodos-pago-bi');
+  const tot=pagos.reduce((a,p)=>a+(+p.total||0),0);
+  const ord=[...pagos].sort((a,b)=>+b.total-+a.total);
+  const pct=v=>tot?(v/tot*100).toFixed(1)+'%':'—';
+  // Barras ordenadas (antes una dona: con más de 3 métodos no se podían comparar)
+  document.getElementById('ch-pagos').parentElement.style.height=Math.max(160,ord.length*30+40)+'px';
+  dbMkChart('ch-pagos','bar',{labels:ord.map(p=>p.metodo||'Sin nombre'),datasets:[{data:ord.map(p=>+p.total),backgroundColor:'#534AB7',borderRadius:4,maxBarThickness:22}]},
+    {indexAxis:'y',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`${dbFmt(c.raw)} · ${pct(c.raw)} · ${dbFmtN(ord[c.dataIndex].cantidad)} cobros`}}},
+     scales:{x:{beginAtZero:true,ticks:{color:'#94a3b8',font:{size:10},callback:v=>'S/'+dbFmtN(v)},grid:{color:'rgba(148,163,184,.08)'}},y:{ticks:{color:'#94a3b8',font:{size:11}},grid:{display:false}}}});
+  document.getElementById('pagos-tabla').innerHTML='<table class="dtable"><thead><tr><th>Método</th><th>N°</th><th>Total</th><th>%</th></tr></thead><tbody>'+
+    ord.map(p=>`<tr><td>${p.metodo||'Sin nombre'}</td><td>${dbFmtN(p.cantidad)}</td><td style="color:var(--accent);font-weight:600">${dbFmt(p.total)}</td><td>${pct(+p.total)}</td></tr>`).join('')+
+    `<tr style="font-weight:700"><td>Total</td><td>${dbFmtN(ord.reduce((a,p)=>a+ +p.cantidad,0))}</td><td>${dbFmt(tot)}</td><td></td></tr></tbody></table>`+
+    '<p class="card-note" style="margin-top:8px">Solo cobros registrados en el sistema (sin los de ventas canceladas o eliminadas). Si el rango usa el histórico del Excel, el total es menor que "Cobrado".</p>';
+}
+
+async function dbCRM(){
+  try{
+    const[tareas,pipe,conv]=await Promise.all([dbApi('/api/kommo/tareas'),dbApi('/api/kommo/pipeline'),dbApi('/api/kommo/conversion')]);
+    document.getElementById('crm-kpis').innerHTML=[
+      {l:'Contactos Kommo',v:dbFmtN(conv.total_contactos),s:'registrados',a:1},
+      {l:'Convirtieron',v:dbFmtN(conv.con_venta),s:'compraron'},
+      {l:'Sin venta',v:dbFmtN(conv.sin_venta),s:'por trabajar'},
+      {l:'Conversión real',v:conv.tasa_conversion+'%',s:'Kommo→venta',a:1},
+      {l:'Tareas vencidas',v:dbFmtN(tareas.vencidas),s:'urgente'},
+      {l:'Tareas hoy',v:dbFmtN(tareas.hoy),s:'pendientes'},
+    ].map(x=>`<div class="kpi ${x.a?'accent':''}"><div class="kpi-label">${x.l}</div><div class="kpi-val">${x.v}</div><div class="kpi-sub">${x.s}</div></div>`).join('');
+    document.getElementById('tbl-tareas').innerHTML='<thead><tr><th style="width:70%">Tarea</th><th>Venció</th></tr></thead><tbody>'+
+      (tareas.detalle_vencidas.length?tareas.detalle_vencidas.map(t=>`<tr><td>${t.texto||'(sin texto)'}</td><td><span class="badge badge-r">${t.vencio}</span></td></tr>`).join('')
+        :'<tr><td colspan="2" style="text-align:center;color:var(--muted);padding:1rem">Sin tareas vencidas 🎉</td></tr>')+'</tbody>';
+    document.getElementById('crm-pipelines').innerHTML=pipe.map(p=>`
+      <div class="empresa-card"><div class="empresa-name">${p.nombre}</div>
+      <div class="empresa-grid">
+        <div class="estat"><div class="estat-label">Total leads</div><div class="estat-val">${dbFmtN(p.total_leads)}</div></div>
+        <div class="estat"><div class="estat-label">Activos</div><div class="estat-val">${dbFmtN(p.activos)}</div></div>
+        <div class="estat"><div class="estat-label">Ganados</div><div class="estat-val" style="color:#86efac">${dbFmtN(p.ganados)}</div></div>
+        <div class="estat"><div class="estat-label">Conversión</div><div class="estat-val">${p.tasa_conversion}%</div></div>
+        <div class="estat"><div class="estat-label">Valor activo</div><div class="estat-val">${dbFmt(p.valor_activo)}</div></div>
+        <div class="estat"><div class="estat-label">Perdidos</div><div class="estat-val" style="color:#fca5a5">${dbFmtN(p.perdidos)}</div></div>
+      </div></div>`).join('');
+  }catch(e){document.getElementById('crm-kpis').innerHTML=`<p style="color:#fca5a5">CRM: ${e.message}</p>`;}
+}
+
+async function cargarEstadoActualizacion(){
+  verColaSkus();
+  const box=document.getElementById('solicitud-estado');
+  const btnSol=document.getElementById('btn-solicitar');
+  const btnCan=document.getElementById('btn-cancelar');
+  try{
+    const r=await apiCall('/admin/estado-actualizacion','GET');
+    if(r.pendiente){
+      const f=new Date(r.solicitado_en).toLocaleString('es-PE');
+      box.className='estado-box activo';
+      box.innerHTML='⏳ <b>Hay una actualización completa pendiente</b> (solicitada el '+f+'). Se aplicará en la corrida de las 2 AM. Puedes cancelarla mientras tanto.';
+      box.style.display='block';
+      if(btnSol)btnSol.style.display='none';
+      if(btnCan)btnCan.style.display='';
+    }else{
+      box.className='estado-box inactivo';
+      box.innerHTML='✓ No hay ninguna actualización completa pendiente. El puente correrá normal (solo lo que cambió).';
+      box.style.display='block';
+      if(btnSol)btnSol.style.display='';
+      if(btnCan)btnCan.style.display='none';
+    }
+  }catch(e){ if(box)box.style.display='none'; }
+}
+// Nombres legibles de los módulos
+const NOMBRE_MODULO={clientes_gestion:'Gestión de clientes',sync:'Sincronización web (en Sistemas)',auditoria:'Auditoría de catálogo',resumen:'Resumen de ventas (en Ventas e ingresos)',rentabilidad:'Rentabilidad (en Ventas e ingresos)',inventario:'Inventario',restock:'Restock',clientes_bi:'Clientes BI',caja_bi:'Ingresos y caja (en Ventas e ingresos)',crm:'CRM Kommo',reportes:'Contabilidad',pagos:'Métodos de pago (en Sistemas)',importaciones:'Importaciones',recepciones:'Recepciones',seguimiento:'Seguimiento (trackings y backorders)',conciliacion:'Conciliación de pagos online',cuentas_cobrar:'Cuentas por cobrar',saldo_favor:'Créditos',cotizador:'Cotizador rápido',precio_importado:'Precio importado (pedidos especiales)',bikes:'Bikes a pedido (bikes.kuranko.pe)',facturacion:'Facturación electrónica',gastos:'Compras y gastos (en Ventas y compras)',rendimiento:'Rendimiento (en Ventas y compras)',auditoria_vc:'Auditoría de ventas y compras (en Ventas y compras)'};
+let accesosCache={modulos_disponibles:[],usuarios:[]};
+async function cargarAccesos(){
+  try{
+    accesosCache=await apiCall('/admin/accesos','GET');
+    // Mostrar la lista de módulos disponibles en las instrucciones
+    const ml=document.getElementById('acc-modulos-lista');
+    if(ml)ml.textContent=accesosCache.modulos_disponibles.join(', ');
+    renderAccesos();
+  }catch(e){document.getElementById('acc-lista').textContent=e.message;}
+}
+function renderAccesos(){
+  const cont=document.getElementById('acc-lista');
+  if(!accesosCache.usuarios.length){cont.innerHTML='<div class="muted">Aún no hay usuarios de equipo configurados en Railway. Mira las instrucciones de abajo para agregar uno.</div>';return;}
+  cont.innerHTML=accesosCache.usuarios.map(u=>{
+    const mods=u.modulos.length
+      ? u.modulos.map(m=>`<span class="pill">${NOMBRE_MODULO[m]||m}</span>`).join(' ')
+      : '<span class="muted">sin módulos asignados</span>';
+    return `<div class="acc-row"><div class="acc-head"><b>${u.username}</b></div><div>${mods}</div></div>`;
+  }).join('');
+}
+async function cargarMetodosPago(){
+  try{
+    const r=await apiCall('/admin/metodos-pago','GET');
+    document.getElementById('pago-transferencia').value=r.transferencia||'';
+    document.getElementById('pago-yape').value=r.yape_plin||'';
+    document.getElementById('pago-tarjeta').value=r.tarjeta||'';
+  }catch(e){showToast(e.message,true);}
+}
+async function guardarMetodosPago(){
+  const res=document.getElementById('pagos-result');
+  res.textContent='Guardando...';
+  try{
+    await apiCall('/admin/metodos-pago','POST',{
+      transferencia:document.getElementById('pago-transferencia').value,
+      yape_plin:document.getElementById('pago-yape').value,
+      tarjeta:document.getElementById('pago-tarjeta').value
+    });
+    res.textContent='✓ Métodos de pago guardados. Los clientes ya los verán.';
+  }catch(e){res.textContent='';showToast(e.message,true);}
+}
+API=window.location.origin;
+const saved=localStorage.getItem('admtoken');
+if(saved){TOKEN=saved;ES_MAESTRO=localStorage.getItem('admmaestro')==='1';MIS_MODULOS=(localStorage.getItem('admmodulos')||'').split(',').filter(Boolean);mostrarApp();}
+aplicarTema(document.documentElement.getAttribute('data-theme')||'dark');
+document.getElementById('adm-pass').addEventListener('keypress',e=>{if(e.key==='Enter')loginAdmin();});
+</script>
+</body>
+</html>

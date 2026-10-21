@@ -14,7 +14,7 @@
   .tabs{display:flex;gap:6px;background:#1e3a5f;padding:0 14px}
   .tabbtn{padding:11px 16px;color:#cbd5e1;font-weight:700;font-size:13px;cursor:pointer;border-bottom:3px solid transparent}
   .tabbtn.on{color:#fff;border-bottom-color:#38bdf8;background:rgba(255,255,255,.06)}
-  .wrap{max-width:1150px;margin:0 auto;padding:16px}
+  .wrap{max-width:none;margin:0 auto;padding:16px 20px} /* contenido a todo el ancho, igual que las pestañas */
   .card{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px;margin-bottom:14px}
   .card h2{font-size:14px;color:#1e3a5f;margin-bottom:8px}
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(175px,1fr));gap:10px}
@@ -155,6 +155,7 @@
       <div><label>Empresa (RUC)</label><select id="empresa" onchange="updateCodigo()"><option value="20514359661">DISEÑOS CORPORATIVOS (20514359661)</option><option value="10736768432">Christopher Villasante (10736768432)</option></select></div>
       <div><label>N° factura / invoice</label><input id="f_inv" placeholder="IN231741"></div>
       <div><label>Fecha de la factura</label><input id="f_fecha" type="date" title="Fecha de compra: la usa Compras y gastos para la tarjeta y la caja"></div>
+      <div><label>N° importación <span class="hint">(se puede cambiar en Calculadora)</span></label><input id="f_numImp" placeholder="94" oninput="if($('numImp'))$('numImp').value=this.value;updateCodigo()"></div>
       <div><label>Modo de importación</label><select id="modo" onchange="onModoChangeUser()"><option>Definitiva</option><option>Courier</option></select></div>
     </div>
     <div class="hint"><b>Cotización</b> = valores teóricos (aún no compras): se ocultan la DUA y la liquidación real. <b>Compra</b> = ya la importaste: se habilitan la DUA, la liquidación y los impuestos reales. · En <b>Definitiva</b> puedes usar cualquier partida (menos las Courier); en <b>Courier</b> solo las <b>9809.*</b>.</div>
@@ -174,6 +175,10 @@
     </div>
     <div id="recepLista" class="hint" style="margin-top:8px">Cargando…</div>
     <div id="recepArchivadas" style="margin-top:8px"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:16px;flex-wrap:wrap">
+      <b>🚚 Facturas en Seguimiento <span class="hint" style="font-weight:400">(enviadas, aún en camino o recién llegadas)</span></b>
+    </div>
+    <div id="segLista" class="hint" style="margin-top:8px">Cargando…</div>
   </div>
   <div id="recepDetalle"></div>
 </div>
@@ -197,7 +202,7 @@
     <div class="grid">
       <div><label>Modo <span class="hint">(se define en Factura)</span></label><input id="modoView" readonly value="Definitiva" style="background:#f1f5f9"></div>
       <div><label>Prorrateo por</label><select id="prorateo"><option>FOB</option><option>PESO</option></select></div>
-      <div><label>N° importación</label><input id="numImp" placeholder="94" oninput="updateCodigo()"></div>
+      <div><label>N° importación</label><input id="numImp" placeholder="94" oninput="if($('f_numImp'))$('f_numImp').value=this.value;updateCodigo()"></div>
       <div><label>Percepción <span class="hint" id="percepHint"></span></label>
         <select id="percepSel" onchange="onPercepSel()"><option value="0">0%</option><option value="0.035" selected>3.5%</option><option value="0.10">10%</option><option value="otro">Otro…</option></select>
         <input id="percepOtro" type="number" step="0.001" placeholder="fracción, ej 0.05" class="hide" style="margin-top:4px"></div>
@@ -893,6 +898,29 @@ async function recepcionDeGuardada(rec){
   return todas.find(r=>(m.recepId&&r.id===m.recepId)) ||
          todas.find(r=>normF(m.invoice)&&normF(r.n_factura)===normF(m.invoice)&&(!prov||normF(r.proveedor)===prov)&&!r.archivada) || null;
 }
+// Facturas enviadas a Seguimiento (seg_envios no archivados): estado, tracking, ETA y si ya
+// pasaron a recepción. Solo lectura; se gestionan en la pestaña Seguimiento del panel.
+async function cargarSegLista(recs){
+  const box=$('segLista'); if(!box)return;
+  let envios=[];
+  try{ envios=await recApi('/api/seguimiento/envios'); }
+  catch(e){ box.innerHTML='<span class="hint">No se pudo leer Seguimiento: '+esc(e.message)+'</span>'; return; }
+  if(!envios.length){ box.innerHTML='<span class="hint">No hay facturas en Seguimiento. Se envían desde <b>Factura → SKU</b> con «🚚 Enviar a Seguimiento».</span>'; return; }
+  const nF=x=>String(x==null?'':x).replace(/[^A-Za-z0-9]/g,'').toUpperCase();
+  const enRec=new Set((recs||[]).map(r=>nF(r.n_factura)).filter(Boolean));
+  const fcorta=d=>{const m=String(d||'').match(/^(\d{4})-(\d{2})-(\d{2})/);return m?(+m[3]+'/'+(+m[2])+'/'+m[1].slice(2)):'';};
+  box.innerHTML=envios.map(e=>{
+    const llego=e.estado==='recibido';
+    const est=llego?'<span class="badge b-exact">recibido</span>':'<span class="badge b-rev">'+esc(e.fase&&e.fase!=='transito'?e.fase:'en tránsito')+'</span>';
+    const rec=enRec.has(nF(e.n_factura))?' <span class="badge" style="background:#dbeafe;color:#1e40af">en recepción</span>':'';
+    const trk=e.tracking?(' · '+esc(e.courier||'')+' <span class="sku">'+esc(e.tracking)+'</span>'):' · <i>sin tracking</i>';
+    const eta=e.eta?(' · ETA '+fcorta(e.eta)):(e.fecha_estimada?(' · estimado '+fcorta(e.fecha_estimada)):'');
+    const api=e.api_resumen?('<div class="hint" style="margin-top:2px">'+esc(e.api_resumen)+'</div>'):'';
+    return `<div class="btn-sm" style="display:block;width:100%;text-align:left;margin:5px 0;padding:9px 11px;cursor:default">
+      <b>${esc(e.proveedor||'(sin proveedor)')}</b> · Fact. ${esc(e.n_factura||'—')} ${est}${rec}
+      <span class="hint">(${(e.items||[]).length} ítem(s)${trk}${eta})</span>${api}</div>`;
+  }).join('');
+}
 // Lista de TODAS las facturas en recepción (pendientes + validadas), una tras otra.
 async function cargarRecepLista(){
   const box=$('recepLista'), det=$('recepDetalle'); if(!box)return;
@@ -902,8 +930,9 @@ async function cargarRecepLista(){
   try{
     const [pend,val]=await Promise.all([recApi('/api/recepciones?pendientes=1'), recApi('/api/recepciones?estado=validada')]);
     lista=[...(pend||[]), ...(val||[])];
-  }catch(e){ box.innerHTML='<span class="hint">No se pudo leer la lista: '+esc(e.message)+'</span>'; return; }
+  }catch(e){ box.innerHTML='<span class="hint">No se pudo leer la lista: '+esc(e.message)+'</span>'; cargarSegLista([]); return; }
   recepListaCache=lista;
+  cargarSegLista(lista); // facturas en Seguimiento (debajo de la lista de recepción)
   // Indicador: qué importación está cargada AHORA en el costeo y si coincide con una recepción.
   renderRecepCargado(cur, lista);
   renderRecepArchivadas(cur); // archivadas (ya costeadas): ocultas pero desplegables
@@ -2078,7 +2107,10 @@ function codigoImportacion(){
   const prov=($('f_prov')&&$('f_prov').value)||'';
   return cot+imp+num+'-'+emp+prov.substr(6,4).toUpperCase();
 }
-function updateCodigo(){const el=$('imp_codigo');if(el)el.value=codigoImportacion();}
+function updateCodigo(){
+  // N° importación: el mismo valor en Factura → SKU y en Calculadora (al abrir guardadas, etc.)
+  const a=$('numImp'),b=$('f_numImp');if(a&&b&&document.activeElement!==b&&b.value!==a.value)b.value=a.value;
+  const el=$('imp_codigo');if(el)el.value=codigoImportacion();}
 // Id de la RECEPCIÓN = código de importación + N° de factura, para que cada
 // factura sea una recepción distinta (una importación puede tener varias facturas).
 function recepId(){

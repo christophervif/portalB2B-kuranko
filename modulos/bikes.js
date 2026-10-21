@@ -1634,6 +1634,24 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
     } catch (e) { res.status(500).send('No se pudo cargar'); }
   });
 
+  // ── Página por marca: bikes.kuranko.pe/marca/kavenz abre la tienda con esa marca (para mostrársela a la marca, anuncios y Google) ──
+  app.get('/marca/:slug', async (req, res) => {
+    try {
+      if (!htmlTienda) htmlTienda = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'bikes.html'), 'utf8');
+      const D = await catalogoPublicoEs(), slug = String(req.params.slug || '').toLowerCase().slice(0, 60);
+      const marca = (D.marcas || []).find(x => slugCat(x) === slug);
+      let h = htmlTienda;
+      if (marca) {
+        const ms = D.modelos.filter(m => m.marca === marca && m.tag !== 'proximamente'), img = (ms.find(m => m.img) || {}).img;
+        const titulo = `${marca} en Perú · bicicletas a pedido · Kuranko`, url = `https://${req.hostname}/marca/${slug}`;
+        const desc = `${ms.length} modelos de ${marca} con precio final en Perú: envío, aduana, IGV y armado incluidos. Garantía oficial y soporte en Lima.`;
+        h = h.replace(SIN_META_PORTADA, '').replace(/<title>[^<]*<\/title>/, `<title>${escH(titulo)}</title><meta name="description" content="${escH(desc)}"><link rel="canonical" href="${escH(url)}">` +
+          `<meta property="og:title" content="${escH(titulo)}"><meta property="og:description" content="${escH(desc)}"><meta property="og:url" content="${escH(url)}">${img ? `<meta property="og:image" content="${escH(img)}">` : ''}`);
+      } else res.status(404);
+      res.set('Cache-Control', 'no-cache').type('html').send(h);
+    } catch (e) { res.status(500).send('No se pudo cargar'); }
+  });
+
   // ── robots.txt y sitemap.xml: la tienda se indexa; el portal y el panel, no ──
   app.get('/robots.txt', (req, res) => {
     res.type('text/plain').set('Cache-Control', 'public, max-age=86400');
@@ -1645,6 +1663,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
     try {
       const D = await catalogoPublico(), base = `https://${req.hostname}`;
       const urls = [`<url><loc>${base}/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>`,
+        ...(D.marcas || []).map(b => `<url><loc>${base}/marca/${slugCat(b)}</loc><changefreq>daily</changefreq><priority>0.8</priority></url>`),
         ...[...new Set(D.modelos.flatMap(m => m.cats || [m.cat]).filter(Boolean))].map(c => `<url><loc>${base}/categoria/${slugCat(c)}</loc><changefreq>daily</changefreq><priority>0.8</priority></url>`),
         ...D.modelos.filter(m => m.tag !== 'proximamente').map(m => `<url><loc>${base}/bici/${escH(encodeURIComponent(m.id))}</loc><changefreq>weekly</changefreq></url>`)];
       res.type('application/xml').set('Cache-Control', 'public, max-age=3600')

@@ -337,15 +337,17 @@ a.card{text-decoration:none;cursor:pointer}
 /* Ventana de novedades (se configura en el panel → Página) */
 .aviso{position:fixed;inset:0;z-index:90;display:grid;place-items:center;padding:16px;background:rgba(10,10,10,.5);opacity:0;transition:opacity .3s ease}
 .aviso.on{opacity:1}
-.aviso .box{position:relative;width:min(440px,100%);max-height:calc(100vh - 32px);overflow:auto;background:var(--surface);color:var(--ink);border-radius:16px;box-shadow:0 24px 60px rgba(0,0,0,.35);
+.aviso .box{position:relative;width:min(1000px,100%);display:grid;grid-template-columns:1.35fr 1fr;max-height:calc(100vh - 32px);overflow:auto;background:var(--surface);color:var(--ink);border-radius:16px;box-shadow:0 24px 60px rgba(0,0,0,.35);
   transform:translateY(18px) scale(.96);opacity:0;transition:transform .45s cubic-bezier(.2,.9,.25,1.15),opacity .3s ease}
 .aviso.on .box{transform:none;opacity:1}
-.aviso .box img{display:block;width:100%;aspect-ratio:16/10;object-fit:cover;background:var(--surface2,#eee)}
-.aviso .tx{padding:18px 20px 20px;display:grid;gap:10px}
-.aviso .tx b{font-size:20px;line-height:1.2;padding-right:28px}
-.aviso .tx p{margin:0;color:var(--muted);white-space:pre-line}
-.aviso .x{position:absolute;top:10px;right:10px;width:34px;height:34px;border-radius:50%;border:0;background:rgba(255,255,255,.92);color:#111;font-size:18px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.15)}
-.aviso .tx .btn{justify-self:start}
+.aviso .box img{display:block;width:100%;height:100%;min-height:420px;object-fit:cover;background:var(--surface2,#eee)}
+.aviso .box.solo{grid-template-columns:1fr;width:min(560px,100%)}
+.aviso .tx{padding:36px 34px;display:grid;gap:16px;align-content:center}
+.aviso .tx b{font-size:clamp(24px,2.6vw,34px);line-height:1.15;padding-right:28px}
+.aviso .tx p{margin:0;color:var(--muted);white-space:pre-line;font-size:17px;line-height:1.55}
+.aviso .x{position:absolute;top:10px;right:10px;z-index:1;width:28px;height:28px;padding:0;line-height:28px;border-radius:50%;border:0;background:rgba(255,255,255,.85);color:#111;font-size:15px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.15)}
+.aviso .tx .btn{justify-self:start;padding:10px 18px;font-size:14px;min-height:0;letter-spacing:.02em}
+@media (max-width:760px){.aviso .box{grid-template-columns:1fr;width:min(520px,100%)}.aviso .box img{min-height:0;height:auto;aspect-ratio:4/3}.aviso .tx{padding:20px 20px 22px;gap:12px}.aviso .tx p{font-size:15.5px}}
 @media (prefers-reduced-motion:reduce){.aviso,.aviso .box{transition:none}}
 </style>
 </head>
@@ -592,12 +594,13 @@ function resumen(m){
 }
 
 /* ---- filtros ---- */
-const F={slug:((location.pathname.match(/^\/categoria\/([^/]+)/)||[])[1]||new URLSearchParams(location.search).get('cat')||'').toLowerCase(),q:'',marca:'all',cat:'all',est:'all',aro:'all',eta:'all',max:60000,talla:'all',sort:'eta'};
+const F={mslug:((location.pathname.match(/^\/marca\/([^/]+)/)||[])[1]||'').toLowerCase(),slug:((location.pathname.match(/^\/categoria\/([^/]+)/)||[])[1]||new URLSearchParams(location.search).get('cat')||'').toLowerCase(),q:'',marca:'all',cat:'all',est:'all',aro:'all',eta:'all',max:60000,talla:'all',sort:'eta'};
 function pintarFiltros(){
   const cnt={};D.modelos.forEach(m=>cnt[m.marca]=(cnt[m.marca]||0)+1);
   $('#brands').innerHTML=[['all','Todas',D.modelos.length],...D.marcas.map(b=>[b,b,cnt[b]||0])].map(([k,l,n])=>`<button class="chip" aria-pressed="${F.marca===k}" data-b="${esc(k)}">${k!=='all'&&(D.logos||{})[k]?`<img src="${esc(D.logos[k])}" alt="${esc(l)}">`:esc(l)}<span class="ct">${n}</span></button>`).join('');
   const cats=['all',...new Set(D.modelos.flatMap(catsDe))];
   if(F.slug){const c=cats.find(x=>x!=='all'&&slugCat(x)===F.slug);if(c)F.cat=c;delete F.slug}
+  if(F.mslug){const b=D.marcas.find(x=>slugCat(x)===F.mslug);if(b){F.marca=b;setTimeout(()=>pintarFiltros(),0)}delete F.mslug}
   $('#fCat').innerHTML=cats.map(c=>`<option value="${esc(c)}" ${F.cat===c?'selected':''}>${c==='all'?'Todas':esc(c)}</option>`).join('');
   const hayPO=D.modelos.some(m=>m.tag==='usado');$('#fEstW').hidden=!hayPO;if(!hayPO)F.est='all';
   $('#fEst').innerHTML=[['all','Todas'],['nueva','Nuevas'],['usado','Pre-owned']].map(([k,l])=>`<button type="button" aria-pressed="${F.est===k}" data-e="${k}">${l}</button>`).join('');
@@ -694,7 +697,10 @@ const EN=/^\/en\/?$/.test(location.pathname); // versión en inglés (/en): las 
 // Cada categoría tiene su página: bikes.kuranko.pe/categoria/enduro
 const slugCat=c=>String(c||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
 const conRuta=()=>!EN&&/^bikes\./.test(location.hostname);
-const urlBase=()=>(F.cat!=='all'&&conRuta()?'/categoria/'+slugCat(F.cat):EN?location.pathname:/^bikes\./.test(location.hostname)?'/':'/bikes.html')+location.search;
+// Marca y categoría en la URL: /marca/kavenz, /categoria/enduro o /marca/mondraker?cat=e-mtb
+const urlRuta=()=>{const q=new URLSearchParams(location.search);q.delete('cat');const m=F.marca!=='all',c=F.cat!=='all';if(m&&c)q.set('cat',slugCat(F.cat));const qs=q.toString();
+  return (m?'/marca/'+slugCat(F.marca):c?'/categoria/'+slugCat(F.cat):'/')+(qs?'?'+qs:'')};
+const urlBase=()=>conRuta()?urlRuta():(EN?location.pathname:/^bikes\./.test(location.hostname)?'/':'/bikes.html')+location.search;
 function ocultarDrawer(){$('#drawer').hidden=true;$('#scrim').hidden=true;document.body.style.overflow='';
   const id=S&&S.m&&S.m.id,o=ORIGEN&&ORIGEN!==document.body&&document.contains(ORIGEN)?ORIGEN:id?document.querySelector(`.card[data-id="${CSS.escape(id)}"]`):null;ORIGEN=null;try{if(o)o.focus({preventScroll:true})}catch(e){}}
 // despues: lo que haya que hacer cuando la URL ya volvió a la portada
@@ -940,7 +946,7 @@ document.addEventListener('click',e=>{
   if(t.id==='compartir'){const m=S.m,url=location.origin+'/bici/'+encodeURIComponent(m.id),tx=m.marca+' '+m.modelo+' en Kuranko';
     if(navigator.share){navigator.share({title:tx,url}).catch(()=>{})}else{window.open('https://wa.me/?text='+encodeURIComponent(tx+': '+url),'_blank','noopener')}return}
   if(t.id==='waTop'){ev('whatsapp',{origen:'cabecera'})}
-  if(t.dataset.b!==undefined&&t.closest('#brands')){F.marca=t.dataset.b;pintarFiltros();pintarGrid();ev('filtro',{marca:F.marca==='all'?null:F.marca})}
+  if(t.dataset.b!==undefined&&t.closest('#brands')){F.marca=t.dataset.b;pintarFiltros();pintarGrid();if(conRuta())try{history.replaceState(null,'',urlBase())}catch(_){}ev('filtro',{marca:F.marca==='all'?null:F.marca})}
   else if(t.dataset.a!==undefined&&t.closest('#fAro')){F.aro=t.dataset.a;pintarFiltros();pintarGrid()}
   else if(t.dataset.e!==undefined&&t.closest('#fEst')){F.est=t.dataset.e;pintarFiltros();pintarGrid()}
   else if(t.dataset.t!==undefined&&t.closest('#fTalla')){F.talla=t.dataset.t;pintarFiltros();pintarGrid()}
@@ -980,7 +986,7 @@ function mostrarAviso(){const a=(D&&D.pagina||{}).aviso;if(!a||document.querySel
   let visto='';try{visto=localStorage.getItem('bk_aviso')||''}catch(e){}if(visto===String(a.v))return;
   const t=EN&&a.titulo_en||a.titulo,x=EN&&a.texto_en||a.texto,bt=EN&&a.boton_en||a.boton||(a.link?'Ver más':'');
   const el=document.createElement('div');el.className='aviso';el.setAttribute('role','dialog');el.setAttribute('aria-modal','true');el.setAttribute('aria-label',t);
-  el.innerHTML=`<div class="box"><button class="x" type="button" aria-label="Cerrar">×</button>${a.img?`<img src="${esc(IMG(a.img,720))}" alt="">`:''}<div class="tx"><b>${esc(t)}</b>${x?`<p>${esc(x)}</p>`:''}${a.link&&bt?`<a class="btn" href="${esc(a.link)}" data-avisolink>${esc(bt)}</a>`:''}</div></div>`;
+  el.innerHTML=`<div class="box${a.img?'':' solo'}"><button class="x" type="button" aria-label="Cerrar">×</button>${a.img?`<img src="${esc(IMG(a.img,1200))}" alt="">`:''}<div class="tx"><b>${esc(t)}</b>${x?`<p>${esc(x)}</p>`:''}${a.link&&bt?`<a class="btn" href="${esc(a.link)}" data-avisolink>${esc(bt)}</a>`:''}</div></div>`;
   const cerrar=()=>{try{localStorage.setItem('bk_aviso',String(a.v))}catch(e){}el.classList.remove('on');setTimeout(()=>el.remove(),320);document.removeEventListener('keydown',esc_)},esc_=e=>{if(e.key==='Escape')cerrar()};
   el.addEventListener('click',e=>{if(e.target===el||e.target.closest('.x'))cerrar();else if(e.target.closest('[data-avisolink]')){ev('aviso',{v:a.v});cerrar()}});
   document.addEventListener('keydown',esc_);document.body.appendChild(el);requestAnimationFrame(()=>requestAnimationFrame(()=>el.classList.add('on')));el.querySelector('.x').focus({preventScroll:true});

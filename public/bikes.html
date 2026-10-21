@@ -331,6 +331,22 @@ a.card{text-decoration:none;cursor:pointer}
   .dbar .btn{padding:12px 16px;font-size:15px}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+/* Lanzamiento: un poco más visible (naranja sobrio de la marca) */
+.badge.lanz{background:#b4532a;color:#fff;border-color:#b4532a}
+.card.lanz{border-color:#b4532a;box-shadow:0 0 0 1px #b4532a inset}
+/* Ventana de novedades (se configura en el panel → Página) */
+.aviso{position:fixed;inset:0;z-index:90;display:grid;place-items:center;padding:16px;background:rgba(10,10,10,.5);opacity:0;transition:opacity .3s ease}
+.aviso.on{opacity:1}
+.aviso .box{position:relative;width:min(440px,100%);max-height:calc(100vh - 32px);overflow:auto;background:var(--surface);color:var(--ink);border-radius:16px;box-shadow:0 24px 60px rgba(0,0,0,.35);
+  transform:translateY(18px) scale(.96);opacity:0;transition:transform .45s cubic-bezier(.2,.9,.25,1.15),opacity .3s ease}
+.aviso.on .box{transform:none;opacity:1}
+.aviso .box img{display:block;width:100%;aspect-ratio:16/10;object-fit:cover;background:var(--surface2,#eee)}
+.aviso .tx{padding:18px 20px 20px;display:grid;gap:10px}
+.aviso .tx b{font-size:20px;line-height:1.2;padding-right:28px}
+.aviso .tx p{margin:0;color:var(--muted);white-space:pre-line}
+.aviso .x{position:absolute;top:10px;right:10px;width:34px;height:34px;border-radius:50%;border:0;background:rgba(255,255,255,.92);color:#111;font-size:18px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.15)}
+.aviso .tx .btn{justify-self:start}
+@media (prefers-reduced-motion:reduce){.aviso,.aviso .box{transition:none}}
 </style>
 </head>
 <body>
@@ -576,11 +592,12 @@ function resumen(m){
 }
 
 /* ---- filtros ---- */
-const F={q:'',marca:'all',cat:'all',est:'all',aro:'all',eta:'all',max:60000,talla:'all',sort:'eta'};
+const F={slug:((location.pathname.match(/^\/categoria\/([^/]+)/)||[])[1]||new URLSearchParams(location.search).get('cat')||'').toLowerCase(),q:'',marca:'all',cat:'all',est:'all',aro:'all',eta:'all',max:60000,talla:'all',sort:'eta'};
 function pintarFiltros(){
   const cnt={};D.modelos.forEach(m=>cnt[m.marca]=(cnt[m.marca]||0)+1);
   $('#brands').innerHTML=[['all','Todas',D.modelos.length],...D.marcas.map(b=>[b,b,cnt[b]||0])].map(([k,l,n])=>`<button class="chip" aria-pressed="${F.marca===k}" data-b="${esc(k)}">${k!=='all'&&(D.logos||{})[k]?`<img src="${esc(D.logos[k])}" alt="${esc(l)}">`:esc(l)}<span class="ct">${n}</span></button>`).join('');
   const cats=['all',...new Set(D.modelos.flatMap(catsDe))];
+  if(F.slug){const c=cats.find(x=>x!=='all'&&slugCat(x)===F.slug);if(c)F.cat=c;delete F.slug}
   $('#fCat').innerHTML=cats.map(c=>`<option value="${esc(c)}" ${F.cat===c?'selected':''}>${c==='all'?'Todas':esc(c)}</option>`).join('');
   const hayPO=D.modelos.some(m=>m.tag==='usado');$('#fEstW').hidden=!hayPO;if(!hayPO)F.est='all';
   $('#fEst').innerHTML=[['all','Todas'],['nueva','Nuevas'],['usado','Pre-owned']].map(([k,l])=>`<button type="button" aria-pressed="${F.est===k}" data-e="${k}">${l}</button>`).join('');
@@ -592,8 +609,10 @@ function pintarFiltros(){
   contarFiltros();
 }
 function contarFiltros(){const n=[F.q,F.cat!=='all',F.est!=='all',F.aro!=='all',F.eta!=='all',F.max<60000,F.talla!=='all'].filter(Boolean).length;const c=$('#fCuenta');if(c)c.textContent=n||''}
+// Motor de e-bike: nombre + torque + batería + velocidad asistida (editables en el panel → Modelos)
+const motorTxt=m=>m.motor?[m.motor,m.mnm&&m.mnm+' Nm',m.mwh&&m.mwh+' Wh',m.mkmh&&m.mkmh+' km/h'].filter(Boolean).join(' · '):'';
 // Línea de datos: aro, recorrido delantero/trasero y material
-const specPartes=m=>[['sa',m.aro?(m.aro==='Mullet'?'Mullet 29/27.5':'Aro '+m.aro):''],['sr',m.rd?(m.rt?m.rd+'/'+m.rt+' mm':m.rd+' mm'):m.rt?m.rt+' mm atrás':m.rec],['sm',m.matx||m.mat],['se',m.motor]].filter(x=>x[1]);
+const specPartes=m=>[['sa',m.aro?(m.aro==='Mullet'?'Mullet 29/27.5':'Aro '+m.aro):''],['sr',m.rd?(m.rt?m.rd+'/'+m.rt+' mm':m.rd+' mm'):m.rt?m.rt+' mm atrás':m.rec],['sm',m.matx||m.mat],['se',motorTxt(m)]].filter(x=>x[1]);
 const specLinea=m=>specPartes(m).map(x=>esc(x[1])).join(' · ');
 // En tarjetas y ficha: cada dato con su color (aro, recorrido, material, motor) para leerlo de un vistazo
 const specHTML=m=>specPartes(m).map(([c,t])=>`<span class="${c}">${esc(t)}</span>`).join('<i class="sep"> · </i>');
@@ -605,9 +624,9 @@ function cardHTML({m,r},i){
     <div class="ft"><div class="price" style="font-size:16px">Precio al lanzamiento</div><div class="eta">Avísame<small>deja tu celular</small></div></div></div></button>`;
   const col=COL[m.marca]||'#5a6285';
   const soloGrupo=m.skus.every(x=>(x.op||[]).length&&x.op.every(o=>o.k==='grupo'));
-  const badge=r.agotado?'<span class="badge">Agotado</span>':TAGS[m.tag]?`<span class="badge last">${TAGS[m.tag]}</span>`:r.lima?`<span class="badge lima">${esc(enStockTxt(m))}</span>`:soloGrupo?'<span class="badge last">Envío en grupo</span>':m.conf?'<span class="badge lima">Stock confirmado</span>':r.tot<=2?'<span class="badge last">Últimas unidades</span>':'<span class="badge">A pedido</span>';
+  const badge=r.agotado?'<span class="badge">Agotado</span>':TAGS[m.tag]?`<span class="badge ${m.tag==='lanzamiento'?'lanz':'last'}">${TAGS[m.tag]}</span>`:r.lima?`<span class="badge lima">${esc(enStockTxt(m))}</span>`:soloGrupo?'<span class="badge last">Envío en grupo</span>':m.conf?'<span class="badge lima">Stock confirmado</span>':r.tot<=2?'<span class="badge last">Últimas unidades</span>':'<span class="badge">A pedido</span>';
   const mc=maxCuotas(m);
-  return `<a class="card" href="/bici/${encodeURIComponent(m.id)}" data-id="${esc(m.id)}"><div class="pic" style="color:var(--ink)">${foto(m,col,i)}${badge}</div>
+  return `<a class="card${m.tag==='lanzamiento'?' lanz':''}" href="/bici/${encodeURIComponent(m.id)}" data-id="${esc(m.id)}"><div class="pic" style="color:var(--ink)">${foto(m,col,i)}${badge}</div>
     <div class="bd"><span class="br">${esc(m.marca)} · <span>${catsDe(m).map(esc).join(' · ')}</span></span><h3>${esc(m.modelo)}</h3>
       <span class="spec">${specHTML(m)}</span>
       <div class="envs">${[...new Set(m.skus.flatMap(x=>(x.op||[]).map(o=>o.k)))].map(k=>`<span>${ENVL[k]||k}</span>`).join('')}${mc?`<span class="cu">Hasta ${mc} cuotas sin intereses</span>`:''}</div>
@@ -647,7 +666,7 @@ function pintarGrid(){
     &&(F.max>=60000||r.min.pm<=F.max)&&(F.talla==='all'||m.skus.some(s=>s.t===F.talla&&s.d>0))
     &&(F.eta==='all'||(F.eta==='lima'?r.lima:dias(r.pronto.fm[1])<=+F.eta)));
   const S={eta:(a,b)=>(a.r.agotado-b.r.agotado)||a.r.pronto.fm[1].localeCompare(b.r.pronto.fm[1]),pa:(a,b)=>a.r.min.pm-b.r.min.pm,pd:(a,b)=>b.r.min.pm-a.r.min.pm,br:(a,b)=>a.m.marca.localeCompare(b.m.marca)||a.m.modelo.localeCompare(b.m.modelo)}[F.sort];
-  L.sort(S);
+  L.sort(S);L.sort((a,b)=>(b.m.tag==='lanzamiento')-(a.m.tag==='lanzamiento')); // los lanzamientos van primero
   // Destacadas (y lo que viene), solo en la vista inicial sin filtros
   const inicial=!F.q&&F.cat==='all'&&F.est==='all'&&F.aro==='all'&&F.eta==='all'&&F.max>=60000&&F.talla==='all';
   const dest=inicial?L.filter(x=>x.m.dest):[];
@@ -672,7 +691,10 @@ function abrir(id,push=true){
 }
 let ORIGEN=null,POP_PROPIO=null;
 const EN=/^\/en\/?$/.test(location.pathname); // versión en inglés (/en): las fichas se abren con #id
-const urlBase=()=>(EN?location.pathname:/^bikes\./.test(location.hostname)?'/':'/bikes.html')+location.search;
+// Cada categoría tiene su página: bikes.kuranko.pe/categoria/enduro
+const slugCat=c=>String(c||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+const conRuta=()=>!EN&&/^bikes\./.test(location.hostname);
+const urlBase=()=>(F.cat!=='all'&&conRuta()?'/categoria/'+slugCat(F.cat):EN?location.pathname:/^bikes\./.test(location.hostname)?'/':'/bikes.html')+location.search;
 function ocultarDrawer(){$('#drawer').hidden=true;$('#scrim').hidden=true;document.body.style.overflow='';
   const id=S&&S.m&&S.m.id,o=ORIGEN&&ORIGEN!==document.body&&document.contains(ORIGEN)?ORIGEN:id?document.querySelector(`.card[data-id="${CSS.escape(id)}"]`):null;ORIGEN=null;try{if(o)o.focus({preventScroll:true})}catch(e){}}
 // despues: lo que haya que hacer cuando la URL ya volvió a la portada
@@ -945,7 +967,7 @@ document.addEventListener('change',e=>{if(e.target.dataset.x&&S){S.extras[e.targ
 $('#scrim').addEventListener('click',cerrar);
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#drawer').hidden)cerrar()});
 $('#fToggle').addEventListener('click',()=>{const f=$('#filtros'),ab=f.classList.toggle('abierto');$('#fToggle').setAttribute('aria-expanded',ab)});
-$('#fCat').addEventListener('change',e=>{F.cat=e.target.value;pintarGrid()});
+$('#fCat').addEventListener('change',e=>{F.cat=e.target.value;pintarGrid();if(conRuta())try{history.replaceState(null,'',urlBase())}catch(_){}});
 $('#fEta').addEventListener('change',e=>{F.eta=e.target.value;pintarGrid()});
 $('#sort').addEventListener('change',e=>{F.sort=e.target.value;pintarGrid()});
 document.addEventListener('input',e=>{if(e.target.id==='altura'&&S){S.alt=e.target.value.replace(/\D/g,'').slice(0,3);marcarTallas()}});
@@ -953,6 +975,16 @@ $('#fQ').addEventListener('input',e=>{F.q=e.target.value.trim();pintarGrid()});
 $('#fMax').addEventListener('input',e=>{F.max=+e.target.value;$('#fMaxL').textContent=F.max>=60000?'sin límite':M(F.max);pintarGrid()});
 document.addEventListener('submit',e=>{e.preventDefault();if(e.target.id==='agForm'){agendar();return}if(e.target.id==='resForm')reservar();else if(e.target.id==='trackForm')consultar($('#tCod').value.trim(),$('#tDoc').value.trim())});
 
+// Ventana de novedades: una vez por visitante; si cambias el texto en el panel, vuelve a salir
+function mostrarAviso(){const a=(D&&D.pagina||{}).aviso;if(!a||document.querySelector('.aviso'))return;
+  let visto='';try{visto=localStorage.getItem('bk_aviso')||''}catch(e){}if(visto===String(a.v))return;
+  const t=EN&&a.titulo_en||a.titulo,x=EN&&a.texto_en||a.texto,bt=EN&&a.boton_en||a.boton||(a.link?'Ver más':'');
+  const el=document.createElement('div');el.className='aviso';el.setAttribute('role','dialog');el.setAttribute('aria-modal','true');el.setAttribute('aria-label',t);
+  el.innerHTML=`<div class="box"><button class="x" type="button" aria-label="Cerrar">×</button>${a.img?`<img src="${esc(IMG(a.img,720))}" alt="">`:''}<div class="tx"><b>${esc(t)}</b>${x?`<p>${esc(x)}</p>`:''}${a.link&&bt?`<a class="btn" href="${esc(a.link)}" data-avisolink>${esc(bt)}</a>`:''}</div></div>`;
+  const cerrar=()=>{try{localStorage.setItem('bk_aviso',String(a.v))}catch(e){}el.classList.remove('on');setTimeout(()=>el.remove(),320);document.removeEventListener('keydown',esc_)},esc_=e=>{if(e.key==='Escape')cerrar()};
+  el.addEventListener('click',e=>{if(e.target===el||e.target.closest('.x'))cerrar();else if(e.target.closest('[data-avisolink]')){ev('aviso',{v:a.v});cerrar()}});
+  document.addEventListener('keydown',esc_);document.body.appendChild(el);requestAnimationFrame(()=>requestAnimationFrame(()=>el.classList.add('on')));el.querySelector('.x').focus({preventScroll:true});
+}
 async function recargar(silencioso){
   try{
     const r=await fetch('/api/bikes/catalogo',silencioso?{cache:'no-cache'}:{});const j=await r.json();if(!r.ok)throw new Error(j.error);
@@ -973,6 +1005,7 @@ async function recargar(silencioso){
   if(D){cargarAnalitica();ev('visita',{origen})}
   const h=decodeURIComponent((location.hash||'').slice(1));
   const pb=location.pathname.match(/^\/bici\/([^/]+)/);
+  if(!pb&&!h)setTimeout(mostrarAviso,1200);
   if(h==='pedido')vista('pedido');else if(pb&&D)abrir(decodeURIComponent(pb[1]),false);else if(h&&D)abrir(h,false);
 })();
 </script>

@@ -194,6 +194,20 @@ function fichaCompleta(md = {}, skus = []) {
 }
 
 // Opciones de envío de un SKU (lo que ve el cliente). mod = ajustes del modelo { aereo: 'auto'|'si'|'no' }.
+// Motor de e-bike: torque (Nm), velocidad asistida (km/h) y batería (Wh). Lo escrito a mano en el editor manda («-» = no mostrar);
+// si no, se busca en el texto del motor, las especificaciones (motor / batería) y la descripción.
+function datosMotor(motor, specs, desc, d = {}) {
+  const sp = (specs || []).filter(x => /motor|drive|bater|battery|akku|unidad motriz/i.test(x.k)).map(x => x.v).join(' · ');
+  const txt = [motor, sp, desc].filter(Boolean).join(' · ');
+  const auto = { mnm: +((txt.match(/(\d{2,3})\s*N\.?m\b/i) || [])[1] || 0), mkmh: +((txt.match(/(\d{2})\s*km\s*\/\s*h/i) || [])[1] || 0), mwh: +((txt.match(/(\d{3,4})\s*Wh\b/i) || [])[1] || 0) };
+  const out = {};
+  for (const [k, c] of [['mnm', 'motor_nm'], ['mkmh', 'motor_kmh'], ['mwh', 'bateria_wh']]) { const v = String(d[c] ?? '').trim(); const n = v === '-' ? 0 : num(v) || auto[k]; if (n > 0) out[k] = n; }
+  return out;
+}
+// Nombre del motor sin la velocidad ni la batería (se muestran aparte): «Bosch Performance Line CX (25Km/h) · 800 Wh» → «Bosch Performance Line CX»
+// Categoría → slug de URL: «E-MTB» → e-mtb, «Cross Country» → cross-country (igual que en la tienda)
+const slugCat = c => String(c || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+const limpiarMotor = t => String(t || '').replace(/\s*\(\s*\d{2}\s*km\s*\/\s*h\s*\)/ig, '').replace(/\s*[·,]\s*\d{3,4}\s*Wh\b/ig, '').replace(/\s{2,}/g, ' ').trim();
 const esEbike = s => s.categoria === 'E-MTB' || !!(s.motor && String(s.motor).trim());
 // Precio final redondeado igual que calcularPrecio (US$ 5 o S/ 10), a partir de un valor en US$ con IGV
 const finPrecio = (usdx, R, tc) => R.moneda_principal === 'PEN' ? ceil10(usdx * tc.usd) : Math.round(Math.ceil(usdx / 5) * 5 * tc.usd);
@@ -560,6 +574,10 @@ function armarCatalogo(skus, R, tc, hoy = hoyLima(), mods = {}) {
     const tt = tablaTallas(m.tallas, (m._md && m._md.datos) || {}); if (tt) m.tt = tt;
     if (m._md && m._md.datos && m._md.datos.garantia) m.gar = String(m._md.datos.garantia).slice(0, 200);
     { const cs = [...(m._cats || [])].filter(Boolean); if (cs.length > 1) m.cats = cs; else m.skus.forEach(x => delete x.ct); }
+    if (m.motor || m.cat === 'E-MTB') { const d = (m._md && m._md.datos) || {};
+      if (!m.motor) { const sp = (m.specs || []).find(x => /^(motor|drive unit|unidad motriz)/i.test(x.k)); m.motor = (sp && sp.v) || ((String(m.desc || '').match(/\bmotor\s+([A-Z][^,.;:]{3,60})/) || [])[1] || '').trim() || null; }
+      Object.assign(m, datosMotor(m.motor, m.specs, m.desc, d));
+      if (m.motor) m.motor = limpiarMotor(m.motor); }
     delete m._ci; delete m._md; delete m._cats;
     // «Próximamente»: solo la silueta de la foto principal, sin nombre, precio ni ficha (no se puede reservar)
     if (m.tag === 'proximamente') return { id: 'pronto-' + slug(m.marca) + '-' + m.id.length + m.skus.length, marca: m.marca, cat: m.cat, aro: m.aro, tag: m.tag, img: (m.gal || [])[0] || m.img || null,
@@ -1073,6 +1091,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       for (const col of ['specs MEDIUMTEXT NULL', 'datos TEXT NULL', 'manual TINYINT(1) NOT NULL DEFAULT 0', 'img_colores MEDIUMTEXT NULL', 'confirmado TINYINT(1) NOT NULL DEFAULT 0', 'destacado TINYINT(1) NOT NULL DEFAULT 0', "etiqueta VARCHAR(15) NOT NULL DEFAULT ''"])
         await portalPool.query(`ALTER TABLE bk_modelos ADD COLUMN ${col}`).catch(colYaExiste);
       await portalPool.query(`ALTER TABLE bk_reservas ADD COLUMN pago VARCHAR(4) NULL`).catch(colYaExiste);
+      await portalPool.query(`ALTER TABLE bk_reservas ADD COLUMN consulta_marca DATETIME NULL`).catch(colYaExiste); // cuándo se pidió disponibilidad a la marca
       await portalPool.query(`ALTER TABLE bk_skus ADD COLUMN stock_kuranko INT NOT NULL DEFAULT 0`).catch(colYaExiste);
       await portalPool.query(`ALTER TABLE bk_skus ADD COLUMN stock_ciudad VARCHAR(120) NULL`).catch(colYaExiste);
       await portalPool.query(`ALTER TABLE bk_skus MODIFY montaje VARCHAR(160) NOT NULL DEFAULT 'Base'`).catch(colYaExiste);
@@ -1227,6 +1246,9 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
           pagina: await (async () => { const pg = await leerPagina(); const f = pg.fotos || {};
             return { asesor_nombre: pg.asesor_nombre || 'Jean Pierre', asesor_cargo: pg.asesor_cargo || 'Asesor de bicicletas', asesor_whatsapp: (pg.asesor_whatsapp || '').replace(/\D/g, '') || null,
               soporte_url: pg.soporte_url || null, soporte_texto: pg.soporte_texto || null,
+              ...(pg.aviso && pg.aviso.activo && pg.aviso.titulo && (!pg.aviso.hasta || pg.aviso.hasta >= hoyLima())
+                ? { aviso: { titulo: pg.aviso.titulo, texto: pg.aviso.texto, boton: pg.aviso.boton, link: pg.aviso.link, img: pg.aviso.img || '', v: pg.aviso.v,
+                    ...(pg.aviso.titulo_en ? { titulo_en: pg.aviso.titulo_en } : {}), ...(pg.aviso.texto_en ? { texto_en: pg.aviso.texto_en } : {}), ...(pg.aviso.boton_en ? { boton_en: pg.aviso.boton_en } : {}) } } : {}),
               fotos: Object.fromEntries(CLAVES_FOTO.map(k => [k, f[k] ? `/api/bikes/foto/${k}?v=${f[k]}${sharp ? '&w=' + ANCHO_FOTO_PAGINA[k] : ''}` : null])) }; })(),
           img_proxy: !!sharp, // la página pide las fotos de producto por /api/bikes/img en el tamaño que necesita
           logos: Object.fromEntries(Object.entries(infoMarcas).filter(([, v]) => v && v.logo).map(([k, v]) => [k, v.logo])),
@@ -1334,18 +1356,63 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
     throw new Error('no se pudo generar código');
   }
 
-  async function enviarCorreo(para, asunto, html, texto) {
+  async function enviarCorreo(para, asunto, html, texto, extra = {}) {
     const key = process.env.RESEND_API_KEY;
     if (!key || !para || !para.length) return { correo: false };
     try {
       const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 10000);
       const r = await fetch('https://api.resend.com/emails', { method: 'POST', signal: ctrl.signal,
         headers: { 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from: process.env.RESEND_FROM || 'Kuranko Bikes <noreply@kuranko.pe>', to: para, subject: asunto, html, text: texto }) });
+        body: JSON.stringify({ from: process.env.RESEND_FROM || 'Kuranko Bikes <noreply@kuranko.pe>', to: para, subject: asunto, html, text: texto,
+          ...(extra.cc && extra.cc.length ? { cc: extra.cc } : {}), ...(extra.reply_to && extra.reply_to.length ? { reply_to: extra.reply_to } : {}) }) });
       clearTimeout(to);
       return { correo: r.ok };
     } catch (e) { console.warn('[bikes] correo', e.message); return { correo: false }; }
   }
+  // ── Correo a la marca consultando la disponibilidad de la bici reservada (modelo, configuración, talla y color; sin datos del cliente) ──
+  // Va a los correos de la marca (Datos por marca), con copia y respuesta a c.villasante@kuranko.pe (editables en Datos por marca).
+  const COPIA_CONSULTA = 'c.villasante@kuranko.pe';
+  const correosDe = t => String(t || '').split(/[\s,;]+/).map(x => x.trim().toLowerCase()).filter(x => /^[^@\s]+@[^@\s]+\.[a-z]{2,}$/.test(x)).slice(0, 6);
+  const OPC_EN = t => String(t || '').replace(/Plataforma:/g, 'Platform:').replace(/Transmisión:/g, 'Drivetrain:').replace(/Amortiguador:/g, 'Shock:').replace(/Bielas:/g, 'Cranks:')
+    .replace(/Sin amortiguador/g, 'No shock').replace(/Cambios con desviador \(pedalier BSA 73\)/g, 'Derailleur drivetrain (BSA 73 bottom bracket)').replace(/Caja Pinion/g, 'Pinion gearbox').replace(/Smart-Shift completo/g, 'Smart-Shift complete');
+  function correoConsulta(r, info = {}) {
+    const es = info.consulta_idioma === 'es', conf = r.montaje && r.montaje !== 'Base' ? (es ? r.montaje : OPC_EN(r.montaje)) : '';
+    const firma = `Kuranko · ${es ? 'Lima, Perú' : 'Lima, Peru'} · ${COPIA_CONSULTA}`;
+    const asunto = es ? `Consulta de disponibilidad · ${r.marca} ${r.modelo} · talla ${r.talla} · ${r.color} · ref. ${r.codigo}`
+      : `Availability request · ${r.marca} ${r.modelo} · size ${r.talla} · ${r.color} · ref. ${r.codigo}`;
+    const lineas = es ? [['Modelo', r.modelo], ...(conf ? [['Configuración', conf]] : []), ['Talla', r.talla], ['Color', r.color], ...(r.sku ? [['Vuestra referencia', r.sku]] : []), ['Cantidad', '1']]
+      : [['Model', r.modelo], ...(conf ? [['Configuration', conf]] : []), ['Size', r.talla], ['Color', r.color], ...(r.sku ? [['Your item no.', r.sku]] : []), ['Quantity', '1']];
+    const p1 = es ? `Hola equipo de ${r.marca}:` : `Hello ${r.marca} team,`;
+    const p2 = es ? 'Tenemos un nuevo pedido de un cliente en Perú y queremos confirmar la disponibilidad de:' : 'We have a new customer order in Peru and would like to confirm availability for:';
+    const p3 = es ? '¿Nos podéis confirmar si hay unidad disponible y la fecha estimada de salida? Si esta talla o color no está disponible, indicadnos por favor la alternativa más cercana (otro color o la próxima fecha de llegada).'
+      : "Could you please confirm availability and the estimated ship date? If this exact configuration isn't available, please let us know the closest alternative.";
+    const p4 = es ? `Nuestra referencia: ${r.codigo}. Basta con responder a este correo.` : `Our reference: ${r.codigo}. Just reply to this email.`;
+    const p5 = es ? 'Un saludo,' : 'Best regards,';
+    const texto = [p1, '', p2, '', ...lineas.map(([k, v]) => `• ${k}: ${v}`), '', p3, '', p4, '', p5, firma].join('\n');
+    const P = t => `<p style="margin:0 0 12px;font-size:14px;color:#222">${escH(t)}</p>`;
+    const html = `<div style="font-family:Arial,Helvetica,sans-serif;max-width:600px;line-height:1.5">${P(p1)}${P(p2)}<ul style="margin:0 0 12px;padding-left:20px;font-size:14px;color:#222">${lineas.map(([k, v]) => `<li>${escH(k)}: <b>${escH(v)}</b></li>`).join('')}</ul>${P(p3)}${P(p4)}<p style="margin:0;font-size:14px;color:#222">${escH(p5)}<br>${escH(firma)}</p></div>`;
+    return { asunto, html, texto };
+  }
+  async function consultarMarca(r, auto = false, soloVer = false) {
+    const info = (await leerMarcas())[r.marca] || {}, pg = await leerPagina();
+    const para = correosDe(info.consulta_correos);
+    if (auto && (info.consulta_auto === false || !para.length)) return { enviado: false };
+    if (!para.length) throw new Error(`Falta el correo de pedidos de ${r.marca} (Bicis → Catálogo → Datos por marca)`);
+    const cc = correosDe(pg.consulta_cc ?? COPIA_CONSULTA), reply_to = correosDe(pg.consulta_responder ?? COPIA_CONSULTA);
+    const c = correoConsulta(r, info);
+    if (soloVer) return { para, cc, reply_to, ...c };
+    const x = await enviarCorreo(para, c.asunto, c.html, c.texto, { cc, reply_to });
+    if (!x.correo) throw new Error(process.env.RESEND_API_KEY ? 'No se pudo enviar el correo' : 'Falta configurar RESEND_API_KEY para enviar correos');
+    await portalPool.query('UPDATE bk_reservas SET consulta_marca=NOW() WHERE codigo=?', [r.codigo]);
+    return { enviado: true, para, cc };
+  }
+  app.post('/api/bikes/admin/consultar-marca', authAdmin, mBikes, async (req, res) => {
+    try {
+      const [[r]] = await portalPool.query('SELECT codigo, marca, modelo, montaje, talla, color, sku FROM bk_reservas WHERE id=?', [num((req.body || {}).id)]);
+      if (!r) return res.status(404).json({ error: 'Reserva no encontrada' });
+      res.json(await consultarMarca(r, false, !!(req.body || {}).ver));
+    } catch (e) { res.status(400).json({ error: e.message }); }
+  });
   const fechaCorta = iso => iso ? new Date(iso + 'T12:00:00Z').toLocaleDateString('es-PE', { day: 'numeric', month: 'short', timeZone: 'UTC' }).replace('.', '') : '';
 
   // Anti-spam: campo trampa + tiempo mínimo en la página + Cloudflare Turnstile (si TURNSTILE_SITE_KEY / TURNSTILE_SECRET están configurados)
@@ -1458,6 +1525,8 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
          <p style="color:#444;font-size:14px">${stk ? 'Pagas el 100% al recibirla (link de pago, Yape, transferencia o en tienda; también en cuotas).' : `Cuando esté confirmada, separas tu bici con el adelanto de ${escH($(adelanto))} (link de pago, Yape, transferencia o en tienda; también en cuotas). El saldo lo pagas al recibirla.`} El precio se mantiene ${escH(R.validez_horas)} horas.</p>
          <p style="color:#444;font-size:14px"><a href="https://bikes.kuranko.pe/bikes/proforma/${escH(codigo)}?doc=${escH(doc)}">Descarga tu proforma</a>. Consulta el estado en bikes.kuranko.pe con tu código y DNI. WhatsApp: +${escH(wa)}</p>`), msg);
 
+      // Consulta de disponibilidad a la marca (correo automático), salvo que la bici esté en stock o la marca lo tenga apagado
+      if (!stk) consultarMarca({ codigo, marca: s.marca, modelo: s.modelo, montaje: montajeRes, talla: s.talla, color: s.color, sku: s.sku }, true).catch(e => console.warn('[bikes] consulta marca', e.message));
       res.json({ ok: true, codigo, doc, total, adelanto, saldo: total - adelanto, tc: tc.usd, fechas, envio: env, mensaje: msg, whatsapp: wa });
     } catch (e) {
       if (conn) { try { await conn.rollback(); } catch (_) {} }
@@ -1535,13 +1604,31 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
         const ld = { '@context': 'https://schema.org', '@type': 'Product', name: `${m.marca} ${m.modelo}`, brand: { '@type': 'Brand', name: m.marca },
           description: desc, url, ...(m.img ? { image: [m.img] } : {}), ...(m.cat ? { category: m.cat } : {}),
           ...(min ? { offers: { '@type': 'Offer', url, priceCurrency: usdM ? 'USD' : 'PEN', price: usdM ? Math.round(min / D.tc_usd) : Math.round(min),
-            availability: enTienda ? 'https://schema.org/InStock' : 'https://schema.org/PreOrder', itemCondition: 'https://schema.org/NewCondition',
+            availability: enTienda ? 'https://schema.org/InStock' : 'https://schema.org/PreOrder', itemCondition: m.tag === 'usado' ? 'https://schema.org/UsedCondition' : 'https://schema.org/NewCondition',
             seller: { '@type': 'Organization', name: 'Kuranko' } } } : {}) };
         const meta = `<meta name="description" content="${escH(desc)}"><link rel="canonical" href="${escH(url)}">` +
           `<meta property="og:type" content="product"><meta property="og:title" content="${escH(titulo)}"><meta property="og:description" content="${escH(desc)}">` +
           `${m.img ? `<meta property="og:image" content="${escH(m.img)}">` : ''}<meta property="og:url" content="${escH(url)}"><meta name="twitter:card" content="summary_large_image">` +
           `<script type="application/ld+json">${JSON.stringify(ld).replace(/</g, '\\u003c')}</script>`;
         h = h.replace(SIN_META_PORTADA, '').replace(/<title>[^<]*<\/title>/, `<title>${escH(titulo)}</title>${meta}`);
+      } else res.status(404);
+      res.set('Cache-Control', 'no-cache').type('html').send(h);
+    } catch (e) { res.status(500).send('No se pudo cargar'); }
+  });
+
+  // ── Página por categoría: bikes.kuranko.pe/categoria/enduro abre la tienda filtrada (para el menú de kuranko.pe, anuncios y Google) ──
+  app.get('/categoria/:slug', async (req, res) => {
+    try {
+      if (!htmlTienda) htmlTienda = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'bikes.html'), 'utf8');
+      const D = await catalogoPublicoEs(), slug = String(req.params.slug || '').toLowerCase().slice(0, 60);
+      const cat = [...new Set(D.modelos.flatMap(m => m.cats || [m.cat]).filter(Boolean))].find(c => slugCat(c) === slug);
+      let h = htmlTienda;
+      if (cat) {
+        const n = D.modelos.filter(m => m.tag !== 'proximamente' && (m.cats || [m.cat]).includes(cat)).length;
+        const titulo = `Bicicletas ${cat} a pedido · Kuranko`, url = `https://${req.hostname}/categoria/${slug}`;
+        const desc = `${n} modelos de ${cat} de las mejores marcas, con precio final en Perú: envío, aduana, IGV y armado incluidos.`;
+        h = h.replace(SIN_META_PORTADA, '').replace(/<title>[^<]*<\/title>/, `<title>${escH(titulo)}</title><meta name="description" content="${escH(desc)}"><link rel="canonical" href="${escH(url)}">` +
+          `<meta property="og:title" content="${escH(titulo)}"><meta property="og:description" content="${escH(desc)}"><meta property="og:url" content="${escH(url)}">`);
       } else res.status(404);
       res.set('Cache-Control', 'no-cache').type('html').send(h);
     } catch (e) { res.status(500).send('No se pudo cargar'); }
@@ -1558,6 +1645,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
     try {
       const D = await catalogoPublico(), base = `https://${req.hostname}`;
       const urls = [`<url><loc>${base}/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>`,
+        ...[...new Set(D.modelos.flatMap(m => m.cats || [m.cat]).filter(Boolean))].map(c => `<url><loc>${base}/categoria/${slugCat(c)}</loc><changefreq>daily</changefreq><priority>0.8</priority></url>`),
         ...D.modelos.filter(m => m.tag !== 'proximamente').map(m => `<url><loc>${base}/bici/${escH(encodeURIComponent(m.id))}</loc><changefreq>weekly</changefreq></url>`)];
       res.type('application/xml').set('Cache-Control', 'public, max-age=3600')
         .send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>\n`);
@@ -1829,7 +1917,7 @@ ${num(r.adelanto) ? fila(`Adelanto (${num(R.adelanto)}%) para separar la unidad,
       });
       const [reservas] = await portalPool.query(`SELECT id, codigo, UNIX_TIMESTAMP(creado) creado, sku_id, marca, modelo, montaje, talla, color, envio, extras,
           total, adelanto, tc_usd, DATE_FORMAT(fecha_min,'%Y-%m-%d') fecha_min, DATE_FORMAT(fecha_max,'%Y-%m-%d') fecha_max, nombre, doc, tel, email, ciudad, ref,
-          estado, nota_interna, venta_erp, UNIX_TIMESTAMP(valido_hasta) valido_hasta, UNIX_TIMESTAMP(actualizado) actualizado, actualizado_por
+          estado, nota_interna, venta_erp, UNIX_TIMESTAMP(consulta_marca) consulta_marca, UNIX_TIMESTAMP(valido_hasta) valido_hasta, UNIX_TIMESTAMP(actualizado) actualizado, actualizado_por
         FROM bk_reservas ORDER BY id DESC LIMIT 500`);
       const [imports] = await portalPool.query(`SELECT id, UNIX_TIMESTAMP(creado) creado, usuario, archivo, marcas, modo, nuevas, actualizadas, desactivadas FROM bk_imports ORDER BY id DESC LIMIT 20`);
       res.json({ reglas: R, tc, maestro: !!(req.admin && req.admin.maestro), skus: conPrecio, reservas: reservas.map(r => ({ ...r, total: num(r.total), adelanto: num(r.adelanto),
@@ -2050,6 +2138,9 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
       if (b.descuento_hasta !== undefined) m[marca].descuento_hasta = fecha(b.descuento_hasta);
       if (b.mar_stock !== undefined) m[marca].mar_stock = Math.min(200, Math.max(0, Math.round(num(b.mar_stock)))) || 0; // bicis propias (pedido de stock) en el próximo envío marítimo
       if (b.mar_fecha !== undefined) m[marca].mar_fecha = fecha(b.mar_fecha);
+      if (b.consulta_correos !== undefined) m[marca].consulta_correos = correosDe(b.consulta_correos).join(', ') || null; // a quién se pide disponibilidad
+      if (b.consulta_idioma !== undefined) m[marca].consulta_idioma = b.consulta_idioma === 'es' ? 'es' : 'en';
+      if (b.consulta_auto !== undefined) m[marca].consulta_auto = !!b.consulta_auto;
       if (b.url_modelos !== undefined) m[marca].url_modelos = /^https?:\/\//i.test(b.url_modelos || '') ? String(b.url_modelos).trim().slice(0, 1200) : null;
       await portalPool.query(`INSERT INTO bk_config (clave, valor, actualizado_por) VALUES ('marcas', ?, ?) ON DUPLICATE KEY UPDATE valor=VALUES(valor), actualizado=NOW(), actualizado_por=VALUES(actualizado_por)`, [JSON.stringify(m), usuarioDe(req)]);
       limpiarCache(); res.json({ ok: true });
@@ -2115,6 +2206,10 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
       for (const [k, [v, n]] of Object.entries(campos)) if (v !== undefined) { sets.push(k + '=?'); vals.push(String(v).trim().slice(0, n) || null); }
       if (b.anio !== undefined) { sets.push('anio=?'); vals.push(num(b.anio) > 2000 ? num(b.anio) : null); }
       if (sets.length) await conn.query(`UPDATE bk_skus SET ${sets.join(', ')}, actualizado=NOW() WHERE marca=? AND modelo=?`, [...vals, marca, modelo]);
+      if (b.motor_nm !== undefined || b.motor_kmh !== undefined || b.bateria_wh !== undefined) { // torque, velocidad y batería del motor («-» = no mostrar)
+        const [[row]] = await conn.query('SELECT datos FROM bk_modelos WHERE marca=? AND modelo=?', [marca, modelo]); let dat = {}; try { dat = JSON.parse((row && row.datos) || '{}') || {}; } catch (e) {}
+        for (const k of ['motor_nm', 'motor_kmh', 'bateria_wh']) if (b[k] !== undefined) { const v = String(b[k]).trim(); if (v === '-') dat[k] = '-'; else if (num(v) > 0) dat[k] = num(v); else delete dat[k]; }
+        await conn.query('INSERT INTO bk_modelos (marca, modelo, datos) VALUES (?,?,?) ON DUPLICATE KEY UPDATE datos=VALUES(datos)', [marca, modelo, JSON.stringify(dat)]); }
       if (b.opciones !== undefined) { // «Grupo: valor1, valor2*» por línea (* = recomendado)
         // «Grupo {palabra}: valor [S,M], valor2*» → {palabra} = solo si el montaje la contiene · [tallas] = recomendado para esas tallas · * = recomendado por defecto
         const ops = String(b.opciones || '').split('\n').map(l => l.trim()).filter(l => l.includes(':')).slice(0, 4).map(l => { const i = l.indexOf(':');
@@ -2408,6 +2503,14 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
     try {
       const pg = await leerPagina();
       for (const k of ['asesor_nombre', 'asesor_cargo', 'asesor_whatsapp', 'soporte_url', 'soporte_texto', 'empresa', 'ruc', 'direccion', 'cuentas']) if (b[k] !== undefined) pg[k] = String(b[k]).trim().slice(0, k === 'soporte_texto' || k === 'cuentas' ? 400 : 120);
+      for (const k of ['consulta_cc', 'consulta_responder']) if (b[k] !== undefined) pg[k] = correosDe(b[k]).join(', ');
+      if (b.aviso && typeof b.aviso === 'object') { // ventana de novedades: se ve una vez por visitante (vuelve a salir si cambias el texto)
+        const a = b.aviso, t = (v, n) => String(v || '').trim().slice(0, n), ant = pg.aviso || {};
+        const nuevo = { activo: !!a.activo, titulo: t(a.titulo, 90), texto: t(a.texto, 500), titulo_en: t(a.titulo_en, 90), texto_en: t(a.texto_en, 500), boton: t(a.boton, 40), boton_en: t(a.boton_en, 40),
+          link: /^(https?:\/\/|\/|#)/.test(t(a.link, 300)) ? t(a.link, 300) : '', img: /^https?:\/\//.test(t(a.img, 400)) ? t(a.img, 400) : '', hasta: /^\d{4}-\d{2}-\d{2}$/.test(a.hasta || '') ? a.hasta : '' };
+        const cambio = ['titulo', 'texto', 'img', 'link'].some(k => nuevo[k] !== (ant[k] || ''));
+        pg.aviso = { ...nuevo, v: cambio || !ant.v ? Date.now() : ant.v };
+      }
       if (b.foto && CLAVES_FOTO.includes(b.foto.clave)) {
         const d = String(b.foto.dato || '');
         if (d && !/^data:image\/(png|jpe?g|webp);base64,/i.test(d)) return res.status(400).json({ error: 'La foto debe ser JPG, PNG o WEBP' });

@@ -1,6 +1,7 @@
 // Traducción al inglés de la tienda (bikes.kuranko.pe/en), para mostrar la propuesta a las marcas.
 // Pares [texto exacto en bikes.html, inglés]; se aplican de la frase más larga a la más corta.
 module.exports = [
+  ["(a.link?'Ver más':'')", "(a.link?'See more':'')"], ['aria-label="Cerrar">×</button>${a.img', 'aria-label="Close">×</button>${a.img'],
   ["const ciuSku=s=>ciusSku(s).join(' y ');", "const ciuSku=s=>ciusSku(s).join(' & ');"],
   ['No pagas nada ahora. Te escribimos por WhatsApp para coordinar la entrega y la pagas al recibirla.', 'You pay nothing now. We message you on WhatsApp to arrange delivery and you pay when you receive it.'],
   ['· pagas el 100%', '· you pay 100%'], ['pagas el 100% al recibirla', 'you pay 100% on delivery'],

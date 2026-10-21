@@ -288,7 +288,7 @@ async function pintarMetricas(){
     const top=Math.max(1,g('visita'));
     const pct=(a,b)=>b?Math.round(a/b*100)+'%':'—';
     const dmax=Math.max(1,...M.diario.map(d=>d.visitas));
-    out.innerHTML=`
+    out.innerHTML=`<p class="desc" style="margin:0 0 10px">Para que tus visitas y las del equipo no cuenten: abre <a href="https://bikes.kuranko.pe/?interno=1" target="_blank" rel="noopener" style="color:var(--accent)">bikes.kuranko.pe/?interno=1</a> una vez en cada navegador y celular que uses. La tienda muestra «Modo interno» abajo a la izquierda.</p>
     <div class="kpis">${[['Visitas',g('visita'),''],['Clics en bicis',(M.embudo.find(e=>e.tipo==='modelo')||{}).eventos||0,g('modelo')+' personas'],['Al carrito',g('carrito'),pct(g('carrito'),g('modelo'))+' de quienes abrieron una bici'],['Reservas',g('reserva'),pct(g('reserva'),g('carrito'))+' del carrito'],['Clic a WhatsApp',g('whatsapp'),''],['Desde celular',M.movil.total?pct(M.movil.movil,M.movil.total):'—','de las visitas']]
       .map(([l,v,s])=>`<div class="kpi"><span>${l}</span><b>${typeof v==='number'||/^\d+$/.test(v)?fmt(+v):v}</b><small>${s}</small></div>`).join('')}</div>
     <div class="card"><h3>Embudo</h3><p class="desc" style="margin-bottom:10px">«Agregaron al carrito» = tocaron «Lo quiero» en una bici. «Reservaron» = enviaron el formulario. Además, ${fmt(g('config'))} personas cambiaron talla, montaje, color o envío.</p>
@@ -791,7 +791,7 @@ function pintarPagina(){const pg=E.pagina||{},f=pg.fotos||{};
     <label>Dirección (proforma)<input id="pgDir" value="${esc(pg.direccion||'')}" placeholder="Jr José Gálvez 476 Of 204, Magdalena del Mar"></label>
     <label>Cuentas para transferencia (proforma)<input id="pgCta" value="${esc(pg.cuentas||'')}" placeholder="BCP soles 191-… · BCP dólares 191-…"></label>
   </div><button class="btn" id="pgGuardar">Guardar datos</button>
-  ${(()=>{const a=pg.aviso||{};return `<h3 style="margin-top:22px">Ventana de novedades</h3><p class="desc">Aparece al entrar a la tienda, una vez por visitante. Si cambias el título, el texto, la foto o el link, vuelve a salir para todos. Déjala apagada cuando no haya noticias.</p>
+  ${(()=>{const a=pg.aviso||{};return `<h3 style="margin-top:22px">Ventana de novedades</h3><p class="desc">Aparece al entrar a la tienda (no al abrir directo una bici). Si cambias el título, el texto, la foto o el link, vuelve a salir para todos. Déjala apagada cuando no haya noticias.</p>
   <div class="rules" style="margin-top:8px">
     <label style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" id="avAct" ${a.activo?'checked':''} style="width:auto"> Mostrar la ventana</label>
     <label>Título<input id="avTit" maxlength="90" value="${esc(a.titulo||'')}" placeholder="Llegó la nueva Kavenz VHP X"></label>
@@ -800,6 +800,7 @@ function pintarPagina(){const pg=E.pagina||{},f=pg.fotos||{};
     <label>Texto del botón<input id="avBtn" maxlength="40" value="${esc(a.boton||'')}" placeholder="Ver la bici"></label>
     <label>Link del botón<input id="avLink" value="${esc(a.link||'')}" placeholder="/bici/kavenz-vhp-x-frame o /categoria/enduro"></label>
     <label>Mostrar hasta (opcional)<input id="avHasta" type="date" value="${esc(a.hasta||'')}"></label>
+    <label>¿Cada cuánto le sale a la misma persona?<select id="avFrec">${[['dia','Una vez al día'],['visita','Cada vez que entra a la tienda'],['una','Una sola vez']].map(([k,l])=>`<option value="${k}" ${(a.frec||'dia')===k?'selected':''}>${l}</option>`).join('')}</select></label>
     <label>Título en inglés (/en)<input id="avTitEn" maxlength="90" value="${esc(a.titulo_en||'')}"></label>
     <label>Texto en inglés<textarea id="avTxtEn" maxlength="500" rows="2" style="font:inherit">${esc(a.texto_en||'')}</textarea></label>
     <label>Botón en inglés<input id="avBtnEn" maxlength="40" value="${esc(a.boton_en||'')}"></label>
@@ -812,7 +813,7 @@ document.addEventListener('change',async e=>{const el=e.target;if(!el.dataset.pg
   try{const dato=await achicar(el.files[0]);await api('/api/bikes/admin/pagina',{method:'POST',body:JSON.stringify({foto:{clave:el.dataset.pgfoto,dato}})});toast('Foto subida');await cargar()}catch(err){toast(err.message)}});
 document.addEventListener('click',async e=>{const t=e.target;
   if(t.dataset.pgquitar){try{await api('/api/bikes/admin/pagina',{method:'POST',body:JSON.stringify({foto:{clave:t.dataset.pgquitar,dato:''}})});await cargar()}catch(err){toast(err.message)}}
-  if(t.id==='avGuardar'){const v=id=>$('#'+id).value.trim();try{await api('/api/bikes/admin/pagina',{method:'POST',body:JSON.stringify({aviso:{activo:$('#avAct').checked,titulo:v('avTit'),texto:v('avTxt'),img:v('avImg'),boton:v('avBtn'),link:v('avLink'),hasta:v('avHasta'),titulo_en:v('avTitEn'),texto_en:v('avTxtEn'),boton_en:v('avBtnEn')}})});toast($('#avAct').checked?'Ventana guardada. Sale una vez a cada visitante.':'Ventana guardada (apagada).');await cargar()}catch(err){toast(err.message)}}
+  if(t.id==='avGuardar'){const v=id=>$('#'+id).value.trim();try{await api('/api/bikes/admin/pagina',{method:'POST',body:JSON.stringify({aviso:{activo:$('#avAct').checked,titulo:v('avTit'),texto:v('avTxt'),img:v('avImg'),boton:v('avBtn'),link:v('avLink'),hasta:v('avHasta'),frec:$('#avFrec').value,titulo_en:v('avTitEn'),texto_en:v('avTxtEn'),boton_en:v('avBtnEn')}})});toast($('#avAct').checked?'Ventana guardada. Sale una vez a cada visitante.':'Ventana guardada (apagada).');await cargar()}catch(err){toast(err.message)}}
   if(t.id==='pgGuardar'){try{await api('/api/bikes/admin/pagina',{method:'POST',body:JSON.stringify({asesor_nombre:$('#pgNom').value,asesor_cargo:$('#pgCargo').value,asesor_whatsapp:$('#pgWa').value,soporte_url:$('#pgSop').value,empresa:$('#pgEmp').value,ruc:$('#pgRuc').value,direccion:$('#pgDir').value,cuentas:$('#pgCta').value})});toast('Guardado');await cargar()}catch(err){toast(err.message)}}
 });
 

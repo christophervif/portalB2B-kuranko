@@ -191,6 +191,9 @@ s.antes{color:var(--muted,#888);font-weight:400;font-size:.8em;margin-right:6px}
 .chip .ct{font-family:var(--mono);font-size:12px;color:var(--muted)}
 .chip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 .chip[aria-pressed="true"] .ct{color:inherit;opacity:.7}
+.chip[aria-pressed="true"] img{filter:brightness(0) invert(1)} /* logo en blanco sobre la marca elegida */
+.interno{position:fixed;left:12px;bottom:12px;z-index:80;font-size:12px;background:var(--ink);color:var(--bg);padding:5px 10px;border-radius:999px;opacity:.85}
+.interno a{color:inherit}
 .layout{display:grid;grid-template-columns:220px 1fr;gap:24px;align-items:start;padding-bottom:40px}
 .filters{display:grid;gap:16px;position:sticky;top:104px}
 .filters label,.flab{display:grid;gap:5px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
@@ -526,6 +529,7 @@ const GA_EV={modelo:'view_item',carrito:'add_to_cart',reserva:'purchase',whatsap
 const PX_EV={modelo:'ViewContent',carrito:'AddToCart',reserva:'Purchase',whatsapp:'Contact'};
 // Navegadores del equipo (abiertos una vez con ?interno=1) no suman en las métricas
 const INTERNO=(()=>{try{if(/[?&]interno=1\b/.test(location.search))localStorage.setItem('bk_interno','1');if(/[?&]interno=0\b/.test(location.search))localStorage.removeItem('bk_interno');return localStorage.getItem('bk_interno')==='1'}catch(e){return false}})();
+if(INTERNO)document.addEventListener('DOMContentLoaded',()=>{const d=document.createElement('div');d.className='interno';d.innerHTML='Modo interno · tus visitas no cuentan en Métricas · <a href="?interno=0">salir</a>';document.body.appendChild(d)});
 function ev(tipo,x={}){if(INTERNO)return;
   COLA.push({tipo,sesion:SES,ref:REF,movil:matchMedia('(max-width:700px)').matches,...x});
   clearTimeout(colaT);colaT=setTimeout(enviarCola,1500);
@@ -983,11 +987,13 @@ document.addEventListener('submit',e=>{e.preventDefault();if(e.target.id==='agFo
 
 // Ventana de novedades: una vez por visitante; si cambias el texto en el panel, vuelve a salir
 function mostrarAviso(){const a=(D&&D.pagina||{}).aviso;if(!a||document.querySelector('.aviso'))return;
-  let visto='';try{visto=localStorage.getItem('bk_aviso')||''}catch(e){}if(visto===String(a.v))return;
+  // Frecuencia: una vez por persona, una vez al día o en cada visita (se elige en el panel)
+  const hoy=new Date().toLocaleDateString('en-CA'),clave=a.frec==='una'?String(a.v):a.frec==='visita'?'s':String(a.v)+'|'+hoy;
+  let visto='';try{visto=(a.frec==='visita'?sessionStorage:localStorage).getItem('bk_aviso')||''}catch(e){}if(visto===clave)return;
   const t=EN&&a.titulo_en||a.titulo,x=EN&&a.texto_en||a.texto,bt=EN&&a.boton_en||a.boton||(a.link?'Ver más':'');
   const el=document.createElement('div');el.className='aviso';el.setAttribute('role','dialog');el.setAttribute('aria-modal','true');el.setAttribute('aria-label',t);
   el.innerHTML=`<div class="box${a.img?'':' solo'}"><button class="x" type="button" aria-label="Cerrar">×</button>${a.img?`<img src="${esc(IMG(a.img,1200))}" alt="">`:''}<div class="tx"><b>${esc(t)}</b>${x?`<p>${esc(x)}</p>`:''}${a.link&&bt?`<a class="btn" href="${esc(a.link)}" data-avisolink>${esc(bt)}</a>`:''}</div></div>`;
-  const cerrar=()=>{try{localStorage.setItem('bk_aviso',String(a.v))}catch(e){}el.classList.remove('on');setTimeout(()=>el.remove(),320);document.removeEventListener('keydown',esc_)},esc_=e=>{if(e.key==='Escape')cerrar()};
+  const cerrar=()=>{try{(a.frec==='visita'?sessionStorage:localStorage).setItem('bk_aviso',clave)}catch(e){}el.classList.remove('on');setTimeout(()=>el.remove(),320);document.removeEventListener('keydown',esc_)},esc_=e=>{if(e.key==='Escape')cerrar()};
   el.addEventListener('click',e=>{if(e.target===el||e.target.closest('.x'))cerrar();else if(e.target.closest('[data-avisolink]')){ev('aviso',{v:a.v});cerrar()}});
   document.addEventListener('keydown',esc_);document.body.appendChild(el);requestAnimationFrame(()=>requestAnimationFrame(()=>el.classList.add('on')));el.querySelector('.x').focus({preventScroll:true});
 }

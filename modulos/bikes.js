@@ -1247,7 +1247,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
             return { asesor_nombre: pg.asesor_nombre || 'Jean Pierre', asesor_cargo: pg.asesor_cargo || 'Asesor de bicicletas', asesor_whatsapp: (pg.asesor_whatsapp || '').replace(/\D/g, '') || null,
               soporte_url: pg.soporte_url || null, soporte_texto: pg.soporte_texto || null,
               ...(pg.aviso && pg.aviso.activo && pg.aviso.titulo && (!pg.aviso.hasta || pg.aviso.hasta >= hoyLima())
-                ? { aviso: { titulo: pg.aviso.titulo, texto: pg.aviso.texto, boton: pg.aviso.boton, link: pg.aviso.link, img: pg.aviso.img || '', v: pg.aviso.v,
+                ? { aviso: { titulo: pg.aviso.titulo, texto: pg.aviso.texto, boton: pg.aviso.boton, link: pg.aviso.link, img: pg.aviso.img || '', v: pg.aviso.v, frec: pg.aviso.frec || 'dia',
                     ...(pg.aviso.titulo_en ? { titulo_en: pg.aviso.titulo_en } : {}), ...(pg.aviso.texto_en ? { texto_en: pg.aviso.texto_en } : {}), ...(pg.aviso.boton_en ? { boton_en: pg.aviso.boton_en } : {}) } } : {}),
               fotos: Object.fromEntries(CLAVES_FOTO.map(k => [k, f[k] ? `/api/bikes/foto/${k}?v=${f[k]}${sharp ? '&w=' + ANCHO_FOTO_PAGINA[k] : ''}` : null])) }; })(),
           img_proxy: !!sharp, // la página pide las fotos de producto por /api/bikes/img en el tamaño que necesita
@@ -2526,7 +2526,7 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
       if (b.aviso && typeof b.aviso === 'object') { // ventana de novedades: se ve una vez por visitante (vuelve a salir si cambias el texto)
         const a = b.aviso, t = (v, n) => String(v || '').trim().slice(0, n), ant = pg.aviso || {};
         const nuevo = { activo: !!a.activo, titulo: t(a.titulo, 90), texto: t(a.texto, 500), titulo_en: t(a.titulo_en, 90), texto_en: t(a.texto_en, 500), boton: t(a.boton, 40), boton_en: t(a.boton_en, 40),
-          link: /^(https?:\/\/|\/|#)/.test(t(a.link, 300)) ? t(a.link, 300) : '', img: /^https?:\/\//.test(t(a.img, 400)) ? t(a.img, 400) : '', hasta: /^\d{4}-\d{2}-\d{2}$/.test(a.hasta || '') ? a.hasta : '' };
+          frec: ['una', 'dia', 'visita'].includes(a.frec) ? a.frec : 'dia', link: /^(https?:\/\/|\/|#)/.test(t(a.link, 300)) ? t(a.link, 300) : '', img: /^https?:\/\//.test(t(a.img, 400)) ? t(a.img, 400) : '', hasta: /^\d{4}-\d{2}-\d{2}$/.test(a.hasta || '') ? a.hasta : '' };
         const cambio = ['titulo', 'texto', 'img', 'link'].some(k => nuevo[k] !== (ant[k] || ''));
         pg.aviso = { ...nuevo, v: cambio || !ant.v ? Date.now() : ant.v };
       }

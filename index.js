@@ -209,6 +209,7 @@ let modPortal = null;
 let modImportacion = null;
 let modRecepciones = null;
 let modSeguimiento = null;
+let modKits = null;
 let modAsistencia = null;
 let modGestion = null;
 let modPropuestas = null;
@@ -322,6 +323,10 @@ let modBikes = null;
   //    backorders; el supervisor con el módulo 'seguimiento' solo visualiza.
   modSeguimiento = require('./modulos/seguimiento')({ app, authAdmin, requiereModulo, prodPool, portalPool, recepciones: modRecepciones });
 
+  // ── Kits canibalizados (recetas, costo/precio recomendado por pieza y cuadre físico) ──
+  //    Pestaña 🧩 Kits dentro de Seguimiento (mismo permiso). Solo lectura sobre el ERP.
+  modKits = require('./modulos/kits')({ app, authAdmin, requiereModulo, prodPool, portalPool });
+
   // ── Módulo Cotizador rápido (vendedores: buscador + precio mínimo FIFO) ──
   const modCotizador = require('./modulos/cotizador')({ app, authAdmin, requiereModulo, prodPool });
 
@@ -406,6 +411,7 @@ app.listen(PORT, async () => {
     if (modImportacion && modImportacion.prepararTablas) await modImportacion.prepararTablas();
     if (modRecepciones && modRecepciones.prepararTablas) await modRecepciones.prepararTablas();
     if (modSeguimiento && modSeguimiento.prepararTablas) await modSeguimiento.prepararTablas();
+    if (modKits && modKits.prepararTablas) await modKits.prepararTablas();
     if (modAsistencia && modAsistencia.prepararTablas) await modAsistencia.prepararTablas();
     if (modBikes && modBikes.prepararTablas) await modBikes.prepararTablas();
     console.log('Tablas del portal listas.');

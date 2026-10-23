@@ -894,6 +894,7 @@ let KIT_POR_COMP={};          // SKU de pieza (mayúsculas) → {receta_id,kit_s
 let KIT_DRAFT={};             // borradores de edición por receta (solo maestro)
 let KIT_ABIERTOS=new Set();   // tarjetas desplegadas
 let KIT_PICK=null, KIT_PICK_CB=null, KIT_PREV_T={};
+let KIT_ALM=null;             // productos del almacén de kits (Cuarentena): {encontrado,ubicaciones,items:[{sku,nombre,stock,configurado}]}
 async function kapi(path,method='GET',body){
   const r=await fetch('/api/kits'+path,{method,headers:H(!!body),body:body?JSON.stringify(body):undefined});
   const t=await r.text();let d=null;try{d=t?JSON.parse(t):null;}catch(e){}
@@ -906,10 +907,19 @@ const domKit=id=>'kit_'+String(id).replace(/[^A-Za-z0-9]/g,'_');
 const hoyLocal=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
 const kU=s=>String(s==null?'':s).trim().toUpperCase();
 async function cargarKitMap(){try{KIT_POR_COMP=await kapi('/por-componente')||{};}catch(e){KIT_POR_COMP={};}}
+// Productos del almacén de kits (Cuarentena): de ahí salen las opciones de "kit de origen".
+async function cargarKitAlmacen(){
+  try{const d=await kapi('/almacen');
+    (d.items||[]).forEach(i=>{i.name=i.nombre;i.tokens=normalize(i.nombre).split(' ');i.cleanSku=clean(i.sku);});
+    KIT_ALM=d;}
+  catch(e){KIT_ALM={encontrado:false,ubicaciones:[],items:[],error:e.message};}
+  return KIT_ALM;
+}
+const nomAlm=()=>(KIT_ALM&&KIT_ALM.ubicaciones&&KIT_ALM.ubicaciones.length)?KIT_ALM.ubicaciones.join(', '):'Cuarentena';
 function cargarKits(){
   $('kitMsg').textContent='Leyendo kits, costos y ventas…';
   KITS_PROM=(async()=>{
-    try{KITS=await kapi('/recetas')||[];KITS_CARGADOS=true;$('kitMsg').textContent='';}
+    try{const [k]=await Promise.all([kapi('/recetas'),ES_MAESTRO?cargarKitAlmacen():Promise.resolve()]);KITS=k||[];KITS_CARGADOS=true;$('kitMsg').textContent='';}
     catch(e){KITS=[];$('kitMsg').textContent='';toast(e.message);}
     // los borradores sin cambios se descartan; los que tienen cambios se conservan
     Object.keys(KIT_DRAFT).forEach(id=>{if(!KIT_DRAFT[id].sucio||!KITS.find(r=>r.id===id))delete KIT_DRAFT[id];});
@@ -922,8 +932,21 @@ function pintarKits(){
   if(!ES_MAESTRO){const a=$('btnNuevaReceta');if(a)a.style.display='none';const b=$('btnKitExport');if(b)b.style.display='none';}
   const verInact=$('kitVerInact')&&$('kitVerInact').checked;
   const list=KITS.filter(r=>verInact||r.activo);
-  if(!list.length){host.innerHTML=`<div class="card muted sm">Aún no hay kits configurados${verInact?'':' activos'}.${ES_MAESTRO?' Configura uno con «+ Nuevo kit» o elige el kit de una pieza desde el grupo de canibalizados (pestaña Backorders).':''}</div>`;return;}
-  host.innerHTML=list.map(tarjetaKit).join('');
+  let pendHtml='';
+  if(ES_MAESTRO&&KIT_ALM){
+    if(!KIT_ALM.encontrado){
+      pendHtml=`<div class="card"><span class="badge b-rev">No encontré el almacén «Cuarentena» en el sistema</span> <span class="muted sm">Las opciones de kit salen de todo el catálogo. Si el almacén tiene otro nombre, ponlo en la variable KITS_UBICACION de Railway.</span></div>`;
+    }else{
+      const pend=(KIT_ALM.items||[]).filter(i=>!i.configurado&&i.stock>0);
+      if(pend.length)pendHtml=`<details class="card" ${pend.length<=6?'open':''}><summary style="cursor:pointer"><b>📦 Kits en ${esc(nomAlm())} sin configurar</b> <span class="badge b-rev">${pend.length}</span> <span class="muted sm">— están en el almacén pero aún no tienen su contenido</span></summary>
+        <div style="margin-top:6px">${pend.map(i=>`<div style="display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid var(--border)">
+          <span class="chip" style="flex:none">📦 ${fmtCant(i.stock)}</span><b style="font-family:monospace;flex:none">${esc(i.sku)}</b>
+          <span class="sm" style="flex:1;min-width:0">${esc(i.nombre)}</span>
+          <button class="sm" style="flex:none" onclick="configurarKit('${jsq(i.sku)}','${jsq(i.nombre)}')">Configurar</button></div>`).join('')}</div></details>`;
+    }
+  }
+  if(!list.length){host.innerHTML=pendHtml+`<div class="card muted sm">Aún no hay kits configurados${verInact?'':' activos'}.${ES_MAESTRO?' Configura uno con «+ Nuevo kit» o elige el kit de una pieza desde el grupo de canibalizados (pestaña Backorders).':''}</div>`;return;}
+  host.innerHTML=pendHtml+list.map(tarjetaKit).join('');
 }
 function toggleKit(id,el){const g=el.closest('.grp');if(!g)return;const c=g.classList.toggle('collapsed');if(c)KIT_ABIERTOS.delete(id);else KIT_ABIERTOS.add(id);}
 async function irAKit(id){
@@ -948,6 +971,7 @@ function tarjetaKit(r){
     <span class="grp-caret">▾</span><b>🧩 ${esc(v.kit_nombre||r.kit_sku)}</b>
     <span class="muted sm" style="font-family:monospace">${esc(r.kit_sku)}</span>
     <span class="muted sm">${(v.componentes||[]).length} pieza(s)${cu.kits_abiertos?(' · '+fmtCant(cu.kits_abiertos)+' kit(s) abierto(s)'):''}</span>
+    ${kit.stock_almacen!=null?`<span class="chip" title="Kits que el sistema muestra hoy en ${esc(kit.almacen||'Cuarentena')} (sin abrir)">📦 ${fmtCant(kit.stock_almacen)} sin abrir en ${esc(kit.almacen||'Cuarentena')}</span>`:''}
     ${estado}${d&&d.sucio?' <span class="badge b-rev">cambios sin guardar</span>':''}</div><div class="grp-body">`;
   if(ES_MAESTRO){
     h+=`<div class="saleinfo" style="margin-bottom:6px">
@@ -974,7 +998,7 @@ function tarjetaKit(r){
       <td><select onchange="kitPieza('${id}',${i},'vendible',this.value==='1')"><option value="1" ${c.vendible?'selected':''}>Sí</option><option value="0" ${!c.vendible?'selected':''}>No (merma)</option></select></td>
       <td class="n">${R.costo_rec!=null?soles(R.costo_rec):'—'}</td>
       <td class="n"><input type="number" min="0" step="0.01" value="${c.costo_manual!=null?c.costo_manual:''}" placeholder="${R.costo_rec!=null?Number(R.costo_rec).toFixed(2):''}" style="width:90px" onchange="kitPieza('${id}',${i},'costo_manual',this.value)"></td>
-      <td class="n">${R.precio_rec!=null?soles(R.precio_rec):'—'}</td>
+      <td class="n">${R.precio_rec!=null?soles(R.precio_rec):'—'}${c.precio_ref!=null&&c.vendible?`<div class="sm" style="white-space:nowrap;color:${(R.precio_final!=null&&Math.abs(c.precio_ref-R.precio_final)>=0.1)?'var(--warn)':'var(--muted)'}" title="Precio que tiene hoy la pieza en el sistema${(R.precio_final!=null&&Math.abs(c.precio_ref-R.precio_final)>=0.1)?' — es distinto al que decidiste: actualízalo en el sistema':''}">sistema: ${soles(c.precio_ref)}</div>`:''}</td>
       <td class="n"><input type="number" min="0" step="0.01" value="${c.precio_manual!=null?c.precio_manual:''}" placeholder="${R.precio_rec!=null?Number(R.precio_rec).toFixed(2):''}" style="width:90px" onchange="kitPieza('${id}',${i},'precio_manual',this.value)"></td>
       <td>${(R.avisos||[]).map(a=>`<span class="badge b-no">${esc(a)}</span>`).join(' ')}</td>
       <td><button class="danger sm" title="Quitar pieza" onclick="kitQuitar('${id}',${i})">✕</button></td>
@@ -1033,7 +1057,7 @@ function kitDraft(id){
   if(!KIT_DRAFT[id]){const r=KITS.find(x=>x.id===id);if(!r)return null;
     KIT_DRAFT[id]={id:r.id,kit_sku:r.kit_sku,kit_nombre:r.kit_nombre,metodo:r.metodo,recargo_pct:r.recargo_pct,nota:r.nota,activo:r.activo,
       componentes:(r.componentes||[]).map(c=>({comp_sku:c.comp_sku,comp_nombre:c.comp_nombre,cant_por_kit:c.cant_por_kit,vendible:c.vendible,
-        peso:c.peso,costo_manual:c.costo_manual,precio_manual:c.precio_manual,en_sistema:c.en_sistema})),sucio:false,preview:null};}
+        peso:c.peso,costo_manual:c.costo_manual,precio_manual:c.precio_manual,en_sistema:c.en_sistema,precio_ref:c.precio_ref})),sucio:false,preview:null};}
   return KIT_DRAFT[id];
 }
 function kitCampo(id,campo,val){const d=kitDraft(id);if(!d)return;
@@ -1051,7 +1075,7 @@ function kitPreview(id){const d=KIT_DRAFT[id];if(!d)return;KIT_ABIERTOS.add(id);
     try{const r=await kapi('/preview','POST',d);
       if(KIT_DRAFT[id]!==d)return;
       d.preview=r;
-      (r.componentes||[]).forEach(rc=>{const c=d.componentes.find(x=>kU(x.comp_sku)===kU(rc.comp_sku));if(c){if(!c.comp_nombre)c.comp_nombre=rc.comp_nombre;c.en_sistema=rc.en_sistema;}});
+      (r.componentes||[]).forEach(rc=>{const c=d.componentes.find(x=>kU(x.comp_sku)===kU(rc.comp_sku));if(c){if(!c.comp_nombre)c.comp_nombre=rc.comp_nombre;c.en_sistema=rc.en_sistema;c.precio_ref=rc.precio_ref;}});
       pintarKits();
     }catch(e){toast(e.message);}
   },250);}
@@ -1066,25 +1090,38 @@ async function kitBorrar(id){const r=KITS.find(x=>x.id===id);if(!r)return;
   catch(e){toast(e.message);}}
 /* selector de producto (sugerencias + buscador en cualquier orden) */
 function pickerHtml(titulo,sub,extra){
+  const enAlm=KIT_PICK&&KIT_PICK.modo==='kit'&&KIT_ALM&&KIT_ALM.encontrado;
   return `<h3>${titulo}</h3>${sub?`<div class="muted sm" style="margin-bottom:8px">${sub}</div>`:''}${extra||''}
-    <div class="f" style="margin-top:10px"><label>Buscar (nombre o SKU, en cualquier orden)</label>
+    <div class="f" style="margin-top:10px"><label>${enAlm?`Buscar en el almacén ${esc(nomAlm())} (nombre o SKU, en cualquier orden)`:'Buscar (nombre o SKU, en cualquier orden)'}</label>
       <input id="kitBus" autocomplete="off" spellcheck="false" placeholder="Ej: kit easy link magura" oninput="kitBuscar(this.value)"></div>
+    ${enAlm?`<label class="sm muted" style="display:flex;gap:6px;align-items:center;margin-top:6px;cursor:pointer"><input type="checkbox" id="kitTodo" onchange="kitBuscar($('kitBus').value)"> ¿No aparece? Buscar en todo el catálogo</label>`:''}
     <div id="kitBusRes" style="margin-top:4px"></div>
     <div class="row" style="margin-top:12px;justify-content:flex-end"><button class="ghost" onclick="cerrarModal()">Cancelar</button></div>`;
 }
 function kitBuscar(q){
   q=(q||'').trim();const host=$('kitBusRes');if(!host)return;
-  if(q.length<2){host.innerHTML='';return;}
-  const qt=normalize(q).split(' ').filter(Boolean),cs=clean(q);
   const soloKits=KIT_PICK&&KIT_PICK.modo==='kit';
-  const list=CAT.filter(c=>!soloKits||!/PCK$/i.test(c.sku)).map(c=>{let sc=puntuarCat(qt,c);if(cs&&c.cleanSku.includes(cs))sc=Math.max(sc,97);return{sku:c.sku,nombre:c.name,score:sc};})
+  // Kits: solo los del almacén de kits (Cuarentena), salvo que pidas todo el catálogo.
+  const enAlm=soloKits&&KIT_ALM&&KIT_ALM.encontrado&&!($('kitTodo')&&$('kitTodo').checked);
+  const base=enAlm?KIT_ALM.items:CAT.filter(c=>!soloKits||!/PCK$/i.test(c.sku));
+  const stockDe=sku=>{if(!KIT_ALM||!KIT_ALM.items)return null;const i=KIT_ALM.items.find(x=>kU(x.sku)===kU(sku));return i?i.stock:null;};
+  if(q.length<2){
+    // sin texto: en el almacén muestra primero los que tienen stock (sin abrir)
+    if(enAlm){const l=base.slice(0,12).map(i=>({sku:i.sku,nombre:i.nombre,stock_almacen:i.stock}));
+      host.innerHTML=l.length?`<div class="muted sm" style="margin:4px 0">En ${esc(nomAlm())}:</div>`+l.map(filaOpcion).join(''):`<div class="muted sm">No hay productos en ${esc(nomAlm())}.</div>`;}
+    else host.innerHTML='';
+    return;
+  }
+  const qt=normalize(q).split(' ').filter(Boolean),cs=clean(q);
+  const list=base.map(c=>{let sc=puntuarCat(qt,c);if(cs&&c.cleanSku.includes(cs))sc=Math.max(sc,97);return{sku:c.sku,nombre:c.name,score:sc,stock_almacen:soloKits?stockDe(c.sku):null};})
     .filter(x=>x.score>=40).sort((a,b)=>b.score-a.score).slice(0,10);
-  host.innerHTML=list.length?list.map(k=>filaOpcion(k)).join(''):'<div class="muted sm">Sin resultados.</div>';
+  host.innerHTML=list.length?list.map(k=>filaOpcion(k)).join(''):`<div class="muted sm">Sin resultados${enAlm?` en ${esc(nomAlm())}. Marca «buscar en todo el catálogo» si el kit no está ahí.`:'.'}</div>`;
 }
 function filaOpcion(k){
   const badge=k.confianza?`<span class="badge ${({alta:'b-exact',media:'b-alta',baja:'b-rev'})[k.confianza]||'b-rev'}" style="flex:none">${esc(k.confianza)} · ${k.score}</span>`:'';
+  const st=k.stock_almacen!=null?`<span class="chip" style="flex:none" title="Stock hoy en ${esc(nomAlm())}">📦 ${fmtCant(k.stock_almacen)} en ${esc(nomAlm())}</span>`:'';
   return `<div style="display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">${badge}
-    <div style="flex:1;min-width:0"><b style="font-family:monospace">${esc(k.sku)}</b> <span class="sm">${esc(k.nombre||'')}</span>
+    <div style="flex:1;min-width:0"><b style="font-family:monospace">${esc(k.sku)}</b> <span class="sm">${esc(k.nombre||'')}</span> ${st}
       ${k.razones&&k.razones.length?`<div class="muted sm">${esc(k.razones.join(' · '))}</div>`:''}</div>
     <button class="sm ok" style="flex:none" onclick="kitElegido('${jsq(k.sku)}','${jsq(k.nombre||'')}')">Elegir</button></div>`;
 }
@@ -1092,6 +1129,7 @@ function kitElegido(sku,nombre){if(typeof KIT_PICK_CB==='function')KIT_PICK_CB(s
 // Desde el grupo de canibalizados: ¿de qué kit sale esta pieza? (se guarda en el contenido del kit)
 async function elegirKit(sku,nombre){
   KIT_PICK={modo:'kit',sku,nombre};
+  if(!KIT_ALM)await cargarKitAlmacen();
   showModal(pickerHtml('🧩 ¿De qué kit sale esta pieza?',`<b style="font-family:monospace">${esc(sku)}</b> · ${esc(nombre)}`,
     `<div class="f"><label>Piezas de este SKU que trae cada kit</label><input id="kitCant" type="number" min="0.001" step="any" value="1" style="width:120px"></div>
      <div style="margin-top:10px"><b class="sm">Sugerencias</b></div><div id="kitSug" class="muted sm">Buscando…</div>`));
@@ -1107,12 +1145,15 @@ async function elegirKit(sku,nombre){
     const c=(r&&r.candidatos)||[];const host=$('kitSug');if(!host)return;
     if(c.length&&c[0].cantidad_sugerida&&$('kitCant'))$('kitCant').value=c[0].cantidad_sugerida;
     host.classList.remove('muted');
-    host.innerHTML=c.length?c.map(filaOpcion).join(''):'<div class="muted sm">No hay sugerencias claras: búscalo abajo.</div>';
+    const aviso=(r&&r.almacen_encontrado===false)?'<div class="sm" style="margin-bottom:4px"><span class="badge b-rev">No encontré el almacén «Cuarentena»: sugerencias de todo el catálogo</span></div>':'';
+    host.innerHTML=aviso+(c.length?c.map(filaOpcion).join(''):`<div class="muted sm">No hay sugerencias claras${r&&r.fuente==='almacen'?' en '+esc(nomAlm()):''}: búscalo abajo.</div>`);
   }catch(e){const host=$('kitSug');if(host)host.textContent='No se pudieron cargar las sugerencias ('+e.message+'). Búscalo abajo.';}
 }
-function nuevaReceta(){
+async function nuevaReceta(){
   KIT_PICK={modo:'kit'};
-  showModal(pickerHtml('🧩 Nuevo kit: elige el producto','Busca el producto kit que vas a canibalizar.'));
+  if(!KIT_ALM)await cargarKitAlmacen();
+  showModal(pickerHtml('🧩 Nuevo kit: elige el producto','Elige el kit que vas a canibalizar (los kits se guardan en '+esc(nomAlm())+').'));
+  kitBuscar('');
   KIT_PICK_CB=async(kitSku,kitNombre)=>{
     const ya=KITS.find(r=>kU(r.kit_sku)===kU(kitSku));
     if(ya){cerrarModal();toast('Ese kit ya está configurado');irAKit(ya.id);return;}
@@ -1121,6 +1162,13 @@ function nuevaReceta(){
     catch(e){toast(e.message);}
   };
   setTimeout(()=>{const i=$('kitBus');if(i)i.focus();},50);
+}
+async function configurarKit(kitSku,kitNombre){
+  const ya=KITS.find(r=>kU(r.kit_sku)===kU(kitSku));
+  if(ya){irAKit(ya.id);return;}
+  try{const r=await kapi('/receta','POST',{kit_sku:kitSku,kit_nombre:kitNombre,metodo:'unidad',recargo_pct:0,componentes:[]});
+    toast('Kit configurado: agrega su contenido');await cargarKits();irAKit(r.id);}
+  catch(e){toast(e.message);}
 }
 function kitAgregarPieza(id){
   const d=kitDraft(id);if(!d)return;

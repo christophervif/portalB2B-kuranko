@@ -693,8 +693,34 @@ function pintarBackorders(){
   bloques.push(bloqueGrupo(null,sinGrupo));
   host.innerHTML=bloques.join('')||'<div class="muted sm">Sin backorders.</div>';
 }
+// Resumen POR SKU del grupo: cuántas unidades van vendidas de CADA SKU (para cuadrar
+// contra el conteo físico del producto canibalizado). Agrupa los SKU iguales.
+function resumenGrupoSku(items){
+  const map=new Map();
+  (items||[]).forEach(b=>{
+    const q=(b.cantidad!=null?+b.cantidad:0)||0;
+    const k=b.sku||'(sin SKU)';
+    const cur=map.get(k)||{nombre:'',total:0};
+    cur.total+=q; if(!cur.nombre&&b.nombre)cur.nombre=b.nombre; map.set(k,cur);
+  });
+  if(!map.size) return '';
+  const filas=[...map.entries()].sort((a,b)=>b[1].total-a[1].total)
+    .map(([sku,v])=>`<div style="display:flex;gap:10px;align-items:baseline;padding:4px 0;border-bottom:1px solid var(--border)">
+      <span class="badge ${v.total>1?'b-rev':'b-tra'}" style="flex:none;min-width:68px;text-align:center">${v.total} und.</span>
+      <span style="flex:none;font-weight:700;font-family:monospace">${esc(sku)}</span>
+      <span class="muted sm">${esc(v.nombre||'')}</span>
+    </div>`).join('');
+  return `<details style="margin:6px 0" open>
+    <summary style="cursor:pointer;color:var(--warn);font-weight:600;font-size:13px">📊 Cuántas van vendidas por SKU (${map.size} SKU)</summary>
+    <div style="margin-top:6px;max-width:640px;border:1px solid var(--border);border-radius:8px;padding:4px 10px;background:var(--card2)">${filas}</div>
+    <div class="muted sm" style="margin-top:4px">Por cada SKU: <b>unidades físicas que te quedan</b> + <b>vendidas</b> = lo que tenías al inicio.</div>
+  </details>`;
+}
 function bloqueGrupo(g,items){
   const porComprar=items.filter(i=>!i.archivado&&(i.cantidad!=null?((i.cubierto||0)<i.cantidad):!i.comprado)).length;
+  // El resumen por SKU solo se muestra en el grupo de canibalizados (por su nombre).
+  const esCanib = g && /caniba/i.test(g.nombre||'');
+  const resumenHtml = esCanib ? resumenGrupoSku(items) : '';
   const info=g?`<div class="saleinfo">
       ${g.vta?`<span>VTA: <b>${esc(g.vta)}</b></span>`:''}
       ${g.cliente?`<span>Cliente: <b>${esc(g.cliente)}</b></span>`:''}
@@ -717,7 +743,7 @@ function bloqueGrupo(g,items){
   return `<div class="grp${col}"><div class="grp-h" onclick="toggleGrupo('${key}',this)">
       <span class="grp-caret">▾</span><b>${g?'📁 ':''}${titulo}</b>
       <span class="muted sm">${items.length} ítems · ${porComprar} por comprar</span>${accG}</div>
-    <div class="grp-body">${info}${body}</div></div>`;
+    <div class="grp-body">${info}${resumenHtml}${body}</div></div>`;
 }
 // Grupos plegados (se recuerda en el navegador)
 let COLAPSADOS=new Set();

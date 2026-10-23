@@ -95,6 +95,7 @@ tr.off td{opacity:.45}
     <button data-t="imp">1 · Importar Excel</button>
     <button data-t="mod">2 · Fichas y vitrina</button>
     <button data-t="cat">Catálogo (tallas y stock)</button>
+    <button data-t="pre">Preventa</button>
     <span class="tg">Ajustes</span>
     <button data-t="pag">Página</button>
     <button data-t="sim">Simulador</button>
@@ -197,6 +198,7 @@ tr.off td{opacity:.45}
   </section>
 
   <section data-p="pag" hidden><div class="card" id="pagCard"></div></section>
+  <section data-p="pre" hidden><div class="card" id="preCard"></div></section>
 
   <section data-p="sim" hidden>
     <div class="card" id="simCard">
@@ -259,7 +261,7 @@ function pintarReservas(){
     return `<tr><td><b>${esc(r.codigo)}</b>${r.ref?`<br><span class="muted">vend.: ${esc(r.ref)}</span>`:''}</td><td>${esc(r.creado)}${vencida?'<br><span class="pill p-r">precio vencido</span>':''}</td>
     <td>${esc(r.nombre)}<br><span class="muted">${esc(r.doc)} · <a href="https://wa.me/51${esc(r.tel)}" target="_blank" rel="noopener" style="color:var(--accent)">${esc(r.tel)}</a>${r.email?' · '+esc(r.email):''} · ${esc(r.ciudad||'')}</span></td>
     <td>${esc(r.marca)} ${esc(r.modelo)} ${esc(r.montaje)}<br><span class="muted">Talla ${esc(r.talla)} · ${esc(r.color)}</span></td>
-    <td>${esc({lima:'Stock Lima',aereo:'Aéreo',maritimo:'Marítimo',unidad:'Marítimo individual',grupo:'Marítimo en grupo'}[r.envio]||r.envio)}<br><span class="muted">${fD(r.fecha_min)} – ${fD(r.fecha_max)}</span></td>
+    <td>${esc({preventa:'Preventa',lima:'Stock Lima',aereo:'Aéreo',maritimo:'Marítimo',unidad:'Marítimo individual',grupo:'Marítimo en grupo'}[r.envio]||r.envio)}<br><span class="muted">${fD(r.fecha_min)} – ${fD(r.fecha_max)}</span></td>
     <td class="n">${$R(r,r.total)}${$R(r,1)!==soles(1)?`<br><span class="muted">${soles(r.total)}</span>`:''}</td><td class="n">${$R(r,r.adelanto)}</td>
     <td><a class="btn sec" style="padding:3px 8px;font-size:12px;margin-bottom:4px;display:inline-block" href="https://wa.me/51${esc(r.tel)}?text=${encodeURIComponent(msgCliente(r))}" target="_blank" rel="noopener" title="Abre WhatsApp con el mensaje de esta etapa ya escrito">WhatsApp: ${esc(ETAPA_MSG[r.estado]||'escribir')}</a> <a class="btn sec" style="padding:3px 8px;font-size:12px;margin-bottom:4px;display:inline-block" href="/bikes/proforma/${esc(r.codigo)}?doc=${esc(r.doc)}" target="_blank" rel="noopener">Proforma</a><br><select data-res="${r.id}" data-campo="estado">${E.estados_reserva.map(s=>`<option ${s===r.estado?'selected':''}>${s}</option>`).join('')}</select><br><span class="pill ${PILL[r.estado]||''}" style="margin-top:4px">${esc(r.estado)}</span>${r.actualizado_por?`<br><span class="muted">${esc(r.actualizado_por)} · ${esc(r.actualizado)}</span>`:''}
       ${r.envio!=='lima'?`<br><button class="btn sec" style="padding:3px 8px;font-size:12px;margin-top:4px" data-consultar="${r.id}" title="Correo a la marca pidiendo disponibilidad (talla, color y configuración)">${r.consulta_marca?'Volver a consultar a la marca':'Consultar a la marca'}</button>${r.consulta_marca?`<br><span class="muted">Consultado ${esc(new Date(r.consulta_marca*1000).toLocaleString('es-PE',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}))}</span>`:''}`:''}</td>
@@ -779,6 +781,58 @@ document.addEventListener('click',async e=>{const t=e.target;
 
 /* ---------- Página: fotos reales y asesor ---------- */
 const FOTOS=[['hero','Foto de portada (bicis, taller o clientes reales)','4:3'],['asesor','Foto del asesor (cara, fondo simple)','1:1'],['taller','Foto del taller o la tienda','16:9'],['taller2','Segunda foto (equipo, entregas)','3:4']];
+/* ---------- Preventa: bicis que vienen en camino para stock ---------- */
+let PRE_LEIDA=null;
+function pintarPreventa(){const el=$('#preCard');if(!el)return;
+  const sk=E.skus.filter(x=>x.activo),en=sk.filter(x=>+x.preventa>0),res=(E.reservas||[]).filter(r=>r.envio==='preventa'&&!['Cancelada'].includes(r.estado));
+  const marcas=[...new Set(sk.map(x=>x.marca))].sort(),mods=[...new Set(sk.map(x=>x.marca+'|'+x.modelo))].sort();
+  const pct=(E.preventa_cfg||{}).pct??5;
+  el.innerHTML=`<h3>Preventa</h3><p class="desc">Las bicis que ya pediste para tu stock. En la tienda salen primero, con la etiqueta «Preventa −${pct}%», la fecha tentativa de llegada y cuántas quedan. Cada reserva en preventa descuenta una unidad; si se cancela, vuelve. Cuando lleguen y estén en el ERP, pon las unidades en 0 (pasan a «En stock»).</p>
+  <div class="kpis" style="margin:10px 0">${[['Unidades en camino',en.reduce((a,x)=>a+ +x.preventa,0)],['Reservadas en preventa',res.length],['Modelos en preventa',new Set(en.map(x=>x.marca+'|'+x.modelo)).size]].map(([l,v])=>`<div class="kpi"><span>${l}</span><b>${v}</b></div>`).join('')}</div>
+  <div class="row" style="gap:10px;align-items:flex-end"><label class="muted" style="display:grid;gap:3px">Descuento de preventa %<input id="prePct" type="number" min="0" max="30" step="0.5" value="${esc(pct)}" style="width:90px"></label><button class="btn sec" id="prePctG">Guardar</button>
+    <span class="desc" style="margin:0;max-width:420px">Sobre el precio del envío más barato. Se ve tachado y nunca baja del margen mínimo. 0 = sin descuento (igual se destaca).</span></div>
+
+  <h3 style="margin-top:20px">Subir factura o proforma de la marca</h3><p class="desc">PDF o foto. La IA lee modelo, talla, color y cantidad, y busca cada línea en tu catálogo. Revisa antes de agregar.</p>
+  <div class="row" style="gap:10px;align-items:flex-end"><label class="muted" style="display:grid;gap:3px">Marca<select id="preMarca">${marcas.map(m=>`<option>${esc(m)}</option>`).join('')}</select></label>
+    <label class="muted" style="display:grid;gap:3px">Archivo<input id="preArch" type="file" accept="application/pdf,image/png,image/jpeg,image/webp"></label>
+    <label class="muted" style="display:grid;gap:3px">Llegada tentativa a Lima<input id="preFecha" type="date"></label><button class="btn" id="preLeer">Leer factura</button></div>
+  <div id="preRes" style="margin-top:10px">${PRE_LEIDA?preTabla():''}</div>
+
+  <h3 style="margin-top:20px">Agregar a mano</h3>
+  <div class="row" style="gap:10px;align-items:flex-end"><label class="muted" style="display:grid;gap:3px">Modelo<select id="preMod"><option value="">Elige un modelo…</option>${mods.map(k=>`<option value="${esc(k)}">${esc(k.replace('|',' · '))}</option>`).join('')}</select></label>
+    <label class="muted" style="display:grid;gap:3px">Llegada tentativa<input id="preModF" type="date"></label></div><div id="preModG" style="margin-top:8px"></div>
+
+  <h3 style="margin-top:20px">En camino ahora</h3>
+  ${en.length?`<div class="tbl"><table><thead><tr><th>Bici</th><th>Talla</th><th>Color</th><th class="n">Unidades</th><th>Llegada tentativa</th><th></th></tr></thead><tbody>${en.sort((a,b)=>String(a.preventa_fecha).localeCompare(String(b.preventa_fecha))).map(x=>`<tr><td>${esc(x.marca)} ${esc(x.modelo)}${x.montaje&&x.montaje!=='Base'?`<br><span class="muted">${esc(x.montaje)}</span>`:''}</td><td>${esc(x.talla)}</td><td>${esc(x.color)}</td>
+    <td class="n"><input type="number" min="0" data-pren="${x.id}" value="${+x.preventa}" style="width:70px"></td><td><input type="date" data-pref="${x.id}" value="${esc(x.preventa_fecha||'')}"></td><td><button class="btn sec" style="padding:3px 8px;font-size:12px" data-preg="${x.id}">Guardar</button></td></tr>`).join('')}</tbody></table></div>`:'<p class="muted">Nada en camino por ahora.</p>'}`;
+}
+function preTabla(){const L=PRE_LEIDA,sk=E.skus.filter(x=>x.activo&&x.marca===L.marca);
+  const op=id=>`<option value="">— no agregar —</option>`+sk.map(x=>`<option value="${x.id}" ${x.id===id?'selected':''}>${esc(x.modelo)}${x.montaje&&x.montaje!=='Base'?' · '+esc(x.montaje.slice(0,40)):''} · ${esc(x.talla)} · ${esc(x.color)}</option>`).join('');
+  return L.lineas.length?`<div class="tbl"><table><thead><tr><th>En la factura</th><th>Bici en tu catálogo</th><th class="n">Cantidad</th></tr></thead><tbody>${L.lineas.map((l,i)=>`<tr><td>${esc([l.ref,l.modelo||l.descripcion].filter(Boolean).join(' · '))}<br><span class="muted">${esc([l.talla,l.color].filter(Boolean).join(' · '))}</span></td>
+    <td><select data-prelsku="${i}" style="max-width:420px">${op(l.sku_id)}</select>${l.sku_id&&!l.seguro?'<br><span class="muted" style="color:var(--fg-warn)">revisar</span>':!l.sku_id?'<br><span class="muted" style="color:var(--fg-r)">no la encontré: elígela o déjala</span>':''}</td>
+    <td class="n"><input type="number" min="0" data-preln="${i}" value="${l.cantidad}" style="width:70px"></td></tr>`).join('')}</tbody></table></div>
+    <div class="row" style="margin-top:8px"><button class="btn" id="preAgregar">Agregar a preventa</button><span class="muted">Se suman a lo que ya tengas en camino, con la fecha de llegada de arriba.</span></div>`:'<p class="muted">No encontré bicis en el archivo.</p>'}
+document.addEventListener('change',e=>{const t=e.target;if(t.id!=='preMod')return;const g=$('#preModG');if(!t.value){g.innerHTML='';return}
+  const sk=E.skus.filter(x=>x.activo&&x.marca+'|'+x.modelo===t.value),f=(sk.find(x=>x.preventa_fecha)||{}).preventa_fecha||'';if(f&&!$('#preModF').value)$('#preModF').value=f;
+  const mos=[...new Set(sk.map(x=>x.montaje))],cols=[...new Set(sk.map(x=>x.color))],tal=[...new Set(sk.map(x=>x.talla))];
+  g.innerHTML=mos.map(mo=>`${mos.length>1?`<p class="muted" style="margin:8px 0 4px">${esc(mo)}</p>`:''}<div class="tbl"><table style="width:auto"><thead><tr><th>Talla / color</th>${cols.map(c=>`<th class="n">${esc(c)}</th>`).join('')}</tr></thead><tbody>${tal.map(t=>`<tr><td><b>${esc(t)}</b></td>${cols.map(c=>{const x=sk.find(y=>y.montaje===mo&&y.talla===t&&y.color===c);return `<td class="n">${x?`<input type="number" min="0" data-premn="${x.id}" value="${+x.preventa||0}" style="width:64px">`:''}</td>`}).join('')}</tr>`).join('')}</tbody></table></div>`).join('')+`<button class="btn" id="preModGuardar" style="margin-top:8px">Guardar preventa del modelo</button>`});
+document.addEventListener('click',async e=>{const t=e.target;
+  if(t.id==='prePctG'){try{await api('/api/bikes/admin/preventa',{method:'POST',body:JSON.stringify({pct:+$('#prePct').value||0})});toast('Descuento de preventa guardado');await cargar()}catch(err){toast(err.message)}}
+  if(t.id==='preLeer'){const f=$('#preArch').files[0];if(!f)return toast('Elige el PDF o la foto de la factura');if(f.size>10e6)return toast('El archivo pesa más de 10 MB');
+    t.disabled=true;t.textContent='Leyendo… (hasta 1 min)';
+    try{const archivo=await new Promise((ok,mal)=>{const r=new FileReader();r.onload=()=>ok(r.result);r.onerror=mal;r.readAsDataURL(f)});
+      const j=await api('/api/bikes/admin/preventa/leer',{method:'POST',body:JSON.stringify({archivo,marca:$('#preMarca').value})});
+      j.marca=$('#preMarca').value;PRE_LEIDA=j;if(j.fecha_llegada&&!$('#preFecha').value)$('#preFecha').value=j.fecha_llegada;$('#preRes').innerHTML=preTabla();
+      toast(`Leí ${j.lineas.length} líneas · ${j.lineas.filter(l=>l.sku_id).length} encontradas en tu catálogo`)}catch(err){toast(err.message)}finally{t.disabled=false;t.textContent='Leer factura'}}
+  if(t.id==='preAgregar'){const fe=$('#preFecha').value;if(!fe)return toast('Pon la fecha tentativa de llegada');const acc={};
+    PRE_LEIDA.lineas.forEach((l,i)=>{const id=+$(`[data-prelsku="${i}"]`).value,n=+$(`[data-preln="${i}"]`).value||0;if(id&&n)acc[id]=(acc[id]||0)+n});
+    const filas=Object.entries(acc).map(([id,n])=>({id:+id,n,fecha:fe,sumar:true}));if(!filas.length)return toast('No hay líneas para agregar');
+    try{await api('/api/bikes/admin/preventa',{method:'POST',body:JSON.stringify({filas})});PRE_LEIDA=null;toast(`${filas.reduce((a,f)=>a+f.n,0)} unidades agregadas a preventa`);await cargar()}catch(err){toast(err.message)}}
+  if(t.id==='preModGuardar'){const fe=$('#preModF').value,filas=[...document.querySelectorAll('[data-premn]')].map(i=>({id:+i.dataset.premn,n:+i.value||0,fecha:fe}));
+    if(filas.some(f=>f.n)&&!fe)return toast('Pon la fecha tentativa de llegada');
+    try{await api('/api/bikes/admin/preventa',{method:'POST',body:JSON.stringify({filas})});toast('Preventa guardada. Ya se ve en la tienda.');await cargar()}catch(err){toast(err.message)}}
+  if(t.dataset.preg){const id=+t.dataset.preg;try{await api('/api/bikes/admin/preventa',{method:'POST',body:JSON.stringify({filas:[{id,n:+$(`[data-pren="${id}"]`).value||0,fecha:$(`[data-pref="${id}"]`).value}]})});toast('Guardado');await cargar()}catch(err){toast(err.message)}}
+});
 function pintarPagina(){const pg=E.pagina||{},f=pg.fotos||{};
   $('#pagCard').innerHTML=`<h3>Fotos reales y asesor</h3><p class="desc">Las fotos reales dan confianza. Sube JPG o PNG; se reducen solas antes de subir. Mientras no subas una, la página muestra un espacio neutro.</p>
   <div class="rules" style="margin-top:12px">
@@ -832,7 +886,7 @@ $('#tabs').addEventListener('click',e=>{const b=e.target.closest('button');if(b)
 async function cargar(){
   try{E=await api('/api/bikes/admin/estado');$('#msg').innerHTML='';
     $('#tcInfo').textContent=`TC USD ${E.tc.usd.toFixed(3)} · EUR ${E.tc.eur.toFixed(3)} (${E.tc.fuente})`;
-    pintarReservas();pintarLlamadas();pintarCatalogo();pintarReglas();pintarModelos();pintarPagina();
+    pintarReservas();pintarLlamadas();pintarCatalogo();pintarReglas();pintarModelos();pintarPagina();pintarPreventa();
     {const dl=$('#crMarcas');if(dl)dl.innerHTML=[...new Set([...(E.marcas_base||[]),...E.skus.map(x=>x.marca)])].sort().map(m=>`<option value="${esc(m)}">`).join('');
      const sb=$('#simBici');if(sb){const g=new Map();E.skus.filter(x=>x.activo).forEach(x=>{const k=x.marca+'|'+x.modelo;if(!g.has(k))g.set(k,x)});const v=sb.value;
        sb.innerHTML='<option value="">— Elige una bici del catálogo —</option>'+[...g.values()].sort((a,b)=>(a.marca+a.modelo).localeCompare(b.marca+b.modelo)).map(x=>`<option value="${x.id}">${esc(x.marca)} · ${esc(x.modelo)}</option>`).join('');sb.value=v}}

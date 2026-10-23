@@ -220,7 +220,7 @@ function bicisMinimas(sku, R, tc, precio, p0, envio = 'maritimo') {
   return 13;
 }
 function opcionesEnvio(sku, R, tc, mod = {}, hoy = hoyLima()) {
-  const MARCAS = R._marcas || {};
+  const MARCAS = R._marcas || {}, PREV = R._preventa || {};
   R = reglasMarca(R, sku.marca);
   const min = num(R.margen_minimo) / 100, igv = 1 + num(R.igv) / 100;
   // El margen siempre se mide contra el precio de lista (PVP × factor, o costo + margen si la marca no tiene PVP):
@@ -231,8 +231,9 @@ function opcionesEnvio(sku, R, tc, mod = {}, hoy = hoyLima()) {
   const skuP = sku._peso_ficha || sku.peso ? sku : { ...sku, _peso_ficha: (mod.datos || {}).peso || datosDeSpecs(mod.specs || []).peso || '' };
   const vig = (pct, hasta) => num(pct) > 0 && (!hasta || String(hasta) >= hoy) ? Math.min(60, num(pct)) / 100 : 0;
   const dm = MARCAS[sku.marca] || {};
-  const desc = num(mod.descuento) > 0 ? vig(mod.descuento, mod.descuento_hasta) : vig(dm.descuento, dm.descuento_hasta);
-  const op = (k, forzado = null) => {
+  const descM = num(mod.descuento) > 0 ? vig(mod.descuento, mod.descuento_hasta) : vig(dm.descuento, dm.descuento_hasta);
+  const op = (k, forzado = null, dx = 0) => {
+    const desc = 1 - (1 - descM) * (1 - dx); // descuento del modelo/marca, y encima el de preventa
     const p = calcularPrecio(skuP, k, R, tc, forzado);
     const lista = Math.max(p.pen, piso(p, 0));
     // Con descuento: el precio baja ese % de la lista, pero nunca por debajo del mínimo (margen mínimo sobre la lista en el peor caso)
@@ -271,6 +272,14 @@ function opcionesEnvio(sku, R, tc, mod = {}, hoy = hoyLima()) {
   if (num(sku.stock_kuranko) > 0 && out.length) {
     const b = out.reduce((a, o) => o.p < a.p ? o : a, out[0]);
     out.unshift({ ...b, k: 'lima', f: calcularEntrega(sku, 'lima', R, hoy), adicional: false, tienda: num(sku.stock_kuranko) });
+  }
+  // Preventa: bicis que Kuranko ya pidió para stock. Precio del envío más barato con un % menos (nunca bajo el margen mínimo), llegan en la fecha tentativa
+  if (num(sku.preventa) > 0 && out.length) {
+    const pv = PREV, pct = Math.min(30, Math.max(0, num(pv.pct ?? 5))) / 100;
+    const ba = out.filter(o => o.k !== 'lima'), b = ba.length ? ba.reduce((a, o) => o.p < a.p ? o : a, ba[0]) : out[0];
+    const x = op(b.k === 'lima' ? 'maritimo' : b.k, null, pct), ll = sku.preventa_fecha && sku.preventa_fecha > hoy ? sku.preventa_fecha : hoy;
+    delete x.nb;
+    out.splice(out[0].k === 'lima' ? 1 : 0, 0, { ...x, k: 'preventa', f: [sumarDias(ll, num(R.lima_min)), sumarDias(ll, num(R.lima_max))], adicional: false, pv: num(sku.preventa), ...(pct ? { ppct: Math.round(pct * 100) } : {}) });
   }
   return out;
 }
@@ -554,8 +563,8 @@ function armarCatalogo(skus, R, tc, hoy = hoyLima(), mods = {}) {
       continue;
     }
     const base = ops.reduce((a, o) => o.p < a.p ? o : a, ops[0]);
-    const it = { id: s.id, mo: s.montaje, t: s.talla, c: s.color, d: sinLimite(s) ? 99 : Math.max(0, num(s.stock) - num(s.reservado)), e: s.estado, ...(num(s.stock_kuranko) > 0 ? { tk: num(s.stock_kuranko), ...(s.stock_ciudad && s.stock_ciudad !== 'Lima' ? { tkc: s.stock_ciudad } : {}) } : {}),
-      ...(s.categoria ? { ct: s.categoria } : {}), pm: base.p, fm: base.f, ...(base.pl ? { pml: base.pl, dc: base.dc } : {}), op: ops.map(o => ({ k: o.k, p: o.p, f: o.f, cu: o.cu, cq: o.cq, ...(o.tj ? { tj: o.tj } : {}), ...(o.pp ? { pp: o.ppp } : {}), ...(o.adicional ? { ad: 1 } : {}), ...(o.pl ? { pl: o.pl, dc: o.dc } : {}), ...(o.nb ? { nb: o.nb } : {}) })) };
+    const it = { id: s.id, mo: s.montaje, t: s.talla, c: s.color, d: sinLimite(s) ? 99 : Math.max(0, num(s.stock) - num(s.reservado)) + num(s.preventa), e: s.estado, ...(num(s.stock_kuranko) > 0 ? { tk: num(s.stock_kuranko), ...(s.stock_ciudad && s.stock_ciudad !== 'Lima' ? { tkc: s.stock_ciudad } : {}) } : {}),
+      ...(s.categoria ? { ct: s.categoria } : {}), pm: base.p, fm: base.f, ...(base.pl ? { pml: base.pl, dc: base.dc } : {}), op: ops.map(o => ({ k: o.k, p: o.p, f: o.f, cu: o.cu, cq: o.cq, ...(o.tj ? { tj: o.tj } : {}), ...(o.pp ? { pp: o.ppp } : {}), ...(o.adicional ? { ad: 1 } : {}), ...(o.pl ? { pl: o.pl, dc: o.dc } : {}), ...(o.nb ? { nb: o.nb } : {}), ...(o.pv ? { pv: o.pv, ...(o.ppct ? { ppct: o.ppct } : {}) } : {}) })) };
     if (s.pvp > 0) it.ref = Math.ceil(s.pvp * (s.moneda === 'EUR' ? tc.eur : tc.usd) / 10) * 10; // PVP de la marca en soles, referencia
     m.skus.push(it);
   }
@@ -843,7 +852,7 @@ async function probarModelo(key, mdl) {
 }
 // Llama a Gemini probando modelos: el elegido en el panel, el que funcionó la última vez, los de la lista de Google
 // y el que sugiera Google en su mensaje de error. Devuelve el texto, o '' y deja en ultimoErrorIA el motivo de cada intento.
-async function llamarGemini(prompt, temperatura = 0.2, espera = 40000) {
+async function llamarGemini(prompt, temperatura = 0.2, espera = 40000, adjunto = null) {
   const key = process.env.GEMINI_API_KEY; if (!key) { ultimoErrorIA = 'Falta GEMINI_API_KEY'; return ''; }
   const limpio = m => String(m || '').replace(/^models\//, '').replace(/[^a-zA-Z0-9.\-]/g, '');
   const lista = (await modelosDisponibles(key)).map(m => m.id);
@@ -855,7 +864,7 @@ async function llamarGemini(prompt, temperatura = 0.2, espera = 40000) {
     try {
       const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), espera);
       const g = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${mdl}:generateContent?key=${encodeURIComponent(key)}`, { method: 'POST', signal: ctrl.signal,
-        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: temperatura, response_mime_type: 'application/json' } }) });
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts: [...(adjunto ? [{ inline_data: { mime_type: adjunto.mime, data: adjunto.data } }] : []), { text: prompt }] }], generationConfig: { temperature: temperatura, response_mime_type: 'application/json' } }) });
       clearTimeout(to);
       const j = await g.json().catch(() => ({}));
       if (!g.ok || j.error) {
@@ -1091,7 +1100,10 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       for (const col of ['specs MEDIUMTEXT NULL', 'datos TEXT NULL', 'manual TINYINT(1) NOT NULL DEFAULT 0', 'img_colores MEDIUMTEXT NULL', 'confirmado TINYINT(1) NOT NULL DEFAULT 0', 'destacado TINYINT(1) NOT NULL DEFAULT 0', "etiqueta VARCHAR(15) NOT NULL DEFAULT ''"])
         await portalPool.query(`ALTER TABLE bk_modelos ADD COLUMN ${col}`).catch(colYaExiste);
       await portalPool.query(`ALTER TABLE bk_reservas ADD COLUMN pago VARCHAR(4) NULL`).catch(colYaExiste);
-      await portalPool.query(`ALTER TABLE bk_reservas ADD COLUMN consulta_marca DATETIME NULL`).catch(colYaExiste); // cuándo se pidió disponibilidad a la marca
+      await portalPool.query(`ALTER TABLE bk_reservas ADD COLUMN consulta_marca DATETIME NULL`).catch(colYaExiste);
+      // Preventa: unidades que Kuranko ya pidió para stock (vienen en camino) y su fecha tentativa de llegada a Lima
+      await portalPool.query(`ALTER TABLE bk_skus ADD COLUMN preventa INT NOT NULL DEFAULT 0`).catch(colYaExiste);
+      await portalPool.query(`ALTER TABLE bk_skus ADD COLUMN preventa_fecha DATE NULL`).catch(colYaExiste); // cuándo se pidió disponibilidad a la marca
       await portalPool.query(`ALTER TABLE bk_skus ADD COLUMN stock_kuranko INT NOT NULL DEFAULT 0`).catch(colYaExiste);
       await portalPool.query(`ALTER TABLE bk_skus ADD COLUMN stock_ciudad VARCHAR(120) NULL`).catch(colYaExiste);
       await portalPool.query(`ALTER TABLE bk_skus MODIFY montaje VARCHAR(160) NOT NULL DEFAULT 'Base'`).catch(colYaExiste);
@@ -1120,10 +1132,11 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
     let g = null; try { g = row ? JSON.parse(row.valor) : null; } catch (e) { g = null; }
     const R = mezclarReglas(g);
     try { const [[mr]] = await portalPool.query(`SELECT valor FROM bk_config WHERE clave='marcas'`); Object.defineProperty(R, '_marcas', { value: mr ? JSON.parse(mr.valor) : {}, enumerable: false }); } catch (e) {}
+    try { const [[pv]] = await portalPool.query(`SELECT valor FROM bk_config WHERE clave='preventa'`); Object.defineProperty(R, '_preventa', { value: pv ? JSON.parse(pv.valor) : {}, enumerable: false }); } catch (e) {}
     return R;
   }
   const COLS = `id, marca, modelo, montaje, anio, categoria, aro, recorrido, material, motor, talla, color, color_hex, sku,
-    costo, moneda, pvp, stock, reservado, stock_kuranko, stock_ciudad, costo_puesto, estado, DATE_FORMAT(fecha_disponible,'%Y-%m-%d') AS fecha_disponible, peso, url_imagen, url_ficha, notas, activo,
+    costo, moneda, pvp, stock, reservado, stock_kuranko, stock_ciudad, preventa, DATE_FORMAT(preventa_fecha,'%Y-%m-%d') AS preventa_fecha, costo_puesto, estado, DATE_FORMAT(fecha_disponible,'%Y-%m-%d') AS fecha_disponible, peso, url_imagen, url_ficha, notas, activo,
     DATE_FORMAT(actualizado,'%Y-%m-%d %H:%i') AS actualizado`;
   async function leerSkus(soloActivos = true) {
     await prepararTablas();
@@ -1496,12 +1509,13 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [codigo, s.id, s.marca, s.modelo, montajeRes, s.talla, s.color, s.sku || null, env, JSON.stringify(extras), p.pen, extrasTotal, total, adelanto,
           tc.usd, Math.round(p.costoUSD * 100) / 100, validoHasta, fechas[0], fechas[1], nombre, doc, tel, email || null, ciudad, ref, ip, pago.slice(0, 4)]);
-      await conn.query('UPDATE bk_skus SET reservado = reservado + 1 WHERE id=?', [s.id]);
+      if (env === 'preventa') await conn.query('UPDATE bk_skus SET preventa = GREATEST(preventa - 1, 0) WHERE id=?', [s.id]); // una unidad menos en camino
+      else await conn.query('UPDATE bk_skus SET reservado = reservado + 1 WHERE id=?', [s.id]);
       await conn.commit();
       limpiarCache();
       intentos.set('ok:' + ip, [...(intentos.get('ok:' + ip) || []), Date.now()]);
 
-      const ENV_TXT = { lima: 'stock en ' + ciuStk, aereo: 'aéreo', maritimo: 'marítimo', unidad: 'marítimo individual', grupo: 'marítimo en grupo' };
+      const ENV_TXT = { preventa: 'preventa (unidad ya en camino a Lima)', lima: 'stock en ' + ciuStk, aereo: 'aéreo', maritimo: 'marítimo', unidad: 'marítimo individual', grupo: 'marítimo en grupo' };
       let envTxt = ENV_TXT[env] || env;
       if (env === 'grupo') {
         const g = (await gruposPorMarca(R))[s.marca] || { min: Math.max(2, num(R.grupo_min) || 3), actual: 0, completos: 0 };
@@ -1526,7 +1540,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
          <p style="color:#444;font-size:14px"><a href="https://bikes.kuranko.pe/bikes/proforma/${escH(codigo)}?doc=${escH(doc)}">Descarga tu proforma</a>. Consulta el estado en bikes.kuranko.pe con tu código y DNI. WhatsApp: +${escH(wa)}</p>`), msg);
 
       // Consulta de disponibilidad a la marca (correo automático), salvo que la bici esté en stock o la marca lo tenga apagado
-      if (!stk) consultarMarca({ codigo, marca: s.marca, modelo: s.modelo, montaje: montajeRes, talla: s.talla, color: s.color, sku: s.sku }, true).catch(e => console.warn('[bikes] consulta marca', e.message));
+      if (!stk && env !== 'preventa') consultarMarca({ codigo, marca: s.marca, modelo: s.modelo, montaje: montajeRes, talla: s.talla, color: s.color, sku: s.sku }, true).catch(e => console.warn('[bikes] consulta marca', e.message));
       res.json({ ok: true, codigo, doc, total, adelanto, saldo: total - adelanto, tc: tc.usd, fechas, envio: env, mensaje: msg, whatsapp: wa });
     } catch (e) {
       if (conn) { try { await conn.rollback(); } catch (_) {} }
@@ -1634,6 +1648,59 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
     } catch (e) { res.status(500).send('No se pudo cargar'); }
   });
 
+  // ── Preventa: bicis que Kuranko pidió para stock (vienen en camino). Se cargan a mano o leyendo la factura/proforma de la marca con IA ──
+  app.post('/api/bikes/admin/preventa', authAdmin, mBikes, async (req, res) => {
+    const b = req.body || {};
+    try {
+      await prepararTablas();
+      if (b.pct !== undefined) await portalPool.query(`INSERT INTO bk_config (clave, valor, actualizado_por) VALUES ('preventa', ?, ?) ON DUPLICATE KEY UPDATE valor=VALUES(valor), actualizado=NOW(), actualizado_por=VALUES(actualizado_por)`,
+        [JSON.stringify({ pct: Math.min(30, Math.max(0, num(b.pct))) }), usuarioDe(req)]);
+      let n = 0;
+      for (const f of (Array.isArray(b.filas) ? b.filas : []).slice(0, 500)) {
+        const id = num(f.id), u = Math.max(0, Math.min(999, Math.round(num(f.n)))), fe = /^\d{4}-\d{2}-\d{2}$/.test(f.fecha || '') ? f.fecha : null;
+        if (!id) continue;
+        if (f.sumar) await portalPool.query('UPDATE bk_skus SET preventa=preventa+?, preventa_fecha=COALESCE(?, preventa_fecha), actualizado=NOW() WHERE id=?', [u, fe, id]);
+        else await portalPool.query('UPDATE bk_skus SET preventa=?, preventa_fecha=?, actualizado=NOW() WHERE id=?', [u, u ? fe : null, id]);
+        n++;
+      }
+      limpiarCache(); res.json({ ok: true, actualizadas: n });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+  app.post('/api/bikes/admin/preventa/leer', authAdmin, mBikes, async (req, res) => {
+    const b = req.body || {}, m = String(b.archivo || '').match(/^data:(application\/pdf|image\/(?:png|jpe?g|webp));base64,(.+)$/);
+    if (!m) return res.status(400).json({ error: 'Sube la factura en PDF o como foto (JPG o PNG)' });
+    if (m[2].length > 14e6) return res.status(400).json({ error: 'El archivo pesa mucho (máx. 10 MB)' });
+    if (!process.env.GEMINI_API_KEY) return res.status(400).json({ error: 'Falta GEMINI_API_KEY para leer la factura' });
+    try {
+      const marca = String(b.marca || '').trim();
+      const prompt = `Eres asistente de importación de bicicletas. Lee esta factura, proforma o confirmación de pedido de una marca de bicicletas${marca ? ' (' + marca + ')' : ''}.
+Devuelve SOLO JSON: {"marca":"", "fecha_llegada":"YYYY-MM-DD o vacío (solo si el documento dice fecha de entrega/llegada)", "lineas":[{"ref":"código o item no. del producto","descripcion":"texto de la línea","modelo":"nombre del modelo","talla":"S/M/L/XL…","color":"","cantidad":1}]}
+Incluye solo bicicletas y cuadros (no repuestos sueltos, flete, seguro ni impuestos). Si una línea trae varias tallas, sepárala en una línea por talla. No inventes datos que no estén.`;
+      const txt = await llamarGemini(prompt, 0.1, 90000, { mime: m[1], data: m[2] });
+      if (!txt) return res.status(502).json({ error: ultimoErrorIA || 'La IA no respondió' });
+      let j; try { j = JSON.parse(txt.replace(/^```json|```$/g, '')); } catch (e) { return res.status(502).json({ error: 'La IA devolvió algo que no se pudo leer. Intenta de nuevo.' }); }
+      const mk = marca || j.marca || '';
+      const skus = (await leerSkus(true)).filter(s => !mk || norm(s.marca) === norm(mk) || norm(mk).includes(norm(s.marca)));
+      const al = t => String(t || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const tok = t => new Set(String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').split(/[^a-z0-9]+/).filter(x => x.length > 1));
+      const lineas = (Array.isArray(j.lineas) ? j.lineas : []).slice(0, 300).map(l => {
+        const ref = al(l.ref), talla = String(l.talla || '').trim().toUpperCase(), color = norm(l.color || '');
+        let mejor = null, pts = 0;
+        for (const s of skus) {
+          let p = 0; const sr = al(s.sku);
+          if (ref && sr && (sr === ref)) p += 100; else if (ref && sr && ref.length >= 5 && (sr.startsWith(ref) || ref.startsWith(sr) || sr.includes(ref))) p += 60;
+          const tm = tok(s.modelo), tl = tok((l.modelo || '') + ' ' + (l.descripcion || '')); let c = 0; tm.forEach(x => { if (tl.has(x)) c++; }); if (tm.size) p += 30 * c / tm.size;
+          if (talla && String(s.talla).toUpperCase() === talla) p += 20; else if (talla) p -= 15;
+          if (color && norm(s.color) && (color.includes(norm(s.color)) || norm(s.color).includes(color))) p += 15;
+          if (p > pts) { pts = p; mejor = s; }
+        }
+        return { ref: String(l.ref || '').slice(0, 60), descripcion: String(l.descripcion || '').slice(0, 160), modelo: String(l.modelo || '').slice(0, 80), talla, color: String(l.color || '').slice(0, 60),
+          cantidad: Math.max(1, Math.round(num(l.cantidad) || 1)), sku_id: pts >= 45 ? mejor.id : null, seguro: pts >= 90 };
+      });
+      res.json({ marca: mk, fecha_llegada: /^\d{4}-\d{2}-\d{2}$/.test(j.fecha_llegada || '') ? j.fecha_llegada : '', lineas });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
   // ── Página por marca: bikes.kuranko.pe/marca/kavenz abre la tienda con esa marca (para mostrársela a la marca, anuncios y Google) ──
   app.get('/marca/:slug', async (req, res) => {
     try {
@@ -1686,7 +1753,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       const $ = v => usdM ? `US$ ${Math.round(num(v) / tc).toLocaleString('en-US')}` : soles(v);
       const $2 = v => usdM ? `<span class="s">${soles(v)}</span>` : '';
       const fc = iso => iso ? new Date(iso + 'T12:00:00Z').toLocaleDateString('es-PE', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }) : '';
-      const ENV = { lima: 'Unidad en stock', aereo: 'Aéreo', maritimo: 'Marítimo', unidad: 'Marítimo individual', grupo: 'Marítimo en grupo' };
+      const ENV = { preventa: 'Preventa (unidad en camino)', lima: 'Unidad en stock', aereo: 'Aéreo', maritimo: 'Marítimo', unidad: 'Marítimo individual', grupo: 'Marítimo en grupo' };
       let extras = []; try { extras = JSON.parse(r.extras || '[]'); } catch (e) {}
       const gar = (info[r.marca] || {}).garantia || ((mods[r.marca + '|' + r.modelo] || {}).datos || {}).garantia || 'Garantía oficial del fabricante, gestionada por Kuranko en Lima.';
       const fila = (a, b, c = '') => `<tr><td>${a}</td><td class="n">${b}${c}</td></tr>`;
@@ -1926,7 +1993,7 @@ ${num(r.adelanto) ? fila(`Adelanto (${num(R.adelanto)}%) para separar la unidad,
       const skus = await leerSkus(false);
       const mods = await leerModelos();
       const conPrecio = skus.map(s => {
-        const ops = opcionesEnvio(s, R, tc, mods[s.marca + '|' + s.modelo] || {});
+        const ops = opcionesEnvio(s, R, tc, mods[s.marca + '|' + s.modelo] || {}).filter(o => o.k !== 'preventa'); // el catálogo del panel muestra el precio normal
         const p = calcularPrecio(s, ops[0].k, R, tc);
         const ms = ops.flatMap(o => [o.mb, o.ma]);
         const pf = ops[0].p, gan = pf / (1 + num(R.igv) / 100) / tc.usd - p.puesto;
@@ -1939,7 +2006,7 @@ ${num(r.adelanto) ? fila(`Adelanto (${num(R.adelanto)}%) para separar la unidad,
           estado, nota_interna, venta_erp, UNIX_TIMESTAMP(consulta_marca) consulta_marca, UNIX_TIMESTAMP(valido_hasta) valido_hasta, UNIX_TIMESTAMP(actualizado) actualizado, actualizado_por
         FROM bk_reservas ORDER BY id DESC LIMIT 500`);
       const [imports] = await portalPool.query(`SELECT id, UNIX_TIMESTAMP(creado) creado, usuario, archivo, marcas, modo, nuevas, actualizadas, desactivadas FROM bk_imports ORDER BY id DESC LIMIT 20`);
-      res.json({ reglas: R, tc, maestro: !!(req.admin && req.admin.maestro), skus: conPrecio, reservas: reservas.map(r => ({ ...r, total: num(r.total), adelanto: num(r.adelanto),
+      res.json({ reglas: R, preventa_cfg: R._preventa || {}, tc, maestro: !!(req.admin && req.admin.maestro), skus: conPrecio, reservas: reservas.map(r => ({ ...r, total: num(r.total), adelanto: num(r.adelanto),
           creado: horaLima(r.creado), actualizado: horaLima(r.actualizado), valido_hasta: horaLima(r.valido_hasta), vencida: r.estado === 'Nueva' && r.valido_hasta && r.valido_hasta * 1000 < Date.now() })),
         modelos: mods, marcas_info: await leerMarcas(), pagina: await leerPagina(),
         llamadas: (await portalPool.query(`SELECT id, UNIX_TIMESTAMP(creado) creado, nombre, tel, DATE_FORMAT(fecha,'%Y-%m-%d') fecha, franja, tema, ref, estado, nota FROM bk_llamadas ORDER BY (estado='Pendiente') DESC, fecha, id DESC LIMIT 200`))[0].map(l => ({ ...l, creado: horaLima(l.creado) })), grupos: await gruposPorMarca(R),
@@ -2112,18 +2179,23 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
       await prepararTablas();
       conn = await portalPool.getConnection();
       await conn.beginTransaction();
-      const [[r]] = await conn.query('SELECT id, sku_id, estado FROM bk_reservas WHERE id=? FOR UPDATE', [num(b.id)]);
+      const [[r]] = await conn.query('SELECT id, sku_id, estado, envio FROM bk_reservas WHERE id=? FOR UPDATE', [num(b.id)]);
       if (!r) { await conn.rollback(); return res.status(404).json({ error: 'Reserva no encontrada' }); }
       const sets = ['actualizado=NOW()', 'actualizado_por=?'], vals = [usuarioDe(req)];
       if (b.estado !== undefined) {
         if (!ESTADOS_RESERVA.includes(b.estado)) { await conn.rollback(); return res.status(400).json({ error: 'Estado no válido' }); }
         sets.push('estado=?'); vals.push(b.estado);
         // Libera o vuelve a tomar la unidad reservada
+        if (r.envio === 'preventa') { // la unidad era de preventa: se devuelve o se vuelve a tomar de las que vienen en camino
+          if (b.estado === 'Cancelada' && r.estado !== 'Cancelada') await conn.query('UPDATE bk_skus SET preventa=preventa+1 WHERE id=?', [r.sku_id]);
+          if (b.estado !== 'Cancelada' && r.estado === 'Cancelada') await conn.query('UPDATE bk_skus SET preventa=GREATEST(preventa-1,0) WHERE id=?', [r.sku_id]);
+        } else {
         if (b.estado === 'Cancelada' && r.estado !== 'Cancelada') await conn.query('UPDATE bk_skus SET reservado=GREATEST(reservado-1,0) WHERE id=?', [r.sku_id]);
         if (b.estado !== 'Cancelada' && r.estado === 'Cancelada') await conn.query('UPDATE bk_skus SET reservado=reservado+1 WHERE id=?', [r.sku_id]);
         // Al entregar, la unidad deja de contar como stock de la marca
         if (b.estado === 'Entregada' && r.estado !== 'Entregada') await conn.query('UPDATE bk_skus SET reservado=GREATEST(reservado-1,0), stock=IF(stock<0, stock, GREATEST(stock-1,0)) WHERE id=?', [r.sku_id]);
         if (r.estado === 'Entregada' && b.estado !== 'Entregada') await conn.query('UPDATE bk_skus SET reservado=reservado+(?), stock=IF(stock<0, stock, stock+1) WHERE id=?', [b.estado === 'Cancelada' ? 0 : 1, r.sku_id]);
+        }
       }
       if (b.nota_interna !== undefined) { sets.push('nota_interna=?'); vals.push(String(b.nota_interna).slice(0, 2000)); }
       if (b.venta_erp !== undefined) { sets.push('venta_erp=?'); vals.push(String(b.venta_erp).trim().slice(0, 40) || null); }

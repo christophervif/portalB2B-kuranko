@@ -349,6 +349,7 @@ module.exports = function registrarKits({ app, authAdmin, requiereModulo, prodPo
     const kitVids = recetas.map(r => vid(r.kit_sku)).filter(Boolean);
     const compVids = [...new Set(recetas.flatMap(r => r.componentes.map(c => vid(c.comp_sku))).filter(Boolean))];
     const costos = await costosPorVid(kitVids);
+    const kc = await kitsAlmacen().catch(e => { console.warn('[kits] almacén de kits:', e.message); return null; });
     let ventas = [], stock = {};
     if (conCuadre) {
       const desdes = recetas.map(r => (r.movimientos || []).filter(m => m.tipo === 'apertura').map(m => m.fecha).sort()[0]).filter(Boolean).sort();
@@ -356,16 +357,19 @@ module.exports = function registrarKits({ app, authAdmin, requiereModulo, prodPo
     }
     return recetas.map(r => {
       const kv = vars[skuKey(r.kit_sku)] || null;
-      const kc = kv ? costos[kv.vid] : null;
+      const kcos = kv ? costos[kv.vid] : null;
       const comps = r.componentes.map(c => {
         const v = vars[skuKey(c.comp_sku)] || null;
         return { ...c, comp_nombre: c.comp_nombre || (v && v.nombre) || '', precio_ref: v ? v.precio : null, en_sistema: !!v };
       });
-      const reparto = repartir({ costoKit: kc ? kc.costo : null, precioKit: kv ? kv.precio : null, metodo: r.metodo,
+      const reparto = repartir({ costoKit: kcos ? kcos.costo : null, precioKit: kv ? kv.precio : null, metodo: r.metodo,
         recargoPct: r.recargo_pct, componentes: comps });
       const out = { ...r, componentes: comps, kit: { en_sistema: !!kv, nombre_sistema: kv ? kv.nombre : null,
-        costo: kc ? kc.costo : null, costo_fuente: kc ? kc.fuente : null, costo_fecha: kc ? kc.fecha : null,
-        precio: kv ? kv.precio : null }, reparto };
+        costo: kcos ? kcos.costo : null, costo_fuente: kcos ? kcos.fuente : null, costo_fecha: kcos ? kcos.fecha : null,
+        precio: kv ? kv.precio : null,
+        // kits que quedan hoy en el almacén de kits (Cuarentena), sin abrir
+        stock_almacen: (kc && kc.encontrado) ? (kc.stockDe[skuKey(r.kit_sku)] || 0) : null,
+        almacen: kc && kc.encontrado ? kc.ubicaciones.join(', ') : null }, reparto };
       if (conCuadre) {
         const aperturas = (r.movimientos || []).filter(m => m.tipo === 'apertura');
         const desde = aperturas.map(m => m.fecha).sort()[0] || null;
@@ -387,7 +391,7 @@ module.exports = function registrarKits({ app, authAdmin, requiereModulo, prodPo
   //  El supervisor no ve costos ni precios (igual que en Inventario y Auditoría).
   function sinCostos(r) {
     const c = { ...r };
-    c.kit = c.kit ? { en_sistema: c.kit.en_sistema, nombre_sistema: c.kit.nombre_sistema } : null;
+    c.kit = c.kit ? { en_sistema: c.kit.en_sistema, nombre_sistema: c.kit.nombre_sistema, stock_almacen: c.kit.stock_almacen, almacen: c.kit.almacen } : null;
     c.componentes = (c.componentes || []).map(x => ({ comp_sku: x.comp_sku, comp_nombre: x.comp_nombre, cant_por_kit: x.cant_por_kit,
       vendible: x.vendible, orden: x.orden, en_sistema: x.en_sistema }));
     c.reparto = null;
@@ -395,6 +399,53 @@ module.exports = function registrarKits({ app, authAdmin, requiereModulo, prodPo
     return c;
   }
   const idReceta = (kitSku) => ('kit:' + skuKey(kitSku).replace(/[^A-Z0-9]/g, '')).slice(0, 40);
+
+  // ── Almacén de los kits canibalizados (por defecto "Cuarentena") ──────────
+  //  Los kits que se canibalizan se guardan ahí, así que las opciones de "kit de
+  //  origen" salen SOLO de ese almacén. Se cambia sin tocar código con la variable
+  //  de Railway KITS_UBICACION (nombres separados por coma; sin tildes ni mayúsculas).
+  const UBIC_KITS = (process.env.KITS_UBICACION || 'CUARENTENA').split(',').map(x => normalizar(x)).filter(Boolean);
+  let _ubic = null, _ubicAt = 0;
+  async function ubicacionesKits() {
+    if (_ubic && Date.now() - _ubicAt < 10 * 60 * 1000) return _ubic;
+    const [rows] = await prodPool.query(`SELECT id, name FROM locations`);
+    _ubic = rows.filter(r => { const n = normalizar(r.name); return UBIC_KITS.some(u => n === u || n.includes(u)); })
+      .map(r => ({ id: r.id, nombre: r.name }));
+    _ubicAt = Date.now();
+    return _ubic;
+  }
+  //  Productos (no PCK) que ESTÁN o ESTUVIERON en ese almacén, con su stock de hoy
+  //  ahí. "Estuvieron" cubre los kits ya abiertos (el retiro los dejó en 0).
+  let _kc = null, _kcAt = 0;
+  async function kitsAlmacen() {
+    if (_kc && Date.now() - _kcAt < 5 * 60 * 1000) return _kc;
+    const ubic = await ubicacionesKits();
+    if (!ubic.length) { _kc = { encontrado: false, ubicaciones: [], items: [], prep: [], stockDe: {} }; _kcAt = Date.now(); return _kc; }
+    const ids = ubic.map(u => u.id);
+    const [[st], [mv]] = await Promise.all([
+      prodPool.query(`SELECT product_variation_id AS vid, SUM(quantity) AS q FROM location_stocks
+                       WHERE location_id IN (?) GROUP BY product_variation_id`, [ids]),
+      prodPool.query(`SELECT DISTINCT product_variation_id AS vid FROM stock_movements
+                       WHERE location_to_id IN (?) OR location_from_id IN (?)`, [ids, ids]),
+    ]);
+    const stockVid = {}; st.forEach(r => { stockVid[r.vid] = num(r.q); });
+    const vids = [...new Set([...st.map(r => r.vid), ...mv.map(r => r.vid)].filter(v => v != null))];
+    const filas = [];
+    for (let i = 0; i < vids.length; i += 1000) {
+      const [rows] = await prodPool.query(`
+        SELECT pv.id AS vid, TRIM(pv.sku) AS sku, COALESCE(NULLIF(TRIM(pv.name),''), p.name) AS nombre
+          FROM product_variations pv LEFT JOIN products p ON p.id = pv.product_id
+         WHERE pv.id IN (?) AND pv.deleted_at IS NULL AND pv.sku IS NOT NULL AND TRIM(pv.sku) <> ''`, [vids.slice(i, i + 1000)]);
+      filas.push(...rows);
+    }
+    const items = filas.filter(r => !esPck(r.sku, r.nombre))
+      .map(r => ({ sku: r.sku, nombre: r.nombre || '', stock: stockVid[r.vid] || 0 }))
+      .sort((a, b) => ((b.stock > 0) - (a.stock > 0)) || a.nombre.localeCompare(b.nombre));
+    const stockDe = {}; items.forEach(i => { stockDe[skuKey(i.sku)] = i.stock; });
+    _kc = { encontrado: true, ubicaciones: ubic.map(u => u.nombre), items, prep: prepararCatalogo(items), stockDe };
+    _kcAt = Date.now();
+    return _kc;
+  }
 
   // ── Catálogo para sugerencias (caché 10 min) ──────────────────────────────
   let _cat = null, _catAt = 0;
@@ -433,15 +484,36 @@ module.exports = function registrarKits({ app, authAdmin, requiereModulo, prodPo
     } catch (e) { console.error('[kits] por-componente', e.message); res.status(500).json({ error: 'No se pudo leer el mapa de kits' }); }
   });
 
-  // Sugerencias del kit de origen de una pieza.
+  // Sugerencias del kit de origen de una pieza: SOLO entre los productos del
+  // almacén de kits (Cuarentena). ?todo=1 busca en todo el catálogo (respaldo).
+  // Si el almacén no existe en el sistema, usa todo el catálogo y lo avisa.
   app.get('/api/kits/sugerir', authAdmin, mSeg, async (req, res) => {
     try {
       const sku = s(req.query.sku).trim();
       if (!sku) return res.status(400).json({ error: 'Falta el SKU de la pieza' });
       let nombre = s(req.query.nombre).trim();
       if (!nombre) { const v = await variacionesPorSku([sku]); nombre = (v[skuKey(sku)] || {}).nombre || ''; }
-      res.json({ comp: { sku, nombre }, candidatos: sugerirKits({ sku, nombre }, await catalogoPrep(), 6) });
+      const kc = await kitsAlmacen();
+      const soloAlmacen = kc.encontrado && req.query.todo !== '1';
+      const cat = soloAlmacen ? kc.prep : await catalogoPrep();
+      const candidatos = sugerirKits({ sku, nombre }, cat, 6)
+        .map(c => ({ ...c, stock_almacen: kc.stockDe[skuKey(c.sku)] != null ? kc.stockDe[skuKey(c.sku)] : null }));
+      res.json({ comp: { sku, nombre }, candidatos, fuente: soloAlmacen ? 'almacen' : 'catalogo',
+        ubicaciones: kc.ubicaciones, almacen_encontrado: kc.encontrado });
     } catch (e) { console.error('[kits] sugerir', e.message); res.status(500).json({ error: 'No se pudieron calcular sugerencias' }); }
+  });
+
+  // Productos del almacén de kits (Cuarentena) con su stock y si ya están configurados.
+  // Alimenta el buscador de kits y la lista "kits en Cuarentena sin configurar".
+  app.get('/api/kits/almacen', authAdmin, mSeg, async (req, res) => {
+    try {
+      await tablas();
+      const kc = await kitsAlmacen();
+      const [rs] = await portalPool.query(`SELECT kit_sku FROM kit_recetas`);
+      const conf = new Set(rs.map(r => skuKey(r.kit_sku)));
+      res.json({ encontrado: kc.encontrado, ubicaciones: kc.ubicaciones,
+        items: kc.items.map(i => ({ ...i, configurado: conf.has(skuKey(i.sku)) })) });
+    } catch (e) { console.error('[kits] almacen', e.message); res.status(500).json({ error: 'No se pudo leer el almacén de kits' }); }
   });
 
   // Asigna una pieza a un kit (desde el grupo de canibalizados). Crea la receta si

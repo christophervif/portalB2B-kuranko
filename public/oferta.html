@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<script src="/tema.js"></script>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="robots" content="noindex,nofollow"/>
+<title>Promociones — Kuranko</title>
+<style>
+:root{
+  --bg:#000726;--surface:#0a1238;--surface2:#060d2e;--surface3:#111b44;
+  --border:#1f2a55;--text:#eef1f8;--text2:#c2cae0;--muted:#7681a6;--muted2:#9aa4c4;
+  --accent:#FFB30D;--accent-text:#000726;--hover:#152050;--white:#ffffff;
+  --bg-ok:#0f3d24;--fg-ok:#4ade80;--bg-warn:#3d2f08;--fg-warn:#FFB30D;--bg-r:#4a1414;--fg-r:#f87171;
+}
+[data-theme="light"]{
+  --bg:#f3f5fb;--surface:#ffffff;--surface2:#f9fafe;--surface3:#eef1f9;
+  --border:#dce2f0;--text:#000726;--text2:#2a3661;--muted:#8b96b8;--muted2:#5a6690;
+  --hover:#eef1f9;--white:#000726;
+  --bg-ok:#dcfce7;--fg-ok:#15803d;--bg-warn:#fef3c7;--fg-warn:#a06a00;--bg-r:#fee2e2;--fg-r:#dc2626;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{overflow-x:hidden}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+.head{background:var(--surface);border-bottom:1px solid var(--border);padding:14px 16px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.head .logo{font-weight:800;color:var(--accent);letter-spacing:.05em}
+.head .t{font-size:13px;color:var(--muted2)}
+.wrap{max-width:1180px;margin:0 auto;padding:16px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:16px;margin-bottom:14px}
+h2{font-size:17px;margin-bottom:4px;color:var(--white)}
+.desc{font-size:12.5px;color:var(--muted)}
+.campo{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted2);margin-top:10px}
+.campo input{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:10px;font-size:14px}
+.btn{background:var(--accent);color:var(--accent-text);border:none;border-radius:10px;padding:10px 16px;font-weight:700;cursor:pointer;margin-top:12px;font-size:14px}
+.err{background:var(--bg-r);color:var(--fg-r);border-radius:12px;padding:14px;line-height:1.5}
+.vend{font-size:12px;color:var(--muted2)}.vend a{color:var(--accent);cursor:pointer}
+</style>
+</head>
+<body>
+<div class="head"><div><span class="logo">KURANKO</span> <span class="t" id="h-tienda"></span></div><div class="vend" id="h-vend"></div></div>
+<div class="wrap">
+  <div class="card" id="c-nombre" style="display:none;max-width:420px">
+    <h2>Promociones para vendedores</h2>
+    <div class="desc">Escribe tu nombre para que sepamos quién envía la solicitud. Se guarda en este equipo.</div>
+    <label class="campo">Tu nombre<input id="i-nombre" autocomplete="name" maxlength="80"></label>
+    <label class="campo">Tu celular (opcional)<input id="i-tel" type="tel" autocomplete="tel" maxlength="20"></label>
+    <button class="btn" onclick="guardarNombre()">Ver promociones</button>
+  </div>
+  <div class="card" id="c-lista" style="display:none">
+    <h2>Productos en promoción</h2>
+    <div id="lista"></div>
+  </div>
+  <div id="c-err" style="display:none" class="card"><div class="err" id="err"></div></div>
+</div>
+<script src="/ofertas-lista.js"></script>
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+//  Link libre de promociones para vendedores de una tienda (sin login).
+//  Backend: modulos/promociones-portal.js (/api/oferta/:token…). No muestra el precio
+//  de la tienda, solo el PVP oferta. Cada equipo es una sesión (id en localStorage);
+//  si se abren más equipos a la vez que el máximo de la tienda, el link se bloquea.
+// ═══════════════════════════════════════════════════════════════════════════
+const TOKEN = new URLSearchParams(location.search).get('t') || '';
+const $ = id => document.getElementById(id);
+const leer = k => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+const guardar = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
+let SID = leer('oferta_sid');
+if (!SID) { SID = Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join(''); guardar('oferta_sid', SID); }
+const ep = p => `/api/oferta/${encodeURIComponent(TOKEN)}${p || ''}`;
+
+function error(msg) { $('c-lista').style.display = 'none'; $('c-nombre').style.display = 'none'; $('c-err').style.display = ''; $('err').textContent = msg; detener(); }
+async function api(p, metodo, body) {
+  const r = await fetch(ep(p) + (metodo === 'GET' ? '?sid=' + SID : ''), { method: metodo, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify({ ...body, sid: SID }) : undefined });
+  const d = await r.json().catch(() => ({}));
+  if (r.status === 423 || r.status === 404) { error(d.error || 'Este link no está disponible.'); throw new Error(d.error || 'Link no disponible'); }
+  if (!r.ok) throw new Error(d.error || 'Error');
+  return d;
+}
+let latido = null;
+function detener() { if (latido) clearInterval(latido); latido = null; }
+function vendedor() { return { nombre: leer('oferta_vendedor') || '', tel: leer('oferta_tel') || '' }; }
+function pintarVend() {
+  const v = vendedor();
+  $('h-vend').innerHTML = v.nombre ? `Vendedor: <b>${v.nombre.replace(/</g, '&lt;')}</b> · <a onclick="cambiarNombre()">cambiar</a>` : '';
+}
+function cambiarNombre() { $('i-nombre').value = vendedor().nombre; $('i-tel').value = vendedor().tel; $('c-nombre').style.display = ''; $('c-lista').style.display = 'none'; }
+function guardarNombre() {
+  const n = $('i-nombre').value.trim(); if (n.length < 2) { $('i-nombre').focus(); return; }
+  guardar('oferta_vendedor', n); guardar('oferta_tel', $('i-tel').value.trim());
+  $('c-nombre').style.display = 'none'; pintarVend(); cargar();
+}
+async function cargar() {
+  if (!TOKEN) return error('Falta el código del link. Pide a la tienda el link completo.');
+  let d;
+  try { d = await api('', 'GET'); } catch (e) { if ($('c-err').style.display === 'none') error(e.message); return; }
+  $('h-tienda').textContent = '· ' + d.tienda;
+  if (!vendedor().nombre) { $('c-nombre').style.display = ''; return; }
+  $('c-lista').style.display = '';
+  if (!d.items.length) { $('lista').innerHTML = '<div class="desc" style="padding:20px;text-align:center">Por ahora no hay promociones vigentes. Vuelve pronto.</div>'; }
+  else OfertasLista.montar($('lista'), {
+    modo: 'link', datos: d,
+    enviar: items => { const v = vendedor(); return api('/solicitud', 'POST', { items, vendedor: v.nombre, telefono: v.tel }); },
+    recargar: () => api('', 'GET'),
+    solicitudes: () => api('/mis-solicitudes', 'GET')
+  });
+  detener();
+  latido = setInterval(() => api('/latido', 'POST', {}).catch(() => {}), 25000);
+}
+// Al cerrar o salir de la página se libera el lugar (no cuenta para el máximo de equipos)
+addEventListener('pagehide', () => { try { navigator.sendBeacon(ep('/salir'), new Blob([JSON.stringify({ sid: SID })], { type: 'application/json' })); } catch (e) {} });
+pintarVend();
+cargar();
+</script>
+</body>
+</html>

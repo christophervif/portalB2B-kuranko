@@ -165,6 +165,7 @@ tbody tr.clickable:hover td{background:var(--hover)}
       <button class="tab" onclick="tab('pagos',this)">Mis pagos</button>
       <button class="tab" onclick="tab('stock',this)">Mi consignación</button>
       <button class="tab" id="tab-transf-btn" onclick="tab('transf',this)">Transferencias</button>
+      <button class="tab" id="tab-promo-btn" onclick="tab('promo',this)" style="display:none">🏷️ Promociones</button>
       <button class="tab" id="tab-prop-btn" onclick="tab('prop',this)" style="display:none">Propuestas <span id="prop-badge" class="badge badge-warn" style="display:none"></span></button>
     </div>
     <div id="prop-aviso"></div>
@@ -207,6 +208,13 @@ tbody tr.clickable:hover td{background:var(--hover)}
         </div>
         <p class="muted" style="font-size:11px;margin-bottom:10px">Columna <b>Mov.</b>: cambios de los últimos 60 días — <span style="color:#4ade80">●</span> entrada · <span style="color:#60a5fa">●</span> devolución · <span style="color:#fbbf24">●</span> venta. Toca los puntos para ver las fechas.</p>
         <div id="stock-tabla"><div class="loading">Cargando...</div></div>
+      </div>
+    </div>
+
+    <div id="tab-promo" class="panel">
+      <div class="card">
+        <div class="card-head"><h3>Promociones</h3></div>
+        <div id="promo-lista"><div class="loading">Cargando...</div></div>
       </div>
     </div>
 
@@ -265,6 +273,7 @@ tbody tr.clickable:hover td{background:var(--hover)}
 
 <div class="toast" id="toast"></div>
 
+<script src="/ofertas-lista.js"></script>
 <script>
 let TOKEN='',API='',ventasCache=[],stockCache=[],transfCache=[],detalleAbierto=null;
 // Empresas con varios RUC/DNI: filtro por RUC para compras, pagos y resumen ('' = todos)
@@ -325,7 +334,7 @@ async function mostrarApp(){
   document.getElementById('app-screen').style.display='block';
   document.getElementById('wa-soporte').href=`https://wa.me/${WA_SOPORTE}?text=${encodeURIComponent('Hola Kuranko, tengo una consulta sobre mi portal.')}`;
   aplicarTema(document.documentElement.getAttribute('data-theme')||'dark');
-  await Promise.all([cargarSaldo(),cargarVentas(),cargarPagos(),cargarStock(),cargarTransferencias(),cargarPropuestas()]);
+  await Promise.all([cargarSaldo(),cargarVentas(),cargarPagos(),cargarStock(),cargarTransferencias(),cargarPropuestas(),cargarPromos()]);
 }
 async function cargarSaldo(){
   try{
@@ -475,6 +484,18 @@ async function cargarStock(){
         <td class="num" data-label="Disponible">${r.disponible}</td><td class="num" data-label="Vendido hist.">${r.vendido_hist}</td><td class="num" data-label="Precio">${r.precio?fmt(r.precio):'-'}</td></tr>`).join('')+`</tbody></table>`;
   }catch(e){showToast(e.message,true);}
 }
+// ── Promociones (campañas de oferta vigentes; lista compartida con el link de vendedores: /ofertas-lista.js) ──
+async function cargarPromos(){
+  let d; try{d=await apiCall('/portal/promociones');}catch(e){return;}
+  const btn=document.getElementById('tab-promo-btn');
+  btn.style.display=d.items&&d.items.length?'':'none';
+  if(!d.items||!d.items.length)return;
+  OfertasLista.montar(document.getElementById('promo-lista'),{modo:'portal',datos:d,
+    enviar:items=>apiCall('/portal/promociones/solicitud','POST',{items}),
+    recargar:()=>apiCall('/portal/promociones'),
+    solicitudes:()=>apiCall('/portal/promociones/mis-solicitudes')});
+}
+
 // ── Propuestas de reposición (Kuranko propone, la tienda acepta) ──
 let propCache=[];
 const EST_P={enviada:['Por responder','badge-warn'],aceptada:['Aceptada · en preparación','badge-in'],despachada:['Despachada','badge-ok'],rechazada:['Rechazada','badge-r']};

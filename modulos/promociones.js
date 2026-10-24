@@ -241,7 +241,7 @@ function filtrarItems(items, q) {
     (!txt || (x.sku + ' ' + x.producto).toLowerCase().includes(txt)));
 }
 
-module.exports = function registrarPromociones({ app, authAdmin, mInv, prodPool, portalPool, erpWritePool, VV }) {
+module.exports = function registrarPromociones({ app, authAdmin, mInv, prodPool, portalPool, erpWritePool, VV, authCliente, portal, grupos }) {
 
   async function leerBase() {
     const [[ubic], [lotes], [ultCosto], [ventas], [catalogo], [cats], [hermanas]] = await Promise.all([
@@ -343,7 +343,12 @@ module.exports = function registrarPromociones({ app, authAdmin, mInv, prodPool,
   // Campañas de oferta (escriben el precio de oferta en el ERP) → modulos/promociones-campanas.js
   if (!portalPool) return {};
   let ia = null; try { ia = require('./bikes').ia; } catch (e) { /* sin IA: se usan reglas */ }
-  return require('./promociones-campanas')({ app, authAdmin, prodPool, portalPool, erpWritePool, VV, ia });
+  const camp = require('./promociones-campanas')({ app, authAdmin, prodPool, portalPool, erpWritePool, VV, ia });
+  // Pestaña "Promociones" del portal de clientes + links libres para vendedores → modulos/promociones-portal.js
+  let web = null;
+  if (authCliente) web = require('./promociones-portal')({ app, authAdmin, authCliente, prodPool, portalPool, ofertasVigentes: camp.ofertasVigentes,
+    correoEmpresa: portal && portal.correoEmpresa, destinatariosReporte: portal && portal.destinatariosReporte, grupos, VV });
+  return { ...camp, prepararTablas: async () => { await camp.prepararTablas(); if (web) await web.prepararTablas(); } };
 };
 
 module.exports._test = { calcularPromos, filtrarItems, leerFiltros, veMargenes, descuentoSugerido, MOTIVOS };

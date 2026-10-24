@@ -47,6 +47,7 @@ const { claseUbicacion } = require('./inventario').comun;
 const PASO = Number(process.env.PROMO_REDONDEO || 5);         // redondeo hacia arriba (S/)
 const CADA_MIN = Number(process.env.PROMO_REVISAR_MIN || 10);  // revisión automática
 const NUNCA = 9999;                                            // días sin venta si nunca vendió
+const TOPE_SEGURIDAD = 60;                                     // % máx. de descuento sobre el PVP sin confirmación expresa (fijo)
 const TZ_LIMA = -5;                                            // Perú no tiene horario de verano
 const DIA = 864e5;
 const r2 = n => Math.round(n * 100) / 100;
@@ -67,6 +68,41 @@ function costoBase(lotes) {
     costo_max: r2(Math.max(...dos.map(l => Number(l.costo)))),
     unidades: und, lotes: dos.map(l => l.id), lote_ref: ord[0].id, entrada: ord[0].entrada || null
   };
+}
+
+// ── Lotes con costo simbólico (garantía, auspicio… que se ingresan como compra a ~1 dólar) ──
+//  En el ERP no se marca el tipo de ingreso de una garantía: solo se nota por el COSTO, que es
+//  simbólico. Un descuento grande del proveedor (ej. Magura) NO es atípico. Un lote es atípico si:
+//   · cuesta menos del 10 % del costo normal del SKU (mediana de todos sus lotes), o
+//   · cuesta menos del 5 % del precio de lista, o S/ 5 o menos (≈ 1 dólar).
+//  Al lote atípico se le usa el costo normal (mediana). Si no hay un costo normal creíble para
+//  corregirlo, el SKU queda "dudoso" y no entra en campañas hasta revisarlo en el ERP.
+const ATIPICO_FACTOR = Number(process.env.PROMO_ATIPICO || 0.10);
+const ATIPICO_LISTA = Number(process.env.PROMO_ATIPICO_LISTA || 0.05);
+const COSTO_MIN = Number(process.env.PROMO_COSTO_MIN || 5);
+const mediana = a => { const o = a.filter(x => x > 0).sort((x, y) => x - y); if (!o.length) return null; const m = o.length >> 1; return o.length % 2 ? o[m] : (o[m - 1] + o[m]) / 2; };
+// historial: [{costo}] todos los lotes del SKU (también los ya vacíos); vivos: [{id, qty, costo, entrada}]
+function depurarLotes(vivos, historial, lista) {
+  lista = Number(lista) || 0;
+  const simbolico = c => c <= COSTO_MIN || (lista > 0 && c < lista * ATIPICO_LISTA);
+  // costo normal = mediana de los lotes que no son simbólicos
+  const ref = mediana((historial || []).map(l => Number(l.costo)).filter(c => c > 0 && !simbolico(c)));
+  const alertas = []; let dudoso = false;
+  const fmt = n => 'S/ ' + Number(n).toFixed(2);
+  const lotes = (vivos || []).map(l => {
+    const c = Number(l.costo) || 0;
+    const bajo = ref != null && c < ref * ATIPICO_FACTOR;
+    if (!bajo && !simbolico(c)) return l;
+    const fecha = l.entrada ? new Date(l.entrada).toISOString().slice(0, 10) : '—';
+    if (ref != null) {
+      alertas.push(`Lote del ${fecha} a ${fmt(c)}: costo simbólico (¿garantía o auspicio?). Se usó el costo normal ${fmt(ref)}.`);
+      return { ...l, costo: Math.round(ref * 100) / 100, costo_original: c, atipico: true };
+    }
+    dudoso = true;
+    alertas.push(`Lote del ${fecha} a ${fmt(c)}: costo simbólico y no hay otro lote con costo normal para corregirlo. Revisa el costo en el sistema.`);
+    return { ...l, atipico: true };
+  });
+  return { lotes, alertas, dudoso, ref: ref != null ? Math.round(ref * 100) / 100 : null };
 }
 
 // it: {lista, costo_base, costo_max, oferta_actual}; o: {desc_pct, desc_tienda, a_costo}
@@ -179,7 +215,8 @@ module.exports = function registrarCampanas({ app, authAdmin, prodPool, portalPo
       nota VARCHAR(300), aplicado_en DATETIME NULL, restaurado_en DATETIME NULL,
       INDEX (campana_id), INDEX (vid, estado))`);
     // Columnas agregadas después de la 1.ª versión (si la tabla ya existía)
-    for (const c of ['costo_max DECIMAL(12,2)', 'tramo VARCHAR(80)', 'lote_ref INT NULL'])
+    for (const c of ['costo_max DECIMAL(12,2)', 'tramo VARCHAR(80)', 'lote_ref INT NULL', 'extremo_ok TINYINT DEFAULT 0',
+      'cambios_lote INT DEFAULT 0', 'alerta_costo VARCHAR(400)'])
       await portalPool.query(`ALTER TABLE promo_items ADD COLUMN ${c}`).catch(() => {});
     await portalPool.query(`CREATE TABLE IF NOT EXISTS promo_desc_marca (
       marca VARCHAR(60) PRIMARY KEY, pct DECIMAL(5,2) NOT NULL DEFAULT 0,
@@ -207,6 +244,17 @@ module.exports = function registrarCampanas({ app, authAdmin, prodPool, portalPo
     return leerReglas(v);
   }
 
+  // Lotes vivos de cada SKU con el costo depurado (ver depurarLotes). listaPor: {vid: precio de lista}
+  async function lotesDe(ids, listaPor) {
+    const out = {}; if (!ids.length) return out;
+    const [filas] = await prodPool.query(`SELECT id, product_variation_id AS vid, quantity AS qty, cost_price AS costo,
+        entry_date AS entrada FROM stock_batches WHERE product_variation_id IN (?)`, [ids]);
+    const hist = {}, vivos = {};
+    filas.forEach(l => { (hist[l.vid] = hist[l.vid] || []).push(l); if (Number(l.qty) > 0) (vivos[l.vid] = vivos[l.vid] || []).push(l); });
+    ids.forEach(vid => { out[vid] = depurarLotes(vivos[vid] || [], hist[vid] || [], Number((listaPor || {})[vid]) || 0); out[vid].crudos = vivos[vid] || []; });
+    return out;
+  }
+
   // ── Datos de una marca: SKUs activos con stock propio, lotes, ventas ──
   async function datosMarca(marca) {
     const M = marcaDe(marca); if (!M) return [];
@@ -220,15 +268,14 @@ module.exports = function registrarCampanas({ app, authAdmin, prodPool, portalPo
     const lista = cat.filter(c => marcaDe(c.producto) === M);
     if (!lista.length) return [];
     const ids = lista.map(c => c.vid);
-    const [[ubic], [lotes], [ventas], [mensual]] = await Promise.all([
+    const listaPor = {}; lista.forEach(c => listaPor[c.vid] = Number(c.regular_price) || 0);
+    const [[ubic], lotesD, [ventas], [mensual]] = await Promise.all([
       prodPool.query(`
         SELECT ls.product_variation_id AS vid, l.name AS loc_nombre, l.type AS loc_tipo,
           ls.quantity AS qty, ls.reserved_quantity AS reservado
         FROM location_stocks ls JOIN locations l ON l.id = ls.location_id
         WHERE ls.quantity > 0 AND ls.product_variation_id IN (?)`, [ids]),
-      prodPool.query(`
-        SELECT id, product_variation_id AS vid, quantity AS qty, cost_price AS costo, entry_date AS entrada
-        FROM stock_batches WHERE quantity > 0 AND product_variation_id IN (?)`, [ids]),
+      lotesDe(ids, listaPor),
       prodPool.query(`
         SELECT si.product_variation_id AS vid,
           SUM(CASE WHEN s.created_at >= DATE_SUB(NOW(), INTERVAL 12 MONTH) THEN si.quantity ELSE 0 END) AS und_12m,
@@ -244,22 +291,22 @@ module.exports = function registrarCampanas({ app, authAdmin, prodPool, portalPo
           AND s.created_at >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
         GROUP BY si.product_variation_id, mes`, [ids])
     ]);
-    const st = {}, lt = {}, vt = {}, mt = {};
+    const st = {}, vt = {}, mt = {};
     ubic.forEach(u => {
       if (claseUbicacion(u.loc_tipo, u.loc_nombre) !== 'propio') return;
       const e = st[u.vid] = st[u.vid] || { q: 0, res: 0 };
       const q = Number(u.qty) || 0; e.q += q; e.res += Math.min(q, Math.max(0, Number(u.reservado) || 0));
     });
-    lotes.forEach(l => (lt[l.vid] = lt[l.vid] || []).push(l));
     ventas.forEach(v => vt[v.vid] = v);
     mensual.forEach(m => (mt[m.vid] = mt[m.vid] || {})[m.mes] = Number(m.und) || 0);
     const hoy = Date.now(), dias = f => f ? Math.max(0, Math.floor((hoy - new Date(f).getTime()) / DIA)) : null;
     const meses12 = [...Array(12)].map((_, k) => { const d = new Date(hoy); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() - 11 + k); return d.toISOString().slice(0, 7); });
     return lista.map(c => {
       const s = st[c.vid] || { q: 0, res: 0 };
-      const L = lt[c.vid] || [];
+      const D = lotesD[c.vid] || { lotes: [], crudos: [], alertas: [] };
+      const L = D.crudos;   // capital con el costo real registrado
       const und = L.reduce((a, l) => a + Number(l.qty), 0), cap = L.reduce((a, l) => a + Number(l.qty) * Number(l.costo), 0);
-      const cb = costoBase(L);
+      const cb = costoBase(D.lotes);
       const v = vt[c.vid] || {};
       const dsv = dias(v.ultima_venta);
       const und12 = Number(v.und_12m) || 0;
@@ -270,6 +317,7 @@ module.exports = function registrarCampanas({ app, authAdmin, prodPool, portalPo
         capital: r2(s.q * (und ? cap / und : 0)),
         costo_base: cb ? cb.costo : null, costo_max: cb ? cb.costo_max : null, und_lotes_base: cb ? cb.unidades : 0,
         lote_ref: cb ? cb.lote_ref : null,
+        alerta_costo: D.alertas.join(' '), costo_dudoso: !!D.dudoso,
         edad_dias: cb ? dias(cb.entrada) : null,
         dias_sin_venta: dsv == null ? NUNCA : dsv, und_12m: und12,
         ventas_mes: meses12.map(m => (mt[c.vid] || {})[m] || 0),
@@ -320,6 +368,7 @@ Productos: ${JSON.stringify(lote)}`;
       (!f.lista_min || x.lista >= Number(f.lista_min)) &&
       (!f.lista_max || x.lista <= Number(f.lista_max)));
     const aCosto = new Set((b.a_costo || []).map(Number));
+    const extremoOk = new Set((b.extremo_ok || []).map(Number));   // confirmados por encima del tope de seguridad
     const manual = b.desc_manual || {};               // {vid: %}
     const general = b.desc_pct != null && b.desc_pct !== '' ? Number(b.desc_pct) : null;
 
@@ -362,6 +411,12 @@ Productos: ${JSON.stringify(lote)}`;
       Object.assign(x, precioPromo(x, { desc_pct: d, desc_tienda: descTienda, a_costo: x.a_costo }));
       x.motivo_txt = x.motivo && x.motivo !== 'sin_descuento' ? MOTIVO_TXT[x.motivo] : '';
       x.entra = x.precio != null && x.motivo !== 'ya_tiene_oferta';
+      x.extremo_ok = extremoOk.has(x.vid);
+      if (x.costo_dudoso) { x.entra = false; x.motivo_txt = '⚠ Costo dudoso: ' + x.alerta_costo; }
+      else if (x.precio != null && x.desc_real > TOPE_SEGURIDAD && !x.extremo_ok) {
+        x.entra = false; x.requiere_confirmar = true;
+        x.motivo_txt = `⚠ −${x.desc_real} % supera el tope de seguridad (${TOPE_SEGURIDAD} %): confírmalo si es correcto`;
+      }
       delete x.tramo_info; delete x.ventas_mes;
     });
     // SKUs que ya están en otra campaña activa o programada
@@ -370,7 +425,7 @@ Productos: ${JSON.stringify(lote)}`;
     const oc = {}; ocup.forEach(o => oc[o.vid] = o);
     items.forEach(x => { if (oc[x.vid]) { x.en_campana = oc[x.vid].id; x.entra = false; x.motivo_txt = `Ya está en la campaña #${oc[x.vid].id}`; } });
     items.sort((a, b2) => (b2.entra - a.entra) || b2.capital - a.capital);
-    return { marca, desc_tienda: descTienda, redondeo: PASO, origen, aviso_ia: avisoIA, reglas: R, items };
+    return { marca, desc_tienda: descTienda, redondeo: PASO, tope_seguridad: TOPE_SEGURIDAD, origen, aviso_ia: avisoIA, reglas: R, items };
   }
 
   // ── Escritura en el ERP (compare-and-set: solo cambia si la oferta sigue como esperamos) ──
@@ -389,6 +444,7 @@ Productos: ${JSON.stringify(lote)}`;
       if (conUpdatedAt && /updated_at|column/i.test(e.message)) { conUpdatedAt = false; [r] = await erpWritePool.query(sql(false), [nuevo, vid, esperado]); }
       else throw e;
     }
+    cacheOfertas = null;                                 // el portal y los links verán el cambio al momento
     if (r.affectedRows > 0) return true;
     return igual(await leerOferta(vid), nuevo);         // ya tenía ese valor
   }
@@ -399,22 +455,20 @@ Productos: ${JSON.stringify(lote)}`;
   // Inicia una campaña: guarda la oferta original y escribe la nueva
   async function aplicarCampana(c) {
     const [items] = await portalPool.query(`SELECT * FROM promo_items WHERE campana_id = ? AND estado = 'pendiente'`, [c.id]);
-    const ids = items.map(i => i.vid);
-    const lotesPor = {};
-    if (ids.length) {
-      const [lotes] = await prodPool.query(`SELECT id, product_variation_id AS vid, quantity AS qty, cost_price AS costo, entry_date AS entrada
-        FROM stock_batches WHERE quantity > 0 AND product_variation_id IN (?)`, [ids]);
-      lotes.forEach(l => (lotesPor[l.vid] = lotesPor[l.vid] || []).push(l));
-    }
+    const lp = {}; items.forEach(i => lp[i.vid] = Number(i.lista));
+    const LD = await lotesDe(items.map(i => i.vid), lp);
     let ok = 0, omit = 0;
     for (const it of items) {
       try {
         const actual = await leerOferta(it.vid);
         if (actual === undefined) { await marcar(it, 'omitido', 'El SKU ya no existe en el sistema'); omit++; continue; }
-        const cb = costoBase(lotesPor[it.vid]);
+        const D = LD[it.vid] || { lotes: [] };
+        if (D.dudoso) { await marcar(it, 'omitido', 'Costo dudoso: ' + D.alertas.join(' ')); omit++; continue; }
+        const cb = costoBase(D.lotes);
         const p = precioPromo({ lista: it.lista, costo_base: cb ? cb.costo : it.costo_base, costo_max: cb ? cb.costo_max : it.costo_max, oferta_actual: actual },
           { desc_pct: it.desc_pct, desc_tienda: c.desc_tienda, a_costo: !!it.a_costo });
         if (p.precio == null || p.motivo === 'ya_tiene_oferta') { await marcar(it, 'omitido', MOTIVO_TXT[p.motivo] || 'Sin descuento posible'); omit++; continue; }
+        if (p.desc_real > TOPE_SEGURIDAD && !Number(it.extremo_ok)) { await marcar(it, 'omitido', `−${p.desc_real} % supera el tope de seguridad (${TOPE_SEGURIDAD} %) sin confirmación`); omit++; continue; }
         if (await escribirOferta(it.vid, p.precio, actual)) {
           await portalPool.query(`UPDATE promo_items SET estado='activo', oferta_original=?, oferta_original_guardada=1, precio=?, piso=?,
             costo_base=?, costo_max=?, lote_ref=?, aplicado_en=NOW(), nota=NULL WHERE id=?`,
@@ -460,9 +514,8 @@ Productos: ${JSON.stringify(lote)}`;
     const [items] = await portalPool.query(`SELECT * FROM promo_items WHERE campana_id = ? AND estado = 'activo'`, [c.id]);
     if (!items.length) return 0;
     const R = await reglas();
-    const [lotes] = await prodPool.query(`SELECT id, product_variation_id AS vid, quantity AS qty, cost_price AS costo, entry_date AS entrada
-      FROM stock_batches WHERE quantity > 0 AND product_variation_id IN (?)`, [items.map(i => i.vid)]);
-    const lp = {}; lotes.forEach(l => (lp[l.vid] = lp[l.vid] || []).push(l));
+    const lst = {}; items.forEach(i => lst[i.vid] = Number(i.lista));
+    const LD = await lotesDe(items.map(i => i.vid), lst);
     const original = it => it.oferta_original_guardada ? it.oferta_original : null;
     const devolver = async (it, nota, cb) => {
       if (await escribirOferta(it.vid, original(it), it.precio)) {
@@ -473,7 +526,9 @@ Productos: ${JSON.stringify(lote)}`;
     };
     let n = 0;
     for (const it of items) {
-      const cb = costoBase(lp[it.vid]); if (!cb) continue;            // sin stock: queda hasta el fin
+      const D = LD[it.vid] || { lotes: [] };
+      const cb = costoBase(D.lotes); if (!cb) continue;            // sin stock: queda hasta el fin
+      if (D.dudoso) { await devolver(it, 'Sale: ' + D.alertas.join(' '), cb); continue; }
       let desc = Number(it.desc_pct), aCosto = !!it.a_costo, tramo = it.tramo, nota = null;
       const cambioLote = it.lote_ref != null && Number(it.lote_ref) !== cb.lote_ref;
       if (cambioLote) {
@@ -491,8 +546,10 @@ Productos: ${JSON.stringify(lote)}`;
       }
       const p = precioPromo({ lista: it.lista, costo_base: cb.costo, costo_max: cb.costo_max }, { desc_pct: desc, desc_tienda: c.desc_tienda, a_costo: aCosto });
       if (p.precio == null) { await devolver(it, 'Sale antes: con el costo de los lotes que quedan ya no hay margen para descuento', cb); continue; }
-      const guardar = () => portalPool.query(`UPDATE promo_items SET precio=?, piso=?, costo_base=?, costo_max=?, lote_ref=?, desc_pct=?, a_costo=?, tramo=? WHERE id=?`,
-        [p.precio, p.piso, cb.costo, cb.costo_max, cb.lote_ref, desc, aCosto ? 1 : 0, tramo, it.id]);
+      if (p.desc_real > TOPE_SEGURIDAD && !Number(it.extremo_ok)) { await devolver(it, `Sale: el nuevo precio (−${p.desc_real} %) superaría el tope de seguridad (${TOPE_SEGURIDAD} %)`, cb); continue; }
+      const guardar = () => portalPool.query(`UPDATE promo_items SET precio=?, piso=?, costo_base=?, costo_max=?, lote_ref=?, desc_pct=?, a_costo=?, tramo=?,
+          cambios_lote = cambios_lote + ? WHERE id=?`,
+        [p.precio, p.piso, cb.costo, cb.costo_max, cb.lote_ref, desc, aCosto ? 1 : 0, tramo, cambioLote ? 1 : 0, it.id]);
       if (Math.abs(p.precio - Number(it.precio)) < 0.005) { await guardar(); continue; }
       if (await escribirOferta(it.vid, p.precio, it.precio)) {
         await guardar();
@@ -523,6 +580,99 @@ Productos: ${JSON.stringify(lote)}`;
   async function aplicarPendientes(c) {
     const [[n]] = await portalPool.query(`SELECT COUNT(*) n FROM promo_items WHERE campana_id=? AND estado='pendiente'`, [c.id]);
     if (n.n) await aplicarCampana(c);
+  }
+
+  // ─────────────── Ofertas vigentes (para el portal de clientes y los links libres) ───────────────
+  //  Por SKU activo en una campaña activa:
+  //   precio (PVP oferta), tu_precio (tienda: PVP oferta × (1 − desc. a tiendas); en liquidación = PVP oferta),
+  //   stock_oferta = unidades del lote más antiguo (limitado al stock propio disponible),
+  //   siguiente = precio y unidades del siguiente lote si sigue en oferta (o "sale"),
+  //   ciudades = stock propio disponible por ciudad.
+  let colCiudad;
+  async function columnaCiudad() {
+    if (colCiudad !== undefined) return colCiudad;
+    try {
+      const [c] = await prodPool.query(`SHOW COLUMNS FROM locations`);
+      const n = c.map(x => x.Field);
+      colCiudad = ['city', 'ciudad', 'province', 'provincia', 'district', 'distrito', 'state', 'departamento'].find(x => n.includes(x)) || null;
+    } catch (e) { colCiudad = null; }
+    return colCiudad;
+  }
+  let cacheOfertas = null;
+  async function ofertasVigentes(forzar) {
+    if (!forzar && cacheOfertas && Date.now() - cacheOfertas.t < 60e3) return cacheOfertas.d;
+    const [its] = await portalPool.query(`SELECT i.*, c.marca, c.fin, c.nombre AS campana, c.desc_tienda
+      FROM promo_items i JOIN promo_campanas c ON c.id = i.campana_id
+      WHERE c.estado = 'activa' AND i.estado = 'activo'`);
+    const out = { items: [], generado: new Date().toISOString() };
+    if (!its.length) { cacheOfertas = { t: Date.now(), d: out }; return out; }
+    const ids = [...new Set(its.map(i => i.vid))];
+    const lp = {}; its.forEach(i => lp[i.vid] = Number(i.lista));
+    const cc = await columnaCiudad();
+    const [LD, [ubic], [prods], R] = await Promise.all([
+      lotesDe(ids, lp),
+      prodPool.query(`SELECT ls.product_variation_id AS vid, l.name AS loc_nombre, l.type AS loc_tipo,
+          ${cc ? `l.\`${cc}\`` : 'NULL'} AS ciudad, ls.quantity AS qty, ls.reserved_quantity AS reservado
+        FROM location_stocks ls JOIN locations l ON l.id = ls.location_id
+        WHERE ls.quantity > 0 AND ls.product_variation_id IN (?)`, [ids]),
+      prodPool.query(`SELECT id AS vid, product_id AS pid FROM product_variations WHERE id IN (?)`, [ids]),
+      reglas()
+    ]);
+    const pidDe = {}; prods.forEach(p => pidDe[p.vid] = p.pid);
+    const img = {};
+    try {
+      const pids = [...new Set(prods.map(p => p.pid))];
+      const [ims] = await prodPool.query(`SELECT product_id, product_variation_id, path FROM product_images
+        WHERE deleted_at IS NULL AND path IS NOT NULL AND path <> '' AND (product_variation_id IN (?) OR product_id IN (?))
+        ORDER BY is_primary DESC, sort_order ASC, id ASC`, [ids, pids.length ? pids : [0]]);
+      const iv = {}, ip = {};
+      ims.forEach(m => { if (m.product_variation_id != null) { if (!iv[m.product_variation_id]) iv[m.product_variation_id] = m.path; } else if (!ip[m.product_id]) ip[m.product_id] = m.path; });
+      ids.forEach(v => img[v] = iv[v] || ip[pidDe[v]] || null);
+    } catch (e) { /* sin imágenes */ }
+    const disp = {}, ciud = {};
+    ubic.forEach(u => {
+      if (claseUbicacion(u.loc_tipo, u.loc_nombre) !== 'propio') return;
+      const d = Math.max(0, (Number(u.qty) || 0) - Math.max(0, Number(u.reservado) || 0)); if (!d) return;
+      disp[u.vid] = (disp[u.vid] || 0) + d;
+      const c = String(u.ciudad || '').trim() || String(u.loc_nombre || '').trim() || '—';
+      const m = ciud[u.vid] = ciud[u.vid] || {}; m[c] = (m[c] || 0) + d;
+    });
+    const tienda = (precio, liq, dt) => precio == null ? null : liq ? precio : r2(precio * (1 - (Number(dt) || 0) / 100));
+    const ahora = Date.now();
+    its.forEach(it => {
+      const D = LD[it.vid] || { lotes: [] };
+      const ord = D.lotes.slice().sort((a, b) => (new Date(a.entrada || 0) - new Date(b.entrada || 0)) || (a.id - b.id));
+      const total = disp[it.vid] || 0;
+      if (!ord.length || !total) return;
+      const precio = Number(it.precio), liq = !!Number(it.a_costo);
+      const stockOferta = Math.min(Number(ord[0].qty) || 0, total);
+      let siguiente = null;
+      const resto = ord.slice(1);
+      if (resto.length && total > stockOferta) {
+        const cbN = costoBase(resto);
+        const edad = resto[0].entrada ? Math.floor((ahora - new Date(resto[0].entrada).getTime()) / DIA) : null;
+        const t = tramoDe({ edad_dias: edad }, R, true);
+        if (t.idx < 0 || !cbN) siguiente = { sale: true };
+        else {
+          const aC = liq && t.tipo === 'costo';
+          const dN = Math.min(Number(it.desc_pct), t.tipo === 'pct' ? t.desc : 95);
+          const pN = precioPromo({ lista: it.lista, costo_base: cbN.costo, costo_max: cbN.costo_max }, { desc_pct: dN, desc_tienda: it.desc_tienda, a_costo: aC });
+          if (pN.precio == null || (pN.desc_real > TOPE_SEGURIDAD && !Number(it.extremo_ok))) siguiente = { sale: true };
+          else siguiente = { precio: pN.precio, tu_precio: tienda(pN.precio, aC, it.desc_tienda), unidades: Math.min(Number(resto[0].qty) || 0, total - stockOferta), liquidacion: aC };
+        }
+      }
+      out.items.push({
+        vid: it.vid, sku: it.sku, nombre: it.nombre, marca: it.marca, campana: it.campana, hasta: it.fin, imagen: img[it.vid] || null,
+        pvp: Number(it.lista), precio, tu_precio: tienda(precio, liq, it.desc_tienda), desc_pct: Math.round((1 - precio / Number(it.lista)) * 1000) / 10,
+        stock_oferta: stockOferta, stock_total: total,
+        ciudades: Object.entries(ciud[it.vid] || {}).map(([c, n]) => ({ ciudad: c, unidades: n })).sort((a, b) => b.unidades - a.unidades),
+        liquidacion: liq, cambios_lote: Number(it.cambios_lote) || 0, siguiente,
+        _dt: Number(it.desc_tienda) || 0, _fin: it.fin    // internos: los usa el portal (precio por tipo de cuenta, vencimiento de reservas)
+      });
+    });
+    out.items.sort((a, b) => (a.cambios_lote - b.cambios_lote) || a.marca.localeCompare(b.marca) || a.nombre.localeCompare(b.nombre));
+    cacheOfertas = { t: Date.now(), d: out };
+    return out;
   }
 
   // ─────────────────────────── endpoints ───────────────────────────
@@ -623,10 +773,10 @@ Productos: ${JSON.stringify(lote)}`;
         String(b.origen || p.origen).slice(0, 10), (req.admin && req.admin.usuario) || '', String(b.nota || '').slice(0, 400) || null]);
       const cid = r.insertId;
       // desc_pct = 95 significa "al piso" (así, si cambia el costo, sigue pegado al piso nuevo)
-      await portalPool.query(`INSERT INTO promo_items (campana_id, vid, sku, nombre, lista, desc_pct, a_costo, razon, costo_base, costo_max, piso, precio, tramo, lote_ref) VALUES ?`,
+      await portalPool.query(`INSERT INTO promo_items (campana_id, vid, sku, nombre, lista, desc_pct, a_costo, razon, costo_base, costo_max, piso, precio, tramo, lote_ref, extremo_ok, alerta_costo) VALUES ?`,
         [filas.map(x => [cid, x.vid, x.sku, x.nombre.slice(0, 300), x.lista, x.desc_max != null && x.desc_pct >= x.desc_max - 0.05 ? 95 : x.desc_pct,
           x.a_costo ? 1 : 0, String(razones[x.vid] || x.razon || '').slice(0, 300), x.costo_base, x.costo_max, x.piso, x.precio,
-          String(x.tramo || '').slice(0, 80), x.lote_ref])]);
+          String(x.tramo || '').slice(0, 80), x.lote_ref, x.extremo_ok ? 1 : 0, String(x.alerta_costo || '').slice(0, 400) || null])]);
       let aplicado = null;
       if (ini.getTime() <= Date.now() && erpWritePool) {
         const [[c]] = await portalPool.query(`SELECT * FROM promo_campanas WHERE id=?`, [cid]);
@@ -706,7 +856,7 @@ Productos: ${JSON.stringify(lote)}`;
     } catch (e) { err(res, e); }
   });
 
-  return { prepararTablas, revisar };
+  return { prepararTablas, revisar, ofertasVigentes, limpiarCache: () => { cacheOfertas = null; } };
 };
 
-module.exports._test = { arriba, costoBase, precioPromo, tramoDe, leerReglas, REGLAS_DEF, fechaLima, NUNCA };
+module.exports._test = { arriba, costoBase, depurarLotes, precioPromo, tramoDe, leerReglas, REGLAS_DEF, fechaLima, NUNCA };

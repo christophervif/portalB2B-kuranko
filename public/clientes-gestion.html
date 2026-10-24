@@ -411,7 +411,7 @@ function pintarAccesos() {
         : '<span class="sub">—</span>';
       const al = u.alertas.map(a => `<span class="chip ${NIVEL_CHIP[a.nivel]}" title="${esc(a.txt)}">${ETIQUETA[a.cod] || a.cod}</span>`).join('');
       return `<tr class="clic ${u.activo ? '' : 'inact'}" onclick="abrirDetalle(${u.id})">
-        <td><div class="nom">${esc(u.nombre_cliente)}${u.activo ? '' : ' <span class="chip c-g">inactivo</span>'}</div><div class="sub">${rucs}</div></td>
+        <td><div class="nom">${esc(u.nombre_cliente)}${u.tipo_cuenta === 'mecanico' ? ' <span class="chip c-v" title="Cuenta de mecánico/taller">🔧 mecánico</span>' : ''}${u.activo ? '' : ' <span class="chip c-g">inactivo</span>'}</div><div class="sub">${rucs}</div></td>
         <td>${consig}</td>
         <td>${u.ultima_venta ? hace(u.ultima_venta) : '—'}<div class="sub">${u.ventas_12m ? N(u.ventas_12m) + ' ventas 12 m' : ''}</div></td>
         <td>${u.ultimo_login ? hace(u.ultimo_login) : '<span class="sub">nunca</span>'}</td>
@@ -686,6 +686,14 @@ function abrirDetalle(id) {
       <div class="desc" style="margin:8px 0 6px">El RUC al que se factura lo vendido sale de las <b>notas de cada consignación</b> en el ERP (escribe ahí el RUC de 11 dígitos). Si la tienda recibe mercadería a dos RUC, lo ideal es una consignación por RUC y agregar las dos aquí.</div>
       <div class="fila" style="margin-top:0"><div class="combo" id="cb-loc"></div><button class="btn btn-sm" onclick="agregarLoc(${u.id})">Agregar consignación</button></div>
     </div>
+    <div class="bloque"><h4>Tipo de cuenta</h4>
+      <div class="fila" style="margin-top:0">
+        <button class="btn btn-sm ${u.tipo_cuenta !== 'mecanico' ? '' : 'btn-sec'}" onclick="tipoCuenta(${u.id},'tienda')">🏪 Tienda</button>
+        <button class="btn btn-sm ${u.tipo_cuenta === 'mecanico' ? '' : 'btn-sec'}" onclick="tipoCuenta(${u.id},'mecanico')">🔧 Mecánico / taller</button>
+      </div>
+      <div class="desc" style="margin-top:6px">En Promociones, su “tu precio oferta” usa el descuento a tiendas de cada marca; si es <b>mecánico</b>, 5 puntos menos (ej. tiendas 20 % → mecánico 15 %).</div>
+      <div id="det-link" style="margin-top:10px"></div>
+    </div>
     <div class="bloque"><h4>Acceso</h4><div class="fila" style="margin-top:0">
       ${u.activo ? `<button class="btn btn-sm btn-ok" onclick="verComo(${u.id})">Ver como cliente</button>` : ''}
       <button class="btn btn-sm btn-sec" onclick="resetClave(${u.id})">Resetear clave al RUC</button>
@@ -695,6 +703,7 @@ function abrirDetalle(id) {
     async q => (await buscarEmpresasERP(q)).filter(x => Number(x.id) !== Number(u.customer_id)));
   combo('cb-loc', 'Buscar consignación para agregar…', () => itemsLocs().filter(x => x.id !== '' && !u.consignaciones.some(c => c.id == x.id)));
   $('m-det').classList.add('show');
+  pintarLinkPromo(u.id);
   cargarEmpresas().catch(() => {});
 }
 // mini-modal reutilizando el contenedor de la ficha (elegir de una lista)
@@ -768,6 +777,27 @@ async function sincNombre(id) {
   try { const r = await api('/api/clientes-gestion/sincronizar-nombre', { portal_user_id: id }); showToast('Nombre actualizado: ' + r.nombre); cargar(); }
   catch (e) { showToast(e.message, true); }
 }
+async function tipoCuenta(id, tipo) {
+  try { await api('/api/clientes-gestion/tipo-cuenta', { portal_user_id: id, tipo }); const u = usuario(id); if (u) u.tipo_cuenta = tipo; showToast(tipo === 'mecanico' ? 'Ahora es cuenta de mecánico' : 'Ahora es cuenta de tienda'); abrirDetalle(id); pintarAccesos(); }
+  catch (e) { showToast(e.message, true); }
+}
+// Link de promociones para sus vendedores (solo el maestro lo ve; se administra en Promociones → Portal y links)
+async function pintarLinkPromo(id) {
+  const el = $('det-link'); if (!el) return;
+  let d; try { d = await api('/api/promo-links'); } catch (e) { el.innerHTML = ''; return; }
+  const t = (d.tiendas || []).find(x => x.id === id); if (!t) { el.innerHTML = ''; return; }
+  const url = t.token ? location.origin + '/oferta.html?t=' + t.token : '';
+  el.innerHTML = `<div class="sub" style="display:block;margin-bottom:4px"><b>Link de promociones para sus vendedores</b> (sin precio de tienda)</div>` + (t.token
+    ? `<div class="fila" style="margin-top:0;align-items:center"><span class="chip ${t.estado === 'bloqueado' ? 'c-r' : 'c-ok'}">${t.estado}</span>
+        <span class="sub" style="display:inline">en línea ${t.en_linea} / ${t.max_sesiones}</span>
+        <label class="sub" style="display:inline">máx. equipos <input class="inp" type="number" min="1" max="50" value="${t.max_sesiones}" style="width:64px" onchange="linkMax(${t.link_id},this.value,${id})"></label>
+        <button class="btn btn-sm btn-sec" onclick="navigator.clipboard.writeText('${url}').then(()=>showToast('Link copiado'))">Copiar link</button>
+        ${t.estado === 'bloqueado' ? `<button class="btn btn-sm btn-ok" onclick="linkActivar(${t.link_id},${id})">Reactivar</button>` : ''}</div>`
+    : `<button class="btn btn-sm" onclick="linkCrear(${id})">Crear link para vendedores</button>`);
+}
+async function linkCrear(id) { try { const r = await api('/api/promo-links', { portal_user_id: id }); await navigator.clipboard.writeText(location.origin + '/oferta.html?t=' + r.token).catch(() => {}); showToast('Link creado y copiado'); pintarLinkPromo(id); } catch (e) { showToast(e.message, true); } }
+async function linkMax(lid, v, id) { try { await api('/api/promo-links/' + lid, null, 'PUT', { max_sesiones: v }); showToast('Máximo actualizado'); pintarLinkPromo(id); } catch (e) { showToast(e.message, true); } }
+async function linkActivar(lid, id) { try { await api('/api/promo-links/' + lid, null, 'PUT', { estado: 'activo' }); pintarLinkPromo(id); } catch (e) { showToast(e.message, true); } }
 async function resetClave(id) {
   if (!confirm('¿Resetear la contraseña de este cliente a su RUC?')) return;
   try { const r = await api('/api/clientes-gestion/reset-password', { portal_user_id: id }); showToast('Clave reiniciada a: ' + r.password); cargar(); }

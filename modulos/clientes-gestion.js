@@ -22,7 +22,9 @@
 //  Tablas propias (base del PORTAL, nunca el ERP)
 //    portal_user_rucs  RUC adicionales de un acceso (customer_id único)
 //    portal_user_consignaciones  consignaciones adicionales de un acceso
-//    portal_users      + ultimo_login, + clave_inicial (columnas nuevas)
+//    portal_users      + ultimo_login, + clave_inicial, + tipo_cuenta (columnas nuevas)
+//  Tipo de cuenta: 'tienda' o 'mecanico'. Lo usa Promociones: a los mecánicos su precio
+//  oferta lleva 5 puntos menos de descuento que el de tiendas.
 //
 //  Permiso: clientes_gestion (todas las rutas).
 // ═══════════════════════════════════════════════════════════════════════════
@@ -230,7 +232,8 @@ function armarVista(d, hoy = Date.now()) {
       }),
       principal, extras, email, ultima_venta: ultimaVenta, ventas_12m: ventas12,
       ultimo_login: u.ultimo_login || null, clave_inicial: u.clave_inicial == null ? null : Number(u.clave_inicial),
-      creado: u.created_at || null, alertas, sugeridos
+      creado: u.created_at || null, alertas, sugeridos,
+      tipo_cuenta: u.tipo_cuenta === 'mecanico' ? 'mecanico' : 'tienda'
     };
   });
 
@@ -311,6 +314,7 @@ module.exports = function registrarClientesGestion({ app, authAdmin, requiereMod
     let nueva = false;
     try { await portalPool.query(`ALTER TABLE portal_users ADD COLUMN ultimo_login DATETIME NULL`); } catch (e) { /* ya existe */ }
     try { await portalPool.query(`ALTER TABLE portal_users ADD COLUMN clave_inicial TINYINT NULL`); nueva = true; } catch (e) { /* ya existe */ }
+    try { await portalPool.query(`ALTER TABLE portal_users ADD COLUMN tipo_cuenta VARCHAR(10) NOT NULL DEFAULT 'tienda'`); } catch (e) { /* ya existe */ }
     tablasListas = true;
     // Calcular en segundo plano quién sigue con la clave = RUC (solo filas sin dato)
     setTimeout(() => revisarClavesIniciales().catch(e => console.error('[gestion] claves', e.message)), nueva ? 2000 : 10000);
@@ -497,7 +501,7 @@ module.exports = function registrarClientesGestion({ app, authAdmin, requiereMod
     try {
       await prepararTablas();
       const [[usuarios], [rucs], [locs], [consigExtra]] = await Promise.all([
-        portalPool.query(`SELECT id, username, customer_id, location_id, nombre_cliente, activo, created_at, ultimo_login, clave_inicial
+        portalPool.query(`SELECT id, username, customer_id, location_id, nombre_cliente, activo, created_at, ultimo_login, clave_inicial, tipo_cuenta
                           FROM portal_users ORDER BY nombre_cliente`),
         portalPool.query(`SELECT id, portal_user_id, customer_id, ruc, nombre, nota FROM portal_user_rucs`),
         prodPool.query(`SELECT id, name, is_active FROM locations WHERE type='consignment' ORDER BY name`),
@@ -725,6 +729,18 @@ module.exports = function registrarClientesGestion({ app, authAdmin, requiereMod
     const { portal_user_id, activo } = req.body || {};
     try {
       await portalPool.query('UPDATE portal_users SET activo=? WHERE id=?', [activo ? 1 : 0, portal_user_id]);
+      invalidar(portal_user_id);
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: 'Error al actualizar' }); }
+  });
+
+  // Tipo de cuenta: tienda | mecanico (Promociones: el mecánico tiene 5 puntos menos de descuento)
+  app.post('/api/clientes-gestion/tipo-cuenta', authAdmin, mGest, async (req, res) => {
+    const { portal_user_id, tipo } = req.body || {};
+    if (!['tienda', 'mecanico'].includes(tipo)) return res.status(400).json({ error: 'Tipo no válido' });
+    try {
+      await prepararTablas();
+      await portalPool.query('UPDATE portal_users SET tipo_cuenta=? WHERE id=?', [tipo, portal_user_id]);
       invalidar(portal_user_id);
       res.json({ ok: true });
     } catch (e) { res.status(500).json({ error: 'Error al actualizar' }); }

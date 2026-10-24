@@ -281,7 +281,8 @@ let modPromos = null;
   // ── Módulo Promociones recomendadas (candidatos a descuento/liquidación) ──
   //    Frontend propio en public/promociones.html (iframe dentro del panel).
   //    Campañas de oferta (precio de oferta temporal en el ERP, solo maestro): modulos/promociones-campanas.js
-  modPromos = require('./modulos/promociones')({ app, authAdmin, mInv, prodPool, portalPool, erpWritePool, VV });
+  modPromos = require('./modulos/promociones')({ app, authAdmin, mInv, prodPool, portalPool, erpWritePool, VV,
+    authCliente: modPortal && modPortal.authCliente, portal: modPortal, grupos: modGestion });
 
   // ── Módulo Clientes BI (retención, estados, top, riesgo) ──
   //    Frontend propio en public/clientes-bi.html (iframe dentro del panel).

@@ -106,6 +106,7 @@ code{font-size:11px}
     <button data-v="crear" onclick="vista('crear')">Crear campaña</button>
     <button data-v="camp" onclick="vista('camp')">Campañas</button>
     <button data-v="desc" onclick="vista('desc')">Reglas y descuentos</button>
+    <button data-v="links" onclick="vista('links')">Portal y links</button>
   </div>
   <div class="card vista" id="v-cand">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
@@ -241,6 +242,29 @@ code{font-size:11px}
     </div>
     <div class="tabla-wrap" style="max-height:50vh"><table id="tbl-desc"></table></div>
   </div>
+  <!-- ══════════ PORTAL Y LINKS LIBRES ══════════ -->
+  <div class="card vista" id="v-links" style="display:none">
+    <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+      <div><h3>Promociones en el portal y links para vendedores</h3>
+        <div class="desc">Las tiendas ven las ofertas vigentes en su portal (pestaña “Promociones”, con su precio). Para sus vendedores crea un <b>link libre</b>: muestra solo el PVP oferta, sin el precio de la tienda. Si se abre en más equipos a la vez que el máximo, el link se bloquea solo.</div></div>
+      <button class="btn btn-sec" onclick="lkCargar()">Actualizar</button>
+    </div>
+    <div class="fila"><input id="lk-buscar" type="search" placeholder="Buscar tienda o RUC…" oninput="lkPintar()" style="flex:1;min-width:200px">
+      <label class="chk"><input type="checkbox" id="lk-solo" onchange="lkPintar()"> Solo con link</label></div>
+    <div class="tabla-wrap" style="max-height:55vh"><table id="tbl-links"></table></div>
+    <h3 style="margin-top:18px">Reservas</h3>
+    <div class="desc">Cada solicitud reserva sus unidades del stock en oferta. Se <b>concreta sola</b> cuando registras en el sistema una venta a alguno de los RUC/DNI de esa cuenta con ese SKU (se revisa cada 20 min de lun a vie 10:30–20:30 y sáb 9:30–16:00; fuera de ese horario usa “Revisar ventas ahora”). Si vence sin venta, las unidades se liberan.</div>
+    <div class="fila">
+      <select id="rv-estado" onchange="lkCargar()"><option value="">Todas</option><option value="pendiente" selected>Pendientes</option><option value="concretada">Concretadas</option><option value="parcial">Parciales</option><option value="vencida">Vencidas</option><option value="cancelada">Canceladas</option></select>
+      <label class="campo" title="Cuánto dura una reserva (nunca pasa del fin de la campaña)">Reserva dura (horas)<input type="number" id="rv-horas" min="1" max="720" style="width:80px" onchange="rvHoras(this.value)"></label>
+      <button class="btn btn-sec" onclick="rvRevisar()">Revisar ventas ahora</button>
+    </div>
+    <div class="tabla-wrap" style="max-height:45vh"><table id="tbl-res"></table></div>
+    <h3 style="margin-top:18px">Solicitudes recibidas</h3>
+    <div class="desc">También llegan por correo a ventas (con copia a la tienda) y el cliente las envía por WhatsApp.</div>
+    <div class="tabla-wrap" style="max-height:45vh"><table id="tbl-sol"></table></div>
+  </div>
+
   <div class="card vista" id="v-reglas" data-grupo="v-desc" style="display:none">
     <h3>Tramos de descuento por antigüedad</h3>
     <div class="desc">Se mide con la edad del lote más antiguo con stock. Cada SKU toma el tramo más alto que alcanza.</div>
@@ -472,6 +496,8 @@ function vista(v) {
   try { localStorage.setItem('promo_vista', v); } catch (e) {}
   if (v === 'camp') cpCargar();
   if (v === 'desc') { dPintar(); tPintar(); }
+  clearInterval(window._lkInt);
+  if (v === 'links') { lkCargar(); window._lkInt = setInterval(lkCargar, 20000); }
 }
 
 async function initCampanas() {
@@ -554,12 +580,19 @@ async function crProponer(conIA) {
 }
 function crRecalc(x) {
   Object.assign(x, precioPromo(x, { desc_pct: x.desc_pct, desc_tienda: CR.desc_tienda, a_costo: x.a_costo }));
-  x.puede = x.precio != null && x.motivo !== 'ya_tiene_oferta' && !x.en_campana;
-  if (!x.puede) x.sel = false;
+  x.puede = x.precio != null && x.motivo !== 'ya_tiene_oferta' && !x.en_campana && !x.costo_dudoso;
+  x.requiere_confirmar = x.puede && x.desc_real > (CR.tope_seguridad || 60) && !x.extremo_ok;
+  if (!x.puede || x.requiere_confirmar) x.sel = false;
 }
 function crCambia(vid, campo, el) {
   const x = CR.items.find(i => i.vid === vid); if (!x) return;
-  if (campo === 'sel') x.sel = el.checked;
+  if (campo === 'sel') {
+    if (el.checked && x.requiere_confirmar) {
+      if (!confirm(`${x.nombre}\n\nEl precio de oferta ${S(x.precio)} es −${x.desc_real} % del precio de lista (${S(x.lista)}), más que el tope de seguridad de ${CR.tope_seguridad} %.${x.alerta_costo ? '\n\nOjo con el costo: ' + x.alerta_costo : ''}\n\n¿Confirmas que este precio es correcto?`)) { el.checked = false; return; }
+      x.extremo_ok = true; x.requiere_confirmar = false;
+    }
+    x.sel = el.checked;
+  }
   if (campo === 'a_costo') { x.a_costo = el.checked; if (el.checked) { x.desc_pct = 95; x.razon = 'A costo (manual)'; } crRecalc(x); if (x.puede && !x.sel) x.sel = true; }
   if (campo === 'desc') { x.desc_pct = Number(el.value) || 0; x.razon = 'Manual'; crRecalc(x); if (x.puede) x.sel = x.desc_pct > 0; }
   if (campo === 'precio') {                                   // escribir el precio directo → se convierte en %
@@ -610,7 +643,7 @@ function crFilas() {
   if (!rows.length) { $('tbl-crear').innerHTML = head + '<tbody><tr><td colspan="14" class="vacio">Ningún SKU con esos filtros.</td></tr></tbody>'; return; }
   $('tbl-crear').innerHTML = head + '<tbody>' + rows.slice(0, MAX_FILAS).map(x => `<tr style="${x.puede ? '' : 'opacity:.55'}">
     <td><input type="checkbox" ${x.sel ? 'checked' : ''} ${x.puede ? '' : 'disabled'} onchange="crCambia(${x.vid},'sel',this)"></td>
-    <td><div class="nom">${esc(x.nombre)}</div><div class="sku">${esc(x.sku)} · costo base ${S(x.costo_base)} (${N(x.und_lotes_base)} und en 2 lotes)</div></td>
+    <td><div class="nom">${esc(x.nombre)}</div><div class="sku">${esc(x.sku)} · costo base ${S(x.costo_base)} (${N(x.und_lotes_base)} und en 2 lotes)</div>${x.alerta_costo ? `<div class="sub" style="white-space:normal;color:var(--fg-r)">⚠ ${esc(x.alerta_costo)}</div>` : ''}${x.requiere_confirmar ? `<div><span class="chip c-r" title="Marca la casilla para confirmarlo">−${N(x.desc_real, 1)}% supera el tope: confirma</span></div>` : ''}</td>
     <td class="n">${x.edad_dias == null ? '—' : N(x.edad_dias) + ' d'}</td>
     <td class="n">${x.dias_sin_venta >= CFG.nunca ? '<span class="chip c-r" title="Nunca se vendió">9999</span>' : N(x.dias_sin_venta)}</td>
     <td class="n">${S(x.capital)}</td>
@@ -632,6 +665,7 @@ function crElecciones() {
   return {
     ...crBody(), desc_tienda: CR.desc_tienda, desc_manual, razones,
     a_costo: CR.items.filter(x => x.a_costo).map(x => x.vid),
+    extremo_ok: CR.items.filter(x => x.extremo_ok).map(x => x.vid),
     excluir: CR.items.filter(x => !(x.sel && x.puede)).map(x => x.vid), sel
   };
 }
@@ -766,6 +800,69 @@ async function tGuardar() {
   try { const r = await apiSend('/api/promo-reglas', 'PUT', TR); CFG.reglas = r.reglas; TR = null; tPintar(); ayudaTramos(); showToast('Reglas guardadas'); }
   catch (e) { showToast(e.message, true); }
 }
+// ── Portal y links libres ──
+let LK = null;
+const urlLink = t => location.origin + '/oferta.html?t=' + t;
+async function lkCargar() {
+  try {
+    const est = $('rv-estado').value;
+    const [a, b, c] = await Promise.all([apiCall('/api/promo-links'), apiCall('/api/promo-solicitudes'), apiCall('/api/promo-reservas' + (est ? '?estado=' + est : ''))]);
+    LK = a; lkPintar(); solPintar(b.solicitudes); rvPintar(c);
+  } catch (e) { showToast(e.message, true); }
+}
+function lkPintar() {
+  if (!LK) return;
+  const q = $('lk-buscar').value.toLowerCase().trim(), solo = $('lk-solo').checked;
+  const rows = LK.tiendas.filter(t => (!solo || t.token) && (!q || ((t.nombre_cliente || '') + ' ' + (t.username || '')).toLowerCase().includes(q)));
+  $('tbl-links').innerHTML = '<thead><tr><th>Tienda</th><th>Link</th><th class="n">En línea ahora</th><th class="n">Máx. equipos</th><th>Estado</th><th></th></tr></thead><tbody>' +
+    (rows.map(t => {
+      const est = !t.token ? '<span class="chip c-g">sin link</span>' : t.estado === 'bloqueado' ? `<span class="chip c-r" title="${esc(t.motivo || '')}">bloqueado</span><div class="sub" style="white-space:normal">${esc(t.motivo || '')}</div>` : '<span class="chip c-ok">activo</span>';
+      const lin = t.token ? `<span class="chip ${t.en_linea >= t.max_sesiones ? 'c-w' : t.en_linea ? 'c-ok' : 'c-g'}">${t.en_linea} / ${t.max_sesiones}</span>` : '—';
+      return `<tr${t.activo ? '' : ' style="opacity:.5"'}>
+        <td><div class="nom">${esc(t.nombre_cliente || '—')}${t.tipo_cuenta === 'mecanico' ? ' <span class="chip c-v">🔧 mecánico</span>' : ''}</div><div class="sku">${esc(t.username || '')}${t.activo ? '' : ' · portal desactivado'}</div></td>
+        <td>${t.token ? `<button class="btn btn-sec" onclick="lkCopiar('${t.token}')">Copiar link</button> <a class="sub" href="${urlLink(t.token)}" target="_blank" rel="noopener">abrir</a><div class="sub">último uso: ${t.ultimo_uso ? new Date(t.ultimo_uso).toLocaleString('es-PE') : 'nunca'}</div>` : `<button class="btn" onclick="lkCrear(${t.id})">Crear link</button>`}</td>
+        <td class="n">${lin}</td>
+        <td class="n">${t.token ? `<input type="number" min="1" max="50" value="${t.max_sesiones}" style="width:60px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:4px" onchange="lkMax(${t.link_id},this.value)">` : '—'}</td>
+        <td>${est}</td>
+        <td style="white-space:nowrap">${t.token ? `${t.estado === 'bloqueado' ? `<button class="btn" onclick="lkEstado(${t.link_id},'activo')">Reactivar</button>` : `<button class="btn btn-sec" onclick="lkEstado(${t.link_id},'bloqueado')">Bloquear</button>`}
+          <button class="btn btn-sec" onclick="lkRegenerar(${t.id})" title="El link anterior deja de funcionar">Nuevo link</button>
+          <button class="btn btn-sec" onclick="lkBorrar(${t.link_id})">Eliminar</button>` : ''}</td></tr>`;
+    }).join('') || '<tr><td colspan="6" class="vacio">Sin tiendas.</td></tr>') + '</tbody>';
+}
+function solPintar(sol) {
+  $('tbl-sol').innerHTML = '<thead><tr><th>Fecha</th><th>Tienda</th><th>Desde</th><th>Productos</th><th class="n">Total</th><th>Correo</th></tr></thead><tbody>' +
+    (sol.map(x => `<tr><td>${new Date(x.creado_en).toLocaleString('es-PE')}</td><td class="nom">${esc(x.tienda)}</td>
+      <td>${x.origen === 'link' ? `link · ${esc(x.vendedor || '')}${x.telefono ? '<div class="sub">' + esc(x.telefono) + '</div>' : ''}` : 'portal'}</td>
+      <td><div class="sub" style="white-space:normal;max-width:420px">${x.items.map(i => `${esc(i.sku)} × ${i.cantidad}`).join(' · ')}</div></td>
+      <td class="n">${S(x.total)}<div class="sub">${x.origen === 'link' ? 'PVP oferta' : 'precio tienda'}</div></td>
+      <td>${x.correo_ok ? '<span class="chip c-ok">enviado</span>' : '<span class="chip c-w">no</span>'}</td></tr>`).join('') || '<tr><td colspan="6" class="vacio">Aún no hay solicitudes.</td></tr>') + '</tbody>';
+}
+const CH_RV = { pendiente: 'c-w', concretada: 'c-ok', parcial: 'c-w', vencida: 'c-g', cancelada: 'c-g' };
+function rvPintar(d) {
+  if (document.activeElement !== $('rv-horas')) $('rv-horas').value = d.horas;
+  $('tbl-res').innerHTML = '<thead><tr><th>N°</th><th>Tienda</th><th>Producto</th><th class="n">Cant.</th><th class="n">Precio</th><th>Estado</th><th>Vence / cierre</th><th></th></tr></thead><tbody>' +
+    (d.reservas.map(r => `<tr><td>${r.solicitud_id}</td>
+      <td class="nom">${esc(r.tienda)}<div class="sub">${r.origen === 'link' ? 'link · ' + esc(r.vendedor || '') : 'portal'}</div></td>
+      <td><div class="nom">${esc(r.nombre)}</div><div class="sku">${esc(r.sku)}</div></td>
+      <td class="n">${r.vendidas ? `${r.vendidas} / ` : ''}${r.cantidad}</td>
+      <td class="n">${S(r.tu_precio)}<div class="sub">PVP ${S(r.precio)}</div>${r.precio_venta != null ? `<div class="sub">vendido a ${S(r.precio_venta)}</div>` : ''}</td>
+      <td><span class="chip ${CH_RV[r.estado]}">${r.estado}</span>${r.ventas ? `<div class="sub">venta ${esc(r.ventas)}</div>` : ''}${r.nota ? `<div class="sub" style="white-space:normal">${esc(r.nota)}</div>` : ''}</td>
+      <td><div class="sub">${r.estado === 'pendiente' ? 'vence ' + new Date(r.vence_en).toLocaleString('es-PE') : r.cerrado_en ? new Date(r.cerrado_en).toLocaleString('es-PE') : ''}</div></td>
+      <td style="white-space:nowrap">${r.estado === 'pendiente' ? `<button class="btn btn-sec" onclick="rvAccion(${r.id},'confirmar')">Confirmar</button> <button class="btn btn-sec" onclick="rvAccion(${r.id},'cancelar')">Cancelar</button>` : ''}</td></tr>`).join('')
+      || '<tr><td colspan="8" class="vacio">Sin reservas con ese filtro.</td></tr>') + '</tbody>';
+}
+async function rvAccion(id, acc) {
+  if (!confirm(acc === 'confirmar' ? '¿Marcar esta reserva como concretada (sin esperar la venta en el sistema)?' : '¿Cancelar la reserva? Las unidades vuelven a estar disponibles en la oferta.')) return;
+  try { await apiSend(`/api/promo-reservas/${id}/${acc}`, 'POST'); lkCargar(); } catch (e) { showToast(e.message, true); }
+}
+async function rvHoras(h) { try { await apiSend('/api/promo-reserva-config', 'PUT', { horas: h }); showToast('Las reservas nuevas durarán ' + h + ' h'); } catch (e) { showToast(e.message, true); } }
+async function rvRevisar() { try { await apiSend('/api/promo-reservas-revisar', 'POST'); showToast('Ventas revisadas'); lkCargar(); } catch (e) { showToast(e.message, true); } }
+async function lkCopiar(t) { try { await navigator.clipboard.writeText(urlLink(t)); showToast('Link copiado'); } catch (e) { prompt('Copia el link:', urlLink(t)); } }
+async function lkCrear(uid) { try { const r = await apiSend('/api/promo-links', 'POST', { portal_user_id: uid }); await lkCargar(); lkCopiar(r.token); } catch (e) { showToast(e.message, true); } }
+async function lkRegenerar(uid) { if (!confirm('¿Generar un link nuevo? El link anterior deja de funcionar al instante.')) return; lkCrear(uid); }
+async function lkMax(id, v) { try { await apiSend('/api/promo-links/' + id, 'PUT', { max_sesiones: v }); showToast('Máximo actualizado'); lkCargar(); } catch (e) { showToast(e.message, true); } }
+async function lkEstado(id, e) { try { await apiSend('/api/promo-links/' + id, 'PUT', { estado: e }); lkCargar(); } catch (er) { showToast(er.message, true); } }
+async function lkBorrar(id) { if (!confirm('¿Eliminar el link? Deja de funcionar al instante.')) return; try { await apiSend('/api/promo-links/' + id, 'DELETE'); lkCargar(); } catch (e) { showToast(e.message, true); } }
 initCampanas();
 </script>
 </body>

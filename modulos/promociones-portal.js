@@ -8,6 +8,8 @@
 //  Link libre (sin login, public/oferta.html?t=TOKEN) para los vendedores de la tienda:
 //    GET  /api/oferta/:token             → ofertas vigentes SIN "precio taller oferta" (solo PVP)
 //    POST /api/oferta/:token/latido      → mantiene la sesión en línea (cada 25 s)
+//  En vivo: portal (POST /portal/promociones/latido) y links cuentan cuántas personas están viendo
+//    promociones a la vez (en memoria, sin base); se muestra a todos y, desglosado, en Portal y links.
 //    POST /api/oferta/:token/salir       → libera la sesión al cerrar la página
 //    POST /api/oferta/:token/solicitud   → igual que el portal, con el nombre del vendedor
 //    Si hay más sesiones a la vez que el máximo de la tienda (3 por defecto), el link se BLOQUEA
@@ -104,6 +106,38 @@ function crearSesiones() {
   };
 }
 
+// Quiénes están viendo promociones AHORA (portal + links), en memoria: sid → {origen, tienda, visto}.
+// Cada página avisa cada 25 s; sin aviso por 70 s se da por cerrada. Guarda el máximo del día (hora Lima).
+function crearEnVivo() {
+  const m = new Map(); let max = { dia: '', n: 0, hora: null };
+  const diaLima = t => new Date(t - 5 * 3600e3).toISOString().slice(0, 10);
+  const limpiar = () => { const t = Date.now(); for (const [k, v] of m) if (t - v.visto > EN_LINEA_MS) m.delete(k); };
+  return {
+    ver(sid, origen, tienda) {
+      if (!sid) return this.total();
+      m.set(origen + ':' + sid, { origen, tienda, visto: Date.now() });
+      return this.total();
+    },
+    salir(sid) { for (const k of [...m.keys()]) if (k.endsWith(':' + sid)) m.delete(k); },
+    total() {
+      limpiar(); const n = m.size, t = Date.now(), d = diaLima(t);
+      if (max.dia !== d) max = { dia: d, n: 0, hora: null };
+      if (n > max.n) max = { dia: d, n, hora: new Date(t).toISOString() };
+      return n;
+    },
+    resumen() {
+      const n = this.total(), porTienda = {};
+      let portal = 0, link = 0;
+      for (const v of m.values()) {
+        if (v.origen === 'portal') portal++; else link++;
+        const e = porTienda[v.tienda] = porTienda[v.tienda] || { portal: 0, link: 0 };
+        e[v.origen === 'portal' ? 'portal' : 'link']++;
+      }
+      return { total: n, portal, link, por_tienda: porTienda, max_hoy: max.n, max_hora: max.hora };
+    }
+  };
+}
+
 // Arma el correo y el mensaje de WhatsApp de una solicitud (puro, se prueba)
 //  items: [{sku, nombre, cantidad, precio, tu_precio}]; conTuPrecio: portal (true) o link (false)
 function armarSolicitud({ tienda, ruc, vendedor, telefono, origen, items, conTuPrecio, fecha, numero, hasta }) {
@@ -135,6 +169,8 @@ function armarSolicitud({ tienda, ruc, vendedor, telefono, origen, items, conTuP
 
 module.exports = function registrarPromosPortal({ app, authAdmin, mInv, authCliente, prodPool, portalPool, ofertasVigentes, correoEmpresa, destinatariosReporte, grupos, VV }) {
   const sesiones = crearSesiones();
+  const enVivo = crearEnVivo();
+  const sidDe = req => { const x = String((req.body && req.body.sid) || req.query.sid || '').slice(0, 64); return /^[A-Za-z0-9_-]{8,64}$/.test(x) ? x : null; };
   const soloMaestro = (req, res, next) => (req.admin && req.admin.maestro) ? next() : res.status(403).json({ error: 'Solo el administrador maestro' });
 
   async function prepararTablas() {
@@ -329,9 +365,16 @@ module.exports = function registrarPromosPortal({ app, authAdmin, mInv, authClie
   app.get('/portal/promociones', authCliente, async (req, res) => {
     try {
       const t = await tiendaDeReq(req), v = await vista(t.tipo);
-      res.json({ items: v.items, generado: v.generado, whatsapp: WHATSAPP, modo: 'portal', tipo_cuenta: t.tipo });
+      res.json({ items: v.items, generado: v.generado, whatsapp: WHATSAPP, modo: 'portal', tipo_cuenta: t.tipo,
+        viendo: enVivo.ver(sidDe(req), 'portal', t.id) });
     } catch (e) { fallo(res, e, 'No se pudieron cargar las promociones'); }
   });
+  // Latido del portal (pestaña Promociones abierta): mantiene el conteo en vivo
+  app.post('/portal/promociones/latido', authCliente, (req, res) => {
+    res.json({ viendo: enVivo.ver(sidDe(req), 'portal', req.cliente.portal_user_id) });
+  });
+  // Al cerrar la página (sendBeacon no manda el token: basta el id de sesión, que es aleatorio)
+  app.post('/portal/promociones/salir', (req, res) => { const sid = sidDe(req); if (sid) enVivo.salir(sid); res.json({ ok: true }); });
   app.get('/portal/promociones/mis-solicitudes', authCliente, async (req, res) => {
     try { res.json({ solicitudes: await misSolicitudes('r.portal_user_id = ?', [req.cliente.portal_user_id]) }); }
     catch (e) { fallo(res, e, 'No se pudieron cargar tus solicitudes'); }
@@ -378,7 +421,8 @@ module.exports = function registrarPromosPortal({ app, authAdmin, mInv, authClie
     try {
       const e = await entrar(req, res); if (!e) return;
       const v = await vista(null);
-      res.json({ items: v.items, generado: v.generado, tienda: e.tienda.nombre, whatsapp: WHATSAPP, modo: 'link', en_linea: e.enLinea, max: e.l.max_sesiones });
+      res.json({ items: v.items, generado: v.generado, tienda: e.tienda.nombre, whatsapp: WHATSAPP, modo: 'link', en_linea: e.enLinea, max: e.l.max_sesiones,
+        viendo: enVivo.ver(sidDe(req), 'link', e.tienda.id) });
     } catch (err) { fallo(res, err, 'No se pudieron cargar las promociones'); }
   });
   app.get('/api/oferta/:token/mis-solicitudes', async (req, res) => {
@@ -386,11 +430,11 @@ module.exports = function registrarPromosPortal({ app, authAdmin, mInv, authClie
     catch (err) { fallo(res, err, 'No se pudieron cargar las solicitudes'); }
   });
   app.post('/api/oferta/:token/latido', async (req, res) => {
-    try { const e = await entrar(req, res); if (e) res.json({ ok: true, en_linea: e.enLinea }); }
+    try { const e = await entrar(req, res); if (e) res.json({ ok: true, en_linea: e.enLinea, viendo: enVivo.ver(sidDe(req), 'link', e.tienda.id) }); }
     catch (err) { res.status(500).json({ error: 'Error' }); }
   });
   app.post('/api/oferta/:token/salir', async (req, res) => {
-    try { const l = await linkDe(req.params.token); const sid = String((req.body && req.body.sid) || req.query.sid || ''); if (l) sesiones.salir(l.token, sid); } catch (e) {}
+    try { const l = await linkDe(req.params.token); const sid = String((req.body && req.body.sid) || req.query.sid || ''); if (l) sesiones.salir(l.token, sid); if (sid) enVivo.salir(sid); } catch (e) {}
     res.json({ ok: true });
   });
   app.post('/api/oferta/:token/solicitud', async (req, res) => {
@@ -412,7 +456,9 @@ module.exports = function registrarPromosPortal({ app, authAdmin, mInv, authClie
           l.id AS link_id, l.token, l.max_sesiones, l.estado, l.bloqueado_en, l.motivo, l.ultimo_uso, l.creado_en
         FROM portal_users u LEFT JOIN promo_links l ON l.portal_user_id = u.id AND l.estado <> 'revocado'
         ORDER BY u.activo DESC, u.nombre_cliente`);
-      res.json({ tiendas: us.map(u => ({ ...u, en_linea: u.token ? sesiones.vivas(u.token) : 0 })), max_def: MAX_DEF });
+      const vivo = enVivo.resumen();
+      res.json({ tiendas: us.map(u => ({ ...u, en_linea: u.token ? sesiones.vivas(u.token) : 0, viendo: vivo.por_tienda[u.id] || { portal: 0, link: 0 } })),
+        max_def: MAX_DEF, en_vivo: { total: vivo.total, portal: vivo.portal, link: vivo.link, max_hoy: vivo.max_hoy, max_hora: vivo.max_hora } });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
   // Crear (o regenerar) el link de una tienda: el anterior deja de funcionar
@@ -488,4 +534,4 @@ module.exports = function registrarPromosPortal({ app, authAdmin, mInv, authClie
   return { prepararTablas, revisarReservas };
 };
 
-module.exports._test = { crearSesiones, armarSolicitud, tuPrecio, asignarVentas, enHorario };
+module.exports._test = { crearSesiones, crearEnVivo, armarSolicitud, tuPrecio, asignarVentas, enHorario };

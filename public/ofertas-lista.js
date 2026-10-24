@@ -45,6 +45,9 @@
   .ol-ok{border:1px solid var(--fg-ok);background:var(--bg-ok);color:var(--fg-ok);border-radius:12px;padding:12px;margin-top:12px;line-height:1.6}
   .ol-ok a{color:inherit;font-weight:700}
   .ol-vacio{color:var(--muted);text-align:center;padding:24px}
+  .ol-vivo{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text2,var(--text));margin-bottom:6px}
+  .ol-vivo::before{content:'';width:8px;height:8px;border-radius:50%;background:var(--fg-ok);box-shadow:0 0 0 3px var(--bg-ok);animation:olpulso 2s infinite}
+  @keyframes olpulso{50%{opacity:.4}}
   .ol-sol{border:1px solid var(--border);border-radius:12px;padding:10px 12px;margin-bottom:8px;background:var(--surface2,var(--surface))}
   .ol-sol .ol-e{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:20px;margin-left:4px}
   .ol-e.pendiente{background:var(--bg-warn);color:var(--fg-warn)}.ol-e.concretada{background:var(--bg-ok);color:var(--fg-ok)}
@@ -81,10 +84,11 @@
     const hasta = [...new Set(items.map(x => fecha(x.hasta)))];
 
     el.innerHTML = `<div class="ol">
+      <div class="ol-vivo" data-zona="vivo" style="display:none"></div>
       <div class="ol-aviso">${portal
         ? `Precios de promoción para ${cfg.datos.tipo_cuenta === 'mecanico' ? 'tu taller' : 'tu tienda'}. <b>Precio taller oferta</b> es lo que pagas; <b>PVP oferta</b> es el precio de venta al público recomendado. Al enviar la solicitud, las unidades quedan <b>reservadas</b> para ti por un tiempo limitado.`
         : `Precios de promoción para el público. <b>PVP oferta</b> es el precio de venta recomendado durante la campaña.`}
-        El <b>stock en oferta</b> es lo que queda del lote en promoción; pasa el mouse (o toca) para ver el stock total por ciudad.
+        El <b>stock en oferta</b> es lo que queda del lote en promoción; pasa el mouse (o toca) para ver el stock total por ubicación.
         ${hasta.length === 1 ? `Válido hasta el <b>${esc(hasta[0])}</b> o hasta agotar el stock en oferta.` : 'Válido hasta agotar el stock en oferta.'}</div>
       <div class="ol-barra">
         <input type="search" placeholder="Buscar por nombre o SKU…" data-f="q">
@@ -224,7 +228,14 @@
           ${i.estado === 'pendiente' ? ` hasta ${new Date(i.vence_en).toLocaleString('es-PE', { timeZone: 'America/Lima', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}
           ${i.ventas ? ` · venta ${esc(i.ventas)}` : ''}</div>`).join('')}</div>`).join('');
     }
-    pintar(); pintarSol();
+    // Personas viendo promociones ahora (portal + links de todas las tiendas); se oculta si es solo uno
+    function setViendo(n) {
+      const z = $('[data-zona=vivo]'); n = Number(n) || 0;
+      z.style.display = n >= 2 ? '' : 'none';
+      z.textContent = `${n} personas viendo promociones ahora`;
+    }
+    pintar(); pintarSol(); setViendo(cfg.datos.viendo);
+    return { setViendo };
   }
   window.OfertasLista = { montar };
 })();

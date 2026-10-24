@@ -486,16 +486,27 @@ async function cargarStock(){
   }catch(e){showToast(e.message,true);}
 }
 // ── Promociones (campañas de oferta vigentes; lista compartida con el link de vendedores: /ofertas-lista.js) ──
+// Id de esta pestaña para el conteo "personas viendo ahora" (no identifica a nadie)
+let PROMO_SID='';try{PROMO_SID=sessionStorage.getItem('promo_sid')||'';}catch(e){}
+if(!PROMO_SID){PROMO_SID=Array.from(crypto.getRandomValues(new Uint8Array(12)),b=>b.toString(16).padStart(2,'0')).join('');try{sessionStorage.setItem('promo_sid',PROMO_SID);}catch(e){}}
+let promoLista=null,promoLatido=null;
+const promoVisible=()=>document.getElementById('tab-promo').classList.contains('active')&&document.visibilityState==='visible';
 async function cargarPromos(){
-  let d; try{d=await apiCall('/portal/promociones');}catch(e){return;}
+  let d; try{d=await apiCall('/portal/promociones'+(promoVisible()?'?sid='+PROMO_SID:''));}catch(e){return;}
   const btn=document.getElementById('tab-promo-btn');
   btn.style.display=d.items&&d.items.length?'':'none';
   if(!d.items||!d.items.length)return;
-  OfertasLista.montar(document.getElementById('promo-lista'),{modo:'portal',datos:d,
+  promoLista=OfertasLista.montar(document.getElementById('promo-lista'),{modo:'portal',datos:d,
     enviar:items=>apiCall('/portal/promociones/solicitud','POST',{items}),
-    recargar:()=>apiCall('/portal/promociones'),
+    recargar:()=>apiCall('/portal/promociones?sid='+PROMO_SID),
     solicitudes:()=>apiCall('/portal/promociones/mis-solicitudes')});
+  // Solo cuenta mientras la pestaña Promociones está abierta y visible
+  clearInterval(promoLatido);
+  const latir=()=>{if(promoVisible())apiCall('/portal/promociones/latido','POST',{sid:PROMO_SID}).then(r=>promoLista&&promoLista.setViendo(r.viendo)).catch(()=>{});};
+  promoLatido=setInterval(latir,25000);
+  document.getElementById('tab-promo-btn').addEventListener('click',()=>setTimeout(latir,50));
 }
+addEventListener('pagehide',()=>{try{navigator.sendBeacon(API+'/portal/promociones/salir',new Blob([JSON.stringify({sid:PROMO_SID})],{type:'application/json'}));}catch(e){}});
 
 // ── Propuestas de reposición (Kuranko propone, la tienda acepta) ──
 let propCache=[];

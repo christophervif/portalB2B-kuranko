@@ -76,7 +76,7 @@ async function api(p, metodo, body) {
   if (!r.ok) throw new Error(d.error || 'Error');
   return d;
 }
-let latido = null;
+let latido = null, LISTA = null;
 function detener() { if (latido) clearInterval(latido); latido = null; }
 function vendedor() { return { nombre: leer('oferta_vendedor') || '', tel: leer('oferta_tel') || '' }; }
 function pintarVend() {
@@ -97,14 +97,14 @@ async function cargar() {
   if (!vendedor().nombre) { $('c-nombre').style.display = ''; return; }
   $('c-lista').style.display = '';
   if (!d.items.length) { $('lista').innerHTML = '<div class="desc" style="padding:20px;text-align:center">Por ahora no hay promociones vigentes. Vuelve pronto.</div>'; }
-  else OfertasLista.montar($('lista'), {
+  else LISTA = OfertasLista.montar($('lista'), {
     modo: 'link', datos: d,
     enviar: items => { const v = vendedor(); return api('/solicitud', 'POST', { items, vendedor: v.nombre, telefono: v.tel }); },
     recargar: () => api('', 'GET'),
     solicitudes: () => api('/mis-solicitudes', 'GET')
   });
   detener();
-  latido = setInterval(() => api('/latido', 'POST', {}).catch(() => {}), 25000);
+  latido = setInterval(() => api('/latido', 'POST', {}).then(r => LISTA && LISTA.setViendo(r.viendo)).catch(() => {}), 25000);
 }
 // Al cerrar o salir de la página se libera el lugar (no cuenta para el máximo de equipos)
 addEventListener('pagehide', () => { try { navigator.sendBeacon(ep('/salir'), new Blob([JSON.stringify({ sid: SID })], { type: 'application/json' })); } catch (e) {} });

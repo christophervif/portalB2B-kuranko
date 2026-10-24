@@ -251,6 +251,7 @@ code{font-size:11px}
         <div class="desc">Las tiendas ven las ofertas vigentes en su portal (pestaña “Promociones”, con su precio). Para sus vendedores crea un <b>link libre</b>: muestra solo el PVP oferta, sin el precio de la tienda. Si se abre en más equipos a la vez que el máximo, el link se bloquea solo.</div></div>
       <button class="btn btn-sec" onclick="lkCargar()">Actualizar</button>
     </div>
+    <div class="kpis" id="lk-vivo"></div>
     <div class="fila"><input id="lk-buscar" type="search" placeholder="Buscar tienda o RUC…" oninput="lkPintar()" style="flex:1;min-width:200px">
       <label class="chk"><input type="checkbox" id="lk-solo" onchange="lkPintar()"> Solo con link</label></div>
     <div class="tabla-wrap" style="max-height:55vh"><table id="tbl-links"></table></div>
@@ -864,20 +865,24 @@ function lkPintar() {
   if (!LK) return;
   const q = $('lk-buscar').value.toLowerCase().trim(), solo = $('lk-solo').checked;
   const rows = LK.tiendas.filter(t => (!solo || t.token) && (!q || ((t.nombre_cliente || '') + ' ' + (t.username || '')).toLowerCase().includes(q)));
-  $('tbl-links').innerHTML = '<thead><tr><th>Tienda</th><th>Link</th><th class="n">En línea ahora</th><th class="n">Máx. equipos</th><th>Estado</th><th></th></tr></thead><tbody>' +
+  const v = LK.en_vivo || { total: 0, portal: 0, link: 0, max_hoy: 0 };
+  $('lk-vivo').innerHTML = `<div class="kpi a"><div class="l">Viendo promociones ahora</div><div class="v">${N(v.total)}</div><div class="s">portal ${N(v.portal)} · links ${N(v.link)}</div></div>
+    <div class="kpi"><div class="l">Máximo de hoy</div><div class="v">${N(v.max_hoy)}</div><div class="s">${v.max_hora ? 'a las ' + new Date(v.max_hora).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' }) : '—'}</div></div>`;
+  $('tbl-links').innerHTML = '<thead><tr><th>Tienda</th><th>Link</th><th class="n">Viendo ahora</th><th class="n">Equipos en el link</th><th class="n">Máx. equipos</th><th>Estado</th><th></th></tr></thead><tbody>' +
     (rows.map(t => {
       const est = !t.token ? '<span class="chip c-g">sin link</span>' : t.estado === 'bloqueado' ? `<span class="chip c-r" title="${esc(t.motivo || '')}">bloqueado</span><div class="sub" style="white-space:normal">${esc(t.motivo || '')}</div>` : '<span class="chip c-ok">activo</span>';
       const lin = t.token ? `<span class="chip ${t.en_linea >= t.max_sesiones ? 'c-w' : t.en_linea ? 'c-ok' : 'c-g'}">${t.en_linea} / ${t.max_sesiones}</span>` : '—';
       return `<tr${t.activo ? '' : ' style="opacity:.5"'}>
         <td><div class="nom">${esc(t.nombre_cliente || '—')}${t.tipo_cuenta === 'mecanico' ? ' <span class="chip c-v">🔧 mecánico</span>' : ''}</div><div class="sku">${esc(t.username || '')}${t.activo ? '' : ' · portal desactivado'}</div></td>
         <td>${t.token ? `<button class="btn btn-sec" onclick="lkCopiar('${t.token}')">Copiar link</button> <a class="sub" href="${urlLink(t.token)}" target="_blank" rel="noopener">abrir</a><div class="sub">último uso: ${t.ultimo_uso ? new Date(t.ultimo_uso).toLocaleString('es-PE') : 'nunca'}</div>` : `<button class="btn" onclick="lkCrear(${t.id})">Crear link</button>`}</td>
+        <td class="n">${(t.viendo && (t.viendo.portal || t.viendo.link)) ? `<b>${t.viendo.portal + t.viendo.link}</b><div class="sub">portal ${t.viendo.portal} · link ${t.viendo.link}</div>` : '—'}</td>
         <td class="n">${lin}</td>
         <td class="n">${t.token ? `<input type="number" min="1" max="50" value="${t.max_sesiones}" style="width:60px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:4px" onchange="lkMax(${t.link_id},this.value)">` : '—'}</td>
         <td>${est}</td>
         <td style="white-space:nowrap">${t.token ? `${t.estado === 'bloqueado' ? `<button class="btn" onclick="lkEstado(${t.link_id},'activo')">Reactivar</button>` : `<button class="btn btn-sec" onclick="lkEstado(${t.link_id},'bloqueado')">Bloquear</button>`}
           <button class="btn btn-sec" onclick="lkRegenerar(${t.id})" title="El link anterior deja de funcionar">Nuevo link</button>
           <button class="btn btn-sec" onclick="lkBorrar(${t.link_id})">Eliminar</button>` : ''}</td></tr>`;
-    }).join('') || '<tr><td colspan="6" class="vacio">Sin tiendas.</td></tr>') + '</tbody>';
+    }).join('') || '<tr><td colspan="7" class="vacio">Sin tiendas.</td></tr>') + '</tbody>';
 }
 function solPintar(sol) {
   $('tbl-sol').innerHTML = '<thead><tr><th>Fecha</th><th>Tienda</th><th>Desde</th><th>Productos</th><th class="n">Total</th><th>Correo</th></tr></thead><tbody>' +

@@ -9,7 +9,9 @@
 //     stock), lo sube a WooCommerce en el producto simple o la variación:
 //       sale_price  ·  manage_stock + stock_quantity + stock_status
 //     El stock se calcula IGUAL que el puente: suma de location_stocks.quantity de
-//     todas las ubicaciones; stock_status instock si > 0, si no outofstock.
+//     todas las ubicaciones MENOS CUARENTENA y EMBAJADOR (PROMO_EXCLUIR, la misma
+//     regla de las campañas; en el puente es STOCK_EXCLUIR, con el mismo valor por
+//     defecto); stock_status instock si > 0, si no outofstock.
 //   · Solo SKUs en campaña: los que están en una campaña ACTIVA (estado activo o
 //     conflicto). Cuando un SKU sale de la campaña (fin, "Terminar ahora", sale por
 //     lote o margen), se sube UNA vez más la oferta que quedó en el ERP (la original
@@ -33,6 +35,10 @@
 //
 //  Tabla (base del portal): promo_web — memoria de lo que hay en la web por SKU.
 // ═══════════════════════════════════════════════════════════════════════════
+
+const { normalizar } = require('./inventario').comun;
+// Ubicaciones que no cuentan para el stock de la web (igual que las campañas y el puente)
+const EXCLUIR = new Set((process.env.PROMO_EXCLUIR || 'CUARENTENA,EMBAJADOR').split(',').map(normalizar).filter(Boolean));
 
 const CADA_MIN = Math.max(1, Number(process.env.PROMO_WEB_MIN || 2));
 const PAUSA_MS = 800;                 // entre escrituras: suave con el hosting compartido
@@ -110,14 +116,17 @@ module.exports = function registrarOfertaWeb({ prodPool, portalPool }) {
     const vids = [...new Set([...campanaDe.keys(), ...mem.filter(m => m.seguir).map(m => Number(m.vid))])];
     if (!vids.length) return res;
     // 3) Datos del ERP (solo lectura)
+    const [locs] = await prodPool.query(`SELECT id, name FROM locations`);
+    const fuera = locs.filter(l => EXCLUIR.has(normalizar(l.name))).map(l => l.id);
     const [erp] = await prodPool.query(`SELECT pv.id AS vid, pv.sku, pv.product_type AS tipo, pv.sale_price,
-        COALESCE((SELECT SUM(ls.quantity) FROM location_stocks ls WHERE ls.product_variation_id = pv.id), 0) AS stock,
+        COALESCE((SELECT SUM(ls.quantity) FROM location_stocks ls
+                   WHERE ls.product_variation_id = pv.id AND ls.location_id NOT IN (?)), 0) AS stock,
         pv.woocommerce_id AS wc_id,
         COALESCE((SELECT vp.woocommerce_id FROM product_variations vp
                    WHERE vp.product_id = pv.product_id AND vp.product_type = 'variable' AND vp.deleted_at IS NULL
                    ORDER BY vp.id LIMIT 1), p.woocommerce_id) AS wc_padre
       FROM product_variations pv JOIN products p ON p.id = pv.product_id
-      WHERE pv.id IN (?)`, [vids]);
+      WHERE pv.id IN (?)`, [fuera.length ? fuera : [0], vids]);
     const E = new Map(erp.map(r => [Number(r.vid), r]));
 
     let escritos = 0;

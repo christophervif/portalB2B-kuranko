@@ -170,7 +170,9 @@ function calcularPromos(d, f, opts = {}) {
     }
 
     const precioLista = n.sale_price != null && Number(n.sale_price) > 0 ? Number(n.sale_price) : Number(n.regular_price || 0);
-    const margen = precioLista > 0 && costo > 0 ? (precioLista - costo) / precioLista * 100 : null;
+    // margen con el costo para precios (costo con IGV ÷ 0.9, igual que las campañas); capital = costo real
+    const costoP = costo / 0.9;
+    const margen = precioLista > 0 && costo > 0 ? (precioLista - costoP) / precioLista * 100 : null;
 
     const motivos = [];
     const estancado = (dsv == null || dsv >= f.umbral) && (edad == null || edad >= f.umbral);
@@ -343,10 +345,10 @@ module.exports = function registrarPromociones({ app, authAdmin, mInv, prodPool,
   // Campañas de oferta (escriben el precio de oferta en el ERP) → modulos/promociones-campanas.js
   if (!portalPool) return {};
   let ia = null; try { ia = require('./bikes').ia; } catch (e) { /* sin IA: se usan reglas */ }
-  const camp = require('./promociones-campanas')({ app, authAdmin, prodPool, portalPool, erpWritePool, VV, ia });
+  const camp = require('./promociones-campanas')({ app, authAdmin, mInv, prodPool, portalPool, erpWritePool, VV, ia });
   // Pestaña "Promociones" del portal de clientes + links libres para vendedores → modulos/promociones-portal.js
   let web = null;
-  if (authCliente) web = require('./promociones-portal')({ app, authAdmin, authCliente, prodPool, portalPool, ofertasVigentes: camp.ofertasVigentes,
+  if (authCliente) web = require('./promociones-portal')({ app, authAdmin, mInv, authCliente, prodPool, portalPool, ofertasVigentes: camp.ofertasVigentes,
     correoEmpresa: portal && portal.correoEmpresa, destinatariosReporte: portal && portal.destinatariosReporte, grupos, VV });
   return { ...camp, prepararTablas: async () => { await camp.prepararTablas(); if (web) await web.prepararTablas(); } };
 };

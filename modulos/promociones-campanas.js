@@ -20,9 +20,11 @@
 //   "Se vende bien" (vendió hace < 60 d y se agota en < 6 meses) → baja un tramo; en el primero, no entra.
 //   La IA (opcional) revisa SKU por SKU: puede bajar o sacar, y subir solo hasta el tope del tramo.
 //   Al agotarse el lote más antiguo el tramo se recalcula con el siguiente (el % solo baja).
+//   EXCEPCIÓN: un precio puesto A MANO se mantiene en todos los lotes; solo sube si el nuevo piso lo supera.
 //
 //  Precio
-//   costo base  = promedio ponderado (por unidades) del costo CON IGV de los 2 lotes
+//   costo       = costo del lote CON IGV ÷ 0.9 (FACTOR_COSTO: cubre gastos)
+//   costo base  = promedio ponderado (por unidades) de ese costo en los 2 lotes
 //                 más antiguos con existencia
 //   piso        = costo base ÷ (1 − desc. a tiendas de la marca)     ← peor caso
 //                 Ej. Magura 20 %: piso × 0.8 = costo → la tienda que compra con
@@ -33,7 +35,10 @@
 //   No entra si la oferta no queda por debajo del precio de lista, si no hay costo,
 //   o si ya tiene una oferta igual o menor (no se sube un precio).
 //
-//  Permisos: ver/crear/aplicar → solo el admin maestro.
+//  Permisos
+//   · Maestro: todo (crear, aplicar, terminar campañas; reglas; descuentos a tiendas; bajar precios).
+//   · Usuarios con el módulo 'inventario' (la pestaña Promociones): ven las campañas, quitan SKUs y
+//     SUBEN precios de oferta (nada que baje el margen). Costos y piso solo si además tienen 'rentabilidad'.
 //  Escritura en el ERP: cuenta ERP_ESCRITURA_URL con
 //    GRANT SELECT, UPDATE (sale_price) ON <base>.product_variations TO '<cuenta>'@'%';
 //  (si además tiene UPDATE(updated_at), se marca la fecha de cambio).
@@ -42,12 +47,18 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 const { nombreTrazable, cabeceraExcel, nombreProdVar } = require('./comunes');
-const { claseUbicacion } = require('./inventario').comun;
+const { claseUbicacion, normalizar } = require('./inventario').comun;
+// Stock para armar la campaña: TODO (almacenes, tiendas y consignación) menos estas ubicaciones.
+// (El portal y las solicitudes siguen usando solo stock propio: lo de consignación está en otra tienda.)
+const EXCLUIR_CAMPANA = new Set((process.env.PROMO_EXCLUIR || 'CUARENTENA,EMBAJADOR').split(',').map(normalizar).filter(Boolean));
 
 const PASO = Number(process.env.PROMO_REDONDEO || 5);         // redondeo hacia arriba (S/)
 const CADA_MIN = Number(process.env.PROMO_REVISAR_MIN || 10);  // revisión automática
 const NUNCA = 9999;                                            // días sin venta si nunca vendió
-const TOPE_SEGURIDAD = 60;                                     // % máx. de descuento sobre el PVP sin confirmación expresa (fijo)
+const TOPE_SEGURIDAD = 60;
+// Costo para fijar precios = costo del lote CON IGV ÷ 0.9 (cubre gastos; pedido del usuario, oct 2026).
+// El capital invertido se sigue mostrando con el costo real del lote.
+const FACTOR_COSTO = 1 / 0.9;                                     // % máx. de descuento sobre el PVP sin confirmación expresa (fijo)
 const TZ_LIMA = -5;                                            // Perú no tiene horario de verano
 const DIA = 864e5;
 const r2 = n => Math.round(n * 100) / 100;
@@ -131,6 +142,17 @@ function precioPromo(it, o) {
   return res;
 }
 
+// Precio puesto A MANO (en Crear campaña o en Campañas): se respeta aunque cambie el lote; solo sube si el
+// nuevo piso queda por encima. Devuelve null si con esos lotes ya no hay margen para descuento.
+function precioFijo(lista, cb, descTienda, aCosto, manual) {
+  lista = Number(lista) || 0;
+  const p = precioPromo({ lista, costo_base: cb.costo, costo_max: cb.costo_max }, { desc_pct: 95, desc_tienda: descTienda, a_costo: aCosto });
+  if (p.piso == null || p.piso >= lista) return null;
+  const precio = Math.max(arriba(Number(manual) || 0), p.piso);
+  if (precio >= lista) return null;
+  return { precio, piso: p.piso, desc_real: Math.round((1 - precio / lista) * 1000) / 10 };
+}
+
 // ── Reglas por antigüedad del lote más antiguo (las definieron los vendedores) ──
 //  tipo pct   → ese % sobre el precio de lista
 //  tipo piso  → lo más bajo que permite el descuento a tiendas de la marca
@@ -188,7 +210,7 @@ const MOTIVO_TXT = {
 };
 
 // ─────────────────────────────── módulo ───────────────────────────────
-module.exports = function registrarCampanas({ app, authAdmin, prodPool, portalPool, erpWritePool, VV, ia }) {
+module.exports = function registrarCampanas({ app, authAdmin, mInv, prodPool, portalPool, erpWritePool, VV, ia }) {
 
   const soloMaestro = (req, res, next) => (req.admin && req.admin.maestro) ? next()
     : res.status(403).json({ error: 'Solo el administrador maestro puede manejar campañas de oferta' });
@@ -216,7 +238,7 @@ module.exports = function registrarCampanas({ app, authAdmin, prodPool, portalPo
       INDEX (campana_id), INDEX (vid, estado))`);
     // Columnas agregadas después de la 1.ª versión (si la tabla ya existía)
     for (const c of ['costo_max DECIMAL(12,2)', 'tramo VARCHAR(80)', 'lote_ref INT NULL', 'extremo_ok TINYINT DEFAULT 0',
-      'cambios_lote INT DEFAULT 0', 'alerta_costo VARCHAR(400)'])
+      'cambios_lote INT DEFAULT 0', 'alerta_costo VARCHAR(400)', 'precio_manual DECIMAL(12,2) NULL'])
       await portalPool.query(`ALTER TABLE promo_items ADD COLUMN ${c}`).catch(() => {});
     await portalPool.query(`CREATE TABLE IF NOT EXISTS promo_desc_marca (
       marca VARCHAR(60) PRIMARY KEY, pct DECIMAL(5,2) NOT NULL DEFAULT 0,
@@ -251,7 +273,13 @@ module.exports = function registrarCampanas({ app, authAdmin, prodPool, portalPo
         entry_date AS entrada FROM stock_batches WHERE product_variation_id IN (?)`, [ids]);
     const hist = {}, vivos = {};
     filas.forEach(l => { (hist[l.vid] = hist[l.vid] || []).push(l); if (Number(l.qty) > 0) (vivos[l.vid] = vivos[l.vid] || []).push(l); });
-    ids.forEach(vid => { out[vid] = depurarLotes(vivos[vid] || [], hist[vid] || [], Number((listaPor || {})[vid]) || 0); out[vid].crudos = vivos[vid] || []; });
+    ids.forEach(vid => {
+      const d = depurarLotes(vivos[vid] || [], hist[vid] || [], Number((listaPor || {})[vid]) || 0);
+      // lotes para precio: costo ÷ 0.9; crudos: costo real (capital)
+      d.lotes = d.lotes.map(l => ({ ...l, costo: Math.round(Number(l.costo) * FACTOR_COSTO * 100) / 100 }));
+      d.crudos = vivos[vid] || [];
+      out[vid] = d;
+    });
     return out;
   }
 
@@ -293,16 +321,17 @@ module.exports = function registrarCampanas({ app, authAdmin, prodPool, portalPo
     ]);
     const st = {}, vt = {}, mt = {};
     ubic.forEach(u => {
-      if (claseUbicacion(u.loc_tipo, u.loc_nombre) !== 'propio') return;
-      const e = st[u.vid] = st[u.vid] || { q: 0, res: 0 };
+      if (EXCLUIR_CAMPANA.has(normalizar(u.loc_nombre))) return;          // cuarentena, embajador
+      const e = st[u.vid] = st[u.vid] || { q: 0, res: 0, consig: 0 };
       const q = Number(u.qty) || 0; e.q += q; e.res += Math.min(q, Math.max(0, Number(u.reservado) || 0));
+      if (u.loc_tipo === 'consignment') e.consig += q;
     });
     ventas.forEach(v => vt[v.vid] = v);
     mensual.forEach(m => (mt[m.vid] = mt[m.vid] || {})[m.mes] = Number(m.und) || 0);
     const hoy = Date.now(), dias = f => f ? Math.max(0, Math.floor((hoy - new Date(f).getTime()) / DIA)) : null;
     const meses12 = [...Array(12)].map((_, k) => { const d = new Date(hoy); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() - 11 + k); return d.toISOString().slice(0, 7); });
     return lista.map(c => {
-      const s = st[c.vid] || { q: 0, res: 0 };
+      const s = st[c.vid] || { q: 0, res: 0, consig: 0 };
       const D = lotesD[c.vid] || { lotes: [], crudos: [], alertas: [] };
       const L = D.crudos;   // capital con el costo real registrado
       const und = L.reduce((a, l) => a + Number(l.qty), 0), cap = L.reduce((a, l) => a + Number(l.qty) * Number(l.costo), 0);
@@ -313,7 +342,7 @@ module.exports = function registrarCampanas({ app, authAdmin, prodPool, portalPo
       return {
         vid: c.vid, sku: c.sku || '', nombre: nombreProdVar(c.producto, c.variacion), marca: marcaDe(c.producto),
         lista: Number(c.regular_price) || 0, oferta_actual: c.sale_price != null && Number(c.sale_price) > 0 ? Number(c.sale_price) : null,
-        stock: s.q, disponibles: s.q - s.res,
+        stock: s.q, disponibles: s.q - s.res, stock_consig: s.consig,
         capital: r2(s.q * (und ? cap / und : 0)),
         costo_base: cb ? cb.costo : null, costo_max: cb ? cb.costo_max : null, und_lotes_base: cb ? cb.unidades : 0,
         lote_ref: cb ? cb.lote_ref : null,
@@ -467,6 +496,11 @@ Productos: ${JSON.stringify(lote)}`;
         const cb = costoBase(D.lotes);
         const p = precioPromo({ lista: it.lista, costo_base: cb ? cb.costo : it.costo_base, costo_max: cb ? cb.costo_max : it.costo_max, oferta_actual: actual },
           { desc_pct: it.desc_pct, desc_tienda: c.desc_tienda, a_costo: !!it.a_costo });
+        if (it.precio_manual != null && cb) {                    // precio puesto a mano: se respeta (solo sube al piso)
+          const f = precioFijo(it.lista, cb, c.desc_tienda, !!it.a_costo, it.precio_manual);
+          if (!f) { p.precio = null; p.motivo = 'sin_margen'; }
+          else { p.precio = f.precio; p.piso = f.piso; p.desc_real = f.desc_real; if (actual != null && Number(actual) > 0 && Number(actual) <= f.precio) p.motivo = 'ya_tiene_oferta'; }
+        }
         if (p.precio == null || p.motivo === 'ya_tiene_oferta') { await marcar(it, 'omitido', MOTIVO_TXT[p.motivo] || 'Sin descuento posible'); omit++; continue; }
         if (p.desc_real > TOPE_SEGURIDAD && !Number(it.extremo_ok)) { await marcar(it, 'omitido', `−${p.desc_real} % supera el tope de seguridad (${TOPE_SEGURIDAD} %) sin confirmación`); omit++; continue; }
         if (await escribirOferta(it.vid, p.precio, actual)) {
@@ -531,6 +565,25 @@ Productos: ${JSON.stringify(lote)}`;
       if (D.dudoso) { await devolver(it, 'Sale: ' + D.alertas.join(' '), cb); continue; }
       let desc = Number(it.desc_pct), aCosto = !!it.a_costo, tramo = it.tramo, nota = null;
       const cambioLote = it.lote_ref != null && Number(it.lote_ref) !== cb.lote_ref;
+      const manual = it.precio_manual != null;
+      if (manual) {
+        // Precio puesto a mano: se mantiene en todos los lotes; solo sube si el nuevo piso lo supera
+        const mismo = Math.abs(cb.costo - Number(it.costo_base)) < 0.005 && Math.abs(cb.costo_max - Number(it.costo_max || cb.costo_max)) < 0.005;
+        if (!cambioLote && mismo) { if (it.lote_ref == null) await portalPool.query(`UPDATE promo_items SET lote_ref=?, costo_max=? WHERE id=?`, [cb.lote_ref, cb.costo_max, it.id]); continue; }
+        const f = precioFijo(it.lista, cb, c.desc_tienda, aCosto, it.precio_manual);
+        if (!f) { await devolver(it, 'Sale antes: con el costo de los lotes que quedan ya no hay margen para tu precio', cb); continue; }
+        const guardarM = () => portalPool.query(`UPDATE promo_items SET precio=?, piso=?, costo_base=?, costo_max=?, lote_ref=?, desc_pct=?, cambios_lote = cambios_lote + ? WHERE id=?`,
+          [f.precio, f.piso, cb.costo, cb.costo_max, cb.lote_ref, f.desc_real, cambioLote ? 1 : 0, it.id]);
+        if (Math.abs(f.precio - Number(it.precio)) < 0.005) { await guardarM(); continue; }
+        if (await escribirOferta(it.vid, f.precio, it.precio)) {
+          await guardarM();
+          await log(c.id, it.vid, 'reajustar', it.precio, f.precio, `Precio manual S/ ${Number(it.precio_manual)}: sube al nuevo piso S/ ${f.piso}`); n++;
+        } else {
+          const actual = await leerOferta(it.vid);
+          await marcar(it, 'conflicto', `Alguien cambió la oferta a ${actual == null ? 'vacío' : 'S/ ' + actual}; se deja de seguir este SKU`);
+        }
+        continue;
+      }
       if (cambioLote) {
         const edad = cb.entrada ? Math.floor((Date.now() - new Date(cb.entrada).getTime()) / DIA) : null;
         const t = tramoDe({ edad_dias: edad }, R, true);
@@ -676,15 +729,20 @@ Productos: ${JSON.stringify(lote)}`;
   }
 
   // ─────────────────────────── endpoints ───────────────────────────
-  const mw = [authAdmin, soloMaestro];
+  const mw = [authAdmin, soloMaestro];                       // solo maestro
+  const ver = [authAdmin, mInv || soloMaestro];              // maestro o módulo 'inventario'
+  const esMaestro = req => !!(req.admin && req.admin.maestro);
+  const veCostos = req => esMaestro(req) || (Array.isArray(req.admin && req.admin.modulos) && req.admin.modulos.includes('rentabilidad'));
+  const sinCostos = it => { const { costo_base, costo_max, piso, alerta_costo, ...x } = it; return x; };
   const err = (res, e) => res.status(e.status || 500).json({ error: e.message });
 
-  app.get('/api/promo-config', ...mw, async (req, res) => {
+  app.get('/api/promo-config', ...ver, async (req, res) => {
     try {
       const [m] = await prodPool.query(`SELECT DISTINCT UPPER(SUBSTRING_INDEX(TRIM(p.name), ' ', 1)) AS marca
         FROM products p WHERE p.deleted_at IS NULL ORDER BY marca`);
       res.json({ marcas: m.map(x => x.marca).filter(Boolean), desc_tiendas: await descTiendas(), reglas: await reglas(), reglas_def: REGLAS_DEF, redondeo: PASO,
-        escritura: !!erpWritePool, ia: !!(ia && process.env.GEMINI_API_KEY), nunca: NUNCA });
+        escritura: !!erpWritePool, ia: !!(ia && process.env.GEMINI_API_KEY), nunca: NUNCA,
+        rol: esMaestro(req) ? 'maestro' : 'editor', ve_costos: veCostos(req) });
     } catch (e) { err(res, e); }
   });
 
@@ -731,13 +789,13 @@ Productos: ${JSON.stringify(lote)}`;
     const wd = wb.addWorksheet('Detalle');
     const n = cabeceraExcel(wd, titulo, [['Marca', marca], ...extraCab], 11);
     const cols = [['SKU', 18], ['Nombre', 46], ['Precio lista', 12], ['Oferta antes', 12], ['Precio oferta', 13], ['Desc. %', 9],
-      ['Tramo', 26], ['Piso (S/)', 11], ['Costo base 2 lotes (S/)', 16], ['Días en almacén', 13], ['Días sin venta', 12], ['Capital (S/)', 13], ['A costo', 8], ['Razón', 40], ['Estado', 12]];
+      ['Tramo', 26], ['Piso (S/)', 11], ['Costo base 2 lotes (S/)', 16], ['Días en almacén', 13], ['Meses sin venta', 12], ['Capital (S/)', 13], ['A costo', 8], ['Razón', 40], ['Estado', 12]];
     cols.forEach((c, i) => wd.getColumn(i + 1).width = c[1]);
     const hr = wd.addRow(cols.map(c => c[0])); hr.font = { bold: true, color: { argb: 'FFFFFFFF' } };
     hr.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000726' } };
     filas.forEach(x => wd.addRow([x.sku, x.nombre, Number(x.lista), x.oferta_actual ?? x.oferta_original ?? null, Number(x.precio),
       x.desc_real ?? (x.lista ? Math.round((1 - x.precio / x.lista) * 1000) / 10 : null), x.tramo || '', x.piso != null ? Number(x.piso) : null,
-      x.costo_base != null ? Number(x.costo_base) : null, x.edad_dias ?? null, x.dias_sin_venta ?? null, x.capital ?? null,
+      x.costo_base != null ? Number(x.costo_base) : null, x.edad_dias ?? null, x.dias_sin_venta == null ? null : x.dias_sin_venta >= NUNCA ? 'nunca' : Math.round(x.dias_sin_venta / 30.4375 * 10) / 10, x.capital ?? null,
       x.a_costo ? 'Sí' : '', x.razon || '', x.estado || '']));
     [3, 4, 5, 8, 9, 12].forEach(c => wd.getColumn(c).numFmt = '#,##0.00');
     wd.views = [{ state: 'frozen', ySplit: n + 1 }];
@@ -773,10 +831,11 @@ Productos: ${JSON.stringify(lote)}`;
         String(b.origen || p.origen).slice(0, 10), (req.admin && req.admin.usuario) || '', String(b.nota || '').slice(0, 400) || null]);
       const cid = r.insertId;
       // desc_pct = 95 significa "al piso" (así, si cambia el costo, sigue pegado al piso nuevo)
-      await portalPool.query(`INSERT INTO promo_items (campana_id, vid, sku, nombre, lista, desc_pct, a_costo, razon, costo_base, costo_max, piso, precio, tramo, lote_ref, extremo_ok, alerta_costo) VALUES ?`,
+      await portalPool.query(`INSERT INTO promo_items (campana_id, vid, sku, nombre, lista, desc_pct, a_costo, razon, costo_base, costo_max, piso, precio, tramo, lote_ref, extremo_ok, alerta_costo, precio_manual) VALUES ?`,
         [filas.map(x => [cid, x.vid, x.sku, x.nombre.slice(0, 300), x.lista, x.desc_max != null && x.desc_pct >= x.desc_max - 0.05 ? 95 : x.desc_pct,
           x.a_costo ? 1 : 0, String(razones[x.vid] || x.razon || '').slice(0, 300), x.costo_base, x.costo_max, x.piso, x.precio,
-          String(x.tramo || '').slice(0, 80), x.lote_ref, x.extremo_ok ? 1 : 0, String(x.alerta_costo || '').slice(0, 400) || null])]);
+          String(x.tramo || '').slice(0, 80), x.lote_ref, x.extremo_ok ? 1 : 0, String(x.alerta_costo || '').slice(0, 400) || null,
+          /^Manual/.test(String(razones[x.vid] || '')) && !x.a_costo ? x.precio : null])]);
       let aplicado = null;
       if (ini.getTime() <= Date.now() && erpWritePool) {
         const [[c]] = await portalPool.query(`SELECT * FROM promo_campanas WHERE id=?`, [cid]);
@@ -786,7 +845,7 @@ Productos: ${JSON.stringify(lote)}`;
     } catch (e) { err(res, e); }
   });
 
-  app.get('/api/promo-campanas', ...mw, async (req, res) => {
+  app.get('/api/promo-campanas', ...ver, async (req, res) => {
     try {
       const [cs] = await portalPool.query(`SELECT c.*,
           SUM(i.estado='activo') activos, SUM(i.estado='pendiente') pendientes, SUM(i.estado='restaurado') restaurados,
@@ -802,24 +861,24 @@ Productos: ${JSON.stringify(lote)}`;
     if (!c) { const e = new Error('Campaña no encontrada'); e.status = 404; throw e; }
     return c;
   }
-  app.get('/api/promo-campanas/:id', ...mw, async (req, res) => {
+  app.get('/api/promo-campanas/:id', ...ver, async (req, res) => {
     try {
       const c = await campana(req.params.id);
       const [items] = await portalPool.query(`SELECT * FROM promo_items WHERE campana_id=? ORDER BY estado, nombre`, [c.id]);
       const [lg] = await portalPool.query(`SELECT * FROM promo_log WHERE campana_id=? ORDER BY id DESC LIMIT 300`, [c.id]);
-      res.json({ campana: c, items, log: lg });
+      res.json({ campana: c, items: veCostos(req) ? items : items.map(sinCostos), log: lg, rol: esMaestro(req) ? 'maestro' : 'editor' });
     } catch (e) { err(res, e); }
   });
-  app.get('/api/promo-campanas/:id/excel', ...mw, async (req, res) => {
+  app.get('/api/promo-campanas/:id/excel', ...ver, async (req, res) => {
     try {
       const c = await campana(req.params.id);
       const [items] = await portalPool.query(`SELECT * FROM promo_items WHERE campana_id=? AND estado IN ('pendiente','activo','restaurado') ORDER BY nombre`, [c.id]);
       const f = d => new Date(new Date(d).getTime() + TZ_LIMA * 3600e3).toISOString().slice(0, 10);
-      await excelPrecios(res, c.nombre, c.marca, items, [['Del', f(c.inicio)], ['Al', f(c.fin)], ['Estado', c.estado], ['Descuento a tiendas', Number(c.desc_tienda) + '%']]);
+      await excelPrecios(res, c.nombre, c.marca, veCostos(req) ? items : items.map(sinCostos), [['Del', f(c.inicio)], ['Al', f(c.fin)], ['Estado', c.estado], ['Descuento a tiendas', Number(c.desc_tienda) + '%']]);
     } catch (e) { err(res, e); }
   });
   // Quitar un SKU de una campaña (si ya estaba aplicado, se devuelve su oferta)
-  app.post('/api/promo-campanas/:id/quitar/:vid', ...mw, async (req, res) => {
+  app.post('/api/promo-campanas/:id/quitar/:vid', ...ver, async (req, res) => {
     try {
       const c = await campana(req.params.id);
       const [[it]] = await portalPool.query(`SELECT * FROM promo_items WHERE campana_id=? AND vid=?`, [c.id, Number(req.params.vid)]);
@@ -827,10 +886,42 @@ Productos: ${JSON.stringify(lote)}`;
       if (it.estado === 'activo') {
         const orig = it.oferta_original_guardada ? it.oferta_original : null;
         if (!(await escribirOferta(it.vid, orig, it.precio))) return res.status(409).json({ error: 'La oferta de ese SKU fue cambiada por otra persona; no se tocó' });
-        await log(c.id, it.vid, 'quitar', it.precio, orig);
+        await log(c.id, it.vid, 'quitar', it.precio, orig, 'Por ' + ((req.admin && req.admin.usuario) || '—'));
       }
-      await marcar(it, it.estado === 'activo' ? 'restaurado' : 'omitido', 'Quitado a mano');
+      await marcar(it, it.estado === 'activo' ? 'restaurado' : 'omitido', 'Quitado a mano por ' + ((req.admin && req.admin.usuario) || '—'));
       res.json({ ok: true });
+    } catch (e) { err(res, e); }
+  });
+  // Cambiar el precio de oferta de un SKU de la campaña.
+  //  Usuarios con 'inventario': solo SUBIRLO (menos descuento = más margen). Maestro: también bajarlo,
+  //  sin pasar el piso y respetando el tope de seguridad. Se redondea hacia arriba a S/ 5.
+  app.post('/api/promo-campanas/:id/precio/:vid', ...ver, async (req, res) => {
+    try {
+      const c = await campana(req.params.id);
+      if (!['programada', 'activa'].includes(c.estado)) return res.status(400).json({ error: 'La campaña ya terminó' });
+      const [[it]] = await portalPool.query(`SELECT * FROM promo_items WHERE campana_id=? AND vid=? AND estado IN ('activo','pendiente')`, [c.id, Number(req.params.vid)]);
+      if (!it) return res.status(404).json({ error: 'Ese SKU no está activo en la campaña' });
+      const lista = Number(it.lista), actual = Number(it.precio);
+      const nuevo = arriba(Number(req.body && req.body.precio) || 0);
+      if (!(nuevo > 0)) return res.status(400).json({ error: 'Escribe un precio válido' });
+      if (nuevo >= lista) return res.status(400).json({ error: `Con S/ ${nuevo} ya no hay descuento (lista S/ ${lista}). Para sacarlo de la oferta usa "Quitar".` });
+      if (Math.abs(nuevo - actual) < 0.005) return res.json({ ok: true, precio: nuevo, sin_cambio: true });
+      if (nuevo < actual) {
+        if (!esMaestro(req)) return res.status(403).json({ error: 'Solo el administrador puede bajar un precio de oferta. Puedes subirlo o quitar el SKU.' });
+        if (it.piso != null && nuevo < Number(it.piso)) return res.status(400).json({ error: `No puede bajar del piso S/ ${Number(it.piso)} (costo ÷ desc. a tiendas)` });
+        const d = (1 - nuevo / lista) * 100;
+        if (d > TOPE_SEGURIDAD && !Number(it.extremo_ok) && !(req.body && req.body.confirmar_tope))
+          return res.status(409).json({ error: `−${Math.round(d * 10) / 10} % supera el tope de seguridad (${TOPE_SEGURIDAD} %). Confírmalo.`, requiere_confirmar: true });
+      }
+      const desc = Math.round((1 - nuevo / lista) * 10000) / 100;
+      if (it.estado === 'activo') {
+        if (!(await escribirOferta(it.vid, nuevo, it.precio))) return res.status(409).json({ error: 'La oferta de ese SKU fue cambiada por otra persona; no se tocó' });
+      }
+      await portalPool.query(`UPDATE promo_items SET precio=?, precio_manual=?, desc_pct=?, extremo_ok = GREATEST(extremo_ok, ?) WHERE id=?`,
+        [nuevo, nuevo, desc, req.body && req.body.confirmar_tope ? 1 : 0, it.id]);
+      await log(c.id, it.vid, nuevo > actual ? 'subir' : 'bajar', actual, nuevo, 'Por ' + ((req.admin && req.admin.usuario) || '—'));
+      cacheOfertas = null;
+      res.json({ ok: true, precio: nuevo });
     } catch (e) { err(res, e); }
   });
   app.post('/api/promo-campanas/:id/aplicar', ...mw, async (req, res) => {
@@ -859,4 +950,4 @@ Productos: ${JSON.stringify(lote)}`;
   return { prepararTablas, revisar, ofertasVigentes, limpiarCache: () => { cacheOfertas = null; } };
 };
 
-module.exports._test = { arriba, costoBase, depurarLotes, precioPromo, tramoDe, leerReglas, REGLAS_DEF, fechaLima, NUNCA };
+module.exports._test = { FACTOR_COSTO, arriba, costoBase, precioFijo, depurarLotes, precioPromo, tramoDe, leerReglas, REGLAS_DEF, fechaLima, NUNCA };

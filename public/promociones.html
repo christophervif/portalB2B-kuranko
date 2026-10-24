@@ -189,8 +189,8 @@ code{font-size:11px}
       <label class="campo" title="Si lo llenas, reemplaza el % de los tramos para todos (respetando el piso y la regla de 'se vende bien'). Vacío = tramos por antigüedad">Desc. general %<input type="number" id="c-desc" min="0" max="95" placeholder="tramos"></label>
     </div>
     <div class="fila">
-      <label class="campo" title="Días desde que entró el lote más antiguo">Antigüedad mín. (días)<input type="number" id="c-edad" min="0" placeholder="0"></label>
-      <label class="campo" title="Nunca vendido = 9999">Días sin venta mín.<input type="number" id="c-dsv" min="0" placeholder="0"></label>
+      <label class="campo" title="Meses desde que entró el lote más antiguo">Antigüedad mín. (meses)<input type="number" id="c-edad" min="0" step="0.5" placeholder="0"></label>
+      <label class="campo" title="Los que nunca se vendieron siempre cuentan">Meses sin venta mín.<input type="number" id="c-dsv" min="0" step="0.5" placeholder="0"></label>
       <label class="campo">Capital mín. S/<input type="number" id="c-cap" min="0" placeholder="0"></label>
       <label class="campo">Precio lista desde S/<input type="number" id="c-lmin" min="0"></label>
       <label class="campo">hasta S/<input type="number" id="c-lmax" min="0"></label>
@@ -212,6 +212,7 @@ code{font-size:11px}
     <details class="ayuda"><summary>¿Cómo se calcula?</summary><ul>
       <li><b>Descuento por tramos</b> según la edad del lote más antiguo (editables en “Reglas y descuentos”): <span id="ayuda-tramos"></span>. “Se vende bien” (vendió hace poco y se agota pronto) baja un tramo; en el primero no entra.</li>
       <li><b>IA</b> (opcional): revisa cada SKU con sus ventas mes a mes; puede bajar o sacar, y subir solo hasta el tope del tramo. Lo que cambia queda marcado con su razón.</li>
+      <li><b>Costo</b> = costo del lote con IGV ÷ 0.9 (cubre gastos). El capital invertido se muestra con el costo real.</li>
       <li><b>Costo base</b>: promedio (por unidades) del costo con IGV de los 2 lotes más antiguos con existencia. Cuando se agota un lote, entra el siguiente y el precio se ajusta suave (se revisa cada 10 minutos).</li>
       <li><b>Piso</b> = costo base ÷ (1 − desc. a tiendas). Ej. Magura 20 %: piso × 0.8 = costo. <b>A costo</b>: piso = el costo más caro de esos 2 lotes (ninguna unidad se vende bajo su costo). En 30+ meses se sugiere y lo confirmas con el botón.</li>
       <li><b>Oferta</b> = precio de lista × (1 − desc. %), nunca por debajo del piso, redondeado hacia arriba a múltiplos de S/ <span class="paso">5</span>.</li>
@@ -502,9 +503,13 @@ function vista(v) {
 
 async function initCampanas() {
   try { CFG = await apiCall('/api/promo-config'); }
-  catch (e) { return; }                                   // no es maestro: solo Candidatos
+  catch (e) { return; }                                   // sin acceso: solo Candidatos
   $('nav').style.display = '';
-  document.querySelectorAll('.solo-maestro').forEach(e => e.style.display = '');
+  const M = CFG.rol === 'maestro';
+  // Usuarios con acceso (no maestro): ven campañas y links, quitan SKUs y suben precios; no crean ni bajan precios
+  document.querySelectorAll('#nav button[data-v=crear], #nav button[data-v=desc]').forEach(b => b.style.display = M ? '' : 'none');
+  document.querySelectorAll('.solo-maestro').forEach(e => e.style.display = M ? '' : 'none');
+  if (!M) { const h = $('rv-horas'); if (h) { h.disabled = true; h.title = 'Solo el administrador cambia la duración'; } }
   document.querySelectorAll('.paso').forEach(e => e.textContent = CFG.redondeo);
   const opts = CFG.marcas.map(m => `<option>${esc(m)}</option>`).join('');
   $('c-marca').innerHTML = '<option value="">— elige —</option>' + opts;
@@ -517,6 +522,7 @@ async function initCampanas() {
   $('cr-aviso').innerHTML = av.map(t => `<div class="aviso">${t}</div>`).join('');
   $('cp-aviso').innerHTML = CFG.escritura ? '' : `<div class="aviso">${av[0]}</div>`;
   let v = 'cand'; try { v = localStorage.getItem('promo_vista') || 'cand'; } catch (e) {}
+  if (!M && ['crear', 'desc'].includes(v)) v = 'camp';
   vista(v);
 }
 // Desde la tabla de candidatos: preparar campaña con la marca filtrada
@@ -561,7 +567,8 @@ const MOT = { sin_precio: 'Sin precio de lista', sin_costo: 'Sin costo de lote',
 function crBody() {
   return {
     marca: $('c-marca').value, desc_tienda: $('c-dt').value, desc_pct: $('c-desc').value,
-    filtros: { edad_min: $('c-edad').value, dsv_min: $('c-dsv').value, capital_min: $('c-cap').value, lista_min: $('c-lmin').value, lista_max: $('c-lmax').value }
+    // en pantalla son meses; el servidor filtra en días
+    filtros: { edad_min: $('c-edad').value ? Math.round(Number($('c-edad').value) * 30.4375) : '', dsv_min: $('c-dsv').value ? Math.round(Number($('c-dsv').value) * 30.4375) : '', capital_min: $('c-cap').value, lista_min: $('c-lmin').value, lista_max: $('c-lmax').value }
   };
 }
 async function crProponer(conIA) {
@@ -593,16 +600,25 @@ function crCambia(vid, campo, el) {
     }
     x.sel = el.checked;
   }
-  if (campo === 'a_costo') { x.a_costo = el.checked; if (el.checked) { x.desc_pct = 95; x.razon = 'A costo (manual)'; } crRecalc(x); if (x.puede && !x.sel) x.sel = true; }
+  if (campo === 'a_costo') { (el.checked ? ponerACosto : quitarACosto)(x, 'A costo (manual)'); crRecalc(x); if (x.puede && !x.sel) x.sel = true; }
   if (campo === 'desc') { x.desc_pct = Number(el.value) || 0; x.razon = 'Manual'; crRecalc(x); if (x.puede) x.sel = x.desc_pct > 0; }
   if (campo === 'precio') {                                   // escribir el precio directo → se convierte en %
     const p = Number(el.value); if (p > 0 && x.lista > 0) { x.desc_pct = Math.round((1 - p / x.lista) * 1000) / 10; x.razon = 'Manual'; crRecalc(x); }
   }
   crPintar(true);
 }
+// "A costo" guarda el % y la razón que tenía, para volver a ellos al desmarcarlo
+function ponerACosto(x, razon) {
+  if (!x.a_costo) { x._previo = { desc: x.desc_pct, razon: x.razon }; }
+  x.a_costo = true; x.desc_pct = 95; x.razon = razon;
+}
+function quitarACosto(x) {
+  x.a_costo = false;
+  if (x._previo) { x.desc_pct = x._previo.desc; x.razon = x._previo.razon; x._previo = null; }
+}
 function crConfirmarCosto() {
   const pend = CR.items.filter(x => x.sugiere_costo && !x.a_costo && !x.en_campana && x.costo_base > 0);
-  pend.forEach(x => { x.a_costo = true; x.desc_pct = 95; x.razon = 'A costo (confirmado)'; crRecalc(x); if (x.puede) x.sel = true; });
+  pend.forEach(x => { ponerACosto(x, 'A costo (confirmado)'); crRecalc(x); if (x.puede) x.sel = true; });
   showToast(`${pend.length} SKU(s) a costo. Desmarca “A costo” en los que no quieras.`);
   crPintar();
 }
@@ -634,20 +650,29 @@ function crPintar(soloKpis) {
   } else bc.style.display = 'none';
   crFilas();
 }
+// Margen de Kuranko con el precio de oferta, sobre el costo base (2 lotes más antiguos).
+//  Arriba: vendiendo a precio taller oferta (PVP oferta − desc. a tiendas; en a costo = PVP oferta). Abajo: al público.
+function margenCelda(x) {
+  if (x.precio == null || !(x.costo_base > 0)) return '—';
+  const taller = x.a_costo ? x.precio : x.precio * (1 - (Number(CR.desc_tienda) || 0) / 100);
+  const mt = (taller - x.costo_base) / taller * 100, mp = (x.precio - x.costo_base) / x.precio * 100;
+  const col = mt < 0 ? 'var(--fg-r)' : mt < 10 ? 'var(--fg-warn)' : 'var(--white)';
+  return `<b style="color:${col}" title="Vendiendo a precio taller ${S(taller)}">${N(mt, 1)}%</b><div class="sub">público ${N(mp, 1)}%</div>`;
+}
 function crFilas() {
   const rows = crVisibles();
   const sel = CR.items.filter(x => x.sel && x.puede).length;
   $('cr-conteo').innerHTML = `<b>${N(sel)}</b> seleccionados · mostrando ${N(Math.min(rows.length, MAX_FILAS))} de ${N(rows.length)}`;
-  const head = `<thead><tr><th></th><th>Producto</th><th class="n">Antigüedad</th><th class="n">Días sin venta</th><th class="n">Capital</th><th class="n">Stock</th>
+  const head = `<thead><tr><th></th><th>Producto</th><th class="n" title="Margen de Kuranko al vender a precio taller oferta (peor caso) y, debajo, al público a PVP oferta">Margen oferta</th><th class="n">Meses sin venta</th><th class="n">Capital</th><th class="n">Stock</th>
     <th>Tramo</th><th class="n">Precio lista</th><th class="n">Oferta hoy</th><th class="n">Desc. %</th><th class="n">Precio oferta</th><th class="n">Piso · máx.</th><th>A costo</th><th>Razón</th></tr></thead>`;
   if (!rows.length) { $('tbl-crear').innerHTML = head + '<tbody><tr><td colspan="14" class="vacio">Ningún SKU con esos filtros.</td></tr></tbody>'; return; }
   $('tbl-crear').innerHTML = head + '<tbody>' + rows.slice(0, MAX_FILAS).map(x => `<tr style="${x.puede ? '' : 'opacity:.55'}">
     <td><input type="checkbox" ${x.sel ? 'checked' : ''} ${x.puede ? '' : 'disabled'} onchange="crCambia(${x.vid},'sel',this)"></td>
-    <td><div class="nom">${esc(x.nombre)}</div><div class="sku">${esc(x.sku)} · costo base ${S(x.costo_base)} (${N(x.und_lotes_base)} und en 2 lotes)</div>${x.alerta_costo ? `<div class="sub" style="white-space:normal;color:var(--fg-r)">⚠ ${esc(x.alerta_costo)}</div>` : ''}${x.requiere_confirmar ? `<div><span class="chip c-r" title="Marca la casilla para confirmarlo">−${N(x.desc_real, 1)}% supera el tope: confirma</span></div>` : ''}</td>
-    <td class="n">${x.edad_dias == null ? '—' : N(x.edad_dias) + ' d'}</td>
-    <td class="n">${x.dias_sin_venta >= CFG.nunca ? '<span class="chip c-r" title="Nunca se vendió">9999</span>' : N(x.dias_sin_venta)}</td>
+    <td><div class="nom">${esc(x.nombre)}</div><div class="sku">${esc(x.sku)} · costo base ${S(x.costo_base)} <span title="Costo con IGV ÷ 0.9 (incluye gastos)">(÷0.9)</span> · ${N(x.und_lotes_base)} und en 2 lotes</div>${x.alerta_costo ? `<div class="sub" style="white-space:normal;color:var(--fg-r)">⚠ ${esc(x.alerta_costo)}</div>` : ''}${x.requiere_confirmar ? `<div><span class="chip c-r" title="Marca la casilla para confirmarlo">−${N(x.desc_real, 1)}% supera el tope: confirma</span></div>` : ''}</td>
+    <td class="n">${margenCelda(x)}</td>
+    <td class="n">${x.dias_sin_venta >= CFG.nunca ? '<span class="chip c-r" title="Nunca se vendió">nunca</span>' : N(x.dias_sin_venta / 30.4375, 1)}<div class="sub">${N(x.und_12m)} vend. 12 m</div></td>
     <td class="n">${S(x.capital)}</td>
-    <td class="n">${N(x.stock)}</td>
+    <td class="n">${N(x.stock)}${x.stock_consig ? `<div class="sub" title="Incluye lo que está en consignación en tiendas de clientes">${N(x.stock_consig)} en consig.</div>` : ''}</td>
     <td><span class="chip ${x.sugiere_costo ? 'c-r' : x.vende_bien ? 'c-ok' : 'c-g'}" title="${esc(x.tramo || '')}">${esc(x.tramo || '—')}</span>${x.sugiere_costo && !x.a_costo ? '<div class="sub">a costo sugerido</div>' : ''}${x.ia_cambio ? '<div><span class="chip c-v">IA</span></div>' : ''}</td>
     <td class="n">${S(x.lista)}</td>
     <td class="n">${x.oferta_actual ? S(x.oferta_actual) : '—'}</td>
@@ -714,8 +739,8 @@ async function cpCargar() {
     <td style="white-space:nowrap">
       <button class="btn btn-sec" onclick="cpVer(${c.id})">Ver</button>
       <button class="btn btn-sec" onclick="cpExcel(${c.id},'${esc(c.marca)}')">Excel</button>
-      ${c.estado === 'programada' ? `<button class="btn" onclick="cpAccion(${c.id},'aplicar')">Aplicar ahora</button><button class="btn btn-sec" onclick="cpAccion(${c.id},'terminar')">Cancelar</button>` : ''}
-      ${c.estado === 'activa' ? `<button class="btn btn-sec" onclick="cpAccion(${c.id},'terminar')">Terminar ahora</button>` : ''}
+      ${CFG.rol === 'maestro' && c.estado === 'programada' ? `<button class="btn" onclick="cpAccion(${c.id},'aplicar')">Aplicar ahora</button><button class="btn btn-sec" onclick="cpAccion(${c.id},'terminar')">Cancelar</button>` : ''}
+      ${CFG.rol === 'maestro' && c.estado === 'activa' ? `<button class="btn btn-sec" onclick="cpAccion(${c.id},'terminar')">Terminar ahora</button>` : ''}
     </td></tr>`).join('') + '</tbody>';
 }
 async function cpAccion(id, acc) {
@@ -737,20 +762,35 @@ async function cpVer(id) {
   const vivo = ['activa', 'programada'].includes(c.estado);
   el.innerHTML = `<h3 style="margin-top:16px">#${c.id} · ${esc(c.nombre)} <span class="chip ${CH_EST[c.estado]}">${c.estado}</span></h3>
     <div class="desc">${fLima(c.inicio)} → ${fLima(c.fin)} · ${esc(c.marca)} · descuento a tiendas ${N(c.desc_tienda, 1)}%${c.nota ? ' · ' + esc(c.nota) : ''}</div>
-    <div class="tabla-wrap"><table><thead><tr><th>Producto</th><th>Estado</th><th class="n">Precio lista</th><th class="n">Oferta antes</th><th class="n">Oferta campaña</th><th class="n">Desc.</th><th class="n">Costo base · piso</th><th>Nota</th><th></th></tr></thead><tbody>` +
+    <div class="tabla-wrap"><table><thead><tr><th>Producto</th><th>Estado</th><th class="n">Precio lista</th><th class="n">Oferta antes</th><th class="n">Oferta campaña</th><th class="n">Desc.</th>${CFG.ve_costos ? '<th class="n">Costo base · piso</th>' : ''}<th>Nota</th><th></th></tr></thead><tbody>` +
     d.items.map(i => `<tr>
-      <td><div class="nom">${esc(i.nombre)}</div><div class="sku">${esc(i.sku)}${i.a_costo ? ' · <b>a costo</b>' : ''}</div></td>
+      <td><div class="nom">${esc(i.nombre)}</div><div class="sku">${esc(i.sku)}${i.a_costo ? ' · <b>a costo</b>' : ''}${i.precio_manual != null ? ` · <b title="Puesto a mano: se mantiene aunque cambie el lote (solo sube si el nuevo piso lo supera)">precio fijo S/ ${Number(i.precio_manual)}</b>` : ''}</div></td>
       <td><span class="chip ${CH_EST[i.estado]}">${i.estado}</span></td>
       <td class="n">${S(i.lista)}</td>
       <td class="n">${i.oferta_original_guardada ? (i.oferta_original == null ? 'vacía' : S(i.oferta_original)) : '—'}</td>
-      <td class="n"><b>${S(i.precio)}</b></td>
+      <td class="n">${vivo && ['activo', 'pendiente'].includes(i.estado)
+        ? `<input type="number" step="5" value="${Number(i.precio)}" ${CFG.rol === 'maestro' ? '' : `min="${Number(i.precio)}"`} style="width:90px;font-weight:700;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:4px 6px;text-align:right" onchange="cpPrecio(${c.id},${i.vid},this)" title="${CFG.rol === 'maestro' ? 'Cambia el precio de oferta (no baja del piso)' : 'Solo puedes subirlo (menos descuento)'}">`
+        : `<b>${S(i.precio)}</b>`}</td>
       <td class="n">${i.lista ? N((1 - i.precio / i.lista) * 100, 1) + '%' : '—'}</td>
-      <td class="n">${S(i.costo_base)}<div class="sub">piso ${S(i.piso)}</div></td>
+      ${CFG.ve_costos ? `<td class="n">${S(i.costo_base)}<div class="sub">piso ${S(i.piso)}</div></td>` : ''}
       <td><div class="sub" style="white-space:normal;max-width:280px">${esc(i.nota || i.razon || '')}</div></td>
       <td>${vivo && ['activo', 'pendiente'].includes(i.estado) ? `<button class="btn btn-sec" onclick="cpQuitar(${c.id},${i.vid})">Quitar</button>` : ''}</td>
     </tr>`).join('') + '</tbody></table></div>' +
     (d.log.length ? `<details class="ayuda"><summary>Historial de cambios (${d.log.length})</summary><ul>${d.log.map(l => `<li>${new Date(l.en).toLocaleString('es-PE')} · ${esc(l.accion)} · SKU #${l.vid}: ${l.antes == null ? 'vacía' : 'S/ ' + l.antes} → ${l.despues == null ? 'vacía' : 'S/ ' + l.despues}${l.nota ? ' · ' + esc(l.nota) : ''}</li>`).join('')}</ul></details>` : '');
   el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+async function cpPrecio(id, vid, el) {
+  const v = Number(el.value);
+  try {
+    let r;
+    try { r = await apiSend(`/api/promo-campanas/${id}/precio/${vid}`, 'POST', { precio: v }); }
+    catch (e) {
+      if (!/tope de seguridad/.test(e.message) || !confirm(e.message + '\n\n¿Confirmas este precio?')) throw e;
+      r = await apiSend(`/api/promo-campanas/${id}/precio/${vid}`, 'POST', { precio: v, confirmar_tope: true });
+    }
+    showToast(r.sin_cambio ? 'Sin cambios' : `Precio de oferta: ${S(r.precio)}`);
+    cpVer(id);
+  } catch (e) { showToast(e.message, true); cpVer(id); }
 }
 async function cpQuitar(id, vid) {
   if (!confirm('¿Quitar este SKU de la campaña? Si ya estaba aplicado vuelve a su oferta anterior.')) return;
@@ -834,7 +874,7 @@ function solPintar(sol) {
     (sol.map(x => `<tr><td>${new Date(x.creado_en).toLocaleString('es-PE')}</td><td class="nom">${esc(x.tienda)}</td>
       <td>${x.origen === 'link' ? `link · ${esc(x.vendedor || '')}${x.telefono ? '<div class="sub">' + esc(x.telefono) + '</div>' : ''}` : 'portal'}</td>
       <td><div class="sub" style="white-space:normal;max-width:420px">${x.items.map(i => `${esc(i.sku)} × ${i.cantidad}`).join(' · ')}</div></td>
-      <td class="n">${S(x.total)}<div class="sub">${x.origen === 'link' ? 'PVP oferta' : 'precio tienda'}</div></td>
+      <td class="n">${S(x.total)}<div class="sub">${x.origen === 'link' ? 'PVP oferta' : 'precio taller'}</div></td>
       <td>${x.correo_ok ? '<span class="chip c-ok">enviado</span>' : '<span class="chip c-w">no</span>'}</td></tr>`).join('') || '<tr><td colspan="6" class="vacio">Aún no hay solicitudes.</td></tr>') + '</tbody>';
 }
 const CH_RV = { pendiente: 'c-w', concretada: 'c-ok', parcial: 'c-w', vencida: 'c-g', cancelada: 'c-g' };

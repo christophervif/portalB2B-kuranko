@@ -2,7 +2,7 @@
 //  Lista de productos en promoción (compartida por el portal de clientes y el
 //  link libre de vendedores). Se usa así:
 //    OfertasLista.montar(contenedor, { modo: 'portal'|'link', datos, enviar: async items => respuesta })
-//  · modo 'portal' muestra "Tu precio oferta"; modo 'link' NO (el servidor ni lo manda).
+//  · modo 'portal' muestra "Precio taller oferta"; modo 'link' NO (el servidor ni lo manda).
 //  · datos = respuesta de /portal/promociones o /api/oferta/:token
 //  · enviar(items) debe devolver { numero, reservado_hasta, whatsapp, correo_enviado } (lo arma el servidor)
 //  · solicitudes() (opcional) devuelve { solicitudes: [...] } para mostrar "Mis solicitudes" y su estado
@@ -26,7 +26,7 @@
   .ol tr.sel td{background:var(--hover)}
   .ol img.ol-img{width:52px;height:52px;object-fit:contain;border-radius:8px;background:#fff;display:block}
   .ol .ol-sinimg{width:52px;height:52px;border-radius:8px;background:var(--surface3,var(--border));display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:18px}
-  .ol .ol-nom{font-weight:600;line-height:1.3;min-width:200px}
+  .ol .ol-nom{font-weight:600;line-height:1.3;min-width:180px;max-width:420px}
   .ol .ol-sku{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--muted)}
   .ol .ol-sub{font-size:11px;color:var(--muted);margin-top:2px;white-space:nowrap}
   .ol .ol-pvp{text-decoration:line-through;color:var(--muted)}
@@ -51,7 +51,7 @@
   .ol-e.parcial{background:var(--bg-warn);color:var(--fg-warn)}.ol-e.vencida,.ol-e.cancelada{background:var(--surface3,var(--border));color:var(--muted)}
   .ol td.n{white-space:nowrap}
   /* Celular: cada producto como tarjeta (sin desplazamiento horizontal) */
-  @media(max-width:700px){
+  @media(max-width:900px){
     .ol-wrap{overflow:visible;border:none}
     .ol table,.ol tbody,.ol tr,.ol td{display:block;width:100%}
     .ol thead{display:none}
@@ -82,7 +82,7 @@
 
     el.innerHTML = `<div class="ol">
       <div class="ol-aviso">${portal
-        ? `Precios de promoción para ${cfg.datos.tipo_cuenta === 'mecanico' ? 'tu taller' : 'tu tienda'}. <b>Tu precio oferta</b> es lo que pagas; <b>PVP oferta</b> es el precio de venta al público recomendado. Al enviar la solicitud, las unidades quedan <b>reservadas</b> para ti por un tiempo limitado.`
+        ? `Precios de promoción para ${cfg.datos.tipo_cuenta === 'mecanico' ? 'tu taller' : 'tu tienda'}. <b>Precio taller oferta</b> es lo que pagas; <b>PVP oferta</b> es el precio de venta al público recomendado. Al enviar la solicitud, las unidades quedan <b>reservadas</b> para ti por un tiempo limitado.`
         : `Precios de promoción para el público. <b>PVP oferta</b> es el precio de venta recomendado durante la campaña.`}
         El <b>stock en oferta</b> es lo que queda del lote en promoción; pasa el mouse (o toca) para ver el stock total por ciudad.
         ${hasta.length === 1 ? `Válido hasta el <b>${esc(hasta[0])}</b> o hasta agotar el stock en oferta.` : 'Válido hasta agotar el stock en oferta.'}</div>
@@ -100,7 +100,7 @@
 
     const cols = () => [
       { k: 'sel', t: '' }, { k: 'img', t: '' }, { k: 'sku', t: 'SKU' }, { k: 'nombre', t: 'Nombre' },
-      ...(portal ? [{ k: 'tu_precio', t: 'Tu precio oferta', n: 1 }] : []),
+      ...(portal ? [{ k: 'tu_precio', t: 'Precio taller oferta', n: 1 }] : []),
       { k: 'stock_oferta', t: 'Stock en oferta', n: 1 }, { k: 'precio', t: 'PVP oferta', n: 1 }, { k: 'pvp', t: 'PVP', n: 1 }, { k: 'q', t: 'Cantidad', n: 1 }
     ];
     function filas(lista) {
@@ -119,15 +119,21 @@
         const q = cant[x.vid] || 0;
         const tip = `<span class="ol-tip"><b>Stock disponible</b><br>${(x.ciudades || []).map(c => `${c.unidades} ${esc(c.ciudad)}`).join('<br>') || '—'}<br><span style="color:var(--muted)">Total: ${x.stock_total}</span></span>`;
         let luego = '';
-        if (x.siguiente) luego = x.siguiente.sale
-          ? `<div class="ol-sub">Luego de estas ${x.stock_oferta} und: precio normal</div>`
-          : `<div class="ol-sub" title="Cuando se acaben las ${x.stock_oferta} und en oferta">Luego: ${S(portal ? x.siguiente.tu_precio : x.siguiente.precio)}${portal ? ' tu precio' : ''} (${x.siguiente.unidades} und)</div>`;
+        const pAhora = portal ? x.tu_precio : x.precio;
+        if (x.siguiente) {
+          if (x.siguiente.sale) luego = `<div class="ol-sub">Luego de estas ${x.stock_oferta} und: precio normal</div>`;
+          else {
+            const pLuego = portal ? x.siguiente.tu_precio : x.siguiente.precio;
+            // solo se avisa si cambia el precio
+            if (Math.abs(pLuego - pAhora) >= 0.01) luego = `<div class="ol-sub" title="Cuando se acaben las ${x.stock_oferta} und en oferta">Luego: ${S(pLuego)} (${x.siguiente.unidades} und)</div>`;
+          }
+        }
         return `<tr class="${q ? 'sel' : ''}">
           <td class="ol-c-sel"><input type="checkbox" data-sel="${x.vid}" ${q ? 'checked' : ''} ${x.stock_oferta ? '' : 'disabled'}></td>
           <td class="ol-c-img">${x.imagen ? `<img class="ol-img" loading="lazy" src="${esc(x.imagen)}" alt="">` : '<div class="ol-sinimg">🚲</div>'}</td>
           <td class="ol-sku ol-c-sku">${esc(x.sku)}</td>
           <td class="ol-c-nom"><div class="ol-nom">${esc(x.nombre)}</div>${x.cambios_lote ? '<div class="ol-sub">Nuevo lote en oferta</div>' : ''}</td>
-          ${portal ? `<td class="n" data-l="Tu precio oferta"><span><span class="ol-tu">${S(x.tu_precio)}</span>${luego}</span></td>` : ''}
+          ${portal ? `<td class="n" data-l="Precio taller oferta"><span><span class="ol-tu">${S(x.tu_precio)}</span>${luego}</span></td>` : ''}
           <td class="n" data-l="Stock en oferta"><span class="ol-stock" tabindex="0">${x.stock_oferta}${tip}</span>${x.reservado ? `<div class="ol-sub">${x.stock_oferta ? '+' + x.reservado + ' reservadas' : 'Reservado por otra tienda'}</div>` : ''}</td>
           <td class="n" data-l="PVP oferta"><span><span class="ol-of">${S(x.precio)}</span> <span class="ol-chip${x.liquidacion ? ' w' : ''}">−${Math.round(x.desc_pct)}%</span>${portal ? '' : luego}</span></td>
           <td class="n" data-l="PVP"><span class="ol-pvp">${S(x.pvp)}</span></td>
@@ -140,7 +146,7 @@
       $('[data-zona=ofertas]').innerHTML = `<h4>Ofertas</h4>` + tabla(of, 'No hay productos en oferta con ese filtro.');
       $('[data-zona=liq]').innerHTML = items.some(x => x.liquidacion) ? `<h4>Liquidación</h4>
         <div class="ol-liq">${portal
-          ? `<b>Precio de liquidación:</b> estos productos se ofrecen a precio de costo. Por eso tu precio oferta es igual al PVP oferta: no dejan margen de reventa. Son ideales para cerrar una venta o para tu propio uso.`
+          ? `<b>Precio de liquidación:</b> estos productos se ofrecen a precio de costo. Por eso el precio taller oferta es igual al PVP oferta: no dejan margen de reventa. Son ideales para cerrar una venta o para tu propio uso.`
           : `<b>Precio de liquidación:</b> estos productos se ofrecen a precio de costo, el mismo al que la tienda los compra, así que <b>no dejan margen para la tienda</b>. Ofrécelos cuando el cliente busque el mejor precio o para cerrar una venta.`}</div>`
         + tabla(lq, 'No hay productos en liquidación con ese filtro.') : '';
       resumen();
@@ -150,7 +156,7 @@
       const e = elegidos();
       const und = e.reduce((a, x) => a + x.cantidad, 0);
       const tot = e.reduce((a, x) => a + x.cantidad * (portal ? x.tu_precio : x.precio), 0);
-      $('[data-zona=resumen]').innerHTML = e.length ? `<b>${e.length}</b> producto(s) · <b>${und}</b> und · ${portal ? 'Total a tu precio' : 'Total PVP oferta'}: <b>${S(tot)}</b>` : 'Elige productos y cantidades.';
+      $('[data-zona=resumen]').innerHTML = e.length ? `<b>${e.length}</b> producto(s) · <b>${und}</b> und · ${portal ? 'Total a precio taller' : 'Total PVP oferta'}: <b>${S(tot)}</b>` : 'Elige productos y cantidades.';
       $('[data-acc=enviar]').disabled = !e.length;
     }
 

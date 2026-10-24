@@ -31,6 +31,7 @@ body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min
 .btn-sec{background:var(--surface3);border:1px solid var(--border);color:var(--text2)}.btn-sm{padding:6px 12px;font-size:12px}
 .btn-green{background:#15803d;color:#fff}.btn-green:hover{background:#166534}
 .wrap{max-width:1000px;margin:0 auto;padding:1.5rem}
+body.ancho .wrap{max-width:1500px}  /* Promociones: tabla ancha sin desplazamiento lateral */
 .login-box{max-width:380px;margin:4rem auto;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:2rem}
 .login-box .logo{font-size:1.4rem;font-weight:700;color:var(--accent);text-align:center;margin-bottom:.25rem;letter-spacing:.05em}
 .login-box .tag{font-size:13px;color:var(--muted);text-align:center;margin-bottom:1.5rem}
@@ -327,7 +328,7 @@ async function login(){
   }catch(err){e.textContent=err.message;e.style.display='block';}
 }
 function logout(){TOKEN='';sessionStorage.removeItem('clitoken');document.getElementById('app-screen').style.display='none';document.getElementById('login-screen').style.display='block';}
-function tab(id,btn){document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));document.getElementById('tab-'+id).classList.add('active');btn.classList.add('active');}
+function tab(id,btn){document.body.classList.toggle('ancho',id==='promo');document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));document.getElementById('tab-'+id).classList.add('active');btn.classList.add('active');}
 
 async function mostrarApp(){
   document.getElementById('login-screen').style.display='none';

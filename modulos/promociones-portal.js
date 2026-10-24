@@ -3,16 +3,16 @@
 //  (las campañas y los precios viven en modulos/promociones-campanas.js)
 //
 //  Portal (cliente logueado, pestaña "Promociones" en public/index.html):
-//    GET  /portal/promociones            → ofertas vigentes CON "tu precio oferta"
+//    GET  /portal/promociones            → ofertas vigentes CON "precio taller oferta"
 //    POST /portal/promociones/solicitud  → correo a ventas (+ copia a la tienda) y mensaje de WhatsApp
 //  Link libre (sin login, public/oferta.html?t=TOKEN) para los vendedores de la tienda:
-//    GET  /api/oferta/:token             → ofertas vigentes SIN "tu precio oferta" (solo PVP)
+//    GET  /api/oferta/:token             → ofertas vigentes SIN "precio taller oferta" (solo PVP)
 //    POST /api/oferta/:token/latido      → mantiene la sesión en línea (cada 25 s)
 //    POST /api/oferta/:token/salir       → libera la sesión al cerrar la página
 //    POST /api/oferta/:token/solicitud   → igual que el portal, con el nombre del vendedor
 //    Si hay más sesiones a la vez que el máximo de la tienda (3 por defecto), el link se BLOQUEA
 //    y solo el maestro lo puede reactivar (o generar uno nuevo).
-//  Admin (solo maestro, pestaña "Portal y links" de public/promociones.html):
+//  Admin (maestro o módulo 'inventario', pestaña "Portal y links" de public/promociones.html; horas de reserva solo maestro):
 //    GET/POST /api/promo-links, PUT/DELETE /api/promo-links/:id, GET /api/promo-solicitudes
 //
 //  Reservas: cada solicitud RESERVA sus unidades del stock en oferta (nadie más las puede pedir).
@@ -21,7 +21,7 @@
 //   lun–vie 10:30–20:30, sáb 9:30–16:00, hora Lima; fuera de ese horario no consulta el ERP). Si vence (48 h por
 //   defecto, nunca después del fin de la campaña) sin venta, se libera. El maestro también puede
 //   confirmarla o cancelarla a mano. Estados: pendiente → concretada | parcial | vencida | cancelada.
-//  Tipo de cuenta (Gestión de clientes): tienda o mecánico. "Tu precio oferta" usa el desc. a
+//  Tipo de cuenta (Gestión de clientes): tienda o mecánico. "precio taller oferta" usa el desc. a
 //   tiendas de la marca; a los mecánicos, 5 puntos menos (el piso de la campaña no cambia).
 //
 //  Tablas (base del portal): promo_links, promo_solicitudes, promo_reservas
@@ -123,17 +123,17 @@ function armarSolicitud({ tienda, ruc, vendedor, telefono, origen, items, conTuP
     <table style="border-collapse:collapse;width:100%;font-size:14px;margin-top:10px">
       <thead><tr style="background:#000726;color:#fff">
         <th style="padding:6px 10px">N°</th><th style="padding:6px 10px;text-align:left">SKU</th><th style="padding:6px 10px;text-align:left">Producto</th>
-        <th style="padding:6px 10px">Cant.</th><th style="padding:6px 10px;text-align:right">PVP oferta</th>${conTuPrecio ? '<th style="padding:6px 10px;text-align:right">Tu precio oferta</th>' : ''}
+        <th style="padding:6px 10px">Cant.</th><th style="padding:6px 10px;text-align:right">PVP oferta</th>${conTuPrecio ? '<th style="padding:6px 10px;text-align:right">Precio taller oferta</th>' : ''}
       </tr></thead><tbody>${filas}</tbody></table>
-    <p style="margin-top:10px"><b>Total ${conTuPrecio ? 'a precio de tienda' : 'a PVP oferta'}: ${S(total)}</b></p>
+    <p style="margin-top:10px"><b>Total ${conTuPrecio ? 'a precio taller' : 'a PVP oferta'}: ${S(total)}</b></p>
     ${hasta ? `<p style="background:#eef2ff;padding:8px 12px;border-radius:6px"><b>Unidades reservadas hasta el ${esc(hasta)}.</b> Para concretarla, registra la venta en el sistema a ${esc(ruc ? 'RUC ' + ruc : 'la cuenta de la tienda')} con estos SKU antes de esa fecha; si no, la reserva se libera.</p>` : ''}
     <p style="color:#666;font-size:12px">Los precios de promoción valen mientras dure el stock en oferta.</p></div>`;
   const lineas = items.map((i, k) => `${k + 1}. [${i.sku}] ${i.nombre} × ${i.cantidad} — ${S(conTuPrecio ? i.tu_precio : i.precio)}${i.liquidacion ? ' (liquidación)' : ''}`);
-  const texto = `*Solicitud de promoción${numero ? ' N° ' + numero : ''}*\n${tienda}${ruc ? ' · RUC ' + ruc : ''}\n${quien}\n\n${lineas.join('\n')}\n\nTotal ${conTuPrecio ? 'precio tienda' : 'PVP oferta'}: ${S(total)}${hasta ? `\nReservado hasta: ${hasta}` : ''}`;
+  const texto = `*Solicitud de promoción${numero ? ' N° ' + numero : ''}*\n${tienda}${ruc ? ' · RUC ' + ruc : ''}\n${quien}\n\n${lineas.join('\n')}\n\nTotal ${conTuPrecio ? 'precio taller' : 'PVP oferta'}: ${S(total)}${hasta ? `\nReservado hasta: ${hasta}` : ''}`;
   return { html, texto, total: Math.round(total * 100) / 100, whatsapp: `https://wa.me/${WHATSAPP}?text=${encodeURIComponent(texto)}` };
 }
 
-module.exports = function registrarPromosPortal({ app, authAdmin, authCliente, prodPool, portalPool, ofertasVigentes, correoEmpresa, destinatariosReporte, grupos, VV }) {
+module.exports = function registrarPromosPortal({ app, authAdmin, mInv, authCliente, prodPool, portalPool, ofertasVigentes, correoEmpresa, destinatariosReporte, grupos, VV }) {
   const sesiones = crearSesiones();
   const soloMaestro = (req, res, next) => (req.admin && req.admin.maestro) ? next() : res.status(403).json({ error: 'Solo el administrador maestro' });
 
@@ -404,7 +404,8 @@ module.exports = function registrarPromosPortal({ app, authAdmin, authCliente, p
   });
 
   // ─────────── Admin (maestro) ───────────
-  const mw = [authAdmin, soloMaestro];
+  const mw = [authAdmin, mInv || soloMaestro];                 // maestro o módulo 'inventario' (links, reservas)
+  const soloM = [authAdmin, soloMaestro];
   app.get('/api/promo-links', ...mw, async (req, res) => {
     try {
       const [us] = await portalPool.query(`SELECT u.id, u.username, u.nombre_cliente, u.activo, u.tipo_cuenta,
@@ -469,7 +470,7 @@ module.exports = function registrarPromosPortal({ app, authAdmin, authCliente, p
   app.post('/api/promo-reservas-revisar', ...mw, async (req, res) => {
     try { await revisarReservas(); res.json({ ok: true }); } catch (e) { res.status(500).json({ error: e.message }); }
   });
-  app.put('/api/promo-reserva-config', ...mw, async (req, res) => {
+  app.put('/api/promo-reserva-config', ...soloM, async (req, res) => {
     try {
       const h = Math.round(Number(req.body && req.body.horas));
       if (!(h >= 1 && h <= 720)) return res.status(400).json({ error: 'Horas entre 1 y 720' });

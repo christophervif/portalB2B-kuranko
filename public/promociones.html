@@ -200,6 +200,7 @@ code{font-size:11px}
     <div class="kpis" id="cr-kpis"></div>
     <div class="fila" id="cr-acciones" style="display:none">
       <input id="cr-buscar" type="search" placeholder="Buscar SKU o nombre…" oninput="crPintar()" style="flex:1;min-width:180px">
+      <select id="cr-tramo" onchange="crPintar()" title="Filtrar por el tramo de antigüedad que le tocó"><option value="">Todos los tramos</option></select>
       <label class="chk"><input type="checkbox" id="cr-solo" onchange="crPintar()" checked> Solo los que pueden entrar</label>
       <button class="btn btn-sec" onclick="crTodos(true)">Marcar todos</button>
       <button class="btn btn-sec" onclick="crTodos(false)">Ninguno</button>
@@ -579,6 +580,7 @@ async function crProponer(conIA) {
   try {
     CR = await apiSend('/api/promo-propuesta', 'POST', { ...crBody(), usar_ia: conIA });
     CR.items.forEach(x => { x.sel = x.entra; });
+    crOpcionesTramo();
     if (CR.aviso_ia) showToast(CR.aviso_ia, true);
     $('cr-acciones').style.display = '';
     crPintar();
@@ -623,9 +625,16 @@ function crConfirmarCosto() {
   crPintar();
 }
 function crTodos(v) { crVisibles().forEach(x => { if (x.puede) x.sel = v; }); crPintar(); }
+// Tramo base del SKU ("24+ m"), para el filtro
+const tramoBase = x => (String(x.tramo || '').match(/^(\d+)\+ m/) || String(x.tramo || '').match(/Lote de \d+/) ? (String(x.tramo).match(/^(\d+)\+ m/) || [, 'nuevo'])[1] : '');
+function crOpcionesTramo() {
+  const sel = $('cr-tramo'), act = sel.value;
+  const ms = [...new Set(CR.items.map(tramoBase).filter(Boolean))].sort((a, b) => (a === 'nuevo' ? -1 : +a) - (b === 'nuevo' ? -1 : +b));
+  sel.innerHTML = '<option value="">Todos los tramos</option>' + ms.map(m => `<option value="${m}"${m === act ? ' selected' : ''}>${m === 'nuevo' ? 'Menos del primer tramo' : m + '+ meses'} (${CR.items.filter(x => tramoBase(x) === m).length})</option>`).join('');
+}
 function crVisibles() {
-  const q = $('cr-buscar').value.toLowerCase().trim(), solo = $('cr-solo').checked;
-  return CR.items.filter(x => (!solo || x.puede) && (!q || (x.sku + ' ' + x.nombre).toLowerCase().includes(q)));
+  const q = $('cr-buscar').value.toLowerCase().trim(), solo = $('cr-solo').checked, tr = $('cr-tramo').value;
+  return CR.items.filter(x => (!solo || x.puede) && (!tr || tramoBase(x) === tr) && (!q || (x.sku + ' ' + x.nombre).toLowerCase().includes(q)));
 }
 function crPintar(soloKpis) {
   if (!CR) return;
@@ -762,10 +771,11 @@ async function cpVer(id) {
   const vivo = ['activa', 'programada'].includes(c.estado);
   el.innerHTML = `<h3 style="margin-top:16px">#${c.id} · ${esc(c.nombre)} <span class="chip ${CH_EST[c.estado]}">${c.estado}</span></h3>
     <div class="desc">${fLima(c.inicio)} → ${fLima(c.fin)} · ${esc(c.marca)} · descuento a tiendas ${N(c.desc_tienda, 1)}%${c.nota ? ' · ' + esc(c.nota) : ''}</div>
-    <div class="tabla-wrap"><table><thead><tr><th>Producto</th><th>Estado</th><th class="n">Precio lista</th><th class="n">Oferta antes</th><th class="n">Oferta campaña</th><th class="n">Desc.</th>${CFG.ve_costos ? '<th class="n">Costo base · piso</th>' : ''}<th>Nota</th><th></th></tr></thead><tbody>` +
+    <div class="tabla-wrap"><table><thead><tr><th>Producto</th><th>Estado</th><th>Tramo</th><th class="n">Precio lista</th><th class="n">Oferta antes</th><th class="n">Oferta campaña</th><th class="n">Desc.</th>${CFG.ve_costos ? '<th class="n">Costo base · piso</th>' : ''}<th>Nota</th><th></th></tr></thead><tbody>` +
     d.items.map(i => `<tr>
       <td><div class="nom">${esc(i.nombre)}</div><div class="sku">${esc(i.sku)}${i.a_costo ? ' · <b>a costo</b>' : ''}${i.precio_manual != null ? ` · <b title="Puesto a mano: se mantiene aunque cambie el lote (solo sube si el nuevo piso lo supera)">precio fijo S/ ${Number(i.precio_manual)}</b>` : ''}</div></td>
       <td><span class="chip ${CH_EST[i.estado]}">${i.estado}</span></td>
+      <td><span class="chip c-g" style="white-space:normal">${esc(i.tramo || '—')}</span></td>
       <td class="n">${S(i.lista)}</td>
       <td class="n">${i.oferta_original_guardada ? (i.oferta_original == null ? 'vacía' : S(i.oferta_original)) : '—'}</td>
       <td class="n">${vivo && ['activo', 'pendiente'].includes(i.estado)

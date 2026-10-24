@@ -345,17 +345,12 @@ module.exports = function registrarPromociones({ app, authAdmin, mInv, prodPool,
   // Campañas de oferta (escriben el precio de oferta en el ERP) → modulos/promociones-campanas.js
   if (!portalPool) return {};
   let ia = null; try { ia = require('./bikes').ia; } catch (e) { /* sin IA: se usan reglas */ }
-  // Precio oferta en vivo en la web (WooCommerce), solo SKUs en campaña → modulos/promociones-web.js
-  const ofWeb = require('./promociones-web')({ prodPool, portalPool });
-  const camp = require('./promociones-campanas')({ app, authAdmin, mInv, prodPool, portalPool, erpWritePool, VV, ia, alCambiarOferta: ofWeb.avisar });
-  app.get('/api/promo-web', authAdmin, mInv || ((req, res, next) => next()), async (req, res) => {
-    try { res.json(await ofWeb.estado()); } catch (e) { res.status(500).json({ error: e.message }); }
-  });
+  const camp = require('./promociones-campanas')({ app, authAdmin, mInv, prodPool, portalPool, erpWritePool, VV, ia });
   // Pestaña "Promociones" del portal de clientes + links libres para vendedores → modulos/promociones-portal.js
   let web = null;
   if (authCliente) web = require('./promociones-portal')({ app, authAdmin, mInv, authCliente, prodPool, portalPool, ofertasVigentes: camp.ofertasVigentes,
     correoEmpresa: portal && portal.correoEmpresa, destinatariosReporte: portal && portal.destinatariosReporte, grupos, VV });
-  return { ...camp, prepararTablas: async () => { await camp.prepararTablas(); if (web) await web.prepararTablas(); await ofWeb.prepararTablas(); } };
+  return { ...camp, prepararTablas: async () => { await camp.prepararTablas(); if (web) await web.prepararTablas(); } };
 };
 
 module.exports._test = { calcularPromos, filtrarItems, leerFiltros, veMargenes, descuentoSugerido, MOTIVOS };

@@ -210,7 +210,7 @@ const MOTIVO_TXT = {
 };
 
 // ─────────────────────────────── módulo ───────────────────────────────
-module.exports = function registrarCampanas({ app, authAdmin, mInv, prodPool, portalPool, erpWritePool, VV, ia, alCambiarOferta }) {
+module.exports = function registrarCampanas({ app, authAdmin, mInv, prodPool, portalPool, erpWritePool, VV, ia }) {
 
   const soloMaestro = (req, res, next) => (req.admin && req.admin.maestro) ? next()
     : res.status(403).json({ error: 'Solo el administrador maestro puede manejar campañas de oferta' });
@@ -486,7 +486,7 @@ Productos: ${JSON.stringify(lote)}`;
       else throw e;
     }
     cacheOfertas = null;                                 // el portal y los links verán el cambio al momento
-    if (r.affectedRows > 0) { if (alCambiarOferta) alCambiarOferta(vid); return true; }   // → web en vivo (promociones-web.js)
+    if (r.affectedRows > 0) return true;
     return igual(await leerOferta(vid), nuevo);         // ya tenía ese valor
   }
   const log = (cid, vid, accion, antes, despues, nota) => portalPool.query(

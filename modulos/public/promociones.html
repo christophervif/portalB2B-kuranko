@@ -1,0 +1,924 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<script src="/tema.js"></script>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Promociones — Kuranko</title>
+<style>
+:root{
+  --bg:#0a1030;--surface:#111a44;--surface2:#0e1640;--surface3:#18224e;
+  --border:#212b54;--text:#eef1f8;--text2:#c6cee2;--muted:#8a93b4;--muted2:#a2abca;
+  --accent:#FFB30D;--accent-text:#000726;--accent-h:#e6a00c;--hover:#1a2450;--white:#ffffff;
+  --bg-ok:#163a29;--fg-ok:#6ee59a;--bg-warn:#3d3315;--fg-warn:#ffcb52;--bg-r:#3f1c20;--fg-r:#f79a9a;
+  --bg-v:#2a2766;--fg-v:#cecbf6;
+  --radius:18px;--radius-sm:12px;
+  --shadow-sm:0 2px 8px rgba(0,0,0,.10);
+}
+[data-theme="light"]{
+  --bg:#f6f8fd;--surface:#ffffff;--surface2:#fbfcff;--surface3:#f2f5fb;
+  --border:#e3e9f5;--text:#1a2140;--text2:#4a5680;--muted:#9aa3c0;--muted2:#727e9f;
+  --hover:#f2f5fb;--white:#1a2140;
+  --bg-ok:#e8f8ef;--fg-ok:#1f9c56;--bg-warn:#fdf5db;--fg-warn:#9a6b00;--bg-r:#fdeded;--fg-r:#dc4b4b;
+  --bg-v:#eeedfc;--fg-v:#4b43b8;
+  --shadow-sm:0 2px 10px rgba(30,45,90,.04);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{overflow-x:hidden}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px}
+.wrap{max-width:1240px;margin:0 auto;padding:1.25rem}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.1rem;box-shadow:var(--shadow-sm);margin-bottom:16px}
+.card h3{font-size:15px;font-weight:600;color:var(--white);margin-bottom:4px}
+.desc{font-size:12px;color:var(--muted);line-height:1.55}
+.fila{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px}
+.campo{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--muted2)}
+.campo input,.campo select,.fila>select,.fila>input{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:8px 10px;font-size:13px}
+.campo input[type=number]{width:84px}
+input:focus,select:focus{outline:none;border-color:var(--accent)}
+.chk{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);cursor:pointer;white-space:nowrap;padding-bottom:8px}
+.btn{background:var(--accent);border:none;color:var(--accent-text);border-radius:var(--radius-sm);padding:9px 16px;font-size:13px;cursor:pointer;font-weight:600}
+.btn:hover{background:var(--accent-h)}
+.btn:disabled{opacity:.6;cursor:wait}
+.btn-sec{background:var(--surface3);border:1px solid var(--border);color:var(--text2)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:14px}
+.kpi{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:12px;cursor:default}
+.kpi.clic{cursor:pointer}.kpi.clic:hover{border-color:var(--accent)}
+.kpi .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.kpi .v{font-size:1.4rem;font-weight:700;color:var(--white);margin-top:4px}
+.kpi .s{font-size:11px;color:var(--muted2);margin-top:2px}
+.kpi.r .v{color:var(--fg-r)}.kpi.w .v{color:var(--fg-warn)}.kpi.a .v{color:var(--accent)}
+.aviso{font-size:12px;border-radius:10px;padding:8px 10px;margin-top:10px;background:var(--bg-warn);color:var(--fg-warn)}
+.tabla-wrap{overflow:auto;max-height:68vh;margin-top:10px;border:1px solid var(--border);border-radius:12px}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{position:sticky;top:0;background:var(--surface3);text-align:left;padding:8px;color:var(--muted2);font-weight:600;font-size:11px;border-bottom:1px solid var(--border);white-space:nowrap;cursor:pointer;user-select:none;z-index:1}
+th:hover{color:var(--white)}
+th.n,td.n{text-align:right}
+td.n{white-space:nowrap}
+#tbl-promo td:first-child{min-width:240px}
+th.asc::after{content:' ↑';color:var(--accent)}th.desc::after{content:' ↓';color:var(--accent)}
+td{padding:8px;border-bottom:1px solid var(--border);color:var(--text2);vertical-align:top}
+tr:hover td{background:var(--hover)}
+td .nom{color:var(--white);font-weight:500;line-height:1.35}
+td .sku{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--muted)}
+
+.chip{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:20px;white-space:nowrap}
+.c-r{background:var(--bg-r);color:var(--fg-r)}.c-w{background:var(--bg-warn);color:var(--fg-warn)}.c-ok{background:var(--bg-ok);color:var(--fg-ok)}
+.c-v{background:var(--bg-v);color:var(--fg-v)}.c-g{background:var(--surface3);color:var(--text2);border:1px solid var(--border)}
+.sub{font-size:10.5px;color:var(--muted);margin-top:2px;white-space:nowrap}
+.vacio{color:var(--muted);text-align:center;padding:1.5rem;font-size:13px}
+.leyenda{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font-size:11.5px;color:var(--muted)}
+.leyenda span{display:inline-flex;gap:6px;align-items:center}
+details.ayuda{margin-top:10px;font-size:12px;color:var(--text2)}
+details.ayuda summary{cursor:pointer;color:var(--muted2)}
+details.ayuda ul{margin:6px 0 0 18px;line-height:1.6}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--bg-ok);color:var(--fg-ok);padding:12px 18px;border-radius:12px;font-size:13px;display:none;z-index:100;border:1px solid var(--border);max-width:320px}
+.toast.err{background:var(--bg-r);color:var(--fg-r)}
+@media(max-width:640px){.wrap{padding:.75rem}.card{padding:.9rem}.campo input[type=number]{width:70px}}
+</style>
+<style>
+#pr-kpis{grid-template-columns:repeat(auto-fit,minmax(128px,1fr))}
+.kpi.sel{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+.chips{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
+.chip.m-estancado{background:var(--bg-r);color:var(--fg-r)}
+.chip.m-sobrestock{background:var(--bg-warn);color:var(--fg-warn)}
+.chip.m-lote_antiguo{background:var(--bg-warn);color:var(--fg-warn)}
+.chip.m-descontinuado{background:var(--surface3);color:var(--text2);border:1px solid var(--border)}
+.chip.m-modelo_anterior{background:var(--bg-v);color:var(--fg-v)}
+.chip.m-tallas_sueltas{background:var(--bg-v);color:var(--fg-v)}
+.chip.m-margen_lento{background:var(--bg-ok);color:var(--fg-ok)}
+.fila input[type=number]{width:120px}
+.nav{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.nav button{background:var(--surface);border:1px solid var(--border);color:var(--text2);border-radius:20px;padding:7px 14px;font-size:13px;cursor:pointer}
+.nav button.act{background:var(--accent);color:var(--accent-text);border-color:var(--accent);font-weight:600}
+#tbl-crear td:nth-child(2){min-width:250px}
+#tbl-crear td:nth-child(7){min-width:150px}
+#tbl-crear td:last-child{min-width:220px}
+#tbl-crear .chip{white-space:normal}
+#tbl-tramos input,#tbl-tramos select,#tbl-crear td input[type=number]{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:4px 6px;font-size:12.5px;text-align:right}
+code{font-size:11px}
+</style>
+</head>
+<body>
+<div class="toast" id="toast"></div>
+<div class="wrap">
+  <div class="nav" id="nav" style="display:none">
+    <button data-v="cand" onclick="vista('cand')">Candidatos</button>
+    <button data-v="crear" onclick="vista('crear')">Crear campaña</button>
+    <button data-v="camp" onclick="vista('camp')">Campañas</button>
+    <button data-v="desc" onclick="vista('desc')">Reglas y descuentos</button>
+    <button data-v="links" onclick="vista('links')">Portal y links</button>
+  </div>
+  <div class="card vista" id="v-cand">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
+      <div>
+        <h3>Promociones recomendadas</h3>
+        <div class="desc">Productos con stock que conviene mover con descuento, liquidación o empuje comercial. Cada producto muestra <b>por qué</b> es candidato (puede tener varios motivos).</div>
+      </div>
+      <div class="desc" id="pr-hora"></div>
+    </div>
+
+    <div class="fila">
+      <label class="campo" title="Qué stock se analiza">Stock
+        <select id="p-alcance">
+          <option value="propio">Propio (almacenes y tiendas)</option>
+          <option value="todo">Todo (incl. consignación y no vendibles)</option>
+        </select>
+      </label>
+      <label class="campo" title="Días sin vender para considerarlo estancado (los recién llegados no cuentan)">Estancado desde
+        <select id="p-umbral">
+          <option value="90">90 días sin venta</option>
+          <option value="120" selected>120 días sin venta</option>
+          <option value="180">180 días sin venta</option>
+          <option value="365">1 año sin venta</option>
+        </select>
+      </label>
+      <label class="campo" title="Meses que tardarías en agotar el stock al ritmo de venta de los últimos 12 meses">Sobre-stock desde
+        <select id="p-meses">
+          <option value="6">6 meses de stock</option>
+          <option value="12" selected>12 meses de stock</option>
+          <option value="18">18 meses de stock</option>
+          <option value="24">24 meses de stock</option>
+        </select>
+      </label>
+      <button class="btn" id="btn-calc" onclick="cargar()">Analizar</button>
+    </div>
+
+    <div class="kpis" id="pr-kpis"></div>
+
+    <div class="fila">
+      <input id="f-buscar" type="search" placeholder="Buscar SKU o nombre…" oninput="pintar()" style="flex:1;min-width:180px">
+      <select id="f-motivo" onchange="pintar()"><option value="">Todos los motivos</option></select>
+      <select id="f-marca" onchange="pintar()"><option value="">Todas las marcas</option></select>
+      <select id="f-cat" onchange="pintar()"><option value="">Todas las categorías</option></select>
+      <input id="f-capital" type="number" min="0" placeholder="Capital mín. S/" oninput="pintar()">
+      <input id="f-margen" type="number" min="0" max="100" placeholder="Margen mín. %" oninput="pintar()" style="display:none">
+      <button class="btn btn-sec" onclick="limpiar()">Limpiar</button>
+      <button class="btn btn-sec" onclick="excel()">Excel</button>
+      <button class="btn btn-sec solo-maestro" style="display:none" onclick="irACampana()" title="Abre Crear campaña con la marca elegida">Crear campaña →</button>
+    </div>
+    <div class="desc" id="pr-conteo" style="margin-top:8px"></div>
+    <div class="tabla-wrap"><table id="tbl-promo"></table></div>
+
+    <details class="ayuda">
+      <summary>¿Cómo se elige cada motivo?</summary>
+      <ul id="ayuda-lista">
+        <li><span class="chip m-estancado">Estancado</span> sin venta hace más de los días elegidos (nunca vendido = 9999 días) <b>y</b> su lote más antiguo ya tiene esa edad. Un producto recién llegado que aún no vende no cuenta.</li>
+        <li><span class="chip m-sobrestock">Sobre-stock</span> sí vende, pero al ritmo de los últimos 12 meses tardarías más de los meses elegidos en agotarlo.</li>
+        <li><span class="chip m-lote_antiguo">Lote +1 año</span> tiene lotes con más de un año en almacén (riesgo de que el modelo pierda valor).</li>
+        <li><span class="chip m-descontinuado">Descontinuado</span> está inactivo o borrado en el ERP pero aún tiene stock: liquidar.</li>
+        <li><span class="chip m-modelo_anterior">Modelo anterior</span> el nombre trae un año de modelo anterior al actual (ej. 2025): la temporada nueva lo desplaza.</li>
+        <li><span class="chip m-tallas_sueltas">Tallas/colores sueltos</span> el producto tiene 3+ variaciones activas pero solo 40% o menos siguen con stock, y de esta quedan 3 unidades o menos: restos difíciles de vender a precio completo.</li>
+        <li class="solo-margen" style="display:none"><span class="chip m-margen_lento">Margen alto + lento</span> margen de 40%+ sobre el precio de lista, sin venta hace 60+ días y con 60+ días en almacén: hay espacio para bajar el precio.</li>
+        <li>Se usa el stock por ubicación (igual que Inventario) y se descuentan las unidades reservadas. Si todo está reservado, no aparece.</li>
+        <li class="solo-margen" style="display:none"><b>Desc. sugerido</b>: punto de partida (10% leve, 20% estancado/modelo anterior/lote viejo, 30% descontinuado o +1 año sin venta), nunca por debajo de costo + 5 puntos. <b>Desc. máx.</b> = hasta dónde bajar sin vender bajo costo.</li>
+      </ul>
+    </details>
+  </div>
+
+  <!-- ══════════ CREAR CAMPAÑA (solo maestro) ══════════ -->
+  <div class="card vista" id="v-crear" style="display:none">
+    <h3>Crear campaña de oferta</h3>
+    <div class="desc">Elige la marca y las fechas. El precio de oferta nunca baja del <b>piso</b>: costo con IGV de los 2 lotes más antiguos ÷ (1 − descuento que das a tiendas en esa marca), redondeado hacia arriba a S/ <span class="paso">5</span>. Al terminar la campaña cada SKU vuelve a la oferta que tenía antes (vacía o con valor).</div>
+    <div id="cr-aviso"></div>
+    <div class="fila">
+      <label class="campo">Marca<select id="c-marca" onchange="crMarca()"><option value="">— elige —</option></select></label>
+      <label class="campo">Nombre (opcional)<input id="c-nombre" placeholder="Oferta Magura noviembre" style="width:200px"></label>
+      <label class="campo">Desde<input type="date" id="c-inicio"></label>
+      <label class="campo">Hasta (inclusive)<input type="date" id="c-fin"></label>
+      <label class="campo" title="Descuento que das a tiendas y talleres en esta marca: define el piso (peor caso)">Desc. a tiendas %<input type="number" id="c-dt" min="0" max="89" step="0.5"></label>
+      <label class="campo" title="Si lo llenas, reemplaza el % de los tramos para todos (respetando el piso y la regla de 'se vende bien'). Vacío = tramos por antigüedad">Desc. general %<input type="number" id="c-desc" min="0" max="95" placeholder="tramos"></label>
+    </div>
+    <div class="fila">
+      <label class="campo" title="Meses desde que entró el lote más antiguo">Antigüedad mín. (meses)<input type="number" id="c-edad" min="0" step="0.5" placeholder="0"></label>
+      <label class="campo" title="Los que nunca se vendieron siempre cuentan">Meses sin venta mín.<input type="number" id="c-dsv" min="0" step="0.5" placeholder="0"></label>
+      <label class="campo">Capital mín. S/<input type="number" id="c-cap" min="0" placeholder="0"></label>
+      <label class="campo">Precio lista desde S/<input type="number" id="c-lmin" min="0"></label>
+      <label class="campo">hasta S/<input type="number" id="c-lmax" min="0"></label>
+      <button class="btn" id="btn-prop" onclick="crProponer(false)">Calcular propuesta</button>
+      <button class="btn btn-sec" id="btn-ia" onclick="crProponer(true)" title="Calcula por tramos y la IA revisa SKU por SKU: puede bajar o sacar, y subir solo hasta el tope del tramo">✨ Calcular + revisar con IA</button>
+    </div>
+    <div class="kpis" id="cr-kpis"></div>
+    <div class="fila" id="cr-acciones" style="display:none">
+      <input id="cr-buscar" type="search" placeholder="Buscar SKU o nombre…" oninput="crPintar()" style="flex:1;min-width:180px">
+      <select id="cr-tramo" onchange="crPintar()" title="Filtrar por el tramo de antigüedad que le tocó"><option value="">Todos los tramos</option></select>
+      <label class="chk"><input type="checkbox" id="cr-solo" onchange="crPintar()" checked> Solo los que pueden entrar</label>
+      <button class="btn btn-sec" onclick="crTodos(true)">Marcar todos</button>
+      <button class="btn btn-sec" onclick="crTodos(false)">Ninguno</button>
+      <button class="btn btn-sec" id="btn-costo" style="display:none" onclick="crConfirmarCosto()"></button>
+      <button class="btn btn-sec" onclick="crExcel()">Excel (SKU · nombre · PVP · oferta)</button>
+      <button class="btn" id="btn-guardar" onclick="crGuardar()">Guardar campaña</button>
+    </div>
+    <div class="desc" id="cr-conteo" style="margin-top:8px"></div>
+    <div class="tabla-wrap"><table id="tbl-crear"></table></div>
+    <details class="ayuda"><summary>¿Cómo se calcula?</summary><ul>
+      <li><b>Descuento por tramos</b> según la edad del lote más antiguo (editables en “Reglas y descuentos”): <span id="ayuda-tramos"></span>. “Se vende bien” (vendió hace poco y se agota pronto) baja un tramo; en el primero no entra.</li>
+      <li><b>IA</b> (opcional): revisa cada SKU con sus ventas mes a mes; puede bajar o sacar, y subir solo hasta el tope del tramo. Lo que cambia queda marcado con su razón.</li>
+      <li><b>Costo</b> = costo del lote con IGV ÷ 0.9 (cubre gastos). El capital invertido se muestra con el costo real.</li>
+      <li><b>Costo base</b>: promedio (por unidades) del costo con IGV de los 2 lotes más antiguos con existencia. Cuando se agota un lote, entra el siguiente y el precio se ajusta suave (se revisa cada 10 minutos).</li>
+      <li><b>Piso</b> = costo base ÷ (1 − desc. a tiendas). Ej. Magura 20 %: piso × 0.8 = costo. <b>A costo</b>: piso = el costo más caro de esos 2 lotes (ninguna unidad se vende bajo su costo). En 30+ meses se sugiere y lo confirmas con el botón.</li>
+      <li><b>Oferta</b> = precio de lista × (1 − desc. %), nunca por debajo del piso, redondeado hacia arriba a múltiplos de S/ <span class="paso">5</span>.</li>
+      <li>No entran: sin costo o sin precio de lista, piso ≥ precio de lista, ya tiene una oferta igual o menor, o ya está en otra campaña.</li>
+      <li>Al terminar se devuelve la oferta original. Si alguien la cambió a mano durante la campaña, no se pisa y queda marcado como <b>conflicto</b>.</li>
+    </ul></details>
+  </div>
+
+  <!-- ══════════ CAMPAÑAS ══════════ -->
+  <div class="card vista" id="v-camp" style="display:none">
+    <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+      <div><h3>Campañas</h3><div class="desc">Se inician y terminan solas en sus fechas (revisión cada 10 minutos). También puedes aplicarlas o terminarlas ahora.</div></div>
+      <button class="btn btn-sec" onclick="cpCargar()">Actualizar</button>
+    </div>
+    <div id="cp-aviso"></div>
+    <div class="tabla-wrap"><table id="tbl-camp"></table></div>
+    <div id="cp-detalle"></div>
+  </div>
+
+  <!-- ══════════ DESCUENTO A TIENDAS ══════════ -->
+  <div class="card vista" id="v-desc" style="display:none">
+    <h3>Descuento a tiendas y talleres por marca</h3>
+    <div class="desc">Es el tope de descuento en las campañas: la oferta más baja posible es costo ÷ (1 − este %). Marcas sin valor usan 0 % (piso = costo).</div>
+    <div class="fila">
+      <label class="campo">Marca<select id="d-marca"></select></label>
+      <label class="campo">Descuento %<input type="number" id="d-pct" min="0" max="89" step="0.5"></label>
+      <button class="btn" onclick="dGuardar()">Guardar</button>
+    </div>
+    <div class="tabla-wrap" style="max-height:50vh"><table id="tbl-desc"></table></div>
+  </div>
+  <!-- ══════════ PORTAL Y LINKS LIBRES ══════════ -->
+  <div class="card vista" id="v-links" style="display:none">
+    <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+      <div><h3>Promociones en el portal y links para vendedores</h3>
+        <div class="desc">Las tiendas ven las ofertas vigentes en su portal (pestaña “Promociones”, con su precio). Para sus vendedores crea un <b>link libre</b>: muestra solo el PVP oferta, sin el precio de la tienda. Si se abre en más equipos a la vez que el máximo, el link se bloquea solo.</div></div>
+      <button class="btn btn-sec" onclick="lkCargar()">Actualizar</button>
+    </div>
+    <div class="kpis" id="lk-vivo"></div>
+    <div class="fila"><input id="lk-buscar" type="search" placeholder="Buscar tienda o RUC…" oninput="lkPintar()" style="flex:1;min-width:200px">
+      <label class="chk"><input type="checkbox" id="lk-solo" onchange="lkPintar()"> Solo con link</label></div>
+    <div class="tabla-wrap" style="max-height:55vh"><table id="tbl-links"></table></div>
+    <h3 style="margin-top:18px">Reservas</h3>
+    <div class="desc">Cada solicitud reserva sus unidades del stock en oferta. Se <b>concreta sola</b> cuando registras en el sistema una venta a alguno de los RUC/DNI de esa cuenta con ese SKU (se revisa cada 20 min de lun a vie 10:30–20:30 y sáb 9:30–16:00; fuera de ese horario usa “Revisar ventas ahora”). Si vence sin venta, las unidades se liberan.</div>
+    <div class="fila">
+      <select id="rv-estado" onchange="lkCargar()"><option value="">Todas</option><option value="pendiente" selected>Pendientes</option><option value="concretada">Concretadas</option><option value="parcial">Parciales</option><option value="vencida">Vencidas</option><option value="cancelada">Canceladas</option></select>
+      <label class="campo" title="Cuánto dura una reserva (nunca pasa del fin de la campaña)">Reserva dura (horas)<input type="number" id="rv-horas" min="1" max="720" style="width:80px" onchange="rvHoras(this.value)"></label>
+      <button class="btn btn-sec" onclick="rvRevisar()">Revisar ventas ahora</button>
+    </div>
+    <div class="tabla-wrap" style="max-height:45vh"><table id="tbl-res"></table></div>
+    <h3 style="margin-top:18px">Solicitudes recibidas</h3>
+    <div class="desc">También llegan por correo a ventas (con copia a la tienda) y el cliente las envía por WhatsApp.</div>
+    <div class="tabla-wrap" style="max-height:45vh"><table id="tbl-sol"></table></div>
+  </div>
+
+  <div class="card vista" id="v-reglas" data-grupo="v-desc" style="display:none">
+    <h3>Tramos de descuento por antigüedad</h3>
+    <div class="desc">Se mide con la edad del lote más antiguo con stock. Cada SKU toma el tramo más alto que alcanza.</div>
+    <div class="tabla-wrap" style="max-height:none"><table id="tbl-tramos"></table></div>
+    <div class="fila">
+      <button class="btn btn-sec" onclick="tAgregar()">+ Tramo</button>
+      <label class="campo" title="Si vendió hace menos de estos días…">“Se vende bien” si vendió hace menos de (días)<input type="number" id="vb-dias" min="0"></label>
+      <label class="campo" title="…y a su ritmo se agota en menos de estos meses → baja un tramo">y se agota en menos de (meses)<input type="number" id="vb-meses" min="0" step="0.5"></label>
+      <button class="btn" onclick="tGuardar()">Guardar reglas</button>
+      <button class="btn btn-sec" onclick="tDefecto()">Volver a los valores de los vendedores</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+//  Promociones recomendadas — frontend (mini-app en iframe dentro de admin.html)
+//  Comparte token y origen con el panel (localStorage 'admtoken').
+//  Backend: modulos/promociones.js (/api/promo-candidatos, /api/promo-candidatos-excel)
+//  El servidor manda todos los candidatos; motivo/marca/categoría/búsqueda se
+//  filtran aquí sin volver a consultar.
+// ═══════════════════════════════════════════════════════════════════════════
+let TOKEN = ''; try { TOKEN = localStorage.getItem('admtoken') || ''; } catch (e) {}
+
+const $ = id => document.getElementById(id);
+function esc(t) { return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function showToast(m, e) { const t = $('toast'); t.textContent = m; t.className = 'toast' + (e ? ' err' : ''); t.style.display = 'block'; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', 3500); }
+async function apiCall(ep) {
+  const r = await fetch(ep, { headers: { 'Authorization': 'Bearer ' + TOKEN } });
+  if (r.status === 401) throw new Error('Sesión del portal expirada — vuelve a entrar al panel.');
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || 'Error');
+  return d;
+}
+async function descargar(ep, nombre) {
+  const r = await fetch(ep, { headers: { 'Authorization': 'Bearer ' + TOKEN } });
+  if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || 'No se pudo generar el archivo'); }
+  const blob = await r.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = nombre; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function nombreArchivo(base, ext) {
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  return `${base}-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.${ext}`;
+}
+const N = (n, dec = 0) => n == null ? '—' : Number(n).toLocaleString('es-PE', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+const S = n => n == null ? '—' : 'S/ ' + N(n, 2);
+const MAX_FILAS = 500; // filas pintadas en pantalla (el Excel trae todo)
+const PKEY = 'promo_params';
+
+let D = null;                               // última respuesta de /api/promo-candidatos
+let orden = { k: null, dir: 'desc' };       // null = orden del servidor (capital desc.)
+let NOM = {};                               // motivo → nombre
+
+function leerParams() { return { alcance: $('p-alcance').value, umbral: $('p-umbral').value, meses: $('p-meses').value }; }
+function leerFiltros() {
+  return { motivo: $('f-motivo').value, marca: $('f-marca').value, categoria: $('f-cat').value,
+    capital_min: $('f-capital').value, margen_min: D && D.con_margen ? $('f-margen').value : '', buscar: $('f-buscar').value.trim() };
+}
+function qs(o) { const p = new URLSearchParams(); Object.entries(o).forEach(([k, v]) => { if (v !== '' && v != null) p.set(k, v); }); return p.toString(); }
+function restaurar() {
+  try {
+    const g = JSON.parse(localStorage.getItem(PKEY) || 'null'); if (!g) return;
+    ['alcance', 'umbral', 'meses'].forEach(k => { if (g[k]) $('p-' + k).value = g[k]; });
+  } catch (e) {}
+}
+function opciones(sel, lista, todos) {
+  const act = sel.value;
+  sel.innerHTML = `<option value="">${todos}</option>` + lista.map(o => {
+    const [v, t] = Array.isArray(o) ? o : [o, o];
+    return `<option value="${esc(v)}"${v === act ? ' selected' : ''}>${esc(t)}</option>`;
+  }).join('');
+  if (sel.value !== act) sel.value = '';
+}
+
+async function cargar() {
+  const btn = $('btn-calc'); btn.disabled = true; btn.textContent = 'Analizando…';
+  $('pr-conteo').textContent = 'Analizando stock y ventas…';
+  try {
+    D = await apiCall('/api/promo-candidatos?' + qs(leerParams()));
+    try { localStorage.setItem(PKEY, JSON.stringify(leerParams())); } catch (e) {}
+    NOM = {}; D.motivos.forEach(m => NOM[m.k] = m.t);
+    $('pr-hora').textContent = 'Actualizado: ' + new Date().toLocaleString('es-PE');
+    opciones($('f-motivo'), D.motivos.map(m => [m.k, m.t]), 'Todos los motivos');
+    opciones($('f-marca'), D.opciones.marcas, 'Todas las marcas');
+    opciones($('f-cat'), D.opciones.categorias, 'Todas las categorías');
+    $('f-margen').style.display = D.con_margen ? '' : 'none';
+    document.querySelectorAll('.solo-margen').forEach(e => e.style.display = D.con_margen ? '' : 'none');
+    pintarKpis();
+    pintar();
+  } catch (e) {
+    $('pr-conteo').textContent = '';
+    showToast(e.message, true);
+  } finally { btn.disabled = false; btn.textContent = 'Analizar'; }
+}
+
+function pintarKpis() {
+  const m = $('f-motivo').value;
+  const kp = [`<div class="kpi clic a${m ? '' : ' sel'}" onclick="elegirMotivo('')"><div class="l">Todos los candidatos</div><div class="v">${N(D.total)}</div><div class="s">${S(D.capital_total)} en stock</div></div>`];
+  D.motivos.forEach(x => {
+    const c = D.conteo[x.k] || { skus: 0, capital: 0 };
+    kp.push(`<div class="kpi clic${m === x.k ? ' sel' : ''}" onclick="elegirMotivo('${x.k}')"><div class="l">${esc(x.t)}</div><div class="v">${N(c.skus)}</div><div class="s">${S(c.capital)}</div></div>`);
+  });
+  $('pr-kpis').innerHTML = kp.join('');
+}
+function elegirMotivo(k) { $('f-motivo').value = k; pintar(); }
+function limpiar() { ['f-buscar', 'f-motivo', 'f-marca', 'f-cat', 'f-capital', 'f-margen'].forEach(id => $(id).value = ''); pintar(); }
+
+function filasFiltradas() {
+  const f = leerFiltros(), txt = f.buscar.toLowerCase();
+  let rows = D.items.filter(x =>
+    (!f.motivo || x.motivos.includes(f.motivo)) &&
+    (!f.marca || x.marca === f.marca) &&
+    (!f.categoria || x.categoria.split(', ').includes(f.categoria)) &&
+    (!f.capital_min || x.capital >= Number(f.capital_min)) &&
+    (!f.margen_min || (x.margen_pct != null && x.margen_pct >= Number(f.margen_min))) &&
+    (!txt || (x.sku + ' ' + x.producto).toLowerCase().includes(txt)));
+  if (orden.k) {
+    const { k, dir } = orden, m = dir === 'asc' ? 1 : -1;
+    rows = rows.slice().sort((a, b) => {
+      let va = a[k], vb = b[k];
+      if (k === 'dias_sin_venta') { va = va == null ? 1e9 : va; vb = vb == null ? 1e9 : vb; } // "nunca" = el más viejo
+      if (va == null) return 1; if (vb == null) return -1;
+      return (typeof va === 'string' ? va.localeCompare(vb) : va - vb) * m;
+    });
+  }
+  return rows;
+}
+function columnas() {
+  const c = [
+    { k: 'producto', t: 'Producto / motivos' }, { k: 'marca', t: 'Marca' },
+    { k: 'stock', t: 'Stock', n: 1 }, { k: 'capital', t: 'Capital', n: 1 },
+    { k: 'dias_sin_venta', t: 'Días sin venta', n: 1 }, { k: 'und_12m', t: 'Vendido 12m', n: 1 },
+    { k: 'meses_para_agotar', t: 'Meses p/ agotar', n: 1 }, { k: 'edad_dias', t: 'Edad lote', n: 1 }
+  ];
+  if (D.con_margen) c.push({ k: 'precio', t: 'Precio lista', n: 1 }, { k: 'margen_pct', t: 'Margen', n: 1 },
+    { k: 'desc_sug_pct', t: 'Desc. sugerido', n: 1 }, { k: 'precio_sug', t: 'Precio promo', n: 1 });
+  return c;
+}
+function ordenar(k) {
+  if (orden.k === k) orden.dir = orden.dir === 'asc' ? 'desc' : 'asc';
+  else { orden.k = k; orden.dir = ['producto', 'marca'].includes(k) ? 'asc' : 'desc'; }
+  pintar();
+}
+
+function pintar() {
+  const t = $('tbl-promo');
+  if (!D) { t.innerHTML = ''; return; }
+  pintarKpis();
+  const rows = filasFiltradas(), cols = columnas();
+  const cap = rows.reduce((s, x) => s + x.capital, 0), und = rows.reduce((s, x) => s + x.stock, 0);
+  $('pr-conteo').innerHTML = `<b>${N(rows.length)}</b> de ${N(D.items.length)} candidato(s) · <b>${N(und)}</b> und · capital <b>${S(cap)}</b>` +
+    (rows.length > MAX_FILAS ? ` · mostrando ${MAX_FILAS} en pantalla (el Excel trae todo)` : '');
+  const head = '<thead><tr>' + cols.map(c => {
+    const cls = [c.n ? 'n' : '', orden.k === c.k ? orden.dir : ''].join(' ').trim();
+    return `<th class="${cls}" onclick="ordenar('${c.k}')">${c.t}</th>`;
+  }).join('') + '</tr></thead>';
+  if (!rows.length) {
+    t.innerHTML = head + `<tbody><tr><td colspan="${cols.length}" class="vacio">${D.items.length ? 'Sin productos con esos filtros.' : '✓ Ningún producto es candidato con estos parámetros.'}</td></tr></tbody>`;
+    return;
+  }
+  t.innerHTML = head + '<tbody>' + rows.slice(0, MAX_FILAS).map(x => {
+    const chips = x.motivos.map(k => {
+      let tt = NOM[k] || k;
+      if (k === 'modelo_anterior' && x.anio_modelo) tt += ' ' + x.anio_modelo;
+      if (k === 'tallas_sueltas' && x.variaciones) tt += ` (${x.variaciones.con_stock} de ${x.variaciones.activas})`;
+      return `<span class="chip m-${k}">${esc(tt)}</span>`;
+    }).join('');
+    const subStock = x.reservadas ? `<div class="sub">${N(x.disponibles)} disp. · ${N(x.reservadas)} reserv.</div>` : '';
+    const subCap = x.capital_antiguo > 0 && x.capital_antiguo < x.capital - 0.01 ? `<div class="sub" title="Parte del capital en lotes de más de 1 año">${S(x.capital_antiguo)} +1 año</div>` : '';
+    const dsv = x.nunca_vendido ? '<span class="chip c-r" title="Nunca se vendió">9999</span>' : N(x.dias_sin_venta);
+    let extra = '';
+    if (D.con_margen) {
+      extra = `<td class="n">${S(x.precio)}${x.en_oferta ? '<div class="sub">en oferta</div>' : ''}</td>
+        <td class="n">${x.margen_pct == null ? '<span class="sub">sin precio/costo</span>' : N(x.margen_pct, 1) + '%'}</td>
+        <td class="n">${x.desc_sug_pct == null ? '—' : `<b>${x.desc_sug_pct}%</b><div class="sub">máx. ${x.desc_max_pct}%</div>`}</td>
+        <td class="n">${S(x.precio_sug)}</td>`;
+    }
+    return `<tr>
+      <td><div class="nom">${esc(x.producto)}</div><div class="sku">${esc(x.sku)}${x.categoria ? ' · ' + esc(x.categoria) : ''}</div><div class="chips">${chips}</div></td>
+      <td>${esc(x.marca)}</td>
+      <td class="n">${N(x.stock)}${subStock}</td>
+      <td class="n">${S(x.capital)}${subCap}</td>
+      <td class="n">${dsv}</td>
+      <td class="n">${N(x.und_12m)}<div class="sub">${N(x.und_90d)} en 90d</div></td>
+      <td class="n">${x.meses_para_agotar == null ? '—' : N(x.meses_para_agotar, 1)}</td>
+      <td class="n">${x.edad_dias == null ? '—' : N(x.edad_dias) + ' d'}</td>
+      ${extra}
+    </tr>`;
+  }).join('') + '</tbody>';
+}
+
+async function excel() {
+  if (!D) return;
+  try {
+    showToast('Generando Excel…');
+    await descargar('/api/promo-candidatos-excel?' + qs({ ...leerParams(), ...leerFiltros() }), nombreArchivo('promociones', 'xlsx'));
+  } catch (e) { showToast(e.message, true); }
+}
+
+restaurar();
+cargar();
+
+// ══════════════════════════ CAMPAÑAS DE OFERTA (solo maestro) ══════════════════════════
+//  Backend: modulos/promociones-campanas.js. El servidor recalcula todo al guardar;
+//  el cálculo de aquí (precioPromo) es el mismo, solo para ver el efecto al editar.
+let CFG = null, CR = null, CP = null;
+async function apiSend(ep, metodo, body) {
+  const r = await fetch(ep, { method: metodo, headers: { 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  if (r.status === 401) throw new Error('Sesión del portal expirada — vuelve a entrar al panel.');
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || 'Error');
+  return d;
+}
+async function descargarPost(ep, body, nombre) {
+  const r = await fetch(ep, { method: 'POST', headers: { 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || 'No se pudo generar el archivo'); }
+  const url = URL.createObjectURL(await r.blob());
+  const a = document.createElement('a'); a.href = url; a.download = nombre; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+const hoyLima = (mas = 0) => new Date(Date.now() - 5 * 3600e3 + mas * 864e5).toISOString().slice(0, 10);
+const fLima = d => d ? new Date(new Date(d).getTime() - 5 * 3600e3).toISOString().slice(0, 10) : '—';
+
+function vista(v) {
+  document.querySelectorAll('.vista').forEach(e => e.style.display = (e.dataset.grupo || e.id) === 'v-' + v ? '' : 'none');
+  document.querySelectorAll('.nav button').forEach(b => b.classList.toggle('act', b.dataset.v === v));
+  try { localStorage.setItem('promo_vista', v); } catch (e) {}
+  if (v === 'camp') cpCargar();
+  if (v === 'desc') { dPintar(); tPintar(); }
+  clearInterval(window._lkInt);
+  if (v === 'links') { lkCargar(); window._lkInt = setInterval(lkCargar, 20000); }
+}
+
+async function initCampanas() {
+  try { CFG = await apiCall('/api/promo-config'); }
+  catch (e) { return; }                                   // sin acceso: solo Candidatos
+  $('nav').style.display = '';
+  const M = CFG.rol === 'maestro';
+  // Usuarios con acceso (no maestro): ven campañas y links, quitan SKUs y suben precios; no crean ni bajan precios
+  document.querySelectorAll('#nav button[data-v=crear], #nav button[data-v=desc]').forEach(b => b.style.display = M ? '' : 'none');
+  document.querySelectorAll('.solo-maestro').forEach(e => e.style.display = M ? '' : 'none');
+  if (!M) { const h = $('rv-horas'); if (h) { h.disabled = true; h.title = 'Solo el administrador cambia la duración'; } }
+  document.querySelectorAll('.paso').forEach(e => e.textContent = CFG.redondeo);
+  const opts = CFG.marcas.map(m => `<option>${esc(m)}</option>`).join('');
+  $('c-marca').innerHTML = '<option value="">— elige —</option>' + opts;
+  $('d-marca').innerHTML = opts;
+  $('c-inicio').value = hoyLima(); $('c-fin').value = hoyLima(14);
+  ayudaTramos();
+  const av = [];
+  if (!CFG.escritura) av.push('Falta configurar <b>ERP_ESCRITURA_URL</b> con permiso <code>UPDATE (sale_price)</code> en product_variations: las campañas se pueden preparar y exportar, pero no cambiarán precios.');
+  if (!CFG.ia) av.push('Sin GEMINI_API_KEY: “Calcular + revisar con IA” usará solo los tramos por antigüedad.');
+  $('cr-aviso').innerHTML = av.map(t => `<div class="aviso">${t}</div>`).join('');
+  $('cp-aviso').innerHTML = CFG.escritura ? '' : `<div class="aviso">${av[0]}</div>`;
+  let v = 'cand'; try { v = localStorage.getItem('promo_vista') || 'cand'; } catch (e) {}
+  if (!M && ['crear', 'desc'].includes(v)) v = 'camp';
+  vista(v);
+}
+// Desde la tabla de candidatos: preparar campaña con la marca filtrada
+function irACampana() {
+  if (!CFG) return;
+  const m = $('f-marca').value.toUpperCase();
+  if (m) { $('c-marca').value = m; crMarca(); }
+  vista('crear');
+}
+function crMarca() {
+  const m = $('c-marca').value;
+  $('c-dt').value = m && CFG.desc_tiendas[m] != null ? CFG.desc_tiendas[m] : '';
+  $('c-dt').placeholder = m && CFG.desc_tiendas[m] == null ? '0 (sin definir)' : '';
+  if (!$('c-nombre').value || $('c-nombre').dataset.auto) { $('c-nombre').value = m ? 'Oferta ' + m : ''; $('c-nombre').dataset.auto = '1'; }
+  CR = null; $('cr-acciones').style.display = 'none'; $('tbl-crear').innerHTML = ''; $('cr-kpis').innerHTML = ''; $('cr-conteo').textContent = '';
+}
+
+// Mismo cálculo que el servidor (modulos/promociones-campanas.js → precioPromo)
+const PASO = () => (CFG && CFG.redondeo) || 5;
+const arriba = x => Math.ceil(Math.round(x * 100) / 100 / PASO() - 1e-9) * PASO();
+function precioPromo(it, o) {
+  const lista = Number(it.lista) || 0, costo = Number(it.costo_base) || 0;
+  const res = { piso: null, desc_max: null, precio: null, desc_real: null, motivo: null };
+  if (!(lista > 0)) { res.motivo = 'sin_precio'; return res; }
+  if (!(costo > 0)) { res.motivo = 'sin_costo'; return res; }
+  const dt = Math.min(90, Math.max(0, Number(o.desc_tienda) || 0));
+  const piso = o.a_costo ? arriba(Math.max(costo, Number(it.costo_max) || 0)) : arriba(costo / (1 - dt / 100));
+  res.piso = piso; res.desc_max = Math.max(0, Math.floor((1 - piso / lista) * 1000) / 10);
+  if (piso >= lista) { res.motivo = 'sin_margen'; return res; }
+  const d = Math.min(95, Math.max(0, Number(o.desc_pct) || 0));
+  if (!(d > 0)) { res.motivo = 'sin_descuento'; return res; }
+  // d ≥ desc. máx. = "al piso" (evita que el redondeo del % lo deje un paso arriba)
+  let precio = d >= res.desc_max - 0.05 ? piso : Math.max(arriba(lista * (1 - d / 100)), piso);
+  if (precio >= lista) { res.motivo = 'sin_descuento'; return res; }
+  const actual = Number(it.oferta_actual) || 0;
+  if (actual > 0 && actual <= precio) res.motivo = 'ya_tiene_oferta';
+  res.precio = precio; res.desc_real = Math.round((1 - precio / lista) * 1000) / 10;
+  return res;
+}
+const MOT = { sin_precio: 'Sin precio de lista', sin_costo: 'Sin costo de lote', sin_margen: 'Piso ≥ precio de lista', sin_descuento: 'Con el redondeo no queda descuento', ya_tiene_oferta: 'Ya tiene oferta igual o menor' };
+
+function crBody() {
+  return {
+    marca: $('c-marca').value, desc_tienda: $('c-dt').value, desc_pct: $('c-desc').value,
+    // en pantalla son meses; el servidor filtra en días
+    filtros: { edad_min: $('c-edad').value ? Math.round(Number($('c-edad').value) * 30.4375) : '', dsv_min: $('c-dsv').value ? Math.round(Number($('c-dsv').value) * 30.4375) : '', capital_min: $('c-cap').value, lista_min: $('c-lmin').value, lista_max: $('c-lmax').value }
+  };
+}
+async function crProponer(conIA) {
+  if (!$('c-marca').value) return showToast('Elige una marca', true);
+  const btn = conIA ? $('btn-ia') : $('btn-prop'), txt = btn.textContent;
+  btn.disabled = true; btn.textContent = conIA ? 'La IA está pensando…' : 'Calculando…';
+  $('cr-conteo').textContent = 'Leyendo stock, lotes y ventas de la marca…';
+  try {
+    CR = await apiSend('/api/promo-propuesta', 'POST', { ...crBody(), usar_ia: conIA });
+    CR.items.forEach(x => { x.sel = x.entra; });
+    crOpcionesTramo();
+    if (CR.aviso_ia) showToast(CR.aviso_ia, true);
+    $('cr-acciones').style.display = '';
+    crPintar();
+  } catch (e) { $('cr-conteo').textContent = ''; showToast(e.message, true); }
+  finally { btn.disabled = false; btn.textContent = txt; }
+}
+function crRecalc(x) {
+  Object.assign(x, precioPromo(x, { desc_pct: x.desc_pct, desc_tienda: CR.desc_tienda, a_costo: x.a_costo }));
+  x.puede = x.precio != null && x.motivo !== 'ya_tiene_oferta' && !x.en_campana && !x.costo_dudoso;
+  x.requiere_confirmar = x.puede && x.desc_real > (CR.tope_seguridad || 60) && !x.extremo_ok;
+  if (!x.puede || x.requiere_confirmar) x.sel = false;
+}
+function crCambia(vid, campo, el) {
+  const x = CR.items.find(i => i.vid === vid); if (!x) return;
+  if (campo === 'sel') {
+    if (el.checked && x.requiere_confirmar) {
+      if (!confirm(`${x.nombre}\n\nEl precio de oferta ${S(x.precio)} es −${x.desc_real} % del precio de lista (${S(x.lista)}), más que el tope de seguridad de ${CR.tope_seguridad} %.${x.alerta_costo ? '\n\nOjo con el costo: ' + x.alerta_costo : ''}\n\n¿Confirmas que este precio es correcto?`)) { el.checked = false; return; }
+      x.extremo_ok = true; x.requiere_confirmar = false;
+    }
+    x.sel = el.checked;
+  }
+  if (campo === 'a_costo') { (el.checked ? ponerACosto : quitarACosto)(x, 'A costo (manual)'); crRecalc(x); if (x.puede && !x.sel) x.sel = true; }
+  if (campo === 'desc') { x.desc_pct = Number(el.value) || 0; x.razon = 'Manual'; crRecalc(x); if (x.puede) x.sel = x.desc_pct > 0; }
+  if (campo === 'precio') {                                   // escribir el precio directo → se convierte en %
+    const p = Number(el.value); if (p > 0 && x.lista > 0) { x.desc_pct = Math.round((1 - p / x.lista) * 1000) / 10; x.razon = 'Manual'; crRecalc(x); }
+  }
+  crPintar(true);
+}
+// "A costo" guarda el % y la razón que tenía, para volver a ellos al desmarcarlo
+function ponerACosto(x, razon) {
+  if (!x.a_costo) { x._previo = { desc: x.desc_pct, razon: x.razon }; }
+  x.a_costo = true; x.desc_pct = 95; x.razon = razon;
+}
+function quitarACosto(x) {
+  x.a_costo = false;
+  if (x._previo) { x.desc_pct = x._previo.desc; x.razon = x._previo.razon; x._previo = null; }
+}
+function crConfirmarCosto() {
+  const pend = CR.items.filter(x => x.sugiere_costo && !x.a_costo && !x.en_campana && x.costo_base > 0);
+  pend.forEach(x => { ponerACosto(x, 'A costo (confirmado)'); crRecalc(x); if (x.puede) x.sel = true; });
+  showToast(`${pend.length} SKU(s) a costo. Desmarca “A costo” en los que no quieras.`);
+  crPintar();
+}
+function crTodos(v) { crVisibles().forEach(x => { if (x.puede) x.sel = v; }); crPintar(); }
+// Tramo base del SKU ("24+ m"), para el filtro
+const tramoBase = x => (String(x.tramo || '').match(/^(\d+)\+ m/) || String(x.tramo || '').match(/Lote de \d+/) ? (String(x.tramo).match(/^(\d+)\+ m/) || [, 'nuevo'])[1] : '');
+function crOpcionesTramo() {
+  const sel = $('cr-tramo'), act = sel.value;
+  const ms = [...new Set(CR.items.map(tramoBase).filter(Boolean))].sort((a, b) => (a === 'nuevo' ? -1 : +a) - (b === 'nuevo' ? -1 : +b));
+  sel.innerHTML = '<option value="">Todos los tramos</option>' + ms.map(m => `<option value="${m}"${m === act ? ' selected' : ''}>${m === 'nuevo' ? 'Menos del primer tramo' : m + '+ meses'} (${CR.items.filter(x => tramoBase(x) === m).length})</option>`).join('');
+}
+function crVisibles() {
+  const q = $('cr-buscar').value.toLowerCase().trim(), solo = $('cr-solo').checked, tr = $('cr-tramo').value;
+  return CR.items.filter(x => (!solo || x.puede) && (!tr || tramoBase(x) === tr) && (!q || (x.sku + ' ' + x.nombre).toLowerCase().includes(q)));
+}
+function crPintar(soloKpis) {
+  if (!CR) return;
+  CR.items.forEach(x => { if (x.puede === undefined) crRecalc(x); });
+  const sel = CR.items.filter(x => x.sel && x.puede);
+  const cap = sel.reduce((s, x) => s + x.capital, 0);
+  const venta = sel.reduce((s, x) => s + x.precio * x.stock, 0), ventaLista = sel.reduce((s, x) => s + x.lista * x.stock, 0);
+  const costo = sel.reduce((s, x) => s + x.costo_base * x.stock, 0);
+  $('cr-kpis').innerHTML = `
+    <div class="kpi a"><div class="l">SKUs en la campaña</div><div class="v">${N(sel.length)}</div><div class="s">de ${N(CR.items.length)} con stock de ${esc(CR.marca)}</div></div>
+    <div class="kpi"><div class="l">Capital que se mueve</div><div class="v">${S(cap)}</div><div class="s">${N(sel.reduce((s, x) => s + x.stock, 0))} und</div></div>
+    <div class="kpi"><div class="l">Desc. promedio</div><div class="v">${ventaLista ? N((1 - venta / ventaLista) * 100, 1) + '%' : '—'}</div><div class="s">ponderado por stock</div></div>
+    <div class="kpi"><div class="l">Si se vende todo</div><div class="v">${S(venta)}</div><div class="s">margen ${venta ? N((venta - costo) / venta * 100, 1) + '%' : '—'} sobre costo base</div></div>
+    <div class="kpi"><div class="l">Desc. a tiendas ${esc(CR.marca)}</div><div class="v">${N(CR.desc_tienda, 1)}%</div><div class="s">${CR.origen === 'ia' ? 'tramos + revisión IA' : CR.origen === 'general' ? 'desc. general ' + $('c-desc').value + '%' : 'tramos por antigüedad'}${CR.aviso_ia ? ' (IA no disponible)' : ''}</div></div>`;
+  const pend = CR.items.filter(x => x.sugiere_costo && !x.a_costo && !x.en_campana && x.costo_base > 0);
+  const bc = $('btn-costo');
+  if (pend.length) {
+    const antes = pend.reduce((s, x) => s + (x.precio || 0) * x.stock, 0);
+    const despues = pend.reduce((s, x) => s + (precioPromo(x, { desc_pct: 95, desc_tienda: CR.desc_tienda, a_costo: true }).precio || 0) * x.stock, 0);
+    bc.style.display = ''; bc.textContent = `Confirmar a costo los ${CR.reglas ? CR.reglas.tramos.filter(t => t.tipo === 'costo').map(t => t.meses + '+').join('/') : '30+'} meses (${pend.length})`;
+    bc.title = `Si se vende todo: de ${S(antes)} a ${S(despues)}. Puedes desmarcar después los que no quieras.`;
+  } else bc.style.display = 'none';
+  crFilas();
+}
+// Margen de Kuranko con el precio de oferta, sobre el costo base (2 lotes más antiguos).
+//  Arriba: vendiendo a precio taller oferta (PVP oferta − desc. a tiendas; en a costo = PVP oferta). Abajo: al público.
+function margenCelda(x) {
+  if (x.precio == null || !(x.costo_base > 0)) return '—';
+  const taller = x.a_costo ? x.precio : x.precio * (1 - (Number(CR.desc_tienda) || 0) / 100);
+  const mt = (taller - x.costo_base) / taller * 100, mp = (x.precio - x.costo_base) / x.precio * 100;
+  const col = mt < 0 ? 'var(--fg-r)' : mt < 10 ? 'var(--fg-warn)' : 'var(--white)';
+  return `<b style="color:${col}" title="Vendiendo a precio taller ${S(taller)}">${N(mt, 1)}%</b><div class="sub">público ${N(mp, 1)}%</div>`;
+}
+function crFilas() {
+  const rows = crVisibles();
+  const sel = CR.items.filter(x => x.sel && x.puede).length;
+  $('cr-conteo').innerHTML = `<b>${N(sel)}</b> seleccionados · mostrando ${N(Math.min(rows.length, MAX_FILAS))} de ${N(rows.length)}`;
+  const head = `<thead><tr><th></th><th>Producto</th><th class="n" title="Margen de Kuranko al vender a precio taller oferta (peor caso) y, debajo, al público a PVP oferta">Margen oferta</th><th class="n">Meses sin venta</th><th class="n">Capital</th><th class="n">Stock</th>
+    <th>Tramo</th><th class="n">Precio lista</th><th class="n">Oferta hoy</th><th class="n">Desc. %</th><th class="n">Precio oferta</th><th class="n">Piso · máx.</th><th>A costo</th><th>Razón</th></tr></thead>`;
+  if (!rows.length) { $('tbl-crear').innerHTML = head + '<tbody><tr><td colspan="14" class="vacio">Ningún SKU con esos filtros.</td></tr></tbody>'; return; }
+  $('tbl-crear').innerHTML = head + '<tbody>' + rows.slice(0, MAX_FILAS).map(x => `<tr style="${x.puede ? '' : 'opacity:.55'}">
+    <td><input type="checkbox" ${x.sel ? 'checked' : ''} ${x.puede ? '' : 'disabled'} onchange="crCambia(${x.vid},'sel',this)"></td>
+    <td><div class="nom">${esc(x.nombre)}</div><div class="sku">${esc(x.sku)} · costo base ${S(x.costo_base)} <span title="Costo con IGV ÷ 0.9 (incluye gastos)">(÷0.9)</span> · ${N(x.und_lotes_base)} und en 2 lotes</div>${x.alerta_costo ? `<div class="sub" style="white-space:normal;color:var(--fg-r)">⚠ ${esc(x.alerta_costo)}</div>` : ''}${x.requiere_confirmar ? `<div><span class="chip c-r" title="Marca la casilla para confirmarlo">−${N(x.desc_real, 1)}% supera el tope: confirma</span></div>` : ''}</td>
+    <td class="n">${margenCelda(x)}</td>
+    <td class="n">${x.dias_sin_venta >= CFG.nunca ? '<span class="chip c-r" title="Nunca se vendió">nunca</span>' : N(x.dias_sin_venta / 30.4375, 1)}<div class="sub">${N(x.und_12m)} vend. 12 m</div></td>
+    <td class="n">${S(x.capital)}</td>
+    <td class="n">${N(x.stock)}${x.stock_consig ? `<div class="sub" title="Incluye lo que está en consignación en tiendas de clientes">${N(x.stock_consig)} en consig.</div>` : ''}</td>
+    <td><span class="chip ${x.sugiere_costo ? 'c-r' : x.vende_bien ? 'c-ok' : 'c-g'}" title="${esc(x.tramo || '')}">${esc(x.tramo || '—')}</span>${x.sugiere_costo && !x.a_costo ? '<div class="sub">a costo sugerido</div>' : ''}${x.ia_cambio ? '<div><span class="chip c-v">IA</span></div>' : ''}</td>
+    <td class="n">${S(x.lista)}</td>
+    <td class="n">${x.oferta_actual ? S(x.oferta_actual) : '—'}</td>
+    <td class="n"><input type="number" value="${x.desc_pct ? Math.round(x.desc_pct * 10) / 10 : ''}" placeholder="0" min="0" max="95" step="1" style="width:62px" onchange="crCambia(${x.vid},'desc',this)" ${x.desc_max > 0 ? '' : 'disabled'} title="Escribe un % para incluirlo a mano"></td>
+    <td class="n">${x.precio != null ? `<input type="number" value="${x.precio}" step="${PASO()}" style="width:84px;font-weight:700" onchange="crCambia(${x.vid},'precio',this)"><div class="sub">−${N(x.desc_real, 1)}%</div>` : '—'}</td>
+    <td class="n">${x.piso != null ? S(x.piso) + `<div class="sub">máx. ${N(x.desc_max, 1)}%</div>` : '—'}</td>
+    <td><input type="checkbox" ${x.a_costo ? 'checked' : ''} onchange="crCambia(${x.vid},'a_costo',this)" title="Liquidar a costo: ignora el descuento a tiendas"></td>
+    <td><div class="sub" style="white-space:normal;max-width:260px">${esc(x.en_campana ? 'Ya está en la campaña #' + x.en_campana : x.motivo && x.motivo !== 'sin_descuento' ? MOT[x.motivo] : x.razon || '')}</div></td>
+  </tr>`).join('') + '</tbody>';
+}
+function crElecciones() {
+  const sel = CR.items.filter(x => x.sel && x.puede);
+  const desc_manual = {}, razones = {};
+  sel.forEach(x => { desc_manual[x.vid] = x.desc_pct; razones[x.vid] = x.razon; });
+  return {
+    ...crBody(), desc_tienda: CR.desc_tienda, desc_manual, razones,
+    a_costo: CR.items.filter(x => x.a_costo).map(x => x.vid),
+    extremo_ok: CR.items.filter(x => x.extremo_ok).map(x => x.vid),
+    excluir: CR.items.filter(x => !(x.sel && x.puede)).map(x => x.vid), sel
+  };
+}
+async function crExcel() {
+  if (!CR) return;
+  const b = crElecciones(); if (!b.sel.length) return showToast('No hay SKUs seleccionados', true);
+  delete b.sel;
+  try { showToast('Generando Excel…'); await descargarPost('/api/promo-propuesta-excel', b, nombreArchivo('oferta-' + CR.marca.toLowerCase(), 'xlsx')); }
+  catch (e) { showToast(e.message, true); }
+}
+async function crGuardar() {
+  if (!CR) return;
+  const b = crElecciones(); const n = b.sel.length; const nCosto = b.sel.filter(x => x.a_costo).length; delete b.sel;
+  if (!n) return showToast('No hay SKUs seleccionados', true);
+  const ini = $('c-inicio').value, fin = $('c-fin').value;
+  if (!ini || !fin) return showToast('Pon las fechas de la campaña', true);
+  const empiezaHoy = ini <= hoyLima();
+  const msg = `Campaña ${CR.marca}: ${n} SKU(s) del ${ini} al ${fin}.` + (nCosto ? `\n⚠ ${nCosto} SKU(s) van A COSTO (sin margen).` : '') + `\n\n` + (empiezaHoy
+    ? (CFG.escritura ? 'Empieza HOY: los precios de oferta se cambian en el sistema ahora mismo.' : 'Se guardará, pero sin ERP_ESCRITURA_URL no cambiará precios.')
+    : 'Se aplicará sola el ' + ini + '.') + '\nAl terminar, cada SKU vuelve a la oferta que tenía antes.\n\n¿Continuar?';
+  if (!confirm(msg)) return;
+  const btn = $('btn-guardar'); btn.disabled = true; btn.textContent = 'Guardando…';
+  try {
+    const r = await apiSend('/api/promo-campanas', 'POST', { ...b, inicio: ini, fin, nombre: $('c-nombre').value, origen: CR.origen });
+    showToast(`Campaña #${r.id} guardada (${r.items} SKUs)` + (r.aplicado ? ` · aplicados ${r.aplicado.aplicados}, omitidos ${r.aplicado.omitidos}` : ''));
+    CR = null; $('tbl-crear').innerHTML = ''; $('cr-kpis').innerHTML = ''; $('cr-acciones').style.display = 'none'; $('cr-conteo').textContent = '';
+    vista('camp');
+  } catch (e) { showToast(e.message, true); }
+  finally { btn.disabled = false; btn.textContent = 'Guardar campaña'; }
+}
+
+// ── Lista de campañas ──
+const CH_EST = { activa: 'c-ok', programada: 'c-v', terminada: 'c-g', cancelada: 'c-g', activo: 'c-ok', pendiente: 'c-v', restaurado: 'c-g', omitido: 'c-g', conflicto: 'c-r' };
+async function cpCargar() {
+  try { CP = await apiCall('/api/promo-campanas'); } catch (e) { return showToast(e.message, true); }
+  const t = $('tbl-camp');
+  const head = '<thead><tr><th>#</th><th>Campaña</th><th>Fechas</th><th>Estado</th><th class="n">SKUs</th><th class="n">Activos</th><th class="n">Devueltos</th><th class="n">Conflictos</th><th>Acciones</th></tr></thead>';
+  if (!CP.campanas.length) { t.innerHTML = head + '<tbody><tr><td colspan="9" class="vacio">Aún no hay campañas. Créala en “Crear campaña”.</td></tr></tbody>'; return; }
+  t.innerHTML = head + '<tbody>' + CP.campanas.map(c => `<tr>
+    <td>${c.id}</td>
+    <td><div class="nom">${esc(c.nombre)}</div><div class="sub">${esc(c.marca)} · tiendas ${N(c.desc_tienda, 1)}% · ${c.origen === 'ia' ? 'IA' : 'reglas/manual'} · por ${esc(c.creado_por || '—')}</div></td>
+    <td>${fLima(c.inicio)} → ${fLima(c.fin)}</td>
+    <td><span class="chip ${CH_EST[c.estado]}">${c.estado}</span></td>
+    <td class="n">${N(c.items)}</td><td class="n">${N(c.activos)}</td><td class="n">${N(c.restaurados)}</td>
+    <td class="n">${Number(c.conflictos) ? `<span class="chip c-r">${N(c.conflictos)}</span>` : '—'}</td>
+    <td style="white-space:nowrap">
+      <button class="btn btn-sec" onclick="cpVer(${c.id})">Ver</button>
+      <button class="btn btn-sec" onclick="cpExcel(${c.id},'${esc(c.marca)}')">Excel</button>
+      ${CFG.rol === 'maestro' && c.estado === 'programada' ? `<button class="btn" onclick="cpAccion(${c.id},'aplicar')">Aplicar ahora</button><button class="btn btn-sec" onclick="cpAccion(${c.id},'terminar')">Cancelar</button>` : ''}
+      ${CFG.rol === 'maestro' && c.estado === 'activa' ? `<button class="btn btn-sec" onclick="cpAccion(${c.id},'terminar')">Terminar ahora</button>` : ''}
+    </td></tr>`).join('') + '</tbody>';
+}
+async function cpAccion(id, acc) {
+  const txt = acc === 'aplicar' ? '¿Aplicar ahora los precios de oferta de esta campaña en el sistema?'
+    : '¿Terminar esta campaña? Los SKUs vuelven a la oferta que tenían antes.';
+  if (!confirm(txt)) return;
+  try {
+    const r = await apiSend(`/api/promo-campanas/${id}/${acc}`, 'POST');
+    showToast(r.cancelada ? 'Campaña cancelada' : acc === 'aplicar' ? `Aplicados ${r.aplicados} · omitidos ${r.omitidos}` : `Devueltos ${r.restaurados} · conflictos ${r.conflictos}` + (r.con_error ? ` · ${r.con_error} con error (se reintenta)` : ''));
+    cpCargar(); if ($('cp-detalle').dataset.id == id) cpVer(id);
+  } catch (e) { showToast(e.message, true); }
+}
+async function cpExcel(id, marca) {
+  try { await descargar(`/api/promo-campanas/${id}/excel`, nombreArchivo('oferta-' + marca.toLowerCase(), 'xlsx')); } catch (e) { showToast(e.message, true); }
+}
+async function cpVer(id) {
+  let d; try { d = await apiCall('/api/promo-campanas/' + id); } catch (e) { return showToast(e.message, true); }
+  const c = d.campana, el = $('cp-detalle'); el.dataset.id = id;
+  const vivo = ['activa', 'programada'].includes(c.estado);
+  el.innerHTML = `<h3 style="margin-top:16px">#${c.id} · ${esc(c.nombre)} <span class="chip ${CH_EST[c.estado]}">${c.estado}</span></h3>
+    <div class="desc">${fLima(c.inicio)} → ${fLima(c.fin)} · ${esc(c.marca)} · descuento a tiendas ${N(c.desc_tienda, 1)}%${c.nota ? ' · ' + esc(c.nota) : ''}</div>
+    <div class="tabla-wrap"><table><thead><tr><th>Producto</th><th>Estado</th><th>Tramo</th><th class="n">Precio lista</th><th class="n">Oferta antes</th><th class="n">Oferta campaña</th><th class="n">Desc.</th>${CFG.ve_costos ? '<th class="n">Costo base · piso</th>' : ''}<th>Nota</th><th></th></tr></thead><tbody>` +
+    d.items.map(i => `<tr>
+      <td><div class="nom">${esc(i.nombre)}</div><div class="sku">${esc(i.sku)}${i.a_costo ? ' · <b>a costo</b>' : ''}${i.precio_manual != null ? ` · <b title="Puesto a mano: se mantiene aunque cambie el lote (solo sube si el nuevo piso lo supera)">precio fijo S/ ${Number(i.precio_manual)}</b>` : ''}</div></td>
+      <td><span class="chip ${CH_EST[i.estado]}">${i.estado}</span></td>
+      <td><span class="chip c-g" style="white-space:normal">${esc(i.tramo || '—')}</span></td>
+      <td class="n">${S(i.lista)}</td>
+      <td class="n">${i.oferta_original_guardada ? (i.oferta_original == null ? 'vacía' : S(i.oferta_original)) : '—'}</td>
+      <td class="n">${vivo && ['activo', 'pendiente'].includes(i.estado)
+        ? `<input type="number" step="5" value="${Number(i.precio)}" ${CFG.rol === 'maestro' ? '' : `min="${Number(i.precio)}"`} style="width:90px;font-weight:700;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:4px 6px;text-align:right" onchange="cpPrecio(${c.id},${i.vid},this)" title="${CFG.rol === 'maestro' ? 'Cambia el precio de oferta (no baja del piso)' : 'Solo puedes subirlo (menos descuento)'}">`
+        : `<b>${S(i.precio)}</b>`}</td>
+      <td class="n">${i.lista ? N((1 - i.precio / i.lista) * 100, 1) + '%' : '—'}</td>
+      ${CFG.ve_costos ? `<td class="n">${S(i.costo_base)}<div class="sub">piso ${S(i.piso)}</div></td>` : ''}
+      <td><div class="sub" style="white-space:normal;max-width:280px">${esc(i.nota || i.razon || '')}</div></td>
+      <td>${vivo && ['activo', 'pendiente'].includes(i.estado) ? `<button class="btn btn-sec" onclick="cpQuitar(${c.id},${i.vid})">Quitar</button>` : ''}</td>
+    </tr>`).join('') + '</tbody></table></div>' +
+    (d.log.length ? `<details class="ayuda"><summary>Historial de cambios (${d.log.length})</summary><ul>${d.log.map(l => `<li>${new Date(l.en).toLocaleString('es-PE')} · ${esc(l.accion)} · SKU #${l.vid}: ${l.antes == null ? 'vacía' : 'S/ ' + l.antes} → ${l.despues == null ? 'vacía' : 'S/ ' + l.despues}${l.nota ? ' · ' + esc(l.nota) : ''}</li>`).join('')}</ul></details>` : '');
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+async function cpPrecio(id, vid, el) {
+  const v = Number(el.value);
+  try {
+    let r;
+    try { r = await apiSend(`/api/promo-campanas/${id}/precio/${vid}`, 'POST', { precio: v }); }
+    catch (e) {
+      if (!/tope de seguridad/.test(e.message) || !confirm(e.message + '\n\n¿Confirmas este precio?')) throw e;
+      r = await apiSend(`/api/promo-campanas/${id}/precio/${vid}`, 'POST', { precio: v, confirmar_tope: true });
+    }
+    showToast(r.sin_cambio ? 'Sin cambios' : `Precio de oferta: ${S(r.precio)}`);
+    cpVer(id);
+  } catch (e) { showToast(e.message, true); cpVer(id); }
+}
+async function cpQuitar(id, vid) {
+  if (!confirm('¿Quitar este SKU de la campaña? Si ya estaba aplicado vuelve a su oferta anterior.')) return;
+  try { await apiSend(`/api/promo-campanas/${id}/quitar/${vid}`, 'POST'); showToast('SKU quitado'); cpVer(id); cpCargar(); }
+  catch (e) { showToast(e.message, true); }
+}
+
+// ── Descuento a tiendas por marca ──
+function dPintar() {
+  const filas = Object.entries(CFG.desc_tiendas).sort((a, b) => a[0].localeCompare(b[0]));
+  $('tbl-desc').innerHTML = '<thead><tr><th>Marca</th><th class="n">Descuento a tiendas</th><th class="n">Oferta más baja posible</th><th></th></tr></thead><tbody>' +
+    (filas.length ? filas.map(([m, p]) => `<tr><td class="nom">${esc(m)}</td><td class="n">${N(p, 1)}%</td><td class="n">costo × ${N(1 / (1 - p / 100), 3)}</td>
+      <td><button class="btn btn-sec" onclick="dEditar('${esc(m)}',${p})">Editar</button> <button class="btn btn-sec" onclick="dBorrar('${esc(m)}')">Quitar</button></td></tr>`).join('')
+      : '<tr><td colspan="4" class="vacio">Sin descuentos definidos (todas las marcas usan piso = costo).</td></tr>') + '</tbody>';
+}
+function dEditar(m, p) { $('d-marca').value = m; $('d-pct').value = p; $('d-pct').focus(); }
+async function dGuardar() {
+  try { const r = await apiSend('/api/promo-desc-marca', 'PUT', { marca: $('d-marca').value, pct: $('d-pct').value }); CFG.desc_tiendas = r.desc_tiendas; dPintar(); showToast('Guardado'); }
+  catch (e) { showToast(e.message, true); }
+}
+async function dBorrar(m) {
+  if (!confirm('¿Quitar el descuento de ' + m + '?')) return;
+  try { const r = await apiSend('/api/promo-desc-marca/' + encodeURIComponent(m), 'DELETE'); CFG.desc_tiendas = r.desc_tiendas; dPintar(); }
+  catch (e) { showToast(e.message, true); }
+}
+// ── Tramos por antigüedad ──
+let TR = null;
+const NOM_T = t => t.tipo === 'pct' ? t.valor + ' %' : t.tipo === 'piso' ? 'mínimo según desc. a tiendas' : 'a costo (lo confirmas tú)';
+function ayudaTramos() { const e = $('ayuda-tramos'); if (e && CFG) e.textContent = CFG.reglas.tramos.map(t => `${t.meses} m → ${NOM_T(t)}`).join(' · '); }
+function tPintar() {
+  if (!TR) TR = JSON.parse(JSON.stringify(CFG.reglas));
+  $('vb-dias').value = TR.vende_bien.dias; $('vb-meses').value = TR.vende_bien.meses_agotar;
+  $('tbl-tramos').innerHTML = '<thead><tr><th>Desde (meses del lote más antiguo)</th><th>Descuento</th><th class="n">%</th><th></th></tr></thead><tbody>' +
+    TR.tramos.map((t, i) => `<tr>
+      <td><input type="number" min="0" value="${t.meses}" style="width:80px" onchange="TR.tramos[${i}].meses=Number(this.value)"> meses</td>
+      <td><select onchange="TR.tramos[${i}].tipo=this.value;if(this.value==='pct'&&TR.tramos[${i}].valor==null)TR.tramos[${i}].valor=10;tPintar()">
+        <option value="pct"${t.tipo === 'pct' ? ' selected' : ''}>% sobre precio de lista</option>
+        <option value="piso"${t.tipo === 'piso' ? ' selected' : ''}>Mínimo según desc. a tiendas</option>
+        <option value="costo"${t.tipo === 'costo' ? ' selected' : ''}>A costo (sugerido, confirmas tú)</option></select></td>
+      <td class="n">${t.tipo === 'pct' ? `<input type="number" min="0" max="95" value="${t.valor}" style="width:70px" onchange="TR.tramos[${i}].valor=Number(this.value)">` : '—'}</td>
+      <td><button class="btn btn-sec" onclick="TR.tramos.splice(${i},1);tPintar()">Quitar</button></td></tr>`).join('') + '</tbody>';
+}
+function tAgregar() { const u = TR.tramos[TR.tramos.length - 1]; TR.tramos.push({ meses: (u ? u.meses : 0) + 6, tipo: 'pct', valor: 10 }); tPintar(); }
+function tDefecto() { TR = JSON.parse(JSON.stringify(CFG.reglas_def)); tPintar(); showToast('Valores por defecto cargados: pulsa Guardar para aplicarlos'); }
+async function tGuardar() {
+  TR.vende_bien = { dias: Number($('vb-dias').value) || 0, meses_agotar: Number($('vb-meses').value) || 0 };
+  try { const r = await apiSend('/api/promo-reglas', 'PUT', TR); CFG.reglas = r.reglas; TR = null; tPintar(); ayudaTramos(); showToast('Reglas guardadas'); }
+  catch (e) { showToast(e.message, true); }
+}
+// ── Portal y links libres ──
+let LK = null;
+const urlLink = t => location.origin + '/oferta.html?t=' + t;
+async function lkCargar() {
+  try {
+    const est = $('rv-estado').value;
+    const [a, b, c] = await Promise.all([apiCall('/api/promo-links'), apiCall('/api/promo-solicitudes'), apiCall('/api/promo-reservas' + (est ? '?estado=' + est : ''))]);
+    LK = a; lkPintar(); solPintar(b.solicitudes); rvPintar(c);
+  } catch (e) { showToast(e.message, true); }
+}
+function lkPintar() {
+  if (!LK) return;
+  const q = $('lk-buscar').value.toLowerCase().trim(), solo = $('lk-solo').checked;
+  const rows = LK.tiendas.filter(t => (!solo || t.token) && (!q || ((t.nombre_cliente || '') + ' ' + (t.username || '')).toLowerCase().includes(q)));
+  const v = LK.en_vivo || { total: 0, portal: 0, link: 0, max_hoy: 0 };
+  $('lk-vivo').innerHTML = `<div class="kpi a"><div class="l">Viendo promociones ahora</div><div class="v">${N(v.total)}</div><div class="s">portal ${N(v.portal)} · links ${N(v.link)}</div></div>
+    <div class="kpi"><div class="l">Máximo de hoy</div><div class="v">${N(v.max_hoy)}</div><div class="s">${v.max_hora ? 'a las ' + new Date(v.max_hora).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' }) : '—'}</div></div>`;
+  $('tbl-links').innerHTML = '<thead><tr><th>Tienda</th><th>Link</th><th class="n">Viendo ahora</th><th class="n">Equipos en el link</th><th class="n">Máx. equipos</th><th>Estado</th><th></th></tr></thead><tbody>' +
+    (rows.map(t => {
+      const est = !t.token ? '<span class="chip c-g">sin link</span>' : t.estado === 'bloqueado' ? `<span class="chip c-r" title="${esc(t.motivo || '')}">bloqueado</span><div class="sub" style="white-space:normal">${esc(t.motivo || '')}</div>` : '<span class="chip c-ok">activo</span>';
+      const lin = t.token ? `<span class="chip ${t.en_linea >= t.max_sesiones ? 'c-w' : t.en_linea ? 'c-ok' : 'c-g'}">${t.en_linea} / ${t.max_sesiones}</span>` : '—';
+      return `<tr${t.activo ? '' : ' style="opacity:.5"'}>
+        <td><div class="nom">${esc(t.nombre_cliente || '—')}${t.tipo_cuenta === 'mecanico' ? ' <span class="chip c-v">🔧 mecánico</span>' : ''}</div><div class="sku">${esc(t.username || '')}${t.activo ? '' : ' · portal desactivado'}</div></td>
+        <td>${t.token ? `<button class="btn btn-sec" onclick="lkCopiar('${t.token}')">Copiar link</button> <a class="sub" href="${urlLink(t.token)}" target="_blank" rel="noopener">abrir</a><div class="sub">último uso: ${t.ultimo_uso ? new Date(t.ultimo_uso).toLocaleString('es-PE') : 'nunca'}</div>` : `<button class="btn" onclick="lkCrear(${t.id})">Crear link</button>`}</td>
+        <td class="n">${(t.viendo && (t.viendo.portal || t.viendo.link)) ? `<b>${t.viendo.portal + t.viendo.link}</b><div class="sub">portal ${t.viendo.portal} · link ${t.viendo.link}</div>` : '—'}</td>
+        <td class="n">${lin}</td>
+        <td class="n">${t.token ? `<input type="number" min="1" max="50" value="${t.max_sesiones}" style="width:60px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:4px" onchange="lkMax(${t.link_id},this.value)">` : '—'}</td>
+        <td>${est}</td>
+        <td style="white-space:nowrap">${t.token ? `${t.estado === 'bloqueado' ? `<button class="btn" onclick="lkEstado(${t.link_id},'activo')">Reactivar</button>` : `<button class="btn btn-sec" onclick="lkEstado(${t.link_id},'bloqueado')">Bloquear</button>`}
+          <button class="btn btn-sec" onclick="lkRegenerar(${t.id})" title="El link anterior deja de funcionar">Nuevo link</button>
+          <button class="btn btn-sec" onclick="lkBorrar(${t.link_id})">Eliminar</button>` : ''}</td></tr>`;
+    }).join('') || '<tr><td colspan="7" class="vacio">Sin tiendas.</td></tr>') + '</tbody>';
+}
+function solPintar(sol) {
+  $('tbl-sol').innerHTML = '<thead><tr><th>Fecha</th><th>Tienda</th><th>Desde</th><th>Productos</th><th class="n">Total</th><th>Correo</th></tr></thead><tbody>' +
+    (sol.map(x => `<tr><td>${new Date(x.creado_en).toLocaleString('es-PE')}</td><td class="nom">${esc(x.tienda)}</td>
+      <td>${x.origen === 'link' ? `link · ${esc(x.vendedor || '')}${x.telefono ? '<div class="sub">' + esc(x.telefono) + '</div>' : ''}` : 'portal'}</td>
+      <td><div class="sub" style="white-space:normal;max-width:420px">${x.items.map(i => `${esc(i.sku)} × ${i.cantidad}`).join(' · ')}</div></td>
+      <td class="n">${S(x.total)}<div class="sub">${x.origen === 'link' ? 'PVP oferta' : 'precio taller'}</div></td>
+      <td>${x.correo_ok ? '<span class="chip c-ok">enviado</span>' : '<span class="chip c-w">no</span>'}</td></tr>`).join('') || '<tr><td colspan="6" class="vacio">Aún no hay solicitudes.</td></tr>') + '</tbody>';
+}
+const CH_RV = { pendiente: 'c-w', concretada: 'c-ok', parcial: 'c-w', vencida: 'c-g', cancelada: 'c-g' };
+function rvPintar(d) {
+  if (document.activeElement !== $('rv-horas')) $('rv-horas').value = d.horas;
+  $('tbl-res').innerHTML = '<thead><tr><th>N°</th><th>Tienda</th><th>Producto</th><th class="n">Cant.</th><th class="n">Precio</th><th>Estado</th><th>Vence / cierre</th><th></th></tr></thead><tbody>' +
+    (d.reservas.map(r => `<tr><td>${r.solicitud_id}</td>
+      <td class="nom">${esc(r.tienda)}<div class="sub">${r.origen === 'link' ? 'link · ' + esc(r.vendedor || '') : 'portal'}</div></td>
+      <td><div class="nom">${esc(r.nombre)}</div><div class="sku">${esc(r.sku)}</div></td>
+      <td class="n">${r.vendidas ? `${r.vendidas} / ` : ''}${r.cantidad}</td>
+      <td class="n">${S(r.tu_precio)}<div class="sub">PVP ${S(r.precio)}</div>${r.precio_venta != null ? `<div class="sub">vendido a ${S(r.precio_venta)}</div>` : ''}</td>
+      <td><span class="chip ${CH_RV[r.estado]}">${r.estado}</span>${r.ventas ? `<div class="sub">venta ${esc(r.ventas)}</div>` : ''}${r.nota ? `<div class="sub" style="white-space:normal">${esc(r.nota)}</div>` : ''}</td>
+      <td><div class="sub">${r.estado === 'pendiente' ? 'vence ' + new Date(r.vence_en).toLocaleString('es-PE') : r.cerrado_en ? new Date(r.cerrado_en).toLocaleString('es-PE') : ''}</div></td>
+      <td style="white-space:nowrap">${r.estado === 'pendiente' ? `<button class="btn btn-sec" onclick="rvAccion(${r.id},'confirmar')">Confirmar</button> <button class="btn btn-sec" onclick="rvAccion(${r.id},'cancelar')">Cancelar</button>` : ''}</td></tr>`).join('')
+      || '<tr><td colspan="8" class="vacio">Sin reservas con ese filtro.</td></tr>') + '</tbody>';
+}
+async function rvAccion(id, acc) {
+  if (!confirm(acc === 'confirmar' ? '¿Marcar esta reserva como concretada (sin esperar la venta en el sistema)?' : '¿Cancelar la reserva? Las unidades vuelven a estar disponibles en la oferta.')) return;
+  try { await apiSend(`/api/promo-reservas/${id}/${acc}`, 'POST'); lkCargar(); } catch (e) { showToast(e.message, true); }
+}
+async function rvHoras(h) { try { await apiSend('/api/promo-reserva-config', 'PUT', { horas: h }); showToast('Las reservas nuevas durarán ' + h + ' h'); } catch (e) { showToast(e.message, true); } }
+async function rvRevisar() { try { await apiSend('/api/promo-reservas-revisar', 'POST'); showToast('Ventas revisadas'); lkCargar(); } catch (e) { showToast(e.message, true); } }
+async function lkCopiar(t) { try { await navigator.clipboard.writeText(urlLink(t)); showToast('Link copiado'); } catch (e) { prompt('Copia el link:', urlLink(t)); } }
+async function lkCrear(uid) { try { const r = await apiSend('/api/promo-links', 'POST', { portal_user_id: uid }); await lkCargar(); lkCopiar(r.token); } catch (e) { showToast(e.message, true); } }
+async function lkRegenerar(uid) { if (!confirm('¿Generar un link nuevo? El link anterior deja de funcionar al instante.')) return; lkCrear(uid); }
+async function lkMax(id, v) { try { await apiSend('/api/promo-links/' + id, 'PUT', { max_sesiones: v }); showToast('Máximo actualizado'); lkCargar(); } catch (e) { showToast(e.message, true); } }
+async function lkEstado(id, e) { try { await apiSend('/api/promo-links/' + id, 'PUT', { estado: e }); lkCargar(); } catch (er) { showToast(er.message, true); } }
+async function lkBorrar(id) { if (!confirm('¿Eliminar el link? Deja de funcionar al instante.')) return; try { await apiSend('/api/promo-links/' + id, 'DELETE'); lkCargar(); } catch (e) { showToast(e.message, true); } }
+initCampanas();
+</script>
+</body>
+</html>

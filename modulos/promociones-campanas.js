@@ -250,6 +250,18 @@ module.exports = function registrarCampanas({ app, authAdmin, mInv, prodPool, po
       id INT AUTO_INCREMENT PRIMARY KEY, campana_id INT, vid INT, accion VARCHAR(20),
       antes DECIMAL(12,2) NULL, despues DECIMAL(12,2) NULL, nota VARCHAR(300),
       en DATETIME DEFAULT CURRENT_TIMESTAMP, INDEX (campana_id))`);
+    // Migración (una sola vez): en campañas que ya estaban activas, los SKUs con % o precio puesto a mano
+    // (razón "Manual…" en Crear campaña, o subido/bajado en Campañas) pasan a "precio fijo" con su precio actual.
+    try {
+      const [[m]] = await portalPool.query(`SELECT valor FROM promo_config WHERE clave='migr_precio_manual'`);
+      if (!m) {
+        const [r] = await portalPool.query(`UPDATE promo_items i SET i.precio_manual = i.precio
+          WHERE i.precio_manual IS NULL AND i.estado IN ('activo','pendiente') AND COALESCE(i.a_costo,0) = 0
+            AND (i.razon LIKE 'Manual%' OR EXISTS (SELECT 1 FROM promo_log l WHERE l.campana_id = i.campana_id AND l.vid = i.vid AND l.accion IN ('subir','bajar')))`);
+        await portalPool.query(`INSERT INTO promo_config (clave, valor) VALUES ('migr_precio_manual', ?)`, [String(r.affectedRows)]);
+        if (r.affectedRows) console.log(`[promociones] ${r.affectedRows} SKU(s) de campañas activas quedaron con precio fijo (puesto a mano)`);
+      }
+    } catch (e) { console.warn('[promociones] migración precio manual:', e.message); }
     listo = true;
     if (!erpWritePool) console.warn('[promociones] Sin ERP_ESCRITURA_URL: las campañas se guardan pero no cambian precios.');
     setInterval(() => revisar().catch(e => console.warn('[promociones] revisión:', e.message)), CADA_MIN * 60e3);

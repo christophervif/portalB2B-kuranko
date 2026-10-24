@@ -49,7 +49,7 @@
 const { nombreTrazable, cabeceraExcel, nombreProdVar } = require('./comunes');
 const { claseUbicacion, normalizar } = require('./inventario').comun;
 // Stock para armar la campaña: TODO (almacenes, tiendas y consignación) menos estas ubicaciones.
-// (El portal y las solicitudes siguen usando solo stock propio: lo de consignación está en otra tienda.)
+// (También el portal y las solicitudes: el stock en oferta y el detalle por lugar usan esta misma regla.)
 const EXCLUIR_CAMPANA = new Set((process.env.PROMO_EXCLUIR || 'CUARENTENA,EMBAJADOR').split(',').map(normalizar).filter(Boolean));
 
 const PASO = Number(process.env.PROMO_REDONDEO || 5);         // redondeo hacia arriba (S/)
@@ -650,18 +650,22 @@ Productos: ${JSON.stringify(lote)}`;
   // ─────────────── Ofertas vigentes (para el portal de clientes y los links libres) ───────────────
   //  Por SKU activo en una campaña activa:
   //   precio (PVP oferta), tu_precio (tienda: PVP oferta × (1 − desc. a tiendas); en liquidación = PVP oferta),
-  //   stock_oferta = unidades del lote más antiguo (limitado al stock propio disponible),
+  //   stock_oferta = unidades del lote más antiguo (limitado al stock disponible: todo menos cuarentena y embajador),
   //   siguiente = precio y unidades del siguiente lote si sigue en oferta (o "sale"),
-  //   ciudades = stock propio disponible por ciudad.
-  let colCiudad;
-  async function columnaCiudad() {
-    if (colCiudad !== undefined) return colCiudad;
+  //   ciudades = stock disponible por "departamento distrito".
+  // Columnas de lugar de cada ubicación en el ERP: departamento (state…) y ciudad/distrito (city…)
+  let colLugar;
+  async function columnasLugar() {
+    if (colLugar !== undefined) return colLugar;
     try {
       const [c] = await prodPool.query(`SHOW COLUMNS FROM locations`);
       const n = c.map(x => x.Field);
-      colCiudad = ['city', 'ciudad', 'province', 'provincia', 'district', 'distrito', 'state', 'departamento'].find(x => n.includes(x)) || null;
-    } catch (e) { colCiudad = null; }
-    return colCiudad;
+      colLugar = {
+        depto: ['state', 'departamento', 'department', 'region', 'province', 'provincia'].find(x => n.includes(x)) || null,
+        ciudad: ['city', 'ciudad', 'district', 'distrito'].find(x => n.includes(x)) || null
+      };
+    } catch (e) { colLugar = { depto: null, ciudad: null }; }
+    return colLugar;
   }
   let cacheOfertas = null;
   async function ofertasVigentes(forzar) {
@@ -673,11 +677,12 @@ Productos: ${JSON.stringify(lote)}`;
     if (!its.length) { cacheOfertas = { t: Date.now(), d: out }; return out; }
     const ids = [...new Set(its.map(i => i.vid))];
     const lp = {}; its.forEach(i => lp[i.vid] = Number(i.lista));
-    const cc = await columnaCiudad();
+    const cl = await columnasLugar();
     const [LD, [ubic], [prods], R] = await Promise.all([
       lotesDe(ids, lp),
       prodPool.query(`SELECT ls.product_variation_id AS vid, l.name AS loc_nombre, l.type AS loc_tipo,
-          ${cc ? `l.\`${cc}\`` : 'NULL'} AS ciudad, ls.quantity AS qty, ls.reserved_quantity AS reservado
+          ${cl.depto ? `l.\`${cl.depto}\`` : 'NULL'} AS depto, ${cl.ciudad ? `l.\`${cl.ciudad}\`` : 'NULL'} AS ciudad,
+          ls.quantity AS qty, ls.reserved_quantity AS reservado
         FROM location_stocks ls JOIN locations l ON l.id = ls.location_id
         WHERE ls.quantity > 0 AND ls.product_variation_id IN (?)`, [ids]),
       prodPool.query(`SELECT id AS vid, product_id AS pid FROM product_variations WHERE id IN (?)`, [ids]),
@@ -695,11 +700,14 @@ Productos: ${JSON.stringify(lote)}`;
       ids.forEach(v => img[v] = iv[v] || ip[pidDe[v]] || null);
     } catch (e) { /* sin imágenes */ }
     const disp = {}, ciud = {};
+    // Todo el stock (almacenes, tiendas, exhibición y consignación) menos cuarentena y embajador,
+    // agrupado por "departamento distrito" (ej. "Lima Magdalena").
     ubic.forEach(u => {
-      if (claseUbicacion(u.loc_tipo, u.loc_nombre) !== 'propio') return;
+      if (EXCLUIR_CAMPANA.has(normalizar(u.loc_nombre))) return;
       const d = Math.max(0, (Number(u.qty) || 0) - Math.max(0, Number(u.reservado) || 0)); if (!d) return;
       disp[u.vid] = (disp[u.vid] || 0) + d;
-      const c = String(u.ciudad || '').trim() || String(u.loc_nombre || '').trim() || '—';
+      const lugar = [u.depto, u.ciudad].map(x => String(x || '').trim()).filter(Boolean).join(' ') || String(u.loc_nombre || '').trim() || '—';
+      const c = lugar;                                           // solo el lugar (no se indica si es consignación)
       const m = ciud[u.vid] = ciud[u.vid] || {}; m[c] = (m[c] || 0) + d;
     });
     const tienda = (precio, liq, dt) => precio == null ? null : liq ? precio : r2(precio * (1 - (Number(dt) || 0) / 100));

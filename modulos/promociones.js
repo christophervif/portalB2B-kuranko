@@ -197,7 +197,7 @@ function calcularPromos(d, f, opts = {}) {
       stock: st.q, disponibles, reservadas: st.res,
       costo: r2(costo), capital: r2(capital), capital_antiguo: r2(capAntiguo),
       und_90d: Number(v.und_90d) || 0, und_12m: und12,
-      ultima_venta: v.ultima_venta || null, dias_sin_venta: dsv, edad_dias: edad,
+      ultima_venta: v.ultima_venta || null, dias_sin_venta: dsv == null ? 9999 : dsv, nunca_vendido: dsv == null, edad_dias: edad,
       meses_para_agotar: meses != null ? r1(meses) : null,
       anio_modelo: anio, variaciones: activas ? { con_stock: conStock, activas } : null,
       inactivo, motivos
@@ -241,7 +241,7 @@ function filtrarItems(items, q) {
     (!txt || (x.sku + ' ' + x.producto).toLowerCase().includes(txt)));
 }
 
-module.exports = function registrarPromociones({ app, authAdmin, mInv, prodPool, VV }) {
+module.exports = function registrarPromociones({ app, authAdmin, mInv, prodPool, portalPool, erpWritePool, VV }) {
 
   async function leerBase() {
     const [[ubic], [lotes], [ultCosto], [ventas], [catalogo], [cats], [hermanas]] = await Promise.all([
@@ -324,7 +324,7 @@ module.exports = function registrarPromociones({ app, authAdmin, mInv, prodPool,
       items.forEach(x => {
         const fila = [x.motivos.map(k => MOTIVOS[k]).join(', '), x.sku, x.producto, x.marca, x.categoria,
           x.stock, x.disponibles, x.costo, x.capital, x.capital_antiguo, x.und_90d, x.und_12m,
-          x.dias_sin_venta == null ? 'nunca' : x.dias_sin_venta, x.edad_dias, x.meses_para_agotar,
+          x.dias_sin_venta, x.edad_dias, x.meses_para_agotar,
           x.anio_modelo, x.variaciones ? `${x.variaciones.con_stock} de ${x.variaciones.activas}` : ''];
         if (cm) fila.push(x.precio, x.margen_pct, x.desc_max_pct, x.desc_sug_pct, x.precio_sug);
         ws.addRow(fila);
@@ -339,6 +339,11 @@ module.exports = function registrarPromociones({ app, authAdmin, mInv, prodPool,
       res.end();
     } catch (e) { res.status(500).json({ error: 'Error al generar: ' + e.message }); }
   });
+
+  // Campañas de oferta (escriben el precio de oferta en el ERP) → modulos/promociones-campanas.js
+  if (!portalPool) return {};
+  let ia = null; try { ia = require('./bikes').ia; } catch (e) { /* sin IA: se usan reglas */ }
+  return require('./promociones-campanas')({ app, authAdmin, prodPool, portalPool, erpWritePool, VV, ia });
 };
 
 module.exports._test = { calcularPromos, filtrarItems, leerFiltros, veMargenes, descuentoSugerido, MOTIVOS };

@@ -2704,3 +2704,5 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
 };
 
 module.exports._test = { fichaCompleta, elegirImagenes, htmlATexto, specsSimples, linksDeModelos, emparejarModelos, leerFichaHtml, opcionesEnvio, leerMenuKuranko, MENU_RESPALDO, calcularPrecio, calcularEntrega, reconocerColumnas, normalizarFila, aFecha, aNumero, armarCatalogo, mezclarReglas, claveSku, REGLAS_BASE };
+// IA compartida (Promociones la usa para proponer descuentos)
+module.exports.ia = { llamarGemini, ultimoError: () => ultimoErrorIA };

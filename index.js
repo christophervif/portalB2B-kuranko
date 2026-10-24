@@ -214,6 +214,7 @@ let modAsistencia = null;
 let modGestion = null;
 let modPropuestas = null;
 let modBikes = null;
+let modPromos = null;
 
 // Registro de endpoints del dashboard (inyectado directamente)
 (function(){
@@ -279,7 +280,8 @@ let modBikes = null;
 
   // ── Módulo Promociones recomendadas (candidatos a descuento/liquidación) ──
   //    Frontend propio en public/promociones.html (iframe dentro del panel).
-  require('./modulos/promociones')({ app, authAdmin, mInv, prodPool, VV });
+  //    Campañas de oferta (precio de oferta temporal en el ERP, solo maestro): modulos/promociones-campanas.js
+  modPromos = require('./modulos/promociones')({ app, authAdmin, mInv, prodPool, portalPool, erpWritePool, VV });
 
   // ── Módulo Clientes BI (retención, estados, top, riesgo) ──
   //    Frontend propio en public/clientes-bi.html (iframe dentro del panel).
@@ -416,4 +418,7 @@ app.listen(PORT, async () => {
     if (modBikes && modBikes.prepararTablas) await modBikes.prepararTablas();
     console.log('Tablas del portal listas.');
   } catch (e) { console.error('No se pudieron preparar las tablas al arrancar:', e.message); }
+  // Campañas de oferta: tablas + revisión automática (inicia/termina campañas y devuelve precios)
+  try { if (modPromos && modPromos.prepararTablas) await modPromos.prepararTablas(); }
+  catch (e) { console.error('[promociones] no se pudieron preparar las tablas:', e.message); }
 });

@@ -1620,7 +1620,21 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
           ...(min ? { offers: { '@type': 'Offer', url, priceCurrency: usdM ? 'USD' : 'PEN', price: usdM ? Math.round(min / D.tc_usd) : Math.round(min),
             availability: enTienda ? 'https://schema.org/InStock' : 'https://schema.org/PreOrder', itemCondition: m.tag === 'usado' ? 'https://schema.org/UsedCondition' : 'https://schema.org/NewCondition',
             seller: { '@type': 'Organization', name: 'Kuranko' } } } : {}) };
+        // Varias ofertas (tallas/colores/envíos): rango de precios. Envío a todo el Perú incluido en el precio.
+        if (min && ld.offers) { const max = Math.max(...precios), cv = v => usdM ? Math.round(v / D.tc_usd) : Math.round(v);
+          ld.offers = { ...ld.offers, '@type': 'AggregateOffer', lowPrice: cv(min), highPrice: cv(max), offerCount: m.skus.filter(x => x.d > 0).length || 1,
+            shippingDetails: { '@type': 'OfferShippingDetails', shippingRate: { '@type': 'MonetaryAmount', value: 0, currency: usdM ? 'USD' : 'PEN' }, shippingDestination: { '@type': 'DefinedRegion', addressCountry: 'PE' } } };
+          delete ld.offers.price; }
+        const migas = { '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: 'Bicis a pedido', item: `https://${req.hostname}/` },
+          { '@type': 'ListItem', position: 2, name: m.marca, item: `https://${req.hostname}/marca/${slugCat(m.marca)}` }, { '@type': 'ListItem', position: 3, name: m.modelo, item: url }] };
+        const datos = [m.aro && (m.aro === 'Mullet' ? 'Mullet 29/27.5' : 'Aro ' + m.aro), m.rd ? m.rd + (m.rt ? '/' + m.rt : '') + ' mm' : m.rec, m.matx || m.mat, m.motor, m.peso].filter(Boolean);
+        h = seoBloque(h, `<nav><a href="/">Bicis a pedido</a> › <a href="/marca/${escH(slugCat(m.marca))}">${escH(m.marca)}</a>${m.cat ? ` › <a href="/categoria/${escH(slugCat(m.cat))}">${escH(m.cat)}</a>` : ''}</nav>
+          <h1>${escH(m.marca)} ${escH(m.modelo)}</h1>${precio ? `<p><b>Desde ${escH(precio)}</b> · precio final en Perú con envío, aduana, IGV y armado.</p>` : ''}
+          ${datos.length ? `<p>${datos.map(escH).join(' · ')}</p>` : ''}<p>${escH(String(m.desc || '').slice(0, 1200))}</p>
+          ${m.tallas && m.tallas.length ? `<p>Tallas: ${m.tallas.map(escH).join(', ')}${(m.colores || []).length ? ' · Colores: ' + m.colores.map(c => escH(c.n)).join(', ') : ''}</p>` : ''}
+          ${(m.specs || []).length ? `<ul>${m.specs.slice(0, 20).map(x => `<li>${escH(x.k)}: ${escH(x.v)}</li>`).join('')}</ul>` : ''}`);
         const meta = `<meta name="description" content="${escH(desc)}"><link rel="canonical" href="${escH(url)}">` +
+          `<script type="application/ld+json">${JSON.stringify(migas).replace(/</g, '\\u003c')}</script>` +
           `<meta property="og:type" content="product"><meta property="og:title" content="${escH(titulo)}"><meta property="og:description" content="${escH(desc)}">` +
           `${m.img ? `<meta property="og:image" content="${escH(m.img)}">` : ''}<meta property="og:url" content="${escH(url)}"><meta name="twitter:card" content="summary_large_image">` +
           `<script type="application/ld+json">${JSON.stringify(ld).replace(/</g, '\\u003c')}</script>`;
@@ -1628,6 +1642,73 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       } else res.status(404);
       res.set('Cache-Control', 'no-cache').type('html').send(h);
     } catch (e) { res.status(500).send('No se pudo cargar'); }
+  });
+
+  // ── Buscadores ──
+  // Bloque de texto para buscadores que no ejecutan JavaScript (Bing, redes sociales…). Con JS la tienda lo oculta (clase .js en <html>).
+  const seoBloque = (h, interior) => h.replace('<main>', `<main><section id="ssr" class="ssr wrap">${interior}</section>`);
+  const listaSeo = (D, ms) => { const usd = D.moneda !== 'PEN'; return `<ul>${ms.filter(m => m.tag !== 'proximamente').map(m => { const p = Math.min(...m.skus.map(x => x.pm).filter(x => x > 0));
+    return `<li><a href="/bici/${escH(encodeURIComponent(m.id))}">${escH(m.marca)} ${escH(m.modelo)}</a>${isFinite(p) ? ' · desde ' + escH(usd ? 'US$ ' + Math.round(p / D.tc_usd).toLocaleString('en-US') : soles(p)) : ''}</li>`; }).join('')}</ul>`; };
+
+  // Feed de productos para Google Merchant Center (fichas gratuitas en Google Shopping / pestaña Productos): un ítem por modelo y color
+  app.get('/feed/google.xml', async (req, res) => {
+    try {
+      const D = await catalogoPublicoEs(), base = `https://${req.hostname}`, hoy = hoyLima(), items = [];
+      const x = t => escH(String(t == null ? '' : t).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, ''));
+      for (const m of D.modelos.filter(m => m.tag !== 'proximamente')) {
+        for (const c of (m.colores || [{ n: '' }])) {
+          const sk = m.skus.filter(s => s.d > 0 && (!c.n || s.c === c.n)); if (!sk.length) continue;
+          const b = sk.reduce((a, s) => s.pm < a.pm ? s : a, sk[0]);
+          const stock = sk.some(s => s.e === 'Stock Lima' || s.tk > 0), pre = sk.some(s => (s.op || []).some(o => o.k === 'preventa'));
+          const gi = (m.gc || []).findIndex(z => z === c.n), img = gi >= 0 ? m.gal[gi] : m.img; if (!img) continue;
+          const extra = (m.gal || []).filter(u => u !== img).slice(0, 5);
+          items.push(`<item><g:id>${x((m.id + (c.n ? '-' + slugCat(c.n) : '')).slice(0, 50))}</g:id><g:item_group_id>${x(m.id.slice(0, 50))}</g:item_group_id>
+<g:title>${x(`${m.marca} ${m.modelo}${c.n ? ' · ' + c.n : ''}`.slice(0, 150))}</g:title><g:description>${x(String(m.desc || `${m.marca} ${m.modelo}`).slice(0, 4900))}</g:description>
+<g:link>${x(base + '/bici/' + encodeURIComponent(m.id))}</g:link><g:image_link>${x(img)}</g:image_link>${extra.map(u => `<g:additional_image_link>${x(u)}</g:additional_image_link>`).join('')}
+<g:availability>${stock ? 'in_stock' : 'preorder'}</g:availability>${stock ? '' : `<g:availability_date>${x((b.fm || [hoy])[0] > hoy ? b.fm[0] : sumarDias(hoy, 30))}T12:00-05:00</g:availability_date>`}
+<g:price>${Math.round(b.pml || b.pm).toFixed(2)} PEN</g:price>${b.pml && b.pml > b.pm ? `<g:sale_price>${Math.round(b.pm).toFixed(2)} PEN</g:sale_price>` : ''}
+<g:brand>${x(m.marca)}</g:brand><g:condition>${m.tag === 'usado' ? 'used' : 'new'}</g:condition><g:identifier_exists>no</g:identifier_exists>
+<g:google_product_category>1026</g:google_product_category><g:product_type>${x(['Bicicletas', m.cat, m.marca].filter(Boolean).join(' > '))}</g:product_type>${c.n ? `<g:color>${x(c.n)}</g:color>` : ''}
+<g:shipping><g:country>PE</g:country><g:price>0.00 PEN</g:price></g:shipping>${pre ? '<g:custom_label_0>preventa</g:custom_label_0>' : ''}</item>`);
+        }
+      }
+      res.type('application/xml').set('Cache-Control', 'public, max-age=3600').send(`<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:g="http://base.google.com/ns/1.0"><channel><title>Kuranko Bikes</title><link>${base}/</link><description>Bicicletas a pedido con precio final en Perú</description>
+${items.join('\n')}
+</channel></rss>`);
+    } catch (e) { res.status(500).end(); }
+  });
+
+  // Verificación de Google Search Console (archivo googleXXXX.html) y Bing Webmaster (BingSiteAuth.xml), configurables en Página
+  app.get(/^\/(google[0-9a-z]+\.html)$/i, async (req, res, next) => {
+    try { const pg = await leerPagina(); if (pg.verif_google && pg.verif_google === req.params[0]) return res.type('text/html').send(`google-site-verification: ${pg.verif_google}`); } catch (e) {}
+    next();
+  });
+  app.get('/BingSiteAuth.xml', async (req, res, next) => {
+    try { const pg = await leerPagina(); if (pg.verif_bing) return res.type('application/xml').send(`<?xml version="1.0"?>\n<users>\n\t<user>${escH(pg.verif_bing)}</user>\n</users>`); } catch (e) {}
+    next();
+  });
+  // IndexNow (Bing, Yandex, Seznam, Naver…): avisa al instante qué páginas cambiaron. La clave se crea sola y se publica en /<clave>.txt
+  async function claveIndexNow() {
+    const pg = await leerPagina(); if (pg.indexnow) return pg.indexnow;
+    pg.indexnow = require('crypto').randomBytes(16).toString('hex');
+    await portalPool.query(`INSERT INTO bk_config (clave, valor, actualizado_por) VALUES ('pagina', ?, 'sistema') ON DUPLICATE KEY UPDATE valor=VALUES(valor), actualizado=NOW()`, [JSON.stringify(pg)]);
+    return pg.indexnow;
+  }
+  app.get(/^\/([0-9a-f]{32})\.txt$/, async (req, res, next) => {
+    try { const pg = await leerPagina(); if (pg.indexnow && pg.indexnow === req.params[0]) return res.type('text/plain').send(pg.indexnow); } catch (e) {}
+    next();
+  });
+  app.post('/api/bikes/admin/avisar-buscadores', authAdmin, mBikes, async (req, res) => {
+    try {
+      const host = 'bikes.kuranko.pe', key = await claveIndexNow(), D = await catalogoPublicoEs();
+      const urlList = [`https://${host}/`, ...(D.marcas || []).map(b => `https://${host}/marca/${slugCat(b)}`),
+        ...[...new Set(D.modelos.flatMap(m => m.cats || [m.cat]).filter(Boolean))].map(c => `https://${host}/categoria/${slugCat(c)}`),
+        ...D.modelos.filter(m => m.tag !== 'proximamente').map(m => `https://${host}/bici/${encodeURIComponent(m.id)}`)].slice(0, 10000);
+      const r = await fetch('https://api.indexnow.org/indexnow', { method: 'POST', headers: { 'Content-Type': 'application/json; charset=utf-8' }, body: JSON.stringify({ host, key, keyLocation: `https://${host}/${key}.txt`, urlList }) });
+      if (![200, 202].includes(r.status)) throw new Error(`IndexNow respondió ${r.status}${r.status === 403 ? ' (aún no puede leer la clave; espera unos minutos tras subir los cambios)' : ''}`);
+      res.json({ ok: true, enviadas: urlList.length });
+    } catch (e) { res.status(400).json({ error: e.message }); }
   });
 
   // ── Página por categoría: bikes.kuranko.pe/categoria/enduro abre la tienda filtrada (para el menú de kuranko.pe, anuncios y Google) ──
@@ -1641,6 +1722,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
         const n = D.modelos.filter(m => m.tag !== 'proximamente' && (m.cats || [m.cat]).includes(cat)).length;
         const titulo = `Bicicletas ${cat} a pedido · Kuranko`, url = `https://${req.hostname}/categoria/${slug}`;
         const desc = `${n} modelos de ${cat} de las mejores marcas, con precio final en Perú: envío, aduana, IGV y armado incluidos.`;
+        h = seoBloque(h, `<h1>Bicicletas ${escH(cat)} a pedido en Perú</h1><p>${escH(desc)}</p>${listaSeo(D, D.modelos.filter(m => (m.cats || [m.cat]).includes(cat)))}`);
         h = h.replace(SIN_META_PORTADA, '').replace(/<title>[^<]*<\/title>/, `<title>${escH(titulo)}</title><meta name="description" content="${escH(desc)}"><link rel="canonical" href="${escH(url)}">` +
           `<meta property="og:title" content="${escH(titulo)}"><meta property="og:description" content="${escH(desc)}"><meta property="og:url" content="${escH(url)}">`);
       } else res.status(404);
@@ -1712,6 +1794,7 @@ Incluye solo bicicletas y cuadros (no repuestos sueltos, flete, seguro ni impues
         const ms = D.modelos.filter(m => m.marca === marca && m.tag !== 'proximamente'), img = (ms.find(m => m.img) || {}).img;
         const titulo = `${marca} en Perú · bicicletas a pedido · Kuranko`, url = `https://${req.hostname}/marca/${slug}`;
         const desc = `${ms.length} modelos de ${marca} con precio final en Perú: envío, aduana, IGV y armado incluidos. Garantía oficial y soporte en Lima.`;
+        h = seoBloque(h, `<h1>${escH(marca)} en Perú · bicicletas a pedido</h1><p>${escH(desc)}</p>${listaSeo(D, ms)}`);
         h = h.replace(SIN_META_PORTADA, '').replace(/<title>[^<]*<\/title>/, `<title>${escH(titulo)}</title><meta name="description" content="${escH(desc)}"><link rel="canonical" href="${escH(url)}">` +
           `<meta property="og:title" content="${escH(titulo)}"><meta property="og:description" content="${escH(desc)}"><meta property="og:url" content="${escH(url)}">${img ? `<meta property="og:image" content="${escH(img)}">` : ''}`);
       } else res.status(404);
@@ -1732,9 +1815,9 @@ Incluye solo bicicletas y cuadros (no repuestos sueltos, flete, seguro ni impues
       const urls = [`<url><loc>${base}/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>`,
         ...(D.marcas || []).map(b => `<url><loc>${base}/marca/${slugCat(b)}</loc><changefreq>daily</changefreq><priority>0.8</priority></url>`),
         ...[...new Set(D.modelos.flatMap(m => m.cats || [m.cat]).filter(Boolean))].map(c => `<url><loc>${base}/categoria/${slugCat(c)}</loc><changefreq>daily</changefreq><priority>0.8</priority></url>`),
-        ...D.modelos.filter(m => m.tag !== 'proximamente').map(m => `<url><loc>${base}/bici/${escH(encodeURIComponent(m.id))}</loc><changefreq>weekly</changefreq></url>`)];
+        ...D.modelos.filter(m => m.tag !== 'proximamente').map(m => `<url><loc>${base}/bici/${escH(encodeURIComponent(m.id))}</loc><changefreq>weekly</changefreq>${(m.gal || (m.img ? [m.img] : [])).slice(0, 5).map(u => `<image:image><image:loc>${escH(u)}</image:loc></image:image>`).join('')}</url>`)];
       res.type('application/xml').set('Cache-Control', 'public, max-age=3600')
-        .send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>\n`);
+        .send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n${urls.join('\n')}\n</urlset>\n`);
     } catch (e) { res.status(500).end(); }
   });
 
@@ -2595,6 +2678,8 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
       const pg = await leerPagina();
       for (const k of ['asesor_nombre', 'asesor_cargo', 'asesor_whatsapp', 'soporte_url', 'soporte_texto', 'empresa', 'ruc', 'direccion', 'cuentas']) if (b[k] !== undefined) pg[k] = String(b[k]).trim().slice(0, k === 'soporte_texto' || k === 'cuentas' ? 400 : 120);
       for (const k of ['consulta_cc', 'consulta_responder']) if (b[k] !== undefined) pg[k] = correosDe(b[k]).join(', ');
+      if (b.verif_google !== undefined) { const g = String(b.verif_google || '').trim().split('/').pop(); pg.verif_google = /^google[0-9a-z]+\.html$/i.test(g) ? g : ''; }
+      if (b.verif_bing !== undefined) pg.verif_bing = String(b.verif_bing || '').replace(/[^0-9A-Za-z]/g, '').slice(0, 64);
       if (b.aviso && typeof b.aviso === 'object') { // ventana de novedades: se ve una vez por visitante (vuelve a salir si cambias el texto)
         const a = b.aviso, t = (v, n) => String(v || '').trim().slice(0, n), ant = pg.aviso || {};
         const nuevo = { activo: !!a.activo, titulo: t(a.titulo, 90), texto: t(a.texto, 500), titulo_en: t(a.titulo_en, 90), texto_en: t(a.texto_en, 500), boton: t(a.boton, 40), boton_en: t(a.boton_en, 40),

@@ -845,6 +845,17 @@ function pintarPagina(){const pg=E.pagina||{},f=pg.fotos||{};
     <label>Dirección (proforma)<input id="pgDir" value="${esc(pg.direccion||'')}" placeholder="Jr José Gálvez 476 Of 204, Magdalena del Mar"></label>
     <label>Cuentas para transferencia (proforma)<input id="pgCta" value="${esc(pg.cuentas||'')}" placeholder="BCP soles 191-… · BCP dólares 191-…"></label>
   </div><button class="btn" id="pgGuardar">Guardar datos</button>
+  <h3 style="margin-top:22px">Google y otros buscadores</h3>
+  <p class="desc">Cada bici, marca y categoría tiene su página con título, descripción, foto y datos de producto (precio, disponibilidad) para Google. Para que aparezcan más rápido:</p>
+  <ol class="desc" style="margin:6px 0 10px;padding-left:18px;line-height:1.6">
+    <li><b>Google Search Console</b> (search.google.com/search-console): agrega la propiedad <b>https://bikes.kuranko.pe</b>, elige verificar con «Archivo HTML», copia aquí el nombre del archivo que te da (ej. google1a2b3c4d.html), guarda y vuelve a Google a «Verificar». Luego en «Sitemaps» envía <b>sitemap.xml</b>.</li>
+    <li><b>Google Merchant Center</b> (merchants.google.com, gratis): crea la tienda, en «Productos → Fuentes de datos» agrega una fuente programada con <b>https://bikes.kuranko.pe/feed/google.xml</b> (país Perú, soles). Así tus bicis salen en la pestaña «Productos» de Google con foto y precio.</li>
+    <li><b>Bing Webmaster</b> (bing.com/webmasters): puedes importar desde Search Console, o verificar con «BingSiteAuth.xml» pegando aquí el código.</li>
+  </ol>
+  <div class="rules"><label>Archivo de verificación de Google<input id="vgGoogle" value="${esc(pg.verif_google||'')}" placeholder="google1a2b3c4d5e6f.html"></label>
+    <label>Código de Bing (BingSiteAuth.xml)<input id="vgBing" value="${esc(pg.verif_bing||'')}" placeholder="A1B2C3D4E5…"></label></div>
+  <div class="row"><button class="btn sec" id="vgGuardar">Guardar verificación</button><button class="btn sec" id="vgAvisar" title="IndexNow: Bing, Yandex y otros reciben al instante la lista de páginas">Avisar a Bing y otros buscadores ahora</button>
+    <a class="btn sec" href="https://bikes.kuranko.pe/sitemap.xml" target="_blank" rel="noopener">Ver sitemap</a><a class="btn sec" href="https://bikes.kuranko.pe/feed/google.xml" target="_blank" rel="noopener">Ver feed de Google</a></div>
   ${(()=>{const a=pg.aviso||{};return `<h3 style="margin-top:22px">Ventana de novedades</h3><p class="desc">Aparece al entrar a la tienda (no al abrir directo una bici). Si cambias el título, el texto, la foto o el link, vuelve a salir para todos. Déjala apagada cuando no haya noticias.</p>
   <div class="rules" style="margin-top:8px">
     <label style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" id="avAct" ${a.activo?'checked':''} style="width:auto"> Mostrar la ventana</label>
@@ -867,6 +878,8 @@ document.addEventListener('change',async e=>{const el=e.target;if(!el.dataset.pg
   try{const dato=await achicar(el.files[0]);await api('/api/bikes/admin/pagina',{method:'POST',body:JSON.stringify({foto:{clave:el.dataset.pgfoto,dato}})});toast('Foto subida');await cargar()}catch(err){toast(err.message)}});
 document.addEventListener('click',async e=>{const t=e.target;
   if(t.dataset.pgquitar){try{await api('/api/bikes/admin/pagina',{method:'POST',body:JSON.stringify({foto:{clave:t.dataset.pgquitar,dato:''}})});await cargar()}catch(err){toast(err.message)}}
+  if(t.id==='vgGuardar'){try{await api('/api/bikes/admin/pagina',{method:'POST',body:JSON.stringify({verif_google:$('#vgGoogle').value,verif_bing:$('#vgBing').value})});toast('Guardado. Ahora toca «Verificar» en Google / Bing.');await cargar()}catch(err){toast(err.message)}}
+  if(t.id==='vgAvisar'){t.disabled=true;try{const j=await api('/api/bikes/admin/avisar-buscadores',{method:'POST',body:'{}'});toast(`Listo: ${j.enviadas} páginas enviadas a Bing y otros buscadores`)}catch(err){toast(err.message)}finally{t.disabled=false}}
   if(t.id==='avGuardar'){const v=id=>$('#'+id).value.trim();try{await api('/api/bikes/admin/pagina',{method:'POST',body:JSON.stringify({aviso:{activo:$('#avAct').checked,titulo:v('avTit'),texto:v('avTxt'),img:v('avImg'),boton:v('avBtn'),link:v('avLink'),hasta:v('avHasta'),frec:$('#avFrec').value,titulo_en:v('avTitEn'),texto_en:v('avTxtEn'),boton_en:v('avBtnEn')}})});toast($('#avAct').checked?'Ventana guardada. Sale una vez a cada visitante.':'Ventana guardada (apagada).');await cargar()}catch(err){toast(err.message)}}
   if(t.id==='pgGuardar'){try{await api('/api/bikes/admin/pagina',{method:'POST',body:JSON.stringify({asesor_nombre:$('#pgNom').value,asesor_cargo:$('#pgCargo').value,asesor_whatsapp:$('#pgWa').value,soporte_url:$('#pgSop').value,empresa:$('#pgEmp').value,ruc:$('#pgRuc').value,direccion:$('#pgDir').value,cuentas:$('#pgCta').value})});toast('Guardado');await cargar()}catch(err){toast(err.message)}}
 });

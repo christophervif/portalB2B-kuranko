@@ -71,11 +71,11 @@ html.kcompacto .kmenu{display:none}html.kcompacto .kburger{display:inline-flex}h
 .ksub a{display:block;color:#141414;font-size:16px;padding:6px 24px;text-decoration:none}
 .ksub a:hover{background:rgba(0,0,0,.05)}
 .ksub a.on{color:#e84e0e;font-weight:600}
-.ksub.mega{left:15px;right:15px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:18px 24px;padding:26px 24px}
+.ksub.mega{left:15px;right:15px;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,240px);justify-content:start;gap:18px clamp(12px,1.6vw,28px);padding:26px 24px} /* todas las opciones en una sola fila; se achican si son muchas */
 .ksub.mega a{padding:0;background:none}
 .ksub.mega a:hover .tt{color:#e84e0e}
 .ksub.mega .im{display:block;aspect-ratio:1;background:#f4f4f4 center/cover no-repeat;margin-bottom:10px;max-width:100%}
-.ksub.mega .tt{display:block;font-family:"Unvidia-Bold",var(--display);text-transform:uppercase;font-size:14.4px;letter-spacing:.02em}
+.ksub.mega .tt{display:block;font-family:"Unvidia-Bold",var(--display);text-transform:uppercase;font-size:clamp(12px,1.05vw,14.4px);letter-spacing:.02em;overflow-wrap:anywhere}
 .ksub.mega .dd{display:block;font-size:13px;line-height:1.4;color:#777;margin-top:4px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .kicons{display:flex;align-items:center;gap:20px;flex:none}
 .kicons a,.kicons button{color:#fff;background:none;border:0;padding:0;line-height:0;display:inline-flex}

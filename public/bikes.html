@@ -4,9 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Kuranko Bikes · Bicicletas de fábrica a pedido</title>
-<link rel="icon" href="https://kuranko.pe/wp-content/uploads/2024/03/cropped-Aplicativo-32x32.jpg" sizes="32x32">
-<link rel="icon" href="https://kuranko.pe/wp-content/uploads/2024/03/cropped-Aplicativo-192x192.jpg" sizes="192x192">
-<link rel="apple-touch-icon" href="https://kuranko.pe/wp-content/uploads/2024/03/cropped-Aplicativo-180x180.jpg">
+<link rel="icon" href="/favicon.ico" sizes="48x48">
+<link rel="icon" href="/icono-192.png" sizes="192x192" type="image/png">
+<link rel="apple-touch-icon" href="/icono-180.png">
 <meta name="description" content="Bicis de montaña y eléctricas de fábrica a pedido (Mondraker y más marcas). Precio final en Lima con envío, aduana e IGV, fecha de llegada y reserva sin pagar nada.">
 <link rel="canonical" href="https://bikes.kuranko.pe/">
 <meta property="og:title" content="Kuranko Bikes · Bicis de fábrica a pedido">
@@ -818,7 +818,7 @@ function pintarCfg(){
     <div class="spec">${specHTML(m)}${m.peso?' · '+esc(m.peso+(/kg/i.test(m.peso)?'':' kg')):''}${m.ficha?` · <a href="${esc(m.ficha)}" target="_blank" rel="noopener">Ficha técnica</a>`:''}</div>
     ${m.geo||m.geom?`<details class="specs geo"><summary>Geometría</summary>${m.geo?`<a href="${esc(m.geo)}" target="_blank" rel="noopener"><img src="${esc(m.geo)}" alt="Geometría ${esc(m.marca+' '+m.modelo)}" loading="lazy"></a>`:''}
       ${m.geom?`<div class="gtab"><table><thead><tr><th></th>${m.geom.tallas.map(t=>`<th class="${t===S.t?'on':''}">${esc(t)}</th>`).join('')}</tr></thead><tbody>${m.geom.filas.map(f=>`<tr><td>${f.l?`<b>${esc(f.l)}</b> `:''}${esc(f.n)}</td>${f.v.map((v,i)=>`<td class="${m.geom.tallas[i]===S.t?'on':''}">${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`:''}</details>`:''}
-    <div class="gar"><b>Garantía:</b> ${esc(m.gar||(D.garantias||{})[m.marca]||'oficial del fabricante, gestionada por Kuranko en Lima')}. Armado y ajuste en nuestro taller.</div>
+    ${(D.distribuidor||[]).includes(m.marca)?`<div class="gar"><b>Distribuidor oficial:</b> Kuranko es distribuidor oficial de ${esc(m.marca)} en Perú.</div>`:''}<div class="gar"><b>Garantía:</b> ${esc(m.gar||(D.garantias||{})[m.marca]||'oficial del fabricante, gestionada por Kuranko en Lima')}. Armado y ajuste en nuestro taller.</div>
     ${m.specs&&m.specs.length?`<details class="specs"><summary>Especificaciones técnicas</summary><table>${m.specs.map(x=>`<tr><td>${esc(x.k)}</td><td>${esc(x.v)}</td></tr>`).join('')}</table></details>`:''}
     ${m.desc?`<div class="desc ${S.descFull?'full':''}" id="dDesc">${esc(m.desc)}</div>${S.descFull?'':'<button class="btn sec" id="dMas" style="justify-self:start;padding:4px 10px;font-size:13px">Leer más</button>'}`:''}
     </div><div class="der">

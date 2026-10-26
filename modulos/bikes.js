@@ -1266,6 +1266,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
           img_proxy: !!sharp, // la página pide las fotos de producto por /api/bikes/img en el tamaño que necesita
           logos: Object.fromEntries(Object.entries(infoMarcas).filter(([, v]) => v && v.logo).map(([k, v]) => [k, v.logo])),
           marcas: [...new Set([...MARCAS_BASE, ...skus.map(s => s.marca)])].filter(m => skus.some(s => s.marca === m)),
+          distribuidor: Object.keys(infoMarcas).filter(k => infoMarcas[k] && infoMarcas[k].distribuidor),
           moneda: R.moneda_principal, garantias: Object.fromEntries(Object.entries(infoMarcas).filter(([, v]) => v && v.garantia).map(([k, v]) => [k, v.garantia])),
           adelanto: num(R.adelanto), tc_usd: tc.usd, aereo: !!R.aereo_activo, validez_horas: num(R.validez_horas),
           extras: (R.extras || []).map(e => ({ id: e.id, nombre: e.nombre, precio: num(e.precio), incluido: !!e.incluido })),
@@ -1612,14 +1613,16 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
         const usdM = D.moneda !== 'PEN';
         const precio = !min ? '' : usdM ? `US$ ${Math.round(min / D.tc_usd).toLocaleString('en-US')}` : soles(min);
         const titulo = `${m.marca} ${m.modelo}${precio ? ' · desde ' + precio : ''} · Kuranko`;
-        const desc = String(m.desc || `${m.marca} ${m.modelo} a pedido, precio final en Lima con envío, aduana e IGV.`).replace(/\s+/g, ' ').slice(0, 200);
+        const desc = ((D.distribuidor || []).includes(m.marca) ? `Distribuidor oficial ${m.marca} en Perú. ` : '') + String(m.desc || `${m.marca} ${m.modelo} a pedido, precio final en Lima con envío, aduana e IGV.`).replace(/\s+/g, ' ').slice(0, 180);
         const url = `https://${req.hostname}/bici/${encodeURIComponent(m.id)}`;
         const enTienda = m.skus.some(x => x.d > 0 && (x.e === 'Stock Lima' || x.tk > 0));
+        const oficial = (D.distribuidor || []).includes(m.marca);
         const ld = { '@context': 'https://schema.org', '@type': 'Product', name: `${m.marca} ${m.modelo}`, brand: { '@type': 'Brand', name: m.marca },
           description: desc, url, ...(m.img ? { image: [m.img] } : {}), ...(m.cat ? { category: m.cat } : {}),
           ...(min ? { offers: { '@type': 'Offer', url, priceCurrency: usdM ? 'USD' : 'PEN', price: usdM ? Math.round(min / D.tc_usd) : Math.round(min),
             availability: enTienda ? 'https://schema.org/InStock' : 'https://schema.org/PreOrder', itemCondition: m.tag === 'usado' ? 'https://schema.org/UsedCondition' : 'https://schema.org/NewCondition',
-            seller: { '@type': 'Organization', name: 'Kuranko' } } } : {}) };
+            seller: { '@type': 'Organization', name: 'Kuranko', url: 'https://kuranko.pe', ...(oficial ? { description: `Distribuidor oficial de ${m.marca} en Perú` } : {}) } } } : {}) };
+        if ((m.gal || []).length > 1) ld.image = m.gal.slice(0, 6);
         // Varias ofertas (tallas/colores/envíos): rango de precios. Envío a todo el Perú incluido en el precio.
         if (min && ld.offers) { const max = Math.max(...precios), cv = v => usdM ? Math.round(v / D.tc_usd) : Math.round(v);
           ld.offers = { ...ld.offers, '@type': 'AggregateOffer', lowPrice: cv(min), highPrice: cv(max), offerCount: m.skus.filter(x => x.d > 0).length || 1,
@@ -1629,7 +1632,8 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
           { '@type': 'ListItem', position: 2, name: m.marca, item: `https://${req.hostname}/marca/${slugCat(m.marca)}` }, { '@type': 'ListItem', position: 3, name: m.modelo, item: url }] };
         const datos = [m.aro && (m.aro === 'Mullet' ? 'Mullet 29/27.5' : 'Aro ' + m.aro), m.rd ? m.rd + (m.rt ? '/' + m.rt : '') + ' mm' : m.rec, m.matx || m.mat, m.motor, m.peso].filter(Boolean);
         h = seoBloque(h, `<nav><a href="/">Bicis a pedido</a> › <a href="/marca/${escH(slugCat(m.marca))}">${escH(m.marca)}</a>${m.cat ? ` › <a href="/categoria/${escH(slugCat(m.cat))}">${escH(m.cat)}</a>` : ''}</nav>
-          <h1>${escH(m.marca)} ${escH(m.modelo)}</h1>${precio ? `<p><b>Desde ${escH(precio)}</b> · precio final en Perú con envío, aduana, IGV y armado.</p>` : ''}
+          <h1>${escH(m.marca)} ${escH(m.modelo)}</h1>${m.img ? `<img src="${escH(m.img)}" alt="${escH(m.marca + ' ' + m.modelo)}" width="800" style="max-width:100%;height:auto">` : ''}
+          ${oficial ? `<p>Kuranko, distribuidor oficial de ${escH(m.marca)} en Perú. Garantía oficial y soporte técnico en Lima.</p>` : ''}${precio ? `<p><b>Desde ${escH(precio)}</b> · precio final en Perú con envío, aduana, IGV y armado.</p>` : ''}
           ${datos.length ? `<p>${datos.map(escH).join(' · ')}</p>` : ''}<p>${escH(String(m.desc || '').slice(0, 1200))}</p>
           ${m.tallas && m.tallas.length ? `<p>Tallas: ${m.tallas.map(escH).join(', ')}${(m.colores || []).length ? ' · Colores: ' + m.colores.map(c => escH(c.n)).join(', ') : ''}</p>` : ''}
           ${(m.specs || []).length ? `<ul>${m.specs.slice(0, 20).map(x => `<li>${escH(x.k)}: ${escH(x.v)}</li>`).join('')}</ul>` : ''}`);
@@ -1642,6 +1646,21 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       } else res.status(404);
       res.set('Cache-Control', 'no-cache').type('html').send(h);
     } catch (e) { res.status(500).send('No se pudo cargar'); }
+  });
+
+  // ── Ícono del sitio desde el propio dominio (lo pide Google para mostrarlo junto al resultado) ──
+  const ICONOS = {};
+  app.get(['/favicon.ico', '/icono-48.png', '/icono-180.png', '/icono-192.png'], async (req, res, next) => {
+    if (!/^bikes\./i.test(req.hostname || '') && req.path === '/favicon.ico') return next();
+    try {
+      const t = req.path === '/favicon.ico' ? 48 : +req.path.match(/\d+/)[0];
+      if (!ICONOS[t]) {
+        const r = await fetch('https://kuranko.pe/wp-content/uploads/2024/03/cropped-Aplicativo-192x192.jpg'); if (!r.ok) throw new Error('sin ícono');
+        const buf = Buffer.from(await r.arrayBuffer());
+        ICONOS[t] = sharp ? { b: await sharp(buf).resize(t, t).png().toBuffer(), ty: 'image/png' } : { b: buf, ty: 'image/jpeg' };
+      }
+      res.type(ICONOS[t].ty).set('Cache-Control', 'public, max-age=604800').send(ICONOS[t].b);
+    } catch (e) { res.redirect('https://kuranko.pe/wp-content/uploads/2024/03/cropped-Aplicativo-192x192.jpg'); }
   });
 
   // ── Buscadores ──
@@ -1792,9 +1811,10 @@ Incluye solo bicicletas y cuadros (no repuestos sueltos, flete, seguro ni impues
       let h = htmlTienda;
       if (marca) {
         const ms = D.modelos.filter(m => m.marca === marca && m.tag !== 'proximamente'), img = (ms.find(m => m.img) || {}).img;
-        const titulo = `${marca} en Perú · bicicletas a pedido · Kuranko`, url = `https://${req.hostname}/marca/${slug}`;
-        const desc = `${ms.length} modelos de ${marca} con precio final en Perú: envío, aduana, IGV y armado incluidos. Garantía oficial y soporte en Lima.`;
-        h = seoBloque(h, `<h1>${escH(marca)} en Perú · bicicletas a pedido</h1><p>${escH(desc)}</p>${listaSeo(D, ms)}`);
+        const of = (D.distribuidor || []).includes(marca);
+        const titulo = `${marca} en Perú · ${of ? 'distribuidor oficial' : 'bicicletas a pedido'} · Kuranko`, url = `https://${req.hostname}/marca/${slug}`;
+        const desc = `${of ? `Kuranko, distribuidor oficial de ${marca} en Perú. ` : ''}${ms.length} modelos de ${marca} con precio final en Perú: envío, aduana, IGV y armado incluidos. Garantía oficial y soporte en Lima.`;
+        h = seoBloque(h, `<h1>${escH(marca)} en Perú${of ? ' · distribuidor oficial' : ' · bicicletas a pedido'}</h1><p>${escH(desc)}</p>${listaSeo(D, ms)}`);
         h = h.replace(SIN_META_PORTADA, '').replace(/<title>[^<]*<\/title>/, `<title>${escH(titulo)}</title><meta name="description" content="${escH(desc)}"><link rel="canonical" href="${escH(url)}">` +
           `<meta property="og:title" content="${escH(titulo)}"><meta property="og:description" content="${escH(desc)}"><meta property="og:url" content="${escH(url)}">${img ? `<meta property="og:image" content="${escH(img)}">` : ''}`);
       } else res.status(404);
@@ -1806,7 +1826,7 @@ Incluye solo bicicletas y cuadros (no repuestos sueltos, flete, seguro ni impues
   app.get('/robots.txt', (req, res) => {
     res.type('text/plain').set('Cache-Control', 'public, max-age=86400');
     if (!/^bikes\./i.test(req.hostname || '')) return res.send('User-agent: *\nDisallow: /\n');
-    res.send(`User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /bikes/proforma/\nDisallow: /admin\nDisallow: /bikes-admin.html\nDisallow: /en\n\nSitemap: https://${req.hostname}/sitemap.xml\n`);
+    res.send(`User-agent: *\nAllow: /\nAllow: /api/bikes/img\nAllow: /api/bikes/foto/\nDisallow: /api/\nDisallow: /bikes/proforma/\nDisallow: /admin\nDisallow: /bikes-admin.html\nDisallow: /en\n\nSitemap: https://${req.hostname}/sitemap.xml\n`);
   });
   app.get('/sitemap.xml', async (req, res) => {
     if (!/^bikes\./i.test(req.hostname || '')) return res.status(404).end();
@@ -2312,6 +2332,7 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
       if (b.descuento_hasta !== undefined) m[marca].descuento_hasta = fecha(b.descuento_hasta);
       if (b.mar_stock !== undefined) m[marca].mar_stock = Math.min(200, Math.max(0, Math.round(num(b.mar_stock)))) || 0; // bicis propias (pedido de stock) en el próximo envío marítimo
       if (b.mar_fecha !== undefined) m[marca].mar_fecha = fecha(b.mar_fecha);
+      if (b.distribuidor !== undefined) m[marca].distribuidor = !!b.distribuidor; // Kuranko es distribuidor oficial de la marca en Perú
       if (b.consulta_correos !== undefined) m[marca].consulta_correos = correosDe(b.consulta_correos).join(', ') || null; // a quién se pide disponibilidad
       if (b.consulta_idioma !== undefined) m[marca].consulta_idioma = b.consulta_idioma === 'es' ? 'es' : 'en';
       if (b.consulta_auto !== undefined) m[marca].consulta_auto = !!b.consulta_auto;

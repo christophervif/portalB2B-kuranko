@@ -1267,6 +1267,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
           logos: Object.fromEntries(Object.entries(infoMarcas).filter(([, v]) => v && v.logo).map(([k, v]) => [k, v.logo])),
           marcas: [...new Set([...MARCAS_BASE, ...skus.map(s => s.marca)])].filter(m => skus.some(s => s.marca === m)),
           distribuidor: Object.keys(infoMarcas).filter(k => infoMarcas[k] && infoMarcas[k].distribuidor),
+          link_oficial: Object.fromEntries(Object.entries(infoMarcas).filter(([, v]) => v && v.distribuidor && v.link_oficial).map(([k, v]) => [k, v.link_oficial])), // página de la marca donde sale Kuranko
           moneda: R.moneda_principal, garantias: Object.fromEntries(Object.entries(infoMarcas).filter(([, v]) => v && v.garantia).map(([k, v]) => [k, v.garantia])),
           adelanto: num(R.adelanto), tc_usd: tc.usd, aereo: !!R.aereo_activo, validez_horas: num(R.validez_horas),
           extras: (R.extras || []).map(e => ({ id: e.id, nombre: e.nombre, precio: num(e.precio), incluido: !!e.incluido })),
@@ -1633,7 +1634,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
         const datos = [m.aro && (m.aro === 'Mullet' ? 'Mullet 29/27.5' : 'Aro ' + m.aro), m.rd ? m.rd + (m.rt ? '/' + m.rt : '') + ' mm' : m.rec, m.matx || m.mat, m.motor, m.peso].filter(Boolean);
         h = seoBloque(h, `<nav><a href="/">Bicis a pedido</a> › <a href="/marca/${escH(slugCat(m.marca))}">${escH(m.marca)}</a>${m.cat ? ` › <a href="/categoria/${escH(slugCat(m.cat))}">${escH(m.cat)}</a>` : ''}</nav>
           <h1>${escH(m.marca)} ${escH(m.modelo)}</h1>${m.img ? `<img src="${escH(m.img)}" alt="${escH(m.marca + ' ' + m.modelo)}" width="800" style="max-width:100%;height:auto">` : ''}
-          ${oficial ? `<p>Kuranko, distribuidor oficial de ${escH(m.marca)} en Perú. Garantía oficial y soporte técnico en Lima.</p>` : ''}${precio ? `<p><b>Desde ${escH(precio)}</b> · precio final en Perú con envío, aduana, IGV y armado.</p>` : ''}
+          ${oficial ? `<p>Kuranko, distribuidor oficial de ${escH(m.marca)} en Perú. Garantía oficial y soporte técnico en Lima.${(D.link_oficial || {})[m.marca] ? ` <a href="${escH(D.link_oficial[m.marca])}" rel="noopener">Ver en la web de ${escH(m.marca)}</a>` : ''}</p>` : ''}${precio ? `<p><b>Desde ${escH(precio)}</b> · precio final en Perú con envío, aduana, IGV y armado.</p>` : ''}
           ${datos.length ? `<p>${datos.map(escH).join(' · ')}</p>` : ''}<p>${escH(String(m.desc || '').slice(0, 1200))}</p>
           ${m.tallas && m.tallas.length ? `<p>Tallas: ${m.tallas.map(escH).join(', ')}${(m.colores || []).length ? ' · Colores: ' + m.colores.map(c => escH(c.n)).join(', ') : ''}</p>` : ''}
           ${(m.specs || []).length ? `<ul>${m.specs.slice(0, 20).map(x => `<li>${escH(x.k)}: ${escH(x.v)}</li>`).join('')}</ul>` : ''}`);
@@ -2332,7 +2333,8 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
       if (b.descuento_hasta !== undefined) m[marca].descuento_hasta = fecha(b.descuento_hasta);
       if (b.mar_stock !== undefined) m[marca].mar_stock = Math.min(200, Math.max(0, Math.round(num(b.mar_stock)))) || 0; // bicis propias (pedido de stock) en el próximo envío marítimo
       if (b.mar_fecha !== undefined) m[marca].mar_fecha = fecha(b.mar_fecha);
-      if (b.distribuidor !== undefined) m[marca].distribuidor = !!b.distribuidor; // Kuranko es distribuidor oficial de la marca en Perú
+      if (b.distribuidor !== undefined) m[marca].distribuidor = !!b.distribuidor;
+      if (b.link_oficial !== undefined) m[marca].link_oficial = /^https?:\/\//i.test(b.link_oficial || '') ? String(b.link_oficial).trim().slice(0, 300) : null; // Kuranko es distribuidor oficial de la marca en Perú
       if (b.consulta_correos !== undefined) m[marca].consulta_correos = correosDe(b.consulta_correos).join(', ') || null; // a quién se pide disponibilidad
       if (b.consulta_idioma !== undefined) m[marca].consulta_idioma = b.consulta_idioma === 'es' ? 'es' : 'en';
       if (b.consulta_auto !== undefined) m[marca].consulta_auto = !!b.consulta_auto;

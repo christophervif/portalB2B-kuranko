@@ -340,6 +340,9 @@ a.card{text-decoration:none;cursor:pointer}
 .card.pre{border-color:#141414;box-shadow:0 0 0 1px #141414 inset}
 .prenota{margin-top:8px;padding:10px 12px;border-radius:10px;background:var(--surface2,#f4f4f2);font-size:13.5px;line-height:1.45}
 .prenota b{color:var(--ink)}
+/* Distribuidor oficial (marca elegida) */
+.oficial{margin:0 0 12px;padding:10px 14px;border:1px solid var(--line);border-left:4px solid var(--ok);border-radius:10px;font-size:14px;background:var(--surface)}
+.oficial a,.gar a{color:inherit;text-decoration:underline}
 /* Lanzamiento: un poco más visible (naranja sobrio de la marca) */
 .badge.lanz{background:#b4532a;color:#fff;border-color:#b4532a}
 .card.lanz{border-color:#b4532a;box-shadow:0 0 0 1px #b4532a inset}
@@ -418,6 +421,7 @@ a.card{text-decoration:none;cursor:pointer}
     </aside>
     <div style="min-width:0">
       <div id="destacadas"></div>
+      <div id="oficial"></div>
       <div class="resbar"><span id="count">Cargando…</span>
         <select id="sort" aria-label="Ordenar"><option value="eta">Llega antes</option><option value="pa">Precio menor</option><option value="pd">Precio mayor</option><option value="br">Marca A–Z</option></select></div>
       <div class="grid" id="grid"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>
@@ -594,6 +598,7 @@ const ciusSku=s=>String((s&&s.tkc)||'Lima').split(/\s*,\s*/).filter(Boolean);
 const ciuSku=s=>ciusSku(s).join(' y ');
 const ciusDe=m=>[...new Set(m.skus.filter(s=>s.d>0&&(s.e==='Stock Lima'||s.tk>0)).flatMap(ciusSku))];
 const enStockTxt=m=>'En stock en '+ciusDe(m).join(' y ');
+const linkOf=b=>{const u=(D.link_oficial||{})[b];if(!u)return '';let h='';try{h=new URL(u).hostname.replace(/^www\./,'')}catch(e){}return ` <a href="${esc(u)}" target="_blank" rel="noopener">Verifícalo en ${esc(h||'la web de '+b)} ↗</a>`};
 function resumen(m){
   const disp=m.skus.filter(s=>s.d>0), base=disp.length?disp:m.skus;
   const min=base.reduce((a,s)=>s.pm<a.pm?s:a,base[0]);
@@ -689,6 +694,8 @@ function pintarGrid(){
   $('#destacadas').innerHTML=(prev.length?`<h2 class="dtit">En preventa</h2><p class="note" style="margin:-6px 0 12px">Bicis que ya pedimos para nuestro stock. Resérvala antes de que llegue con precio de preventa.</p><div class="grid dgrid">${prev.map(cardHTML).join('')}</div>`:'')+
     (dest.length||(inicial&&pronto.length)?`<h2 class="dtit">Destacadas</h2><div class="grid dgrid">${[...dest,...(inicial?pronto:[])].map(cardHTML).join('')}</div>`:'')+(prev.length||dest.length||(inicial&&pronto.length)?'<h2 class="dtit">Todo el catálogo</h2>':'');
   $('#count').textContent=`${L.length} ${L.length===1?'modelo':'modelos'}`;
+  // Marca elegida de la que Kuranko es distribuidor oficial: se dice, con el link a la web de la marca donde aparece Kuranko
+  $('#oficial').innerHTML=F.marca!=='all'&&(D.distribuidor||[]).includes(F.marca)?`<div class="oficial"><b>Distribuidor oficial de ${esc(F.marca)} en Perú</b> · garantía oficial y soporte técnico en Lima.${linkOf(F.marca)}</div>`:'';
   if(!D.modelos.length){$('#grid').innerHTML=`<div class="empty">Estamos cargando las listas de las marcas. Escríbenos por <a href="https://wa.me/${esc(D.whatsapp)}" target="_blank" rel="noopener">WhatsApp</a> y te cotizamos la bici que buscas.</div>`;return}
   if(!L.length){$('#grid').innerHTML=F.q?`<div class="empty">No encontramos bicis con «${esc(F.q)}». <a href="https://kuranko.pe/?s=${encodeURIComponent(F.q)}&post_type=product">Buscarlo en kuranko.pe</a> o <a href="${esc(waAsesor())}" target="_blank" rel="noopener">pídelo por WhatsApp</a>: la conseguimos a pedido.</div>`:'<div class="empty">Ningún modelo coincide con estos filtros. Prueba quitando la talla o subiendo el precio máximo.</div>';return}
   $('#grid').innerHTML=L.map(cardHTML).join('');
@@ -818,7 +825,7 @@ function pintarCfg(){
     <div class="spec">${specHTML(m)}${m.peso?' · '+esc(m.peso+(/kg/i.test(m.peso)?'':' kg')):''}${m.ficha?` · <a href="${esc(m.ficha)}" target="_blank" rel="noopener">Ficha técnica</a>`:''}</div>
     ${m.geo||m.geom?`<details class="specs geo"><summary>Geometría</summary>${m.geo?`<a href="${esc(m.geo)}" target="_blank" rel="noopener"><img src="${esc(m.geo)}" alt="Geometría ${esc(m.marca+' '+m.modelo)}" loading="lazy"></a>`:''}
       ${m.geom?`<div class="gtab"><table><thead><tr><th></th>${m.geom.tallas.map(t=>`<th class="${t===S.t?'on':''}">${esc(t)}</th>`).join('')}</tr></thead><tbody>${m.geom.filas.map(f=>`<tr><td>${f.l?`<b>${esc(f.l)}</b> `:''}${esc(f.n)}</td>${f.v.map((v,i)=>`<td class="${m.geom.tallas[i]===S.t?'on':''}">${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`:''}</details>`:''}
-    ${(D.distribuidor||[]).includes(m.marca)?`<div class="gar"><b>Distribuidor oficial:</b> Kuranko es distribuidor oficial de ${esc(m.marca)} en Perú.</div>`:''}<div class="gar"><b>Garantía:</b> ${esc(m.gar||(D.garantias||{})[m.marca]||'oficial del fabricante, gestionada por Kuranko en Lima')}. Armado y ajuste en nuestro taller.</div>
+    ${(D.distribuidor||[]).includes(m.marca)?`<div class="gar"><b>Distribuidor oficial:</b> Kuranko es distribuidor oficial de ${esc(m.marca)} en Perú.${linkOf(m.marca)}</div>`:''}<div class="gar"><b>Garantía:</b> ${esc(m.gar||(D.garantias||{})[m.marca]||'oficial del fabricante, gestionada por Kuranko en Lima')}. Armado y ajuste en nuestro taller.</div>
     ${m.specs&&m.specs.length?`<details class="specs"><summary>Especificaciones técnicas</summary><table>${m.specs.map(x=>`<tr><td>${esc(x.k)}</td><td>${esc(x.v)}</td></tr>`).join('')}</table></details>`:''}
     ${m.desc?`<div class="desc ${S.descFull?'full':''}" id="dDesc">${esc(m.desc)}</div>${S.descFull?'':'<button class="btn sec" id="dMas" style="justify-self:start;padding:4px 10px;font-size:13px">Leer más</button>'}`:''}
     </div><div class="der">

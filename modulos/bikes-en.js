@@ -1,6 +1,9 @@
 // Traducción al inglés de la tienda (bikes.kuranko.pe/en), para mostrar la propuesta a las marcas.
 // Pares [texto exacto en bikes.html, inglés]; se aplican de la frase más larga a la más corta.
 module.exports = [
+  ['<b>Distribuidor oficial de ${esc(F.marca)} en Perú</b> · garantía oficial y soporte técnico en Lima.', '<b>Official ${esc(F.marca)} distributor in Peru</b> · official warranty and technical support in Lima.'],
+  ['<b>Distribuidor oficial:</b> Kuranko es distribuidor oficial de ${esc(m.marca)} en Perú.', '<b>Official distributor:</b> Kuranko is the official ${esc(m.marca)} distributor in Peru.'],
+  ["Verifícalo en ${esc(h||'la web de '+b)}", "Check it on ${esc(h||b+' website')}"],
   ['<b>Entrega inmediata</b><div>Unidad en stock en Lima. Se entrega armada y ajustada.</div>', '<b>Immediate delivery</b><div>Unit in stock in Lima. Delivered assembled and tuned.</div>'],
   ["'Armada y ajustada':'Llega '", "'Assembled and tuned':'Arrives '"], ["?'Inmediata':dias(", "?'Immediate':dias("],
   ["(a.link?'Ver más':'')", "(a.link?'See more':'')"], ['aria-label="Cerrar">×</button>${a.img', 'aria-label="Close">×</button>${a.img'],

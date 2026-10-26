@@ -125,11 +125,12 @@
         let luego = '';
         const pAhora = portal ? x.tu_precio : x.precio;
         if (x.siguiente) {
-          if (x.siguiente.sale) luego = `<div class="ol-sub">Luego de estas ${x.stock_oferta} und: precio normal</div>`;
+          if (x.siguiente.sale) luego = `<div class="ol-sub">Luego de estas ${x.stock_oferta} und: vuelve al precio normal</div>`;
           else {
             const pLuego = portal ? x.siguiente.tu_precio : x.siguiente.precio;
-            // solo se avisa si cambia el precio
-            if (Math.abs(pLuego - pAhora) >= 0.01) luego = `<div class="ol-sub" title="Cuando se acaben las ${x.stock_oferta} und en oferta">Luego: ${S(pLuego)} (${x.siguiente.unidades} und)</div>`;
+            // Solo se avisa si el precio SUBE (urgencia: "aprovecha"). Si luego baja no se muestra:
+            // nadie esperaría a que se acabe el lote y quien compra hoy no ve su compra desvalorizada.
+            if (pLuego - pAhora >= 0.01) luego = `<div class="ol-sub" title="Cuando se acaben las ${x.stock_oferta} und en oferta">Luego sube a ${S(pLuego)}</div>`;
           }
         }
         return `<tr class="${q ? 'sel' : ''}">

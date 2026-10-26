@@ -1411,7 +1411,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
     const info = (await leerMarcas())[r.marca] || {}, pg = await leerPagina();
     const para = correosDe(info.consulta_correos);
     if (auto && (info.consulta_auto === false || !para.length)) return { enviado: false };
-    if (!para.length) throw new Error(`Falta el correo de pedidos de ${r.marca} (Bicis → Catálogo → Datos por marca)`);
+    if (!para.length) throw new Error(`Falta el correo de pedidos de ${r.marca} (panel de Bicis → pestaña Marcas)`);
     const cc = correosDe(pg.consulta_cc ?? COPIA_CONSULTA), reply_to = correosDe(pg.consulta_responder ?? COPIA_CONSULTA);
     const c = correoConsulta(r, info);
     if (soloVer) return { para, cc, reply_to, ...c };

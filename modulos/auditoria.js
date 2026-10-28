@@ -9,6 +9,7 @@
 //    GET /admin/auditoria-excel      → Excel del análisis GUARDADO (lo mismo que se ve en
 //                                      pantalla), con los filtros de la pantalla
 //    GET /admin/chequeo-empresas[-excel]  ?tipo=…&dias=90|365|0
+//    /admin/erp-writeback-preview|aplicar → modulos/auditoria-corregir.js (pestaña Corregir en el ERP)
 //
 //  Reglas (todo del ERP, SOLO LECTURA)
 //  · "Stock" = stock propio (almacenes y tiendas): sin consignación (está en el cliente)
@@ -251,7 +252,7 @@ function agruparChequeo(rows, tipo) {
   return lista;
 }
 
-module.exports = function registrarAuditoria({ app, authAdmin, requiereModulo, prodPool, portalPool }) {
+module.exports = function registrarAuditoria({ app, authAdmin, requiereModulo, prodPool, portalPool, erpWritePool }) {
   const mAud = requiereModulo('auditoria');
   const esMaestro = req => !!(req.admin && req.admin.maestro);
 
@@ -438,6 +439,9 @@ module.exports = function registrarAuditoria({ app, authAdmin, requiereModulo, p
       res.end();
     } catch (e) { res.status(500).json({ error: 'Error al generar: ' + e.message }); }
   });
+
+  // Pestaña "Corregir en el ERP" (vincular IDs, reservas → notify, imágenes kuranko)
+  require('./auditoria-corregir')({ app, authAdmin, prodPool, portalPool, erpWritePool });
 
   return { prepararTablas };
 };

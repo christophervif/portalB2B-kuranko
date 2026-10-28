@@ -132,6 +132,7 @@ td .probs{display:flex;flex-wrap:wrap;gap:4px}
     <button class="on" data-t="alertas" onclick="verTab('alertas')">Alertas <span class="pill" id="n-alertas"></span></button>
     <button data-t="pendientes" onclick="verTab('pendientes')">Pendientes en la web <span class="pill" id="n-pend"></span></button>
     <button data-t="chequeo" onclick="verTab('chequeo')">Chequeo de empresa en ventas</button>
+    <button data-t="corregir" onclick="verTab('corregir')">Corregir en el ERP <span class="pill" id="n-erp"></span></button>
   </div>
 
   <!-- ══════════ ALERTAS ══════════ -->
@@ -214,6 +215,18 @@ td .probs{display:flex;flex-wrap:wrap;gap:4px}
     <div class="nota" id="res-chq"></div>
     <div class="tabla-wrap oculto" id="wrap-chq"><table id="tbl-chq"></table></div>
   </div>
+  <!-- ══════════ CORREGIR EN EL ERP (write-back) ══════════ -->
+  <div class="card oculto" id="t-corregir">
+    <h3>Corregir datos en el sistema (ERP)</h3>
+    <div class="desc">Vista previa <b>(solo lectura)</b> de los cambios que se escribirían de vuelta al sistema: <b>vincular el WooCommerce ID</b> por SKU (productos que ya están en la web), pasar <b>reservas de agotados</b> de "permitir" a "notify", y reemplazar <b>links de imagen</b> que no son de kuranko por los de kuranko. No se escribe nada hasta que marques las filas y confirmes.</div>
+    <div class="fila">
+      <button class="btn" id="btn-erp" onclick="verCambiosErp()">Ver cambios propuestos</button>
+      <button class="btn oculto" id="btn-erp-aplicar" onclick="aplicarCambiosErp()">Aplicar seleccionados al sistema</button>
+    </div>
+    <div class="nota" id="res-erp"></div>
+    <div id="erp-panel"></div>
+  </div>
+
 </div>
 
 <script>
@@ -273,7 +286,7 @@ function filtroAlertasQS() {
 
 function verTab(t) {
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.t === t));
-  ['alertas', 'pendientes', 'chequeo'].forEach(x => $('t-' + x).classList.toggle('oculto', x !== t));
+  ['alertas', 'pendientes', 'chequeo', 'corregir'].forEach(x => $('t-' + x).classList.toggle('oculto', x !== t));
   try { localStorage.setItem('aud_tab', t); } catch (e) {}
 }
 
@@ -422,6 +435,82 @@ async function cargarChequeo() {
 async function excelChequeo() {
   try { await descargar('/admin/chequeo-empresas-excel?' + chqQS().toString(), 'chequeo-empresas'); }
   catch (e) { showToast(e.message, true); }
+}
+
+
+// ── Corregir en el ERP (vista previa + aplicar lo seleccionado) ──
+let ERP = null;
+const ERP_GRUPOS = [
+  { k: 'vincularId', tipo: 'id', t: 'Vincular WooCommerce ID', desc: 'Están en la web con ese SKU, pero en el sistema tienen el ID vacío.',
+    cols: [['SKU', 'sku'], ['Tipo', 'tipo'], ['ID de la web', 'nuevo']] },
+  { k: 'reservas', tipo: 'back', t: 'Reservas de agotados → notify', desc: 'Hoy permiten reservar sin stock ("yes"); pasan a "notify".',
+    cols: [['SKU', 'sku'], ['Tipo', 'tipo'], ['Antes', 'antes'], ['Después', 'despues']] },
+  { k: 'imagenes', tipo: 'img', t: 'Imágenes → kuranko', desc: 'Link que no es de kuranko.pe, reemplazado por una imagen de la web que el sistema aún no tiene.',
+    cols: [['SKU', 'sku'], ['Link actual', 'actual'], ['Link kuranko', 'nuevo']] }
+];
+async function verCambiosErp() {
+  const b = $('btn-erp'); b.disabled = true; $('res-erp').textContent = 'Cargando cambios propuestos…'; $('erp-panel').innerHTML = '';
+  try {
+    ERP = await apiCall('/admin/erp-writeback-preview');
+    pintarErp();
+  } catch (e) { $('res-erp').textContent = ''; showToast(e.message, true); }
+  finally { b.disabled = false; b.textContent = 'Volver a cargar'; }
+}
+function pintarErp() {
+  const d = ERP || {};
+  const total = ERP_GRUPOS.reduce((s, g) => s + (d[g.k] || []).length, 0);
+  $('n-erp').textContent = total ? nfmt(total) : '';
+  $('res-erp').innerHTML = `${nfmt(total)} cambio(s) propuesto(s).` +
+    (d.recolectado_en ? ` Datos de la web recolectados por el puente: <b>${esc(fecha(d.recolectado_en))}</b>.` : ' <span class="chip c-w">El puente aún no recolectó los datos de la web: no hay IDs ni imágenes que proponer.</span>') +
+    (d.puede_aplicar ? '' : ' <span class="chip c-r">Falta ERP_ESCRITURA_URL: solo se puede ver, no aplicar.</span>');
+  let h = ERP_GRUPOS.map(g => {
+    const filas = d[g.k] || [];
+    let x = `<h3 style="margin-top:16px">${esc(g.t)} <span class="chip c-g">${nfmt(filas.length)}</span></h3><div class="desc">${esc(g.desc)}</div>`;
+    if (!filas.length) return x + '<div class="nota">✓ Sin cambios.</div>';
+    return x + `<div class="tabla-wrap" style="max-height:340px"><table><thead><tr><th style="width:34px"><input type="checkbox" onclick="erpTodos('${g.tipo}',this.checked)" title="Seleccionar todos"></th>` +
+      g.cols.map(c => `<th>${c[0]}</th>`).join('') + '</tr></thead><tbody>' +
+      filas.map((f, i) => `<tr><td><input type="checkbox" class="erp-chk-${g.tipo}" data-i="${i}" onchange="contarSelErp()"></td>` +
+        g.cols.map(c => `<td style="word-break:break-all">${c[1] === 'sku' ? `<span class="sku">${esc(f[c[1]])}</span>` : esc(f[c[1]])}</td>`).join('') + '</tr>').join('') +
+      '</tbody></table></div>';
+  }).join('');
+  const conf = d.idConflicto || [];
+  if (conf.length) h += `<h3 style="margin-top:16px">IDs que NO se vinculan <span class="chip c-r">${nfmt(conf.length)}</span></h3>
+    <div class="desc">El ID de la web ya lo tiene otro producto del sistema (o el SKU está repetido). Vincularlo crearía un WooCommerce ID duplicado: revísalo a mano.</div>
+    <div class="tabla-wrap" style="max-height:260px"><table><thead><tr><th>SKU</th><th>Tipo</th><th>ID de la web</th><th>Motivo</th></tr></thead><tbody>` +
+    conf.map(c => `<tr><td><span class="sku">${esc(c.sku)}</span></td><td>${esc(c.tipo)}</td><td>${esc(c.nuevo)}</td><td>${esc(c.motivo)}</td></tr>`).join('') + '</tbody></table></div>';
+  $('erp-panel').innerHTML = h;
+  contarSelErp();
+}
+function erpTodos(tipo, on) { document.querySelectorAll('.erp-chk-' + tipo).forEach(c => c.checked = on); contarSelErp(); }
+function seleccionErp() {
+  const d = ERP || {}, sel = [];
+  ERP_GRUPOS.forEach(g => document.querySelectorAll('.erp-chk-' + g.tipo + ':checked').forEach(c => {
+    const f = (d[g.k] || [])[+c.dataset.i]; if (f) sel.push(Object.assign({}, f, { tipo: g.tipo }));
+  }));
+  return sel;
+}
+function contarSelErp() {
+  const n = seleccionErp().length, b = $('btn-erp-aplicar');
+  b.classList.toggle('oculto', !(ERP && ERP.puede_aplicar));
+  b.disabled = !n; b.textContent = n ? `Aplicar ${n} seleccionado(s) al sistema` : 'Marca las filas a aplicar';
+}
+async function aplicarCambiosErp() {
+  const sel = seleccionErp();
+  if (!sel.length) { showToast('No seleccionaste ningún cambio', true); return; }
+  if (!confirm('¿Aplicar ' + sel.length + ' cambio(s) al sistema (ERP)? Esto escribe en la base del sistema.')) return;
+  const b = $('btn-erp-aplicar'); b.disabled = true; $('res-erp').textContent = 'Aplicando ' + sel.length + ' cambio(s)…';
+  try {
+    const r = await fetch('/admin/erp-writeback-aplicar', { method: 'POST', headers: { 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': 'application/json' }, body: JSON.stringify({ cambios: sel }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || 'Error al aplicar');
+    const errs = j.errores || [];
+    showToast('Cambios aplicados: ' + j.aplicados, errs.length > 0);
+    await verCambiosErp();
+    $('res-erp').innerHTML = `✓ Aplicados: <b>${j.aplicados}</b> · Sin cambio (ya estaban): ${j.sin_cambio} · Errores: ${errs.length}` +
+      (errs.length ? '<ul style="margin:6px 0 0 18px">' + errs.slice(0, 20).map(e => `<li>${esc(e.ref)}: ${esc(e.error)}</li>`).join('') + '</ul>' : '') +
+      '<br>' + $('res-erp').innerHTML;
+  } catch (e) { $('res-erp').textContent = ''; showToast(e.message, true); }
+  finally { contarSelErp(); }
 }
 
 // ── Arranque ──

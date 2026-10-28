@@ -467,21 +467,10 @@ tr:hover td{background:var(--hover)}
           <button class="btn" onclick="descargarReporteSync()">Descargar reporte (Excel)</button>
           <button class="btn" onclick="exportarProductosSinId()" title="Productos del ERP sin ID, con el ID y las imágenes que el puente encontró en la web">Exportar productos sin ID</button>
         </div>
-        <div class="desc" style="font-size:12px;margin-top:6px">"Exportar productos sin ID": Excel con dos pestañas. <b>"Con ID (en la web)"</b> = los que el puente encontró en WooCommerce por SKU, ya con su ID e imágenes de la web (listos para vincular). <b>"Sin ID (por crear)"</b> = los que no están en la web todavía, con su info del sistema. El puente recolecta el ID y las imágenes en su corrida (cada pocas horas).</div>
+        <div class="desc" style="font-size:12px;margin-top:6px">"Exportar productos sin ID": Excel con dos pestañas. <b>"Con ID (en la web)"</b> = los que el puente encontró en WooCommerce por SKU, ya con su ID e imágenes de la web (listos para vincular). <b>"Sin ID (por crear)"</b> = los que no están en la web todavía, con su info del sistema. El puente recolecta el ID y las imágenes en su corrida (cada pocas horas). Para escribir esos IDs (e imágenes) en el sistema usa <b>Auditoría de catálogo → Corregir en el ERP</b>.</div>
         <div id="sync-result" class="muted" style="margin-top:10px"></div>
       </div>
 
-      <div class="card">
-        <h3>Corregir datos en el sistema (ERP)</h3>
-        <div class="desc">Vista previa <b>(solo lectura)</b> de los cambios que se escribirían de vuelta al sistema: <b>vincular el WooCommerce ID</b> por SKU, pasar <b>reservas de agotados</b> de "permitir" a "notify", y reemplazar <b>links de imagen</b> que no son de kuranko por los de kuranko. Revisa aquí antes de aplicar; no se escribe nada hasta que confirmes.</div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
-          <button class="btn" onclick="verCambiosErp()">Ver cambios propuestos</button>
-        </div>
-        <div id="erp-wb-result" class="muted" style="margin-top:10px"></div>
-        <div id="erp-wb-panel" style="margin-top:10px"></div>
-      </div>
-        <div id="sync-result" class="muted" style="margin-top:10px"></div>
-      </div>
       <div class="card">
         <h3>Actualización completa manual</h3>
         <div class="desc">Normalmente el puente solo actualiza lo que cambió. Si necesitas forzar una revisión de <b>todos</b> los productos (por ejemplo, tras cambios masivos en el ERP), solicítala aquí. <b>No se ejecuta al instante:</b> se aplicará en la próxima sincronización automática de las 2 AM (hora Perú), para no sobrecargar la web. Igual valida que coincidan WooCommerce ID y SKU.</div>
@@ -1467,54 +1456,7 @@ async function exportarProductosSinId(){
     res.textContent='✓ Excel descargado.';
   }catch(e){res.textContent='';showToast(e.message,true);}
 }
-// ── Corregir datos en el ERP (vista en pantalla + aplicar seleccionados) ──
-let ERP_WB=null;
-async function verCambiosErp(){
-  const res=document.getElementById('erp-wb-result');
-  const panel=document.getElementById('erp-wb-panel');
-  res.textContent='Cargando cambios propuestos...'; panel.innerHTML='';
-  try{
-    const r=await fetch(API+'/admin/erp-writeback-preview',{headers:{'Authorization':'Bearer '+TOKEN}});
-    if(!r.ok){let m='No se pudo cargar';try{m=(await r.json()).error||m;}catch(e){}throw new Error(m);}
-    ERP_WB=await r.json();
-    renderErpWb();
-    res.textContent='';
-  }catch(e){res.textContent='';showToast(e.message,true);}
-}
-function erpEsc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
-function renderErpWb(){
-  const panel=document.getElementById('erp-wb-panel');
-  const d=ERP_WB||{};
-  const tabla=(titulo,filas,cols,tipo)=>{
-    if(!filas||!filas.length) return `<h4 style="margin-top:14px">${titulo} <span class="muted">(0)</span></h4><div class="muted" style="margin-bottom:6px">Sin cambios.</div>`;
-    let h=`<h4 style="margin-top:14px">${titulo} <span class="muted">(${filas.length})</span> <label style="font-size:12px;font-weight:normal;margin-left:8px"><input type="checkbox" onclick="erpTodos('${tipo}',this.checked)"> seleccionar todos</label></h4>`;
-    h+='<div style="overflow:auto;max-height:340px;border:1px solid var(--border,#ccc);border-radius:8px"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="position:sticky;top:0;background:#000726;color:#fff"><th style="padding:6px"></th>'+cols.map(c=>`<th style="padding:6px;text-align:left">${c.h}</th>`).join('')+'</tr></thead><tbody>';
-    filas.forEach((f,i)=>{ h+=`<tr style="border-top:1px solid var(--border,#eee)"><td style="padding:6px"><input type="checkbox" class="erp-chk-${tipo}" data-i="${i}"></td>`+cols.map(c=>`<td style="padding:6px;word-break:break-all">${erpEsc(f[c.k])}</td>`).join('')+'</tr>'; });
-    h+='</tbody></table></div>';
-    return h;
-  };
-  panel.innerHTML=
-    tabla('Vincular WooCommerce ID',d.vincularId,[{h:'SKU',k:'sku'},{h:'Tipo',k:'tipo'},{h:'ID nuevo',k:'nuevo'}],'id')+
-    tabla('Reservas → notify',d.reservas,[{h:'SKU',k:'sku'},{h:'Tipo',k:'tipo'},{h:'Antes',k:'antes'},{h:'Después',k:'despues'}],'back')+
-    tabla('Imágenes → kuranko',d.imagenes,[{h:'SKU',k:'sku'},{h:'Link actual',k:'actual'},{h:'Link kuranko',k:'nuevo'}],'img')+
-    `<div style="margin-top:14px"><button class="btn" onclick="aplicarCambiosErp()">Aplicar seleccionados al sistema</button></div>`;
-}
-function erpTodos(tipo,on){document.querySelectorAll('.erp-chk-'+tipo).forEach(c=>c.checked=on);}
-async function aplicarCambiosErp(){
-  const d=ERP_WB||{}; const sel=[];
-  const recoger=(tipo,arr)=>{document.querySelectorAll('.erp-chk-'+tipo+':checked').forEach(c=>{const f=(arr||[])[+c.dataset.i]; if(f) sel.push(Object.assign({},f,{tipo}));});};
-  recoger('id',d.vincularId); recoger('back',d.reservas); recoger('img',d.imagenes);
-  if(!sel.length){showToast('No seleccionaste ningún cambio',true);return;}
-  if(!confirm('¿Aplicar '+sel.length+' cambio(s) al sistema (ERP)? Esto escribe en la base del sistema.'))return;
-  const res=document.getElementById('erp-wb-result'); res.textContent='Aplicando '+sel.length+' cambio(s)...';
-  try{
-    const r=await fetch(API+'/admin/erp-writeback-aplicar',{method:'POST',headers:{'Authorization':'Bearer '+TOKEN,'Content-Type':'application/json'},body:JSON.stringify({cambios:sel})});
-    const j=await r.json(); if(!r.ok)throw new Error(j.error||'Error al aplicar');
-    res.textContent=`✓ Aplicados: ${j.aplicados}. Sin cambio: ${j.sin_cambio}. Errores: ${(j.errores||[]).length}.`;
-    showToast('Cambios aplicados: '+j.aplicados,false);
-    verCambiosErp();
-  }catch(e){res.textContent='';showToast(e.message,true);}
-}
+// "Corregir datos en el ERP" → public/auditoria.html (pestaña Corregir en el ERP)
 // ── Cola de SKUs específicos ──
 async function verColaSkus(){
   try{

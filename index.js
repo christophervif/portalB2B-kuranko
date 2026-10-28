@@ -354,7 +354,7 @@ let modPromos = null;
 
   // ── Módulo Auditoría de catálogo + chequeo de empresa en ventas ──
   //    Frontend propio en public/auditoria.html (iframe dentro del panel).
-  modAuditoria = require('./modulos/auditoria')({ app, authAdmin, requiereModulo, prodPool, portalPool });
+  modAuditoria = require('./modulos/auditoria')({ app, authAdmin, requiereModulo, prodPool, portalPool, erpWritePool });
   const rango = (desde, hasta, campo='s.created_at') =>
     desde && hasta ? `AND ${campo} BETWEEN '${desde}' AND '${hasta} 23:59:59'` : '';
 

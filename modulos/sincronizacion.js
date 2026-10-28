@@ -217,6 +217,43 @@ module.exports = function registrarSincronizacion({ app, authAdmin, requiereModu
       estiloHeader(ws5.getRow(3));
       ws5.views = [{ state: 'frozen', ySplit: 3 }];
 
+      // PESTAÑA 6: Sin imagen en la web (pero con imagen en el sistema) — la llena el puente
+      //  (fase de imágenes, tabla sync_imagenes_faltan). Simples y padres: se recalculan en cada
+      //  revisión; variaciones: cuando se revisa su padre (cada 7 días, o al pedir actualización completa).
+      let sinImg = [];
+      try {
+        const [r] = await portalPool.query(
+          `SELECT f.sku, f.woocommerce_id, f.padre_wc, f.nivel, f.imgs_erp, f.situacion, f.revisado_en
+             FROM sync_imagenes_faltan f ORDER BY f.nivel, f.sku`);
+        sinImg = r;
+      } catch (e) { /* el puente aún no creó la tabla */ }
+      const ws6 = wb.addWorksheet('Sin imagen en la web');
+      ws6.columns = [
+        { header: 'SKU', key: 'sku', width: 24 },
+        { header: 'WooCommerce ID', key: 'wc', width: 15 },
+        { header: 'ID del padre (web)', key: 'padre', width: 16 },
+        { header: 'Tipo', key: 'nivel', width: 11 },
+        { header: 'Imágenes en el sistema', key: 'n', width: 12 },
+        { header: 'Situación', key: 'sit', width: 70 },
+        { header: 'Revisado', key: 'rev', width: 18 }
+      ];
+      const NIVEL = { simple: 'Simple', padre: 'Variable', variacion: 'Variación' };
+      sinImg.forEach(r => ws6.addRow({
+        sku: r.sku, wc: r.woocommerce_id || '', padre: r.padre_wc || '', nivel: NIVEL[r.nivel] || r.nivel,
+        n: num(r.imgs_erp), sit: r.situacion || '',
+        rev: r.revisado_en ? new Date(r.revisado_en).toLocaleString('es-PE', { timeZone: 'America/Lima' }) : ''
+      }));
+      ponerEncabezado(ws6, 7);
+      const cuenta = n => sinImg.filter(r => r.nivel === n).length;
+      ws6.insertRow(3, [`${sinImg.length} SKU(s) sin imagen en la web pero con imagen en el sistema ` +
+        `(${cuenta('simple')} simples, ${cuenta('padre')} variables, ${cuenta('variacion')} variaciones). ` +
+        `Las variaciones se revisan por producto cada 7 días; con "Actualización completa" se revisan todas.`]);
+      ws6.mergeCells(3, 1, 3, 7);
+      ws6.getRow(3).font = { bold: true };
+      estiloHeader(ws6.getRow(4));
+      ws6.views = [{ state: 'frozen', ySplit: 4 }];
+      ws6.autoFilter = { from: { row: 4, column: 1 }, to: { row: Math.max(4, ws6.rowCount), column: 7 } };
+
       const fecha = new Date().toISOString().slice(0, 10);
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename="reporte_sync_${fecha}.xlsx"`);

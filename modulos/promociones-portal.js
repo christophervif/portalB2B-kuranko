@@ -140,7 +140,7 @@ function crearEnVivo() {
 
 // Arma el correo y el mensaje de WhatsApp de una solicitud (puro, se prueba)
 //  items: [{sku, nombre, cantidad, precio, tu_precio}]; conTuPrecio: portal (true) o link (false)
-function armarSolicitud({ tienda, ruc, vendedor, telefono, origen, items, conTuPrecio, fecha, numero, hasta }) {
+function armarSolicitud({ tienda, ruc, vendedor, telefono, origen, items, conTuPrecio, fecha, numero, hasta, nota }) {
   const total = items.reduce((a, i) => a + i.cantidad * (conTuPrecio ? i.tu_precio : i.precio), 0);
   const quien = origen === 'link' ? `Vendedor: ${vendedor}${telefono ? ' · ' + telefono : ''} (link de la tienda)` : 'Desde el portal de la tienda';
   const filas = items.map((i, k) => `<tr>
@@ -160,10 +160,11 @@ function armarSolicitud({ tienda, ruc, vendedor, telefono, origen, items, conTuP
         <th style="padding:6px 10px">Cant.</th><th style="padding:6px 10px;text-align:right">PVP oferta</th>${conTuPrecio ? '<th style="padding:6px 10px;text-align:right">Precio taller oferta</th>' : ''}
       </tr></thead><tbody>${filas}</tbody></table>
     <p style="margin-top:10px"><b>Total ${conTuPrecio ? 'a precio taller' : 'a PVP oferta'}: ${S(total)}</b></p>
+    ${nota ? `<p style="background:#fef3c7;padding:8px 12px;border-radius:6px">Nota: ${esc(nota)}</p>` : ''}
     ${hasta ? `<p style="background:#eef2ff;padding:8px 12px;border-radius:6px"><b>Unidades reservadas hasta el ${esc(hasta)}.</b> Para concretarla, registra la venta en el sistema a ${esc(ruc ? 'RUC ' + ruc : 'la cuenta de la tienda')} con estos SKU antes de esa fecha; si no, la reserva se libera.</p>` : ''}
     <p style="color:#666;font-size:12px">Los precios de promoción valen mientras dure el stock en oferta.</p></div>`;
   const lineas = items.map((i, k) => `${k + 1}. [${i.sku}] ${i.nombre} × ${i.cantidad} — ${S(conTuPrecio ? i.tu_precio : i.precio)}${i.liquidacion ? ' (liquidación)' : ''}`);
-  const texto = `*Solicitud de promoción${numero ? ' N° ' + numero : ''}*\n${tienda}${ruc ? ' · RUC ' + ruc : ''}\n${quien}\n\n${lineas.join('\n')}\n\nTotal ${conTuPrecio ? 'precio taller' : 'PVP oferta'}: ${S(total)}${hasta ? `\nReservado hasta: ${hasta}` : ''}`;
+  const texto = `*Solicitud de promoción${numero ? ' N° ' + numero : ''}*\n${tienda}${ruc ? ' · RUC ' + ruc : ''}\n${quien}\n\n${lineas.join('\n')}\n\nTotal ${conTuPrecio ? 'precio taller' : 'PVP oferta'}: ${S(total)}${nota ? `\nNota: ${nota}` : ''}${hasta ? `\nReservado hasta: ${hasta}` : ''}`;
   return { html, texto, total: Math.round(total * 100) / 100, whatsapp: `https://wa.me/${WHATSAPP}?text=${encodeURIComponent(texto)}` };
 }
 
@@ -183,6 +184,7 @@ module.exports = function registrarPromosPortal({ app, authAdmin, mInv, authClie
       id INT AUTO_INCREMENT PRIMARY KEY, origen VARCHAR(8), portal_user_id INT, link_id INT NULL, tienda VARCHAR(200),
       vendedor VARCHAR(120), telefono VARCHAR(40), items MEDIUMTEXT, total DECIMAL(12,2), correo_ok TINYINT DEFAULT 0,
       creado_en DATETIME DEFAULT CURRENT_TIMESTAMP, INDEX (creado_en))`);
+    try { await portalPool.query('ALTER TABLE promo_solicitudes ADD COLUMN nota VARCHAR(1000) NULL'); } catch (e) { /* ya existe */ }
     await portalPool.query(`CREATE TABLE IF NOT EXISTS promo_reservas (
       id INT AUTO_INCREMENT PRIMARY KEY, solicitud_id INT NOT NULL, portal_user_id INT, link_id INT NULL,
       ids_cliente VARCHAR(400), vid INT NOT NULL, sku VARCHAR(120), nombre VARCHAR(300),
@@ -272,12 +274,14 @@ module.exports = function registrarPromosPortal({ app, authAdmin, mInv, authClie
     });
   }
 
-  async function enviarSolicitud({ tienda, origen, vendedor, telefono, pedido, linkId }) {
+  async function enviarSolicitud({ tienda, origen, vendedor, telefono, pedido, linkId, nota }) {
+    nota = String(nota || '').replace(/\s+/g, ' ').trim().slice(0, 1000);
     const rv = await reservar({ tienda, origen, vendedor, telefono, pedido, linkId });
+    if (nota) portalPool.query('UPDATE promo_solicitudes SET nota=? WHERE id=?', [nota, rv.numero]).catch(() => {});
     const conTuPrecio = origen === 'portal';
     const fecha = new Date().toLocaleString('es-PE', { timeZone: 'America/Lima' });
     const hasta = rv.hasta.toLocaleString('es-PE', { timeZone: 'America/Lima', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
-    const s = armarSolicitud({ tienda: tienda.nombre, ruc: tienda.ruc, vendedor, telefono, origen, items: rv.items, conTuPrecio, fecha, numero: rv.numero, hasta });
+    const s = armarSolicitud({ tienda: tienda.nombre, ruc: tienda.ruc, vendedor, telefono, origen, items: rv.items, conTuPrecio, fecha, numero: rv.numero, hasta, nota });
     let correoOk = false;
     if (process.env.RESEND_API_KEY) {
       try {
@@ -383,7 +387,7 @@ module.exports = function registrarPromosPortal({ app, authAdmin, mInv, authClie
     try {
       const pid = req.cliente.portal_user_id;
       if (!puedeEnviar('u' + pid)) return res.status(429).json({ error: 'Demasiadas solicitudes seguidas. Escríbenos por WhatsApp.' });
-      res.json(await enviarSolicitud({ tienda: await tiendaDeReq(req), origen: 'portal', pedido: req.body && req.body.items }));
+      res.json(await enviarSolicitud({ tienda: await tiendaDeReq(req), origen: 'portal', pedido: req.body && req.body.items, nota: req.body && req.body.nota }));
     } catch (e) { fallo(res, e, 'No se pudo enviar la solicitud'); }
   });
 
@@ -443,7 +447,7 @@ module.exports = function registrarPromosPortal({ app, authAdmin, mInv, authClie
       const vendedor = String((req.body && req.body.vendedor) || '').trim(), tel = String((req.body && req.body.telefono) || '').trim();
       if (vendedor.length < 2) return res.status(400).json({ error: 'Escribe tu nombre' });
       if (!puedeEnviar('l' + e.l.id)) return res.status(429).json({ error: 'Demasiadas solicitudes seguidas. Escríbenos por WhatsApp.' });
-      res.json(await enviarSolicitud({ tienda: e.tienda, origen: 'link', vendedor, telefono: tel, pedido: req.body.items, linkId: e.l.id }));
+      res.json(await enviarSolicitud({ tienda: e.tienda, origen: 'link', vendedor, telefono: tel, pedido: req.body.items, linkId: e.l.id, nota: req.body.nota }));
     } catch (err) { fallo(res, err, 'No se pudo enviar la solicitud'); }
   });
 

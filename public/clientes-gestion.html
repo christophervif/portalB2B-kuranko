@@ -133,7 +133,7 @@ details.ayuda ul{margin:6px 0 0 18px;line-height:1.6}
 
     <!-- ══════════ CATÁLOGO B2B ══════════ -->
     <div id="v-catalogo" style="display:none">
-      <div class="desc" style="margin-top:10px">Catálogo que ven las tiendas en su portal (foto, marca, SKU, nombre, PVP y su precio). <b>Todo empieza deshabilitado</b>: habilita marcas y ponles su % de descuento estándar; dentro de cada marca puedes dar otro % a categorías, subcategorías o etiquetas. El % siempre se calcula desde el PVP. Es una sola lista para todas las tiendas.</div>
+      <div class="desc" style="margin-top:10px">Catálogo que ven las tiendas en su portal (foto, marca, SKU, nombre, PVP y su precio). <b>Todo empieza deshabilitado</b>: habilita marcas y ponles su % de descuento estándar; dentro de cada marca puedes dar otro % a categorías, subcategorías o etiquetas. El % siempre se calcula desde el PVP. Los % son una sola lista, pero <b>cada tienda ve solo las marcas que le actives</b> (en su ficha o con el botón "Tiendas"); en la ficha de cada tienda puedes cambiar, para esa tienda, cada % del general (estándar, etiquetas y categorías).</div>
       <div class="fila">
         <label class="desc" style="display:inline-flex;gap:6px;align-items:center">WhatsApp B2B <input class="inp" id="cat-wa" placeholder="51987654321" style="width:150px"></label>
         <label class="desc" style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" id="cat-stock"> Mostrar solo productos con stock</label>
@@ -716,6 +716,7 @@ function abrirDetalle(id) {
       <div class="desc" style="margin-top:6px">En Promociones, su “tu precio oferta” usa el descuento a tiendas de cada marca; si es <b>mecánico</b>, 5 puntos menos (ej. tiendas 20 % → mecánico 15 %).</div>
       <div id="det-link" style="margin-top:10px"></div>
     </div>
+    <div class="bloque"><h4>Catálogo B2B: marcas que ve esta tienda</h4><div id="ficha-cat"><div class="desc">Cargando…</div></div></div>
     <div class="bloque"><h4>Acceso</h4><div class="fila" style="margin-top:0">
       ${u.activo ? `<button class="btn btn-sm btn-ok" onclick="verComo(${u.id})">Ver como cliente</button>` : ''}
       <button class="btn btn-sm btn-sec" onclick="resetClave(${u.id})">Resetear clave al RUC</button>
@@ -726,7 +727,53 @@ function abrirDetalle(id) {
   combo('cb-loc', 'Buscar consignación para agregar…', () => itemsLocs().filter(x => x.id !== '' && !u.consignaciones.some(c => c.id == x.id)));
   $('m-det').classList.add('show');
   pintarLinkPromo(u.id);
+  pintarFichaCat(u.id);
   cargarEmpresas().catch(() => {});
+}
+// Ficha → marcas del catálogo para esta tienda (activar a mano + % propio opcional)
+let FICHA_MARCAS = [];
+async function pintarFichaCat(uid) {
+  const box = $('ficha-cat'); if (!box) return;
+  try {
+    const r = await api('/api/catalogo-b2b/tienda/' + uid);
+    if (DET_ID !== uid || !$('ficha-cat')) return;
+    FICHA_MARCAS = r.marcas;
+    if (!r.marcas.length) { box.innerHTML = '<div class="desc">No hay marcas habilitadas en el catálogo. Habilítalas primero en la vista Catálogo.</div>'; return; }
+    box.innerHTML = `<div class="desc" style="margin-bottom:6px">La tienda solo ve las marcas que actives aquí (y que estén habilitadas en el catálogo). Para cada % del catálogo general (el estándar y cada ajuste por etiqueta o categoría) puedes poner el <b>% de esta tienda</b>. Vacío = usa el general.</div>` +
+      r.marcas.map((m, n) => `<div class="ruc-row" style="display:block"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center">
+          <div><label style="display:inline-flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" ${m.activa ? 'checked' : ''} onchange="activarMarcaTienda(${uid},FICHA_MARCAS[${n}].marca,this.checked)"> <span class="nom" style="color:var(--white)">${esc(m.marca)}</span></label>
+          <div class="sub">${m.habilitada ? `${m.productos} con PVP` : '<span style="color:var(--fg-warn)">deshabilitada en el catálogo: no se ve</span>'}</div></div>
+          <div class="acc" style="align-items:center"><span class="desc">Estándar · general ${m.descuento}% · tienda</span>${inpTienda(uid, n, null, m.descuento_tienda, m.descuento, m.activa)}</div></div>
+        ${m.reglas.map((g, k) => `<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center;margin:6px 0 0 26px;padding-top:6px;border-top:1px dashed var(--border)">
+          <div class="sub">${g.tipo === 'tag' ? '🏷️' : '📁'} <b style="color:var(--text2)">${esc(g.nombre)}</b> <span style="display:inline">· ${g.nivel}</span></div>
+          <div class="acc" style="align-items:center"><span class="desc">general ${g.general}% · tienda</span>${inpTienda(uid, n, k, g.tienda, g.general, m.activa)}</div></div>`).join('')}
+        </div>`).join('') +
+      `<div class="fila" style="margin-top:6px"><span class="desc">${r.activas} marca(s) visibles para esta tienda · los campos con borde amarillo tienen % propio</span><button class="btn btn-sm btn-sec" onclick="vistaPreviaCat(${uid})">Ver su catálogo</button></div>`;
+  } catch (e) { box.innerHTML = '<div class="desc">' + esc(e.message) + '</div>'; }
+}
+// Campo "% de esta tienda": k = null → estándar de la marca; k = índice de la regla general
+function inpTienda(uid, n, k, valor, general, activa) {
+  return `<input class="inp" type="number" min="0" max="95" step="0.5" value="${valor != null ? valor : ''}" placeholder="${general}" ${activa ? '' : 'disabled title="Activa primero la marca"'}
+    style="width:80px;text-align:right${valor != null ? ';border-color:var(--accent)' : ''}" onchange="${k == null ? `descuentoTienda(${uid},FICHA_MARCAS[${n}].marca,this.value)` : `ajusteTienda(${uid},${n},${k},this.value)`}">`;
+}
+async function ajusteTienda(uid, n, k, valor) {
+  const m = FICHA_MARCAS[n], g = m.reglas[k];
+  const vacio = String(valor).trim() === '';
+  if (!vacio && !(Number(valor) >= 0 && Number(valor) <= 95)) return showToast('El % debe estar entre 0 y 95', true);
+  try {
+    await api('/api/catalogo-b2b/tienda-ajuste', null, 'PUT', { portal_user_id: uid, marca: m.marca, tipo: g.tipo, ref_id: g.ref_id, descuento: vacio ? null : Number(valor) });
+    showToast(vacio ? `${g.nombre}: usa el general (${g.general}%) ✓` : `${g.nombre}: ${valor}% para esta tienda ✓`); pintarFichaCat(uid);
+  } catch (e) { showToast(e.message, true); }
+}
+async function activarMarcaTienda(uid, marca, activa) {
+  try { await api('/api/catalogo-b2b/tienda', null, 'PUT', { portal_user_id: uid, marca, activa }); showToast(`${marca} ${activa ? 'activada' : 'desactivada'} para esta tienda ✓`); pintarFichaCat(uid); if (CAT) cargarCatalogo(); }
+  catch (e) { showToast(e.message, true); }
+}
+async function descuentoTienda(uid, marca, valor) {
+  const vacio = String(valor).trim() === '';
+  if (!vacio && !(Number(valor) >= 0 && Number(valor) <= 95)) return showToast('El % debe estar entre 0 y 95', true);
+  try { await api('/api/catalogo-b2b/tienda-descuento', null, 'PUT', { portal_user_id: uid, marca, descuento: vacio ? null : Number(valor) }); showToast(vacio ? `${marca}: estándar general ✓` : `${marca}: estándar ${valor}% para esta tienda ✓`); if (DET_ID === uid) pintarFichaCat(uid); }
+  catch (e) { showToast(e.message, true); }
 }
 // mini-modal reutilizando el contenedor de la ficha (elegir de una lista)
 function abrirMini(titulo, desc, fuente, onPick, remoto) {
@@ -1013,16 +1060,31 @@ function pintarCatalogo() {
   $('conteo-cat').innerHTML = `${l.length} marcas · <b>${CAT.habilitadas}</b> habilitadas · <b>${N(vis)}</b> productos visibles para las tiendas` +
     (CAT.marca_detectada === 'primera_palabra' ? ' · <span style="color:var(--fg-warn)">el ERP no tiene campo de marca: se usa la primera palabra del nombre del producto</span>' : '');
   if (!l.length) { $('tbl-cat').innerHTML = '<tr><td class="vacio">Sin marcas con ese filtro.</td></tr>'; return; }
-  $('tbl-cat').innerHTML = `<thead><tr><th>Marca</th><th style="text-align:right">Productos</th><th style="text-align:right">Visibles</th><th>Habilitada</th><th>% estándar</th><th>Por categoría / etiqueta</th></tr></thead><tbody>` +
+  $('tbl-cat').innerHTML = `<thead><tr><th>Marca</th><th style="text-align:right">Productos</th><th style="text-align:right">Visibles</th><th>Habilitada</th><th>% estándar</th><th>Tiendas</th><th>Por categoría / etiqueta</th></tr></thead><tbody>` +
     l.map(m => {
       const i = CAT.marcas.indexOf(m);
-      return `<tr class="${m.habilitada ? '' : 'inact'}"><td><div class="nom">${esc(m.marca)}</div></td>
+      return `<tr class="${m.habilitada ? '' : 'inact'}"><td><div class="nom">${esc(m.marca)}</div>
+        <input class="inp" maxlength="300" value="${esc(m.mensaje)}" placeholder="Mensaje para tiendas (ej. Precios no incluyen IGV)" title="Se muestra a la tienda junto a los productos de esta marca y en la solicitud de pedido"
+          style="margin-top:6px;width:100%;min-width:220px;font-size:12px;padding:6px 8px${m.mensaje ? ';border-color:var(--accent)' : ''}" onchange="mensajeMarca(${i},this.value)">
+        <select class="inp" style="margin-top:6px;font-size:12px;padding:5px 8px${m.igv ? ';border-color:var(--accent)' : ''}" title="Se muestra junto a cada precio de esta marca" onchange="igvMarca(${i},this.value)">
+          <option value="" ${!m.igv ? 'selected' : ''}>IGV: no indicar</option><option value="inc" ${m.igv === 'inc' ? 'selected' : ''}>Precios incluyen IGV</option><option value="mas" ${m.igv === 'mas' ? 'selected' : ''}>Precios NO incluyen IGV (+ IGV)</option></select></td>
       <td style="text-align:right">${N(m.productos)}<div class="sub">${N(m.con_precio)} con PVP · ${N(m.con_stock)} con stock</div></td>
       <td style="text-align:right">${m.habilitada ? '<b>' + N(m.visibles) + '</b>' : N(m.visibles)}</td>
       <td><label style="display:inline-flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" ${m.habilitada ? 'checked' : ''} onchange="guardarMarcaCat(${i},{habilitada:this.checked})"> ${m.habilitada ? '<span class="chip c-ok">Sí</span>' : '<span class="chip c-g">No</span>'}</label></td>
       <td style="white-space:nowrap"><input class="inp" type="number" min="0" max="95" step="0.5" value="${m.descuento}" style="width:80px;text-align:right" onchange="guardarMarcaCat(${i},{descuento:this.value})"> %</td>
+      <td><button class="btn btn-sm btn-sec" onclick="tiendasMarca(${i})">${m.tiendas ? m.tiendas + ' tienda' + (m.tiendas > 1 ? 's' : '') : 'Ninguna'}</button></td>
       <td><button class="btn btn-sm btn-sec" onclick="abrirCatsMarca(${i})" ${m.categorias.length || m.etiquetas.length ? '' : 'disabled title="Sin categorías ni etiquetas en el ERP"'}>${m.etiquetas.length ? 'Categorías / etiquetas' : 'Categorías'}${m.ajustes ? ` <span class="chip c-v">${m.ajustes} ajuste${m.ajustes > 1 ? 's' : ''}</span>` : ''}</button></td></tr>`;
     }).join('') + '</tbody>';
+}
+async function igvMarca(i, igv) {
+  const m = CAT.marcas[i];
+  try { const r = await api('/api/catalogo-b2b/marca-igv', null, 'PUT', { marca: m.marca, igv }); m.igv = r.igv; showToast(`${m.marca}: ${r.igv === 'inc' ? 'precios incluyen IGV' : r.igv === 'mas' ? 'precios + IGV' : 'IGV sin indicar'} ✓`); pintarCatalogo(); }
+  catch (e) { showToast(e.message, true); }
+}
+async function mensajeMarca(i, texto) {
+  const m = CAT.marcas[i];
+  try { const r = await api('/api/catalogo-b2b/marca-mensaje', null, 'PUT', { marca: m.marca, mensaje: texto }); m.mensaje = r.mensaje; showToast(r.mensaje ? `${m.marca}: mensaje guardado ✓` : `${m.marca}: sin mensaje ✓`); pintarCatalogo(); }
+  catch (e) { showToast(e.message, true); }
 }
 async function guardarMarcaCat(i, cambio) {
   const m = CAT.marcas[i];
@@ -1068,6 +1130,29 @@ async function guardarAjusteCat(i, catId, valor) {
     abrirCatsMarca(i); pintarCatalogo();
   } catch (e) { showToast(e.message, true); }
 }
+// Tiendas que ven una marca (activar varias a la vez, % propio por tienda)
+async function tiendasMarca(i) {
+  const m = CAT.marcas[i];
+  DET_ID = null;
+  try {
+    const l = await api('/api/catalogo-b2b/marca-tiendas?marca=' + encodeURIComponent(m.marca));
+    $('det').innerHTML = `<button class="x" onclick="cerrar('m-det')">×</button><h3>${esc(m.marca)} · tiendas que la ven</h3>
+      <div class="desc" style="margin-top:4px">General: ${m.descuento}%${m.ajustes ? ' + ajustes por categoría/etiqueta' : ''}${m.habilitada ? '' : ' · <span style="color:var(--fg-warn)">la marca está deshabilitada: no la ve nadie</span>'}. Aquí solo se cambia el % estándar de cada tienda; los % por etiqueta o categoría de cada tienda se cambian en su ficha.</div>
+      <div class="fila"><button class="btn btn-sm btn-sec" onclick="marcaTodas(${i},true)">Activar para todas</button><button class="btn btn-sm btn-sec" onclick="marcaTodas(${i},false)">Quitar a todas</button></div>
+      <div class="bloque">${l.map(t => `<div class="ruc-row"><label style="display:inline-flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" ${t.activa ? 'checked' : ''} onchange="activarMarcaTienda(${t.id},CAT.marcas[${i}].marca,this.checked).then(()=>tiendasMarca(${i}))"> <span><span class="nom" style="color:var(--white)">${esc(t.nombre_cliente)}</span> <span class="mono">${esc(t.username)}</span></span></label>
+        <div class="acc" style="align-items:center"><span class="desc">% estándar tienda</span><input class="inp" type="number" min="0" max="95" step="0.5" value="${t.descuento_tienda != null ? t.descuento_tienda : ''}" placeholder="general" ${t.activa ? '' : 'disabled'} style="width:86px;text-align:right" onchange="descuentoTienda(${t.id},CAT.marcas[${i}].marca,this.value)"></div></div>`).join('') || '<div class="desc">No hay accesos activos.</div>'}</div>`;
+    $('m-det').classList.add('show');
+  } catch (e) { showToast(e.message, true); }
+}
+async function marcaTodas(i, activa) {
+  const m = CAT.marcas[i];
+  if (!confirm(`¿${activa ? 'Activar' : 'Quitar'} ${m.marca} ${activa ? 'para' : 'a'} todas las tiendas con acceso activo?`)) return;
+  try {
+    const l = await api('/api/catalogo-b2b/marca-tiendas?marca=' + encodeURIComponent(m.marca));
+    if (l.length) await api('/api/catalogo-b2b/tienda', null, 'PUT', { portal_user_ids: l.map(t => t.id), marca: m.marca, activa });
+    showToast('Listo ✓'); await cargarCatalogo(); tiendasMarca(CAT.marcas.findIndex(x => x.marca === m.marca));
+  } catch (e) { showToast(e.message, true); }
+}
 async function guardarAjusteTag(i, tagId, valor) {
   const m = CAT.marcas[i];
   const vacio = String(valor).trim() === '';
@@ -1086,18 +1171,20 @@ async function guardarCfgCat() {
     CAT.cfg = r.cfg; showToast('Guardado ✓'); cargarCatalogo();
   } catch (e) { showToast(e.message, true); }
 }
-async function vistaPreviaCat() {
+async function vistaPreviaCat(uid) {
+  const u = uid ? usuario(uid) : null;
   DET_ID = null;
   $('det').innerHTML = '<button class="x" onclick="cerrar(\'m-det\')">×</button><h3>Lo que ven las tiendas</h3><div class="desc">Cargando…</div>';
   $('m-det').classList.add('show');
   try {
-    const r = await api('/api/catalogo-b2b/vista-previa');
-    const ORI = { marca: 'estándar', categoria: 'categoría', subcategoria: 'subcategoría', etiqueta: 'etiqueta' };
-    $('det').innerHTML = `<button class="x" onclick="cerrar('m-det')">×</button><h3>Lo que ven las tiendas · ${N(r.total)} productos</h3>
+    const r = await api('/api/catalogo-b2b/vista-previa' + (uid ? '?portal_user_id=' + uid : ''));
+    const ORI = { marca: 'estándar', categoria: 'categoría', subcategoria: 'subcategoría', etiqueta: 'etiqueta', tienda: '% de la tienda' };
+    $('det').innerHTML = `<button class="x" onclick="cerrar('m-det')">×</button><h3>${u ? 'Catálogo de ' + esc(u.nombre_cliente) : 'Todas las marcas habilitadas'} · ${N(r.total)} productos</h3>
+      ${u ? `<div class="fila" style="margin-top:4px"><button class="btn btn-sm btn-sec" onclick="abrirDetalle(${uid})">← Volver a la ficha</button></div>` : '<div class="desc" style="margin-top:4px">Cada tienda ve solo las marcas que le activas en su ficha (o con el botón "Tiendas" de cada marca).</div>'}
       <div class="desc" style="margin-top:4px">La tienda solo ve marca, SKU, nombre, PVP y su precio. El % y su origen se muestran aquí solo para ti.${r.total > r.items.length ? ' Se muestran los primeros ' + r.items.length + '.' : ''}</div>
       <div class="tabla-wrap" style="max-height:60vh"><table><thead><tr><th></th><th>Marca</th><th>SKU</th><th>Nombre</th><th style="text-align:right">PVP</th><th style="text-align:right">Precio tienda</th><th style="text-align:right">%</th></tr></thead><tbody>` +
-      (r.items.map(x => `<tr><td>${x.imagen ? `<img src="${esc(x.imagen)}" alt="" loading="lazy" style="width:36px;height:36px;object-fit:contain;background:#fff;border-radius:6px">` : ''}</td><td>${esc(x.marca)}</td><td class="mono">${esc(x.sku)}</td><td>${esc(x.nombre)}</td><td style="text-align:right">S/ ${x.pvp.toFixed(2)}</td><td style="text-align:right"><b>S/ ${x.precio.toFixed(2)}</b></td><td style="text-align:right">${x.descuento}%<div class="sub">${ORI[x.origen]}</div></td></tr>`).join('') ||
-        '<tr><td colspan="7" class="vacio">Nada visible todavía: habilita al menos una marca.</td></tr>') + '</tbody></table></div>';
+      (r.items.map(x => `<tr><td>${x.imagen ? `<img src="${esc(x.imagen)}" alt="" loading="lazy" style="width:36px;height:36px;object-fit:contain;background:#fff;border-radius:6px">` : ''}</td><td>${esc(x.marca)}</td><td class="mono">${esc(x.sku)}</td><td>${esc(x.nombre)}</td><td style="text-align:right">S/ ${x.pvp.toFixed(2)}</td><td style="text-align:right"><b>S/ ${x.precio.toFixed(2)}</b>${x.igv === 'inc' ? '<div class="sub">inc. IGV</div>' : x.igv === 'mas' ? '<div class="sub">+ IGV</div>' : ''}</td><td style="text-align:right">${x.descuento}%<div class="sub">${ORI[x.origen]}</div></td></tr>`).join('') ||
+        (uid ? '<tr><td colspan="7" class="vacio">Esta tienda no ve nada: activa marcas en su ficha.</td></tr>' : '<tr><td colspan="7" class="vacio">Nada visible todavía: habilita al menos una marca.</td></tr>')) + '</tbody></table></div>';
   } catch (e) { showToast(e.message, true); }
 }
 async function pedidosCat() {

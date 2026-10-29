@@ -102,7 +102,7 @@ async function cargar() {
   if (!d.items.length) { $('lista').innerHTML = '<div class="desc" style="padding:20px;text-align:center">Por ahora no hay promociones vigentes. Vuelve pronto.</div>'; }
   else LISTA = OfertasLista.montar($('lista'), {
     modo: 'link', datos: d,
-    enviar: items => { const v = vendedor(); return api('/solicitud', 'POST', { items, vendedor: v.nombre, telefono: v.tel }); },
+    enviar: (items, nota) => { const v = vendedor(); return api('/solicitud', 'POST', { items, nota, vendedor: v.nombre, telefono: v.tel }); },
     recargar: () => api('', 'GET'),
     solicitudes: () => api('/mis-solicitudes', 'GET')
   });

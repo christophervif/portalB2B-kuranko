@@ -18,14 +18,21 @@
 //     producto o la variación). Si el ERP no tiene etiquetas, la opción no aparece.
 //   · Los pedidos que hace la tienda son SOLICITUDES: no quedan confirmados hasta que
 //     Kuranko los registra en el sistema (puede haber cambios de stock o precio).
-//   · Una sola lista para todas las tiendas con acceso al portal.
+//   · Precios y % son una sola lista para todas las tiendas, pero cada tienda ve
+//     SOLO las marcas que se le activan a mano en su ficha (todo empieza apagado).
+//     Una marca se ve si está habilitada en general Y activada para esa tienda.
+//   · % por tienda (opcional), regla por regla: en la ficha de la tienda aparece cada
+//     % que existe en el general de esa marca (el estándar y cada ajuste por
+//     categoría, subcategoría o etiqueta) y a cada uno se le puede poner el valor de
+//     esa tienda. Vacío = usa el general. La prioridad entre reglas no cambia.
 //   · Por defecto solo se muestran productos con stock propio (se puede cambiar).
 //
 //  Marca: se detecta sola en el ERP (products.brand_id → brands.name, o
 //  products.brand / marca). Si el ERP no tiene marca, se usa la primera palabra
 //  del nombre del producto (igual que Restock).
 //
-//  Tablas (base del PORTAL): cat_b2b_marcas, cat_b2b_ajustes (categorías),
+//  Tablas (base del PORTAL): cat_b2b_marcas, cat_b2b_tienda_marcas (marcas por tienda),
+//  cat_b2b_ajustes (categorías),
 //  cat_b2b_ajustes_tag (etiquetas), cat_b2b_cfg, cat_b2b_pedidos.
 //  Permiso admin: clientes_gestion.
 // ═══════════════════════════════════════════════════════════════════════════
@@ -87,6 +94,17 @@ module.exports = function registrarCatalogoCliente({ app, authAdmin, requiereMod
       marca VARCHAR(120) NOT NULL, etiqueta_id BIGINT NOT NULL, descuento DECIMAL(5,2) NOT NULL,
       actualizado_por VARCHAR(80) NOT NULL DEFAULT '', actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (marca, etiqueta_id))`);
+    await portalPool.query(`CREATE TABLE IF NOT EXISTS cat_b2b_tienda_marcas (
+      portal_user_id INT NOT NULL, marca VARCHAR(120) NOT NULL, descuento DECIMAL(5,2) NULL,
+      activado_por VARCHAR(80) NOT NULL DEFAULT '', activado_en DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (portal_user_id, marca), KEY ix_marca (marca))`);
+    try { await portalPool.query('ALTER TABLE cat_b2b_tienda_marcas ADD COLUMN descuento DECIMAL(5,2) NULL'); } catch (e) { /* ya existe */ }
+    // % de una tienda para un ajuste general concreto (tipo 'cat' = categoría/subcategoría, 'tag' = etiqueta)
+    await portalPool.query(`CREATE TABLE IF NOT EXISTS cat_b2b_tienda_ajustes (
+      portal_user_id INT NOT NULL, marca VARCHAR(120) NOT NULL, tipo VARCHAR(3) NOT NULL, ref_id BIGINT NOT NULL,
+      descuento DECIMAL(5,2) NOT NULL, actualizado_por VARCHAR(80) NOT NULL DEFAULT '',
+      actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (portal_user_id, marca, tipo, ref_id))`);
     await portalPool.query(`CREATE TABLE IF NOT EXISTS cat_b2b_cfg (clave VARCHAR(40) PRIMARY KEY, valor VARCHAR(255) NOT NULL DEFAULT '')`);
     await portalPool.query(`CREATE TABLE IF NOT EXISTS cat_b2b_pedidos (
       id INT AUTO_INCREMENT PRIMARY KEY, portal_user_id INT NOT NULL, cliente VARCHAR(255) NOT NULL DEFAULT '',
@@ -227,11 +245,43 @@ module.exports = function registrarCatalogoCliente({ app, authAdmin, requiereMod
     try { return await _cargando; } finally { _cargando = null; }
   }
 
-  // Catálogo tal como lo ve la tienda
-  async function catalogoCliente() {
-    const [{ lista }, reglas, cfg] = await Promise.all([productos(), leerReglas(), leerCfg()]);
+  // Marcas activadas para una tienda (acceso al portal)
+  async function marcasDeTienda(portalUserId) {
+    await prepararTablas();
+    const [rows] = await portalPool.query('SELECT marca, descuento FROM cat_b2b_tienda_marcas WHERE portal_user_id=?', [portalUserId]);
+    return new Map(rows.map(r => [r.marca, r.descuento == null ? null : Number(r.descuento)]));
+  }
+  async function ajustesDeTienda(portalUserId) {
+    await prepararTablas();
+    const [rows] = await portalPool.query('SELECT marca, tipo, ref_id, descuento FROM cat_b2b_tienda_ajustes WHERE portal_user_id=?', [portalUserId]);
+    return new Map(rows.map(r => [`${r.tipo}|${r.marca}|${r.ref_id}`, Number(r.descuento)]));
+  }
+  // Reglas efectivas de una tienda: las generales con los % de la tienda encima,
+  // solo donde la regla existe en el general (estándar de marca y cada ajuste).
+  function reglasDeTienda(reglas, deTienda, ajTienda) {
+    const marcas = new Map();
+    reglas.marcas.forEach((r, m) => {
+      const propio = deTienda.has(m) ? deTienda.get(m) : null;
+      marcas.set(m, propio != null ? { ...r, descuento: propio } : r);
+    });
+    const sobre = (mapa, tipo) => {
+      const out = new Map();
+      mapa.forEach((v, k) => { const t = ajTienda.get(tipo + '|' + k); out.set(k, t != null ? t : v); });
+      return out;
+    };
+    return { marcas, ajustes: sobre(reglas.ajustes, 'cat'), ajustesTag: sobre(reglas.ajustesTag, 'tag') };
+  }
+
+  // Catálogo tal como lo ve la tienda. portalUserId = null → todas las marcas habilitadas
+  // (vista general del panel); con un id → solo las marcas activadas para esa tienda.
+  async function catalogoCliente(portalUserId) {
+    const [{ lista }, reglasGen, cfg, deTienda, ajTienda] = await Promise.all([productos(), leerReglas(), leerCfg(),
+      portalUserId != null ? marcasDeTienda(portalUserId) : Promise.resolve(null),
+      portalUserId != null ? ajustesDeTienda(portalUserId) : Promise.resolve(null)]);
+    const reglas = deTienda ? reglasDeTienda(reglasGen, deTienda, ajTienda) : reglasGen;
     const out = [];
     for (const p of lista) {
+      if (deTienda && !deTienda.has(p.marca)) continue;
       if (!(p.pvp > 0)) continue;
       if (cfg.solo_stock && p.stock != null && p.stock <= 0) continue;
       const d = descuentoDe(p, reglas.marcas, reglas.ajustes, reglas.ajustesTag);
@@ -285,6 +335,10 @@ module.exports = function registrarCatalogoCliente({ app, authAdmin, requiereMod
           })).sort((a, b) => b.n - a.n)
         };
       }).sort((a, b) => (b.habilitada - a.habilitada) || b.productos - a.productos);
+      const [tm] = await portalPool.query(`SELECT t.marca, COUNT(*) AS n FROM cat_b2b_tienda_marcas t
+        JOIN portal_users u ON u.id = t.portal_user_id AND u.activo = 1 GROUP BY t.marca`);
+      const tiendasDe = new Map(tm.map(r => [r.marca, Number(r.n)]));
+      marcas.forEach(m => { m.tiendas = tiendasDe.get(m.marca) || 0; });
       const [[pend]] = await portalPool.query('SELECT COUNT(*) AS n FROM cat_b2b_pedidos WHERE creado_en >= DATE_SUB(NOW(), INTERVAL 30 DAY)');
       res.json({ cfg, hay_stock: hayStock, hay_etiquetas: hayEtiquetas, marca_detectada: (await sqlMarca()) ? 'erp' : 'primera_palabra',
         marcas, habilitadas: marcas.filter(m => m.habilitada).length, pedidos_30d: Number(pend.n) });
@@ -351,10 +405,94 @@ module.exports = function registrarCatalogoCliente({ app, authAdmin, requiereMod
   // Vista previa: lo que ve la tienda (con el % y de dónde sale)
   app.get('/api/catalogo-b2b/vista-previa', authAdmin, mGest, async (req, res) => {
     try {
-      const { items } = await catalogoCliente();
+      const tienda = req.query.portal_user_id ? Number(req.query.portal_user_id) : null;
+      const { items } = await catalogoCliente(tienda);
       const marca = req.query.marca ? normMarca(req.query.marca) : null;
       res.json({ total: items.length, items: items.filter(i => !marca || i.marca === marca).slice(0, 500)
         .map(({ _d, ...i }) => ({ ...i, descuento: _d.descuento, origen: _d.origen })) });
+    } catch (e) { res.status(500).json({ error: 'Error: ' + e.message }); }
+  });
+
+  // Marcas de una tienda: todas las del catálogo (habilitadas o no) con su estado para esa tienda
+  app.get('/api/catalogo-b2b/tienda/:id', authAdmin, mGest, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const [reglas, act, aj, { lista, nombresCat, nombresTag }] = await Promise.all([leerReglas(), marcasDeTienda(id), ajustesDeTienda(id), productos()]);
+      const cuenta = {};
+      lista.forEach(p => { if (p.pvp > 0) cuenta[p.marca] = (cuenta[p.marca] || 0) + 1; });
+      // Cada ajuste general de la marca, con su valor para esta tienda (si tiene)
+      const reglasDe = marca => {
+        const out = [];
+        const ord = { tag: 0, sub: 1, cat: 2 };
+        reglas.ajustesTag.forEach((v, k) => { const [m, ref] = k.split('|'); if (m === marca) out.push({ tipo: 'tag', nivel: 'etiqueta', ref_id: Number(ref),
+          nombre: nombresTag[ref] || `Etiqueta ${ref}`, general: v, tienda: aj.has('tag|' + k) ? aj.get('tag|' + k) : null }); });
+        reglas.ajustes.forEach((v, k) => { const [m, ref] = k.split('|'); if (m !== marca) return;
+          const c = nombresCat[ref] || {}; const padre = c.parent_id ? (nombresCat[c.parent_id] || {}).nombre : null;
+          out.push({ tipo: 'cat', nivel: c.parent_id ? 'subcategoría' : 'categoría', ref_id: Number(ref),
+            nombre: (padre ? padre + ' › ' : '') + (c.nombre || `Categoría ${ref}`), general: v, tienda: aj.has('cat|' + k) ? aj.get('cat|' + k) : null }); });
+        return out.sort((a, b) => ord[a.tipo === 'cat' && a.nivel === 'subcategoría' ? 'sub' : a.tipo] - ord[b.tipo === 'cat' && b.nivel === 'subcategoría' ? 'sub' : b.tipo] || a.nombre.localeCompare(b.nombre));
+      };
+      const marcas = [...reglas.marcas.entries()].filter(([m, r]) => r.habilitada || act.has(m))
+        .map(([marca, r]) => ({ marca, habilitada: r.habilitada, descuento: r.descuento, activa: act.has(marca),
+          descuento_tienda: act.has(marca) ? act.get(marca) : null, productos: cuenta[marca] || 0, reglas: reglasDe(marca) }))
+        .sort((a, b) => (b.activa - a.activa) || a.marca.localeCompare(b.marca));
+      res.json({ marcas, activas: marcas.filter(m => m.activa && m.habilitada).length });
+    } catch (e) { res.status(500).json({ error: 'Error: ' + e.message }); }
+  });
+  // Activar/desactivar una marca para una tienda (portal_user_id) — o varias tiendas a la vez
+  app.put('/api/catalogo-b2b/tienda', authAdmin, mGest, async (req, res) => {
+    const marca = normMarca((req.body || {}).marca);
+    const ids = (Array.isArray(req.body.portal_user_ids) ? req.body.portal_user_ids : [req.body.portal_user_id]).map(Number).filter(Boolean);
+    if (!marca || !ids.length) return res.status(400).json({ error: 'Faltan datos' });
+    try {
+      await prepararTablas();
+      if (req.body.activa) await portalPool.query('INSERT IGNORE INTO cat_b2b_tienda_marcas (portal_user_id, marca, activado_por) VALUES ?', [ids.map(i => [i, marca, quien(req)])]);
+      else await portalPool.query('DELETE FROM cat_b2b_tienda_marcas WHERE marca=? AND portal_user_id IN (?)', [marca, ids]);
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: 'Error: ' + e.message }); }
+  });
+  // % manual de una marca para una tienda (null o '' = quitar → usa los % generales)
+  app.put('/api/catalogo-b2b/tienda-descuento', authAdmin, mGest, async (req, res) => {
+    const marca = normMarca((req.body || {}).marca);
+    const id = Number((req.body || {}).portal_user_id);
+    const vacio = req.body.descuento === null || req.body.descuento === '';
+    const d = vacio ? null : pct(req.body.descuento);
+    if (!marca || !id || (!vacio && d == null)) return res.status(400).json({ error: 'Datos no válidos (% de 0 a 95)' });
+    try {
+      await prepararTablas();
+      const [r] = await portalPool.query('UPDATE cat_b2b_tienda_marcas SET descuento=? WHERE portal_user_id=? AND marca=?', [d, id, marca]);
+      if (!r.affectedRows) return res.status(409).json({ error: 'Primero activa la marca para esta tienda' });
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: 'Error: ' + e.message }); }
+  });
+
+  // % de una tienda para un ajuste general (tipo 'cat' o 'tag'); null/'' = quitar → usa el general
+  app.put('/api/catalogo-b2b/tienda-ajuste', authAdmin, mGest, async (req, res) => {
+    const b = req.body || {};
+    const marca = normMarca(b.marca), id = Number(b.portal_user_id), ref = Number(b.ref_id), tipo = b.tipo === 'tag' ? 'tag' : b.tipo === 'cat' ? 'cat' : null;
+    const vacio = b.descuento === null || b.descuento === '';
+    const d = vacio ? null : pct(b.descuento);
+    if (!marca || !id || !ref || !tipo || (!vacio && d == null)) return res.status(400).json({ error: 'Datos no válidos (% de 0 a 95)' });
+    try {
+      await prepararTablas();
+      const [[act]] = await portalPool.query('SELECT 1 AS ok FROM cat_b2b_tienda_marcas WHERE portal_user_id=? AND marca=?', [id, marca]);
+      if (!act) return res.status(409).json({ error: 'Primero activa la marca para esta tienda' });
+      if (vacio) await portalPool.query('DELETE FROM cat_b2b_tienda_ajustes WHERE portal_user_id=? AND marca=? AND tipo=? AND ref_id=?', [id, marca, tipo, ref]);
+      else await portalPool.query(`INSERT INTO cat_b2b_tienda_ajustes (portal_user_id, marca, tipo, ref_id, descuento, actualizado_por) VALUES (?,?,?,?,?,?)
+        ON DUPLICATE KEY UPDATE descuento=VALUES(descuento), actualizado_por=VALUES(actualizado_por)`, [id, marca, tipo, ref, d, quien(req)]);
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: 'Error: ' + e.message }); }
+  });
+
+  // Tiendas (accesos activos) y si tienen activada una marca
+  app.get('/api/catalogo-b2b/marca-tiendas', authAdmin, mGest, async (req, res) => {
+    const marca = normMarca(req.query.marca);
+    try {
+      await prepararTablas();
+      const [rows] = await portalPool.query(`SELECT u.id, u.nombre_cliente, u.username, t.marca IS NOT NULL AS activa, t.descuento AS descuento_tienda
+        FROM portal_users u LEFT JOIN cat_b2b_tienda_marcas t ON t.portal_user_id=u.id AND t.marca=?
+        WHERE u.activo=1 ORDER BY u.nombre_cliente`, [marca]);
+      res.json(rows.map(r => ({ ...r, activa: !!Number(r.activa), descuento_tienda: r.descuento_tienda == null ? null : Number(r.descuento_tienda) })));
     } catch (e) { res.status(500).json({ error: 'Error: ' + e.message }); }
   });
 
@@ -369,7 +507,7 @@ module.exports = function registrarCatalogoCliente({ app, authAdmin, requiereMod
   // ═════════════════ PORTAL DEL CLIENTE ═════════════════
   app.get('/portal/catalogo', authCliente, async (req, res) => {
     try {
-      const { items, cfg } = await catalogoCliente();
+      const { items, cfg } = await catalogoCliente(req.cliente.portal_user_id);
       // Solo los campos pedidos: marca, SKU, nombre, imagen, PVP y precio del cliente
       res.json({ wa_b2b: cfg.wa_b2b, items: items.map(({ _d, ...i }) => i) });
     } catch (e) { res.status(500).json({ error: 'No se pudo cargar el catálogo' }); }
@@ -381,7 +519,7 @@ module.exports = function registrarCatalogoCliente({ app, authAdmin, requiereMod
     const pedido = Array.isArray((req.body || {}).items) ? req.body.items : [];
     const nota = String((req.body || {}).nota || '').slice(0, 1000);
     try {
-      const { items, cfg } = await catalogoCliente();
+      const { items, cfg } = await catalogoCliente(req.cliente.portal_user_id);
       const porVid = new Map(items.map(i => [i.vid, i]));
       const lineas = [];
       for (const x of pedido) {

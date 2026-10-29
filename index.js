@@ -206,6 +206,7 @@ const VV = "('paid','confirmed','pending_payment')";
 let modSync = null;
 let modAuditoria = null;
 let modPortal = null;
+let modCatalogoB2B = null;
 let modImportacion = null;
 let modRecepciones = null;
 let modSeguimiento = null;
@@ -338,6 +339,11 @@ let modPromos = null;
   modPropuestas = require('./modulos/propuestas-consignacion')({ app, authAdmin, requiereModulo, prodPool, portalPool,
     authCliente: modPortal.authCliente, catalogo: modCotizador.catalogo, grupos: modGestion, portal: modPortal });
 
+  // ── Catálogo B2B para las tiendas (Gestión de clientes → Catálogo; portal → Catálogo) ──
+  //    Marcas habilitadas a mano, % desde el PVP por marca y por categoría; pedidos por WhatsApp + correo.
+  modCatalogoB2B = require('./modulos/catalogo-cliente')({ app, authAdmin, requiereModulo, prodPool, portalPool,
+    authCliente: modPortal.authCliente, catalogo: modCotizador.catalogo, grupos: modGestion, portal: modPortal });
+
   // Precio importado: calculadora de pedidos especiales a tiendas online (reemplaza la hoja de Google)
   require('./modulos/precio-importado')({ app, authAdmin, requiereModulo, prodPool, VV, catalogo: modCotizador.catalogo,
     buscarInternet: modCotizador._test && modCotizador._test.buscarInternet });
@@ -410,6 +416,7 @@ app.listen(PORT, async () => {
     if (modGestion && modGestion.prepararTablas) await modGestion.prepararTablas();
     if (modPropuestas && modPropuestas.prepararTablas) await modPropuestas.prepararTablas();
     if (modPortal && modPortal.prepararTablas) await modPortal.prepararTablas();
+    if (modCatalogoB2B && modCatalogoB2B.prepararTablas) await modCatalogoB2B.prepararTablas();
     if (modAuditoria && modAuditoria.prepararTablas) await modAuditoria.prepararTablas();
     if (modImportacion && modImportacion.prepararTablas) await modImportacion.prepararTablas();
     if (modRecepciones && modRecepciones.prepararTablas) await modRecepciones.prepararTablas();

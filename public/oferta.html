@@ -53,6 +53,7 @@ h2{font-size:17px;margin-bottom:4px;color:var(--white)}
   <div id="c-err" style="display:none" class="card"><div class="err" id="err"></div></div>
 </div>
 <script src="/ofertas-lista.js"></script>
+<script src="/proteger.js"></script>
 <script>
 // ═══════════════════════════════════════════════════════════════════════════
 //  Link libre de promociones para vendedores de una tienda (sin login).
@@ -96,6 +97,8 @@ async function cargar() {
   $('h-tienda').textContent = '· ' + d.tienda;
   if (!vendedor().nombre) { $('c-nombre').style.display = ''; return; }
   $('c-lista').style.display = '';
+  // Lista protegida: sin imprimir/copiar, con marca de agua de la tienda y el vendedor
+  if (window.Proteger) { Proteger.activar($('c-lista')); Proteger.marca(`${d.tienda} · ${vendedor().nombre} · ${new Date().toLocaleDateString('es-PE')}`); }
   if (!d.items.length) { $('lista').innerHTML = '<div class="desc" style="padding:20px;text-align:center">Por ahora no hay promociones vigentes. Vuelve pronto.</div>'; }
   else LISTA = OfertasLista.montar($('lista'), {
     modo: 'link', datos: d,

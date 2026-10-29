@@ -128,6 +128,26 @@ details.ayuda ul{margin:6px 0 0 18px;line-height:1.6}
       <button class="on" data-v="accesos" onclick="setVista('accesos')">Accesos<span class="cnt" id="cnt-accesos"></span></button>
       <button data-v="puntos" onclick="setVista('puntos')">Puntos de venta<span class="cnt" id="cnt-puntos"></span></button>
       <button data-v="propuestas" onclick="setVista('propuestas')">Propuestas<span class="cnt" id="cnt-prop"></span></button>
+      <button data-v="catalogo" onclick="setVista('catalogo')">Catálogo<span class="cnt" id="cnt-cat"></span></button>
+    </div>
+
+    <!-- ══════════ CATÁLOGO B2B ══════════ -->
+    <div id="v-catalogo" style="display:none">
+      <div class="desc" style="margin-top:10px">Catálogo que ven las tiendas en su portal (foto, marca, SKU, nombre, PVP y su precio). <b>Todo empieza deshabilitado</b>: habilita marcas y ponles su % de descuento estándar; dentro de cada marca puedes dar otro % a categorías, subcategorías o etiquetas. El % siempre se calcula desde el PVP. Es una sola lista para todas las tiendas.</div>
+      <div class="fila">
+        <label class="desc" style="display:inline-flex;gap:6px;align-items:center">WhatsApp B2B <input class="inp" id="cat-wa" placeholder="51987654321" style="width:150px"></label>
+        <label class="desc" style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" id="cat-stock"> Mostrar solo productos con stock</label>
+        <button class="btn btn-sm btn-sec" onclick="guardarCfgCat()">Guardar</button>
+        <span style="flex:1"></span>
+        <button class="btn btn-sm btn-sec" onclick="vistaPreviaCat()">Ver como la tienda</button>
+        <button class="btn btn-sm btn-sec" onclick="pedidosCat()">Solicitudes de pedido <span id="cat-ped"></span></button>
+      </div>
+      <div class="fila">
+        <input id="cat-q" type="search" placeholder="Buscar marca…" oninput="pintarCatalogo()" style="flex:1;min-width:200px">
+        <select id="cat-f" onchange="pintarCatalogo()"><option value="">Todas las marcas</option><option value="on">Habilitadas</option><option value="off">Deshabilitadas</option></select>
+      </div>
+      <div class="desc" id="conteo-cat" style="margin-top:8px"></div>
+      <div class="tabla-wrap"><table id="tbl-cat"></table></div>
     </div>
 
     <!-- ══════════ PROPUESTAS DE REPOSICIÓN ══════════ -->
@@ -341,6 +361,8 @@ function setVista(v) {
   $('v-accesos').style.display = v === 'accesos' ? '' : 'none';
   $('v-puntos').style.display = v === 'puntos' ? '' : 'none';
   $('v-propuestas').style.display = v === 'propuestas' ? '' : 'none';
+  $('v-catalogo').style.display = v === 'catalogo' ? '' : 'none';
+  if (v === 'catalogo' && !CAT) cargarCatalogo();
   if (v === 'propuestas' && !PROPS) cargarPropuestas();
 }
 
@@ -968,6 +990,126 @@ async function despacharProp() {
   try {
     await api('/api/propuestas/' + PROP.id + '/despachar', { guia: $('prop-guia').value });
     showToast('Marcada como despachada ✓'); abrirPropuesta(PROP.id); cargarPropuestas();
+  } catch (e) { showToast(e.message, true); }
+}
+
+// ══════════════════ Catálogo B2B ══════════════════
+let CAT = null;            // /api/catalogo-b2b/config
+async function cargarCatalogo(fresh) {
+  $('conteo-cat').textContent = 'Leyendo marcas y categorías del ERP…';
+  try {
+    CAT = await api('/api/catalogo-b2b/config' + (fresh ? '?fresh=1' : ''));
+    $('cat-wa').value = CAT.cfg.wa_b2b; $('cat-stock').checked = CAT.cfg.solo_stock;
+    $('cat-ped').textContent = CAT.pedidos_30d ? '(' + CAT.pedidos_30d + ' en 30 d)' : '';
+    pintarCatalogo();
+  } catch (e) { $('conteo-cat').textContent = e.message; }
+}
+function pintarCatalogo() {
+  if (!CAT) return;
+  const q = norm($('cat-q').value.trim()), f = $('cat-f').value;
+  const l = CAT.marcas.filter(m => (!q || norm(m.marca).includes(q)) && (!f || (f === 'on') === m.habilitada));
+  const vis = CAT.marcas.filter(m => m.habilitada).reduce((a, m) => a + m.visibles, 0);
+  $('cnt-cat').textContent = CAT.habilitadas ? ' · ' + CAT.habilitadas : '';
+  $('conteo-cat').innerHTML = `${l.length} marcas · <b>${CAT.habilitadas}</b> habilitadas · <b>${N(vis)}</b> productos visibles para las tiendas` +
+    (CAT.marca_detectada === 'primera_palabra' ? ' · <span style="color:var(--fg-warn)">el ERP no tiene campo de marca: se usa la primera palabra del nombre del producto</span>' : '');
+  if (!l.length) { $('tbl-cat').innerHTML = '<tr><td class="vacio">Sin marcas con ese filtro.</td></tr>'; return; }
+  $('tbl-cat').innerHTML = `<thead><tr><th>Marca</th><th style="text-align:right">Productos</th><th style="text-align:right">Visibles</th><th>Habilitada</th><th>% estándar</th><th>Por categoría / etiqueta</th></tr></thead><tbody>` +
+    l.map(m => {
+      const i = CAT.marcas.indexOf(m);
+      return `<tr class="${m.habilitada ? '' : 'inact'}"><td><div class="nom">${esc(m.marca)}</div></td>
+      <td style="text-align:right">${N(m.productos)}<div class="sub">${N(m.con_precio)} con PVP · ${N(m.con_stock)} con stock</div></td>
+      <td style="text-align:right">${m.habilitada ? '<b>' + N(m.visibles) + '</b>' : N(m.visibles)}</td>
+      <td><label style="display:inline-flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" ${m.habilitada ? 'checked' : ''} onchange="guardarMarcaCat(${i},{habilitada:this.checked})"> ${m.habilitada ? '<span class="chip c-ok">Sí</span>' : '<span class="chip c-g">No</span>'}</label></td>
+      <td style="white-space:nowrap"><input class="inp" type="number" min="0" max="95" step="0.5" value="${m.descuento}" style="width:80px;text-align:right" onchange="guardarMarcaCat(${i},{descuento:this.value})"> %</td>
+      <td><button class="btn btn-sm btn-sec" onclick="abrirCatsMarca(${i})" ${m.categorias.length || m.etiquetas.length ? '' : 'disabled title="Sin categorías ni etiquetas en el ERP"'}>${m.etiquetas.length ? 'Categorías / etiquetas' : 'Categorías'}${m.ajustes ? ` <span class="chip c-v">${m.ajustes} ajuste${m.ajustes > 1 ? 's' : ''}</span>` : ''}</button></td></tr>`;
+    }).join('') + '</tbody>';
+}
+async function guardarMarcaCat(i, cambio) {
+  const m = CAT.marcas[i];
+  const nuevo = { marca: m.marca, habilitada: cambio.habilitada != null ? cambio.habilitada : m.habilitada, descuento: cambio.descuento != null ? Number(cambio.descuento) : m.descuento };
+  if (!(nuevo.descuento >= 0 && nuevo.descuento <= 95)) { showToast('El % debe estar entre 0 y 95', true); return pintarCatalogo(); }
+  try {
+    await api('/api/catalogo-b2b/marca', null, 'PUT', nuevo);
+    m.habilitada = nuevo.habilitada; m.descuento = nuevo.descuento;
+    CAT.habilitadas = CAT.marcas.filter(x => x.habilitada).length;
+    showToast(`${m.marca}: ${m.habilitada ? 'habilitada' : 'deshabilitada'} · ${m.descuento}% ✓`);
+    pintarCatalogo();
+  } catch (e) { showToast(e.message, true); pintarCatalogo(); }
+}
+function abrirCatsMarca(i) {
+  const m = CAT.marcas[i];
+  const fila = (c, padre) => {
+    const hereda = padre ? (padre.descuento != null ? padre.descuento : m.descuento) : m.descuento;
+    return `<div class="ruc-row" style="${padre ? 'margin-left:24px' : ''}"><div><div class="nom" style="color:var(--white)">${esc(c.nombre)}</div>
+      <div class="sub">${c.n} producto(s) · ${c.descuento != null ? '<b>ajustado</b>' : 'usa ' + hereda + '%' + (padre && padre.descuento != null ? ' (de la categoría)' : ' (estándar)')}</div></div>
+      <div class="acc" style="align-items:center"><input class="inp" type="number" min="0" max="95" step="0.5" value="${c.descuento != null ? c.descuento : ''}" placeholder="${hereda}" style="width:80px;text-align:right" onchange="guardarAjusteCat(${i},${c.id},this.value)"> %</div></div>`;
+  };
+  DET_ID = null;
+  $('det').innerHTML = `<button class="x" onclick="cerrar('m-det')">×</button>
+    <h3>${esc(m.marca)} · % por categoría${m.etiquetas.length ? ' y etiqueta' : ''}</h3>
+    <div class="desc" style="margin-top:4px">% estándar de la marca: <b>${m.descuento}%</b>${m.habilitada ? '' : ' · <span style="color:var(--fg-warn)">la marca está deshabilitada</span>'}. Deja vacío para usar el estándar. Prioridad: <b>etiqueta</b> &gt; subcategoría &gt; categoría &gt; estándar. Siempre desde el PVP.</div>
+    ${m.etiquetas.length ? `<div class="bloque"><h4>Etiquetas</h4>${m.etiquetas.map(t => `<div class="ruc-row"><div><div class="nom" style="color:var(--white)">🏷️ ${esc(t.nombre)}</div>
+      <div class="sub">${t.n} producto(s) · ${t.descuento != null ? '<b>ajustado</b> (manda sobre categorías)' : 'sin ajuste: usa su categoría o el estándar'}</div></div>
+      <div class="acc" style="align-items:center"><input class="inp" type="number" min="0" max="95" step="0.5" value="${t.descuento != null ? t.descuento : ''}" placeholder="—" style="width:80px;text-align:right" onchange="guardarAjusteTag(${i},${t.id},this.value)"> %</div></div>`).join('')}</div>`
+      : (CAT.hay_etiquetas ? '' : '<div class="desc" style="margin-top:8px">El ERP no tiene etiquetas reconocibles: solo se puede ajustar por categoría.</div>')}
+    ${m.categorias.length ? `<div class="bloque"><h4>Categorías</h4>${m.categorias.map(c => fila(c) + c.subs.map(sc => fila(sc, c)).join('')).join('')}</div>` : ''}`;
+  $('m-det').classList.add('show');
+}
+async function guardarAjusteCat(i, catId, valor) {
+  const m = CAT.marcas[i];
+  const vacio = String(valor).trim() === '';
+  if (!vacio && !(Number(valor) >= 0 && Number(valor) <= 95)) return showToast('El % debe estar entre 0 y 95', true);
+  try {
+    await api('/api/catalogo-b2b/ajuste', null, 'PUT', { marca: m.marca, categoria_id: catId, descuento: vacio ? null : Number(valor) });
+    const buscar = l => { for (const c of l) { if (c.id === catId) return c; const s = buscar(c.subs || []); if (s) return s; } return null; };
+    const c = buscar(m.categorias); if (c) c.descuento = vacio ? null : Number(valor);
+    m.ajustes = m.categorias.reduce((a, c) => a + (c.descuento != null) + c.subs.filter(x => x.descuento != null).length, 0) + m.etiquetas.filter(x => x.descuento != null).length;
+    showToast(vacio ? 'Usa el % estándar ✓' : `${valor}% guardado ✓`);
+    abrirCatsMarca(i); pintarCatalogo();
+  } catch (e) { showToast(e.message, true); }
+}
+async function guardarAjusteTag(i, tagId, valor) {
+  const m = CAT.marcas[i];
+  const vacio = String(valor).trim() === '';
+  if (!vacio && !(Number(valor) >= 0 && Number(valor) <= 95)) return showToast('El % debe estar entre 0 y 95', true);
+  try {
+    await api('/api/catalogo-b2b/ajuste-etiqueta', null, 'PUT', { marca: m.marca, etiqueta_id: tagId, descuento: vacio ? null : Number(valor) });
+    const t = m.etiquetas.find(x => x.id === tagId); if (t) t.descuento = vacio ? null : Number(valor);
+    m.ajustes = m.categorias.reduce((a, c) => a + (c.descuento != null) + c.subs.filter(x => x.descuento != null).length, 0) + m.etiquetas.filter(x => x.descuento != null).length;
+    showToast(vacio ? 'Etiqueta sin ajuste ✓' : `${valor}% guardado ✓`);
+    abrirCatsMarca(i); pintarCatalogo();
+  } catch (e) { showToast(e.message, true); }
+}
+async function guardarCfgCat() {
+  try {
+    const r = await api('/api/catalogo-b2b/cfg', null, 'PUT', { wa_b2b: $('cat-wa').value, solo_stock: $('cat-stock').checked });
+    CAT.cfg = r.cfg; showToast('Guardado ✓'); cargarCatalogo();
+  } catch (e) { showToast(e.message, true); }
+}
+async function vistaPreviaCat() {
+  DET_ID = null;
+  $('det').innerHTML = '<button class="x" onclick="cerrar(\'m-det\')">×</button><h3>Lo que ven las tiendas</h3><div class="desc">Cargando…</div>';
+  $('m-det').classList.add('show');
+  try {
+    const r = await api('/api/catalogo-b2b/vista-previa');
+    const ORI = { marca: 'estándar', categoria: 'categoría', subcategoria: 'subcategoría', etiqueta: 'etiqueta' };
+    $('det').innerHTML = `<button class="x" onclick="cerrar('m-det')">×</button><h3>Lo que ven las tiendas · ${N(r.total)} productos</h3>
+      <div class="desc" style="margin-top:4px">La tienda solo ve marca, SKU, nombre, PVP y su precio. El % y su origen se muestran aquí solo para ti.${r.total > r.items.length ? ' Se muestran los primeros ' + r.items.length + '.' : ''}</div>
+      <div class="tabla-wrap" style="max-height:60vh"><table><thead><tr><th></th><th>Marca</th><th>SKU</th><th>Nombre</th><th style="text-align:right">PVP</th><th style="text-align:right">Precio tienda</th><th style="text-align:right">%</th></tr></thead><tbody>` +
+      (r.items.map(x => `<tr><td>${x.imagen ? `<img src="${esc(x.imagen)}" alt="" loading="lazy" style="width:36px;height:36px;object-fit:contain;background:#fff;border-radius:6px">` : ''}</td><td>${esc(x.marca)}</td><td class="mono">${esc(x.sku)}</td><td>${esc(x.nombre)}</td><td style="text-align:right">S/ ${x.pvp.toFixed(2)}</td><td style="text-align:right"><b>S/ ${x.precio.toFixed(2)}</b></td><td style="text-align:right">${x.descuento}%<div class="sub">${ORI[x.origen]}</div></td></tr>`).join('') ||
+        '<tr><td colspan="7" class="vacio">Nada visible todavía: habilita al menos una marca.</td></tr>') + '</tbody></table></div>';
+  } catch (e) { showToast(e.message, true); }
+}
+async function pedidosCat() {
+  DET_ID = null;
+  try {
+    const l = await api('/api/catalogo-b2b/pedidos');
+    $('det').innerHTML = `<button class="x" onclick="cerrar('m-det')">×</button><h3>Solicitudes de pedido desde el catálogo</h3>
+      <div class="desc" style="margin-top:4px">Son <b>solicitudes</b>, no pedidos confirmados: se confirman cuando las registras en el sistema (con los cambios que hagan falta). Cada una llega también por correo a ventas y por WhatsApp al número B2B.</div>` +
+      (l.map(p => `<div class="ruc-row" style="display:block"><div class="nom" style="color:var(--white)">Solicitud N° ${p.id} · ${esc(p.cliente)} <span class="sub" style="display:inline">· ${fechaHora(p.creado_en)} · ${p.unidades} und · <b>S/ ${p.total.toFixed(2)}</b>${p.correo_enviado ? '' : ' · <span style="color:var(--fg-warn)">correo no enviado</span>'}${p.via_admin ? ' · ver como cliente' : ''}</span></div>
+        ${p.nota ? `<div class="sub">Nota: ${esc(p.nota)}</div>` : ''}
+        <div class="sub" style="margin-top:4px">${p.items.map(i => `${i.cantidad} × ${esc(i.nombre)} (${esc(i.sku)}) S/ ${Number(i.precio).toFixed(2)}`).join('<br>')}</div></div>`).join('') || '<div class="desc" style="margin-top:10px">Aún no hay solicitudes.</div>');
+    $('m-det').classList.add('show');
   } catch (e) { showToast(e.message, true); }
 }
 

@@ -42,6 +42,7 @@ body.ancho .wrap{max-width:1500px}  /* Promociones: tabla ancha sin desplazamien
 .err{font-size:13px;color:#fca5a5;margin-top:8px;display:none}
 .hint{font-size:12px;color:var(--muted);margin-top:10px;text-align:center;line-height:1.5}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:1.25rem}
+@media(max-width:640px){#cat-pedido{position:static!important}}
 .ruc-seg{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:12px;font-size:12px;color:var(--muted)}
 .ruc-seg button{background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:20px;padding:6px 12px;font-size:12px;cursor:pointer}
 .ruc-seg button.on{border-color:var(--accent,#FFB30D);box-shadow:inset 0 0 0 1px var(--accent,#FFB30D);font-weight:600}
@@ -167,6 +168,7 @@ tbody tr.clickable:hover td{background:var(--hover)}
       <button class="tab" onclick="tab('stock',this)">Mi consignación</button>
       <button class="tab" id="tab-transf-btn" onclick="tab('transf',this)">Transferencias</button>
       <button class="tab" id="tab-promo-btn" onclick="tab('promo',this)" style="display:none">🏷️ Promociones</button>
+      <button class="tab" id="tab-cat-btn" onclick="tab('cat',this)" style="display:none">Catálogo</button>
       <button class="tab" id="tab-prop-btn" onclick="tab('prop',this)" style="display:none">Propuestas <span id="prop-badge" class="badge badge-warn" style="display:none"></span></button>
     </div>
     <div id="prop-aviso"></div>
@@ -216,6 +218,29 @@ tbody tr.clickable:hover td{background:var(--hover)}
       <div class="card">
         <div class="card-head"><h3>Promociones</h3></div>
         <div id="promo-lista"><div class="loading">Cargando...</div></div>
+      </div>
+    </div>
+
+    <div id="tab-cat" class="panel">
+      <div class="card">
+        <div class="card-head"><h3>Catálogo</h3><span class="muted" id="cat-conteo" style="font-size:12px"></span></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+          <input id="cat-buscar" type="search" style="flex:1;min-width:180px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface3);color:var(--text)" placeholder="Buscar por SKU, nombre o marca..." oninput="renderCatalogo()">
+          <select id="cat-marca" onchange="renderCatalogo()" style="padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--surface3);color:var(--text)"><option value="">Todas las marcas</option></select>
+          <label class="muted" style="font-size:12px;display:inline-flex;gap:6px;align-items:center"><input type="checkbox" id="cat-solo-pedido" onchange="renderCatalogo()"> Solo mi pedido</label>
+        </div>
+        <p class="muted" style="font-size:12px;margin-bottom:10px">Precios referenciales. Lo que envíes desde aquí es una <b>solicitud de pedido</b>: Kuranko la confirma al registrarla en el sistema y puede ajustar cantidades según stock.</p>
+        <div id="cat-tabla"><div class="loading">Cargando...</div></div>
+        <div id="cat-pedido" style="display:none;position:sticky;bottom:0;margin-top:12px;background:var(--surface);border:1px solid var(--accent,#FFB30D);border-radius:12px;padding:12px">
+          <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center">
+            <span id="cat-resumen"></span>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;flex:1;justify-content:flex-end">
+              <input id="cat-nota" placeholder="Nota para Kuranko (opcional)" style="flex:1;min-width:160px;padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--surface3);color:var(--text)">
+              <button class="btn btn-sec btn-sm" onclick="vaciarPedidoCat()">Vaciar</button>
+              <button class="btn btn-green" onclick="enviarPedidoCat()">Enviar solicitud de pedido</button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -275,6 +300,7 @@ tbody tr.clickable:hover td{background:var(--hover)}
 <div class="toast" id="toast"></div>
 
 <script src="/ofertas-lista.js"></script>
+<script src="/proteger.js"></script>
 <script>
 let TOKEN='',API='',ventasCache=[],stockCache=[],transfCache=[],detalleAbierto=null;
 // Empresas con varios RUC/DNI: filtro por RUC para compras, pagos y resumen ('' = todos)
@@ -335,7 +361,7 @@ async function mostrarApp(){
   document.getElementById('app-screen').style.display='block';
   document.getElementById('wa-soporte').href=`https://wa.me/${WA_SOPORTE}?text=${encodeURIComponent('Hola Kuranko, tengo una consulta sobre mi portal.')}`;
   aplicarTema(document.documentElement.getAttribute('data-theme')||'dark');
-  await Promise.all([cargarSaldo(),cargarVentas(),cargarPagos(),cargarStock(),cargarTransferencias(),cargarPropuestas(),cargarPromos()]);
+  await Promise.all([cargarSaldo(),cargarVentas(),cargarPagos(),cargarStock(),cargarTransferencias(),cargarPropuestas(),cargarPromos(),cargarCatalogo()]);
 }
 async function cargarSaldo(){
   try{
@@ -349,6 +375,11 @@ async function cargarSaldo(){
     window._nombreCliente=s.nombre;
     window._ruc=s.ruc||window._ruc||'';
     window._emailEmpresa=s.email_empresa||'';
+    // Catálogo y promociones: sin imprimir/copiar y con marca de agua de esta cuenta
+    if(window.Proteger){
+      Proteger.activar(document.querySelector('#tab-cat .card'));Proteger.activar(document.querySelector('#tab-promo .card'));
+      Proteger.marca(`${s.nombre||''} · ${s.ruc||''} · ${new Date().toLocaleDateString('es-PE')}`);
+    }
     SALDO=s;
     pintarFiltroRuc();pintarKpis();
   }catch(e){showToast(e.message,true);}
@@ -507,6 +538,84 @@ async function cargarPromos(){
   document.getElementById('tab-promo-btn').addEventListener('click',()=>setTimeout(latir,50));
 }
 addEventListener('pagehide',()=>{try{navigator.sendBeacon(API+'/portal/promociones/salir',new Blob([JSON.stringify({sid:PROMO_SID})],{type:'application/json'}));}catch(e){}});
+
+// ── Catálogo B2B: marca, SKU, nombre, PVP y su precio; pedido por WhatsApp + correo ──
+let catCache=[],catPedido={},catOrden={k:'marca',dir:1};
+const MAX_CAT=400;
+const normCat=t=>String(t||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+async function cargarCatalogo(){
+  let r;
+  try{r=await apiCall('/portal/catalogo');}catch(e){r={items:[]};}
+  catCache=r.items||[];
+  document.getElementById('tab-cat-btn').style.display=catCache.length?'':'none';
+  const sel=document.getElementById('cat-marca');
+  sel.innerHTML='<option value="">Todas las marcas</option>'+[...new Set(catCache.map(x=>x.marca))].sort().map(m=>`<option>${escP(m)}</option>`).join('');
+  renderCatalogo();
+}
+function ordenarCat(k){catOrden=catOrden.k===k?{k,dir:-catOrden.dir}:{k,dir:1};renderCatalogo();}
+function renderCatalogo(){
+  const c=document.getElementById('cat-tabla');
+  const q=normCat(document.getElementById('cat-buscar').value).split(/\s+/).filter(Boolean);
+  const m=document.getElementById('cat-marca').value, solo=document.getElementById('cat-solo-pedido').checked;
+  let l=catCache.filter(x=>{
+    if(m&&x.marca!==m)return false;
+    if(solo&&!catPedido[x.vid])return false;
+    if(q.length){const t=normCat(x.sku+' '+x.nombre+' '+x.marca);if(!q.every(p=>t.includes(p)))return false;}
+    return true;});
+  const k=catOrden.k,d=catOrden.dir;
+  l.sort((a,b)=>(typeof a[k]==='number'?a[k]-b[k]:String(a[k]).localeCompare(String(b[k])))*d);
+  document.getElementById('cat-conteo').textContent=`${l.length} de ${catCache.length} productos`;
+  if(!l.length){c.innerHTML='<div class="muted">Sin productos con esos filtros.</div>';resumenCat();return;}
+  const th=(key,t,cls)=>`<th class="${cls||''}" style="cursor:pointer;user-select:none" onclick="ordenarCat('${key}')">${t}${catOrden.k===key?(catOrden.dir>0?' ↑':' ↓'):''}</th>`;
+  c.innerHTML=`<table class="responsive"><thead><tr><th style="width:56px"></th>${th('marca','Marca')}${th('sku','SKU')}${th('nombre','Nombre')}${th('pvp','PVP','num')}${th('precio','Tu precio','num')}<th class="num">Pedir</th></tr></thead><tbody>`+
+    l.slice(0,MAX_CAT).map(x=>`<tr><td data-label="Foto">${x.imagen?`<img src="${escP(x.imagen)}" alt="" loading="lazy" draggable="false" onclick="verFotoCat(${x.vid})" style="width:46px;height:46px;object-fit:contain;border-radius:8px;background:#fff;border:1px solid var(--border);cursor:zoom-in" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'muted',textContent:'—'}))">`:'<span class="muted" style="display:inline-block;width:46px;text-align:center">—</span>'}</td><td data-label="Marca">${escP(x.marca)}</td><td class="muted" data-label="SKU">${escP(x.sku||'-')}</td><td data-label="Nombre">${escP(x.nombre)}</td>
+      <td class="num muted" data-label="PVP">${fmt(x.pvp)}</td><td class="num" data-label="Tu precio"><b>${fmt(x.precio)}</b></td>
+      <td class="num" data-label="Pedir"><input type="number" min="0" max="9999" value="${catPedido[x.vid]||''}" placeholder="0" style="width:70px;text-align:right;padding:6px;border-radius:8px;border:1px solid var(--border);background:var(--surface3);color:var(--text)" oninput="cantCat(${x.vid},this.value)"></td></tr>`).join('')+
+    `</tbody></table>`+(l.length>MAX_CAT?`<div class="muted" style="font-size:12px;margin-top:8px">Se muestran ${MAX_CAT} de ${l.length}. Usa el buscador o elige una marca.</div>`:'');
+  resumenCat();
+}
+// Foto en grande (encima de la página, con marca de agua; se cierra con clic o Esc)
+function verFotoCat(vid){
+  const x=catCache.find(y=>y.vid===vid);if(!x||!x.imagen)return;
+  let o=document.getElementById('cat-foto');
+  if(!o){
+    o=document.createElement('div');o.id='cat-foto';
+    o.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:300;display:none;align-items:center;justify-content:center;padding:16px';
+    o.innerHTML='<div id="cat-foto-box" style="background:var(--surface);border-radius:14px;max-width:min(720px,100%);width:100%;padding:14px;position:relative"><button onclick="cerrarFotoCat()" style="position:absolute;top:8px;right:10px;background:none;border:none;color:var(--muted);font-size:24px;cursor:pointer;z-index:6">×</button><div style="background:#fff;border-radius:10px;display:flex;align-items:center;justify-content:center;height:min(60vh,520px)"><img id="cat-foto-img" alt="" draggable="false" style="max-width:100%;max-height:100%;object-fit:contain"></div><div id="cat-foto-info" style="margin-top:10px;font-size:13px"></div></div>';
+    o.addEventListener('click',e=>{if(e.target===o)cerrarFotoCat();});
+    document.body.appendChild(o);
+    if(window.Proteger)Proteger.activar(document.getElementById('cat-foto-box'));
+  }
+  document.getElementById('cat-foto-img').src=x.imagen;
+  document.getElementById('cat-foto-info').innerHTML=`<b>${escP(x.nombre)}</b><br><span class="muted">${escP(x.marca)} · SKU ${escP(x.sku||'-')}</span><br>PVP ${fmt(x.pvp)} · Tu precio <b>${fmt(x.precio)}</b>`;
+  o.style.display='flex';
+}
+function cerrarFotoCat(){const o=document.getElementById('cat-foto');if(o)o.style.display='none';}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')cerrarFotoCat();});
+function cantCat(vid,v){const n=Math.max(0,Math.min(9999,parseInt(v)||0));if(n)catPedido[vid]=n;else delete catPedido[vid];resumenCat();}
+function resumenCat(){
+  const ids=Object.keys(catPedido),box=document.getElementById('cat-pedido');
+  box.style.display=ids.length?'':'none';if(!ids.length)return;
+  let und=0,tot=0;ids.forEach(v=>{const x=catCache.find(y=>y.vid==v);if(x){und+=catPedido[v];tot+=catPedido[v]*x.precio;}});
+  document.getElementById('cat-resumen').innerHTML=`🛒 <b>${ids.length}</b> producto${ids.length>1?'s':''} · ${und} und · <b>${fmt(tot)}</b>`;
+}
+function vaciarPedidoCat(){catPedido={};document.getElementById('cat-solo-pedido').checked=false;renderCatalogo();}
+let enviandoCat=false;
+async function enviarPedidoCat(){
+  if(enviandoCat)return;
+  const items=Object.entries(catPedido).map(([vid,cantidad])=>({vid:+vid,cantidad}));
+  if(!items.length)return;
+  if(!confirm(`¿Enviar esta solicitud de pedido a Kuranko? (${items.length} productos)\n\nNo es un pedido confirmado: Kuranko lo confirma al registrarlo en el sistema y puede haber cambios. Se abrirá WhatsApp y le llegará un correo a ventas.`))return;
+  enviandoCat=true;
+  const win=window.open('','_blank'); // se abre ya, para que el navegador no la bloquee
+  try{
+    const r=await apiCall('/portal/catalogo/pedido','POST',{items,nota:document.getElementById('cat-nota').value});
+    if(win)win.location.href=r.whatsapp;else window.open(r.whatsapp,'_blank');
+    showToast(`Solicitud N° ${r.id} enviada ✓ Kuranko te confirmará el pedido`+(r.correo_enviado?' · copia por correo':''));
+    catPedido={};document.getElementById('cat-nota').value='';document.getElementById('cat-solo-pedido').checked=false;renderCatalogo();
+  }catch(e){if(win)win.close();showToast(e.message,true);}
+  finally{enviandoCat=false;}
+}
 
 // ── Propuestas de reposición (Kuranko propone, la tienda acepta) ──
 let propCache=[];

@@ -255,11 +255,14 @@ function parsearOpciones(texto) {
 }
 // ¿El valor está disponible con este montaje? (regla !{…})
 const opcionPermitida = (o, v, montaje) => !((o.no || {})[v] || []).some(w => String(montaje || '').toLowerCase().includes(String(w).toLowerCase()));
-// Notas del montaje: «valor: nota» por línea (ej. «Trail 185: recorrido más corto, más reactiva»). Se muestran bajo ese valor en la ficha.
+// Notas del montaje: «valor: nota [URL de foto]» por línea (ej. «Trail 185: recorrido más corto, más reactiva»). Se muestran bajo ese valor en la ficha;
+// con foto, el botón lleva la miniatura. Si la clave es el nombre de un grupo (ej. «Bielas»), la nota y la foto van como tarjeta bajo el título del grupo.
 function parsearNotas(texto) {
   return String(texto || '').split('\n').map(l => l.trim()).filter(l => l.includes(':')).slice(0, 16).map(l => {
-    const i = l.indexOf(':'); return { k: l.slice(0, i).trim().slice(0, 60), t: l.slice(i + 1).trim().slice(0, 140) };
-  }).filter(n => n.k && n.t);
+    const i = l.indexOf(':'); let t = l.slice(i + 1).trim();
+    const img = (t.match(/https?:\/\/\S+/) || [])[0] || ''; t = t.replace(/https?:\/\/\S+/, '').replace(/\s{2,}/g, ' ').replace(/[\s·|-]+$/, '').trim(); // una foto opcional: la URL en la misma línea
+    return { k: l.slice(0, i).trim().slice(0, 60), t: t.slice(0, 140), ...(img ? { img: img.slice(0, 500) } : {}) };
+  }).filter(n => n.k && (n.t || n.img));
 }
 // Precio final redondeado igual que calcularPrecio (US$ 5 o S/ 10), a partir de un valor en US$ con IGV
 const finPrecio = (usdx, R, tc) => R.moneda_principal === 'PEN' ? ceil10(usdx * tc.usd) : Math.round(Math.ceil(usdx / 5) * 5 * tc.usd);

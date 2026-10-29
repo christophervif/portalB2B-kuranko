@@ -189,6 +189,20 @@ async function llenarPlantilla(buffer, filas) {
       fx = fx.replace(/(<dimension ref="[A-Z]+\d+:[A-Z]+)\d+("\/>)/, `$1${necesarias}$2`)
              .replace(/(<autoFilter ref="[A-Z]+\d+:[A-Z]+)\d+(")/, `$1${necesarias}$2`);
       zip.file(hojas[HOJA_FORMULAS], fx);
+    }
+    // Quitar las filas de fórmulas que sobran (más allá de los datos): así "Para woocommerce"
+    // tiene exactamente una fila por cada fila de "Sistema".
+    if (necesarias < ultima) {
+      fx = await zip.file(hojas[HOJA_FORMULAS]).async('string');
+      fx = fx.replace(/<row [^>]*r="(\d+)"[^>]*>[\s\S]*?<\/row>|<row [^>]*r="(\d+)"[^>]*\/>/g,
+        (m, a, b) => Number(a || b) > necesarias ? '' : m);
+      zip.file(hojas[HOJA_FORMULAS], fx);
+    }
+    if (necesarias !== ultima) {
+      fx = await zip.file(hojas[HOJA_FORMULAS]).async('string');
+      fx = fx.replace(/(<dimension ref="[A-Z]+\d+:[A-Z]+)\d+("\/>)/, `$1${necesarias}$2`)
+             .replace(/(<autoFilter ref="[A-Z]+\d+:[A-Z]+)\d+(")/, `$1${necesarias}$2`);
+      zip.file(hojas[HOJA_FORMULAS], fx);
       let wb = await zip.file('xl/workbook.xml').async('string');
       wb = wb.replace(/(<definedName name="_xlnm\._FilterDatabase"[^>]*>[^<]*!\$[A-Z]+\$\d+:\$[A-Z]+\$)\d+/, `$1${necesarias}`);
       zip.file('xl/workbook.xml', wb);

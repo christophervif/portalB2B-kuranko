@@ -355,7 +355,7 @@ module.exports = function registrarPromociones({ app, authAdmin, mInv, prodPool,
   let web = null;
   if (authCliente) web = require('./promociones-portal')({ app, authAdmin, mInv, authCliente, prodPool, portalPool, ofertasVigentes: camp.ofertasVigentes,
     correoEmpresa: portal && portal.correoEmpresa, destinatariosReporte: portal && portal.destinatariosReporte, grupos, VV });
-  return { ...camp, prepararTablas: async () => { await camp.prepararTablas(); if (web) await web.prepararTablas(); await ofWeb.prepararTablas(); } };
+  return { ...camp, ofertasParaTienda: web ? web.ofertasParaTienda : null, prepararTablas: async () => { await camp.prepararTablas(); if (web) await web.prepararTablas(); await ofWeb.prepararTablas(); } };
 };
 
 module.exports._test = { calcularPromos, filtrarItems, leerFiltros, veMargenes, descuentoSugerido, MOTIVOS };

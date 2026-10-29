@@ -30,6 +30,10 @@
 //     categoría, subcategoría o etiqueta) y a cada uno se le puede poner el valor de
 //     esa tienda. Vacío = usa el general. La prioridad entre reglas no cambia.
 //   · Por defecto solo se muestran productos con stock propio (se puede cambiar).
+//   · Productos en PROMOCIÓN (campaña vigente con stock en oferta libre): se marcan
+//     "En promoción" y se muestra el precio más bajo entre el del catálogo y el
+//     "precio taller oferta" de esa tienda. Si el de promoción es el más bajo, se piden
+//     desde la pestaña Promociones (ahí se reservan); el catálogo no los acepta.
 //   · Packs y marketplace (PCK o MKP en el SKU o en el nombre, mismo criterio que
 //     Auditoría y Contabilidad) quedan FUERA del catálogo. En "Productos" de cada
 //     marca se puede INCLUIR alguno a mano, y QUITAR a mano cualquier producto normal.
@@ -86,7 +90,7 @@ const esPackMkp = (...t) => t.some(x => /MKP|PCK/i.test(String(x || '')));
 const entraPorProducto = (p, exc) => { const a = exc.get(p.vid); return a === 'excluir' ? false : a === 'incluir' ? true : !p.pack; };
 
 module.exports = function registrarCatalogoCliente({ app, authAdmin, requiereModulo, prodPool, portalPool,
-  authCliente, catalogo, grupos, portal }) {
+  authCliente, catalogo, grupos, portal, promos }) {
   const mGest = requiereModulo('clientes_gestion');
   const WA_DEF = (process.env.WA_B2B || '51904286836').replace(/\D/g, '');
 
@@ -611,11 +615,25 @@ module.exports = function registrarCatalogoCliente({ app, authAdmin, requiereMod
   });
 
   // ═════════════════ PORTAL DEL CLIENTE ═════════════════
+  // Ofertas vigentes de promociones para esta tienda: vid → { tu_precio, precio, stock_oferta }
+  async function promosDe(uid) {
+    try { return promos && promos.ofertasParaTienda ? await promos.ofertasParaTienda(uid) : new Map(); }
+    catch (e) { console.error('[catalogo-b2b] promociones', e.message); return new Map(); }
+  }
+  // Marca los productos en promoción y deja el precio más bajo de los dos
+  function conPromo(i, pm) {
+    const o = pm.get(i.vid);
+    if (!o || o.tu_precio == null) return i;
+    const masBarata = Number(o.tu_precio) <= i.precio;
+    return { ...i, precio: masBarata ? r2(o.tu_precio) : i.precio, precio_catalogo: masBarata ? i.precio : null,
+      promo: { solo_promo: masBarata, precio: r2(o.tu_precio), stock: o.stock_oferta, liquidacion: o.liquidacion } };
+  }
+
   app.get('/portal/catalogo', authCliente, async (req, res) => {
     try {
-      const { items, cfg, mensajes } = await catalogoCliente(req.cliente.portal_user_id);
-      // Solo los campos pedidos: marca, SKU, nombre, imagen, PVP y precio del cliente (+ mensaje de cada marca)
-      res.json({ wa_b2b: cfg.wa_b2b, mensajes, items: items.map(({ _d, ...i }) => i) });
+      const [{ items, cfg, mensajes }, pm] = await Promise.all([catalogoCliente(req.cliente.portal_user_id), promosDe(req.cliente.portal_user_id)]);
+      // Solo los campos pedidos: marca, SKU, nombre, imagen, PVP y precio del cliente (+ mensaje de cada marca y promoción)
+      res.json({ wa_b2b: cfg.wa_b2b, mensajes, items: items.map(({ _d, ...i }) => conPromo(i, pm)) });
     } catch (e) { res.status(500).json({ error: 'No se pudo cargar el catálogo' }); }
   });
 
@@ -628,13 +646,18 @@ module.exports = function registrarCatalogoCliente({ app, authAdmin, requiereMod
       const { items, cfg, mensajes } = await catalogoCliente(req.cliente.portal_user_id);
       const porVid = new Map(items.map(i => [i.vid, i]));
       const lineas = [];
+      const pm = await promosDe(req.cliente.portal_user_id);
+      const enPromo = [];
       for (const x of pedido) {
         const it = porVid.get(Number(x.vid));
+        const op = it ? pm.get(it.vid) : null;
+        if (op && op.tu_precio != null && Number(op.tu_precio) <= it.precio) { enPromo.push(it.sku || it.nombre); continue; }
         const cant = Math.round(Number(x.cantidad));
         if (!it || !(cant > 0) || cant > 9999) continue;
         if (lineas.some(l => l.vid === it.vid)) continue;
         lineas.push({ vid: it.vid, marca: it.marca, sku: it.sku, nombre: it.nombre, pvp: it.pvp, precio: it.precio, igv: it.igv || '', cantidad: cant, subtotal: r2(it.precio * cant) });
       }
+      if (enPromo.length) return res.status(409).json({ error: `En promoción, pídelos desde la pestaña Promociones (ahí se reservan al precio de oferta): ${enPromo.join(', ')}`, en_promo: enPromo });
       if (!lineas.length) return res.status(400).json({ error: 'El pedido no tiene productos válidos del catálogo' });
       const unidades = lineas.reduce((a, l) => a + l.cantidad, 0);
       const total = r2(lineas.reduce((a, l) => a + l.subtotal, 0));

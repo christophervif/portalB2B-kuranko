@@ -341,7 +341,7 @@ let modPromos = null;
 
   // ── Catálogo B2B para las tiendas (Gestión de clientes → Catálogo; portal → Catálogo) ──
   //    Marcas habilitadas a mano, % desde el PVP por marca y por categoría; pedidos por WhatsApp + correo.
-  modCatalogoB2B = require('./modulos/catalogo-cliente')({ app, authAdmin, requiereModulo, prodPool, portalPool,
+  modCatalogoB2B = require('./modulos/catalogo-cliente')({ app, authAdmin, requiereModulo, prodPool, portalPool, promos: modPromos,
     authCliente: modPortal.authCliente, catalogo: modCotizador.catalogo, grupos: modGestion, portal: modPortal });
 
   // Precio importado: calculadora de pedidos especiales a tiendas online (reemplaza la hoja de Google)

@@ -227,6 +227,7 @@ tbody tr.clickable:hover td{background:var(--hover)}
           <input id="cat-buscar" type="search" style="flex:1;min-width:180px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface3);color:var(--text)" placeholder="Buscar por SKU, nombre o marca..." oninput="renderCatalogo()">
           <select id="cat-marca" onchange="renderCatalogo()" style="padding:8px;border-radius:8px;border:1px solid var(--border);background:var(--surface3);color:var(--text)"><option value="">Todas las marcas</option></select>
           <label class="muted" style="font-size:12px;display:inline-flex;gap:6px;align-items:center"><input type="checkbox" id="cat-solo-pedido" onchange="renderCatalogo()"> Solo mi pedido</label>
+          <label class="muted" id="cat-solo-promo-l" style="font-size:12px;display:none;gap:6px;align-items:center"><input type="checkbox" id="cat-solo-promo" onchange="renderCatalogo()"> Solo en promoción</label>
         </div>
         <p class="muted" style="font-size:12px;margin-bottom:10px">Precios referenciales. Lo que envíes desde aquí es una <b>solicitud de pedido</b>: Kuranko la confirma al registrarla en el sistema y puede ajustar cantidades según stock.</p>
         <div id="cat-mensajes"></div>
@@ -556,10 +557,12 @@ function ordenarCat(k){catOrden=catOrden.k===k?{k,dir:-catOrden.dir}:{k,dir:1};r
 function renderCatalogo(){
   const c=document.getElementById('cat-tabla');
   const q=normCat(document.getElementById('cat-buscar').value).split(/\s+/).filter(Boolean);
-  const m=document.getElementById('cat-marca').value, solo=document.getElementById('cat-solo-pedido').checked;
+  const m=document.getElementById('cat-marca').value, solo=document.getElementById('cat-solo-pedido').checked, soloPromo=document.getElementById('cat-solo-promo').checked;
+  document.getElementById('cat-solo-promo-l').style.display=catCache.some(x=>x.promo)?'inline-flex':'none';
   let l=catCache.filter(x=>{
     if(m&&x.marca!==m)return false;
     if(solo&&!catPedido[x.vid])return false;
+    if(soloPromo&&!x.promo)return false;
     if(q.length){const t=normCat(x.sku+' '+x.nombre+' '+x.marca);if(!q.every(p=>t.includes(p)))return false;}
     return true;});
   const k=catOrden.k,d=catOrden.dir;
@@ -572,8 +575,8 @@ function renderCatalogo(){
   const th=(key,t,cls)=>`<th class="${cls||''}" style="cursor:pointer;user-select:none" onclick="ordenarCat('${key}')">${t}${catOrden.k===key?(catOrden.dir>0?' ↑':' ↓'):''}</th>`;
   c.innerHTML=`<table class="responsive"><thead><tr><th style="width:56px"></th>${th('marca','Marca')}${th('sku','SKU')}${th('nombre','Nombre')}${th('pvp','PVP','num')}${th('precio','Tu precio','num')}<th class="num">Pedir</th></tr></thead><tbody>`+
     l.slice(0,MAX_CAT).map(x=>`<tr><td data-label="Foto">${x.imagen?`<img src="${escP(x.imagen)}" alt="" loading="lazy" draggable="false" onclick="verFotoCat(${x.vid})" style="width:46px;height:46px;object-fit:contain;border-radius:8px;background:#fff;border:1px solid var(--border);cursor:zoom-in" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'muted',textContent:'—'}))">`:'<span class="muted" style="display:inline-block;width:46px;text-align:center">—</span>'}</td><td data-label="Marca">${escP(x.marca)}${catMensajes[x.marca]?`<div class="muted" style="font-size:10.5px;max-width:160px" title="${escP(catMensajes[x.marca])}">${escP(catMensajes[x.marca])}</div>`:''}</td><td class="muted" data-label="SKU">${escP(x.sku||'-')}</td><td data-label="Nombre">${escP(x.nombre)}</td>
-      <td class="num muted" data-label="PVP">${fmt(x.pvp)}</td><td class="num" data-label="Tu precio"><b>${fmt(x.precio)}</b>${igvTxt(x)}</td>
-      <td class="num" data-label="Pedir"><input type="number" min="0" max="9999" value="${catPedido[x.vid]||''}" placeholder="0" style="width:70px;text-align:right;padding:6px;border-radius:8px;border:1px solid var(--border);background:var(--surface3);color:var(--text)" oninput="cantCat(${x.vid},this.value)"></td></tr>`).join('')+
+      <td class="num muted" data-label="PVP">${fmt(x.pvp)}</td><td class="num" data-label="Tu precio"><b>${fmt(x.precio)}</b>${igvTxt(x)}${chipPromo(x)}</td>
+      <td class="num" data-label="Pedir">${x.promo&&x.promo.solo_promo?`<button class="btn btn-sm" style="white-space:nowrap" onclick="verEnPromo('${escP(x.sku)}')">Pedir en Promociones</button>`:`<input type="number" min="0" max="9999" value="${catPedido[x.vid]||''}" placeholder="0" style="width:70px;text-align:right;padding:6px;border-radius:8px;border:1px solid var(--border);background:var(--surface3);color:var(--text)" oninput="cantCat(${x.vid},this.value)">`}</td></tr>`).join('')+
     `</tbody></table>`+(l.length>MAX_CAT?`<div class="muted" style="font-size:12px;margin-top:8px">Se muestran ${MAX_CAT} de ${l.length}. Usa el buscador o elige una marca.</div>`:'');
   resumenCat();
 }
@@ -590,12 +593,23 @@ function verFotoCat(vid){
     if(window.Proteger)Proteger.activar(document.getElementById('cat-foto-box'));
   }
   document.getElementById('cat-foto-img').src=x.imagen;
-  document.getElementById('cat-foto-info').innerHTML=`<b>${escP(x.nombre)}</b><br><span class="muted">${escP(x.marca)} · SKU ${escP(x.sku||'-')}</span><br>PVP ${fmt(x.pvp)} · Tu precio <b>${fmt(x.precio)}</b>${igvTxt(x)}${catMensajes[x.marca]?`<br><span class="muted">ℹ️ ${escP(catMensajes[x.marca])}</span>`:''}`;
+  document.getElementById('cat-foto-info').innerHTML=`<b>${escP(x.nombre)}</b><br><span class="muted">${escP(x.marca)} · SKU ${escP(x.sku||'-')}</span><br>PVP ${fmt(x.pvp)} · Tu precio <b>${fmt(x.precio)}</b>${igvTxt(x)}${x.promo?'<br>🏷️ En promoción'+(x.promo.solo_promo?': pídelo desde la pestaña Promociones':` (precio oferta ${fmt(x.promo.precio)})`):''}${catMensajes[x.marca]?`<br><span class="muted">ℹ️ ${escP(catMensajes[x.marca])}</span>`:''}`;
   o.style.display='flex';
 }
 function cerrarFotoCat(){const o=document.getElementById('cat-foto');if(o)o.style.display='none';}
 document.addEventListener('keydown',e=>{if(e.key==='Escape')cerrarFotoCat();});
 // IGV de la marca junto al precio: "inc. IGV" o "+ IGV" (si Kuranko lo indicó)
+// Producto en promoción: chip que lleva a la pestaña Promociones (y precio del catálogo tachado si la oferta es menor)
+function chipPromo(x){
+  if(!x.promo)return '';
+  return `${x.precio_catalogo?`<div class="muted" style="font-size:10.5px;text-decoration:line-through">${fmt(x.precio_catalogo)} catálogo</div>`:''}<div><span onclick="verEnPromo('${escP(x.sku)}')" title="Ver en Promociones" style="cursor:pointer;display:inline-block;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:20px;background:var(--bg-warn);color:var(--fg-warn);white-space:nowrap">🏷️ En promoción${x.promo.solo_promo?'':` ${fmt(x.promo.precio)}`}</span></div>`;
+}
+function verEnPromo(sku){
+  const b=document.getElementById('tab-promo-btn');if(!b||b.style.display==='none'){showToast('La promoción ya no está disponible',true);return;}
+  tab('promo',b);
+  const q=document.querySelector('#promo-lista [data-f=q]');
+  if(q){q.value=sku;q.dispatchEvent(new Event('input',{bubbles:true}));q.scrollIntoView({behavior:'smooth',block:'center'});}
+}
 function igvTxt(x){return x.igv==='inc'?'<div class="muted" style="font-size:10.5px">inc. IGV</div>':x.igv==='mas'?'<div style="font-size:10.5px;color:var(--fg-warn)">+ IGV</div>':'';}
 function cantCat(vid,v){const n=Math.max(0,Math.min(9999,parseInt(v)||0));if(n)catPedido[vid]=n;else delete catPedido[vid];resumenCat();}
 function resumenCat(){

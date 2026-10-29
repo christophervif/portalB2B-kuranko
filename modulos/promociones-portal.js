@@ -535,7 +535,16 @@ module.exports = function registrarPromosPortal({ app, authAdmin, mInv, authClie
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-  return { prepararTablas, revisarReservas };
+  // Ofertas vigentes con el "precio taller oferta" de una tienda (lo usa el Catálogo B2B para
+  // marcar productos en promoción). Solo las que tienen stock en oferta libre (sin reservar).
+  async function ofertasParaTienda(portalUserId) {
+    const t = await datosTienda(portalUserId);
+    if (!t || !t.activo) return new Map();
+    const v = await vista(t.tipo);
+    return new Map(v.items.filter(x => x.stock_oferta > 0).map(x => [Number(x.vid), { tu_precio: x.tu_precio, precio: x.precio, stock_oferta: x.stock_oferta, liquidacion: !!x.liquidacion }]));
+  }
+
+  return { prepararTablas, revisarReservas, ofertasParaTienda };
 };
 
 module.exports._test = { crearSesiones, crearEnVivo, armarSolicitud, tuPrecio, asignarVentas, enHorario };

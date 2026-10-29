@@ -1063,7 +1063,11 @@ function pintarCatalogo() {
   $('tbl-cat').innerHTML = `<thead><tr><th>Marca</th><th style="text-align:right">Productos</th><th style="text-align:right">Visibles</th><th>Habilitada</th><th>% estándar</th><th>Tiendas</th><th>Por categoría / etiqueta</th></tr></thead><tbody>` +
     l.map(m => {
       const i = CAT.marcas.indexOf(m);
-      return `<tr class="${m.habilitada ? '' : 'inact'}"><td><div class="nom">${esc(m.marca)}</div></td>
+      return `<tr class="${m.habilitada ? '' : 'inact'}"><td><div class="nom">${esc(m.marca)}</div>
+        <input class="inp" maxlength="300" value="${esc(m.mensaje)}" placeholder="Mensaje para tiendas (ej. Precios no incluyen IGV)" title="Se muestra a la tienda junto a los productos de esta marca y en la solicitud de pedido"
+          style="margin-top:6px;width:100%;min-width:220px;font-size:12px;padding:6px 8px${m.mensaje ? ';border-color:var(--accent)' : ''}" onchange="mensajeMarca(${i},this.value)">
+        <select class="inp" style="margin-top:6px;font-size:12px;padding:5px 8px${m.igv ? ';border-color:var(--accent)' : ''}" title="Se muestra junto a cada precio de esta marca" onchange="igvMarca(${i},this.value)">
+          <option value="" ${!m.igv ? 'selected' : ''}>IGV: no indicar</option><option value="inc" ${m.igv === 'inc' ? 'selected' : ''}>Precios incluyen IGV</option><option value="mas" ${m.igv === 'mas' ? 'selected' : ''}>Precios NO incluyen IGV (+ IGV)</option></select></td>
       <td style="text-align:right">${N(m.productos)}<div class="sub">${N(m.con_precio)} con PVP · ${N(m.con_stock)} con stock</div></td>
       <td style="text-align:right">${m.habilitada ? '<b>' + N(m.visibles) + '</b>' : N(m.visibles)}</td>
       <td><label style="display:inline-flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" ${m.habilitada ? 'checked' : ''} onchange="guardarMarcaCat(${i},{habilitada:this.checked})"> ${m.habilitada ? '<span class="chip c-ok">Sí</span>' : '<span class="chip c-g">No</span>'}</label></td>
@@ -1071,6 +1075,16 @@ function pintarCatalogo() {
       <td><button class="btn btn-sm btn-sec" onclick="tiendasMarca(${i})">${m.tiendas ? m.tiendas + ' tienda' + (m.tiendas > 1 ? 's' : '') : 'Ninguna'}</button></td>
       <td><button class="btn btn-sm btn-sec" onclick="abrirCatsMarca(${i})" ${m.categorias.length || m.etiquetas.length ? '' : 'disabled title="Sin categorías ni etiquetas en el ERP"'}>${m.etiquetas.length ? 'Categorías / etiquetas' : 'Categorías'}${m.ajustes ? ` <span class="chip c-v">${m.ajustes} ajuste${m.ajustes > 1 ? 's' : ''}</span>` : ''}</button></td></tr>`;
     }).join('') + '</tbody>';
+}
+async function igvMarca(i, igv) {
+  const m = CAT.marcas[i];
+  try { const r = await api('/api/catalogo-b2b/marca-igv', null, 'PUT', { marca: m.marca, igv }); m.igv = r.igv; showToast(`${m.marca}: ${r.igv === 'inc' ? 'precios incluyen IGV' : r.igv === 'mas' ? 'precios + IGV' : 'IGV sin indicar'} ✓`); pintarCatalogo(); }
+  catch (e) { showToast(e.message, true); }
+}
+async function mensajeMarca(i, texto) {
+  const m = CAT.marcas[i];
+  try { const r = await api('/api/catalogo-b2b/marca-mensaje', null, 'PUT', { marca: m.marca, mensaje: texto }); m.mensaje = r.mensaje; showToast(r.mensaje ? `${m.marca}: mensaje guardado ✓` : `${m.marca}: sin mensaje ✓`); pintarCatalogo(); }
+  catch (e) { showToast(e.message, true); }
 }
 async function guardarMarcaCat(i, cambio) {
   const m = CAT.marcas[i];
@@ -1169,7 +1183,7 @@ async function vistaPreviaCat(uid) {
       ${u ? `<div class="fila" style="margin-top:4px"><button class="btn btn-sm btn-sec" onclick="abrirDetalle(${uid})">← Volver a la ficha</button></div>` : '<div class="desc" style="margin-top:4px">Cada tienda ve solo las marcas que le activas en su ficha (o con el botón "Tiendas" de cada marca).</div>'}
       <div class="desc" style="margin-top:4px">La tienda solo ve marca, SKU, nombre, PVP y su precio. El % y su origen se muestran aquí solo para ti.${r.total > r.items.length ? ' Se muestran los primeros ' + r.items.length + '.' : ''}</div>
       <div class="tabla-wrap" style="max-height:60vh"><table><thead><tr><th></th><th>Marca</th><th>SKU</th><th>Nombre</th><th style="text-align:right">PVP</th><th style="text-align:right">Precio tienda</th><th style="text-align:right">%</th></tr></thead><tbody>` +
-      (r.items.map(x => `<tr><td>${x.imagen ? `<img src="${esc(x.imagen)}" alt="" loading="lazy" style="width:36px;height:36px;object-fit:contain;background:#fff;border-radius:6px">` : ''}</td><td>${esc(x.marca)}</td><td class="mono">${esc(x.sku)}</td><td>${esc(x.nombre)}</td><td style="text-align:right">S/ ${x.pvp.toFixed(2)}</td><td style="text-align:right"><b>S/ ${x.precio.toFixed(2)}</b></td><td style="text-align:right">${x.descuento}%<div class="sub">${ORI[x.origen]}</div></td></tr>`).join('') ||
+      (r.items.map(x => `<tr><td>${x.imagen ? `<img src="${esc(x.imagen)}" alt="" loading="lazy" style="width:36px;height:36px;object-fit:contain;background:#fff;border-radius:6px">` : ''}</td><td>${esc(x.marca)}</td><td class="mono">${esc(x.sku)}</td><td>${esc(x.nombre)}</td><td style="text-align:right">S/ ${x.pvp.toFixed(2)}</td><td style="text-align:right"><b>S/ ${x.precio.toFixed(2)}</b>${x.igv === 'inc' ? '<div class="sub">inc. IGV</div>' : x.igv === 'mas' ? '<div class="sub">+ IGV</div>' : ''}</td><td style="text-align:right">${x.descuento}%<div class="sub">${ORI[x.origen]}</div></td></tr>`).join('') ||
         (uid ? '<tr><td colspan="7" class="vacio">Esta tienda no ve nada: activa marcas en su ficha.</td></tr>' : '<tr><td colspan="7" class="vacio">Nada visible todavía: habilita al menos una marca.</td></tr>')) + '</tbody></table></div>';
   } catch (e) { showToast(e.message, true); }
 }

@@ -7,7 +7,11 @@
 //
 //  Control interno (Gestión de clientes → vista "Catálogo"):
 //   · Todo empieza DESHABILITADO. Se habilitan marcas una por una.
-//   · Cada marca tiene un % de descuento estándar.
+//   · Cada marca tiene un % de descuento estándar y un mensaje opcional para la tienda
+//     (ej. "Precios no incluyen IGV"), que se muestra en el catálogo y en la solicitud.
+//   · IGV por marca: "incluye IGV" o "no incluye IGV" (o sin indicar). Se muestra junto
+//     a cada precio ("inc. IGV" / "+ IGV") en el catálogo, la foto ampliada, el correo
+//     y el WhatsApp de la solicitud.
 //   · Dentro de una marca se puede dar otro % a una categoría, subcategoría o etiqueta.
 //   · El % se calcula SIEMPRE desde el PVP (precio regular del ERP):
 //       precio cliente = PVP × (1 − %/100)
@@ -86,6 +90,8 @@ module.exports = function registrarCatalogoCliente({ app, authAdmin, requiereMod
     await portalPool.query(`CREATE TABLE IF NOT EXISTS cat_b2b_marcas (
       marca VARCHAR(120) PRIMARY KEY, habilitada TINYINT NOT NULL DEFAULT 0, descuento DECIMAL(5,2) NOT NULL DEFAULT 0,
       actualizado_por VARCHAR(80) NOT NULL DEFAULT '', actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)`);
+    try { await portalPool.query("ALTER TABLE cat_b2b_marcas ADD COLUMN mensaje VARCHAR(300) NOT NULL DEFAULT ''"); } catch (e) { /* ya existe */ }
+    try { await portalPool.query("ALTER TABLE cat_b2b_marcas ADD COLUMN igv VARCHAR(3) NOT NULL DEFAULT ''"); } catch (e) { /* ya existe */ }
     await portalPool.query(`CREATE TABLE IF NOT EXISTS cat_b2b_ajustes (
       marca VARCHAR(120) NOT NULL, categoria_id BIGINT NOT NULL, descuento DECIMAL(5,2) NOT NULL,
       actualizado_por VARCHAR(80) NOT NULL DEFAULT '', actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -120,11 +126,11 @@ module.exports = function registrarCatalogoCliente({ app, authAdmin, requiereMod
   }
   async function leerReglas() {
     await prepararTablas();
-    const [ms] = await portalPool.query('SELECT marca, habilitada, descuento FROM cat_b2b_marcas');
+    const [ms] = await portalPool.query('SELECT marca, habilitada, descuento, mensaje, igv FROM cat_b2b_marcas');
     const [as] = await portalPool.query('SELECT marca, categoria_id, descuento FROM cat_b2b_ajustes');
     const [ts] = await portalPool.query('SELECT marca, etiqueta_id, descuento FROM cat_b2b_ajustes_tag');
     return {
-      marcas: new Map(ms.map(m => [m.marca, { habilitada: !!Number(m.habilitada), descuento: Number(m.descuento) }])),
+      marcas: new Map(ms.map(m => [m.marca, { habilitada: !!Number(m.habilitada), descuento: Number(m.descuento), mensaje: m.mensaje || '', igv: m.igv || '' }])),
       ajustes: new Map(as.map(a => [a.marca + '|' + a.categoria_id, Number(a.descuento)])),
       ajustesTag: new Map(ts.map(a => [a.marca + '|' + a.etiqueta_id, Number(a.descuento)]))
     };
@@ -286,9 +292,13 @@ module.exports = function registrarCatalogoCliente({ app, authAdmin, requiereMod
       if (cfg.solo_stock && p.stock != null && p.stock <= 0) continue;
       const d = descuentoDe(p, reglas.marcas, reglas.ajustes, reglas.ajustesTag);
       if (!d) continue;
-      out.push({ vid: p.vid, marca: p.marca, sku: p.sku, nombre: p.nombre, imagen: p.imagen, pvp: r2(p.pvp), precio: precioCliente(p.pvp, d.descuento), _d: d });
+      out.push({ vid: p.vid, marca: p.marca, sku: p.sku, nombre: p.nombre, imagen: p.imagen, pvp: r2(p.pvp), precio: precioCliente(p.pvp, d.descuento),
+        igv: (reglasGen.marcas.get(p.marca) || {}).igv || '', _d: d });
     }
-    return { items: out.sort((a, b) => a.marca.localeCompare(b.marca) || a.nombre.localeCompare(b.nombre)), cfg };
+    // Mensajes por marca (solo de las marcas que aparecen en este catálogo)
+    const mensajes = {};
+    out.forEach(i => { const m = (reglasGen.marcas.get(i.marca) || {}).mensaje; if (m) mensajes[i.marca] = m; });
+    return { items: out.sort((a, b) => a.marca.localeCompare(b.marca) || a.nombre.localeCompare(b.nombre)), cfg, mensajes };
   }
 
   // ═════════════════ ADMIN ═════════════════
@@ -319,10 +329,10 @@ module.exports = function registrarCatalogoCliente({ app, authAdmin, requiereMod
       reglas.marcas.forEach((v, k) => { if (!porMarca.has(k)) porMarca.set(k, { marca: k, productos: 0, con_precio: 0, con_stock: 0, visibles: 0, cats: new Map(), tags: new Map() }); });
       const nom = id => (nombresCat[id] || {}).nombre || `Categoría ${id}`;
       const marcas = [...porMarca.values()].map(m => {
-        const r = reglas.marcas.get(m.marca) || { habilitada: false, descuento: 0 };
+        const r = reglas.marcas.get(m.marca) || { habilitada: false, descuento: 0, mensaje: '', igv: '' };
         const aj = id => { const v = reglas.ajustes.get(m.marca + '|' + id); return v == null ? null : v; };
         return {
-          marca: m.marca, habilitada: r.habilitada, descuento: r.descuento,
+          marca: m.marca, habilitada: r.habilitada, descuento: r.descuento, mensaje: r.mensaje || '', igv: r.igv || '',
           productos: m.productos, con_precio: m.con_precio, con_stock: m.con_stock, visibles: m.visibles,
           ajustes: [...reglas.ajustes.keys(), ...reglas.ajustesTag.keys()].filter(k => k.startsWith(m.marca + '|')).length,
           etiquetas: [...m.tags.entries()].map(([id, n]) => {
@@ -355,6 +365,32 @@ module.exports = function registrarCatalogoCliente({ app, authAdmin, requiereMod
         ON DUPLICATE KEY UPDATE habilitada=VALUES(habilitada), descuento=VALUES(descuento), actualizado_por=VALUES(actualizado_por)`,
         [marca, req.body.habilitada ? 1 : 0, d, quien(req)]);
       res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: 'Error: ' + e.message }); }
+  });
+
+  // Mensaje de la marca para las tiendas (vacío = sin mensaje)
+  app.put('/api/catalogo-b2b/marca-mensaje', authAdmin, mGest, async (req, res) => {
+    const marca = normMarca((req.body || {}).marca);
+    const mensaje = String((req.body || {}).mensaje || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+    if (!marca) return res.status(400).json({ error: 'Falta la marca' });
+    try {
+      await prepararTablas();
+      await portalPool.query(`INSERT INTO cat_b2b_marcas (marca, habilitada, descuento, mensaje, actualizado_por) VALUES (?,0,0,?,?)
+        ON DUPLICATE KEY UPDATE mensaje=VALUES(mensaje), actualizado_por=VALUES(actualizado_por)`, [marca, mensaje, quien(req)]);
+      res.json({ ok: true, mensaje });
+    } catch (e) { res.status(500).json({ error: 'Error: ' + e.message }); }
+  });
+
+  // IGV de la marca: 'inc' = precios incluyen IGV, 'mas' = no incluyen (+ IGV), '' = no indicar
+  app.put('/api/catalogo-b2b/marca-igv', authAdmin, mGest, async (req, res) => {
+    const marca = normMarca((req.body || {}).marca);
+    const igv = ['inc', 'mas'].includes((req.body || {}).igv) ? req.body.igv : '';
+    if (!marca) return res.status(400).json({ error: 'Falta la marca' });
+    try {
+      await prepararTablas();
+      await portalPool.query(`INSERT INTO cat_b2b_marcas (marca, habilitada, descuento, igv, actualizado_por) VALUES (?,0,0,?,?)
+        ON DUPLICATE KEY UPDATE igv=VALUES(igv), actualizado_por=VALUES(actualizado_por)`, [marca, igv, quien(req)]);
+      res.json({ ok: true, igv });
     } catch (e) { res.status(500).json({ error: 'Error: ' + e.message }); }
   });
 
@@ -507,9 +543,9 @@ module.exports = function registrarCatalogoCliente({ app, authAdmin, requiereMod
   // ═════════════════ PORTAL DEL CLIENTE ═════════════════
   app.get('/portal/catalogo', authCliente, async (req, res) => {
     try {
-      const { items, cfg } = await catalogoCliente(req.cliente.portal_user_id);
-      // Solo los campos pedidos: marca, SKU, nombre, imagen, PVP y precio del cliente
-      res.json({ wa_b2b: cfg.wa_b2b, items: items.map(({ _d, ...i }) => i) });
+      const { items, cfg, mensajes } = await catalogoCliente(req.cliente.portal_user_id);
+      // Solo los campos pedidos: marca, SKU, nombre, imagen, PVP y precio del cliente (+ mensaje de cada marca)
+      res.json({ wa_b2b: cfg.wa_b2b, mensajes, items: items.map(({ _d, ...i }) => i) });
     } catch (e) { res.status(500).json({ error: 'No se pudo cargar el catálogo' }); }
   });
 
@@ -519,7 +555,7 @@ module.exports = function registrarCatalogoCliente({ app, authAdmin, requiereMod
     const pedido = Array.isArray((req.body || {}).items) ? req.body.items : [];
     const nota = String((req.body || {}).nota || '').slice(0, 1000);
     try {
-      const { items, cfg } = await catalogoCliente(req.cliente.portal_user_id);
+      const { items, cfg, mensajes } = await catalogoCliente(req.cliente.portal_user_id);
       const porVid = new Map(items.map(i => [i.vid, i]));
       const lineas = [];
       for (const x of pedido) {
@@ -527,7 +563,7 @@ module.exports = function registrarCatalogoCliente({ app, authAdmin, requiereMod
         const cant = Math.round(Number(x.cantidad));
         if (!it || !(cant > 0) || cant > 9999) continue;
         if (lineas.some(l => l.vid === it.vid)) continue;
-        lineas.push({ vid: it.vid, marca: it.marca, sku: it.sku, nombre: it.nombre, pvp: it.pvp, precio: it.precio, cantidad: cant, subtotal: r2(it.precio * cant) });
+        lineas.push({ vid: it.vid, marca: it.marca, sku: it.sku, nombre: it.nombre, pvp: it.pvp, precio: it.precio, igv: it.igv || '', cantidad: cant, subtotal: r2(it.precio * cant) });
       }
       if (!lineas.length) return res.status(400).json({ error: 'El pedido no tiene productos válidos del catálogo' });
       const unidades = lineas.reduce((a, l) => a + l.cantidad, 0);
@@ -537,7 +573,12 @@ module.exports = function registrarCatalogoCliente({ app, authAdmin, requiereMod
         `INSERT INTO cat_b2b_pedidos (portal_user_id, cliente, items, unidades, total, nota, via_admin) VALUES (?,?,?,?,?,?,?)`,
         [req.cliente.portal_user_id, req.cliente.nombre || '', JSON.stringify(lineas), unidades, total, nota, req.cliente.via_admin || null]);
       const id = r.insertId;
+      // Mensajes de las marcas incluidas en la solicitud (ej. "Precios no incluyen IGV")
+      const notasMarca = [...new Set(lineas.map(l => l.marca))].filter(m => mensajes[m]).map(m => [m, mensajes[m]]);
       const S = n => 'S/ ' + Number(n).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const IGV = l => l.igv === 'inc' ? ' inc. IGV' : l.igv === 'mas' ? ' + IGV' : '';
+      const igvMixto = lineas.some(l => l.igv === 'mas') && lineas.some(l => l.igv !== 'mas');
+      const notaTotal = igvMixto ? ' (suma precios con y sin IGV)' : lineas.every(l => l.igv === 'mas') ? ' + IGV' : lineas.every(l => l.igv === 'inc') ? ' inc. IGV' : '';
 
       // Correo: Para ventas, CC info + la tienda
       let emailCli = null;
@@ -552,8 +593,8 @@ module.exports = function registrarCatalogoCliente({ app, authAdmin, requiereMod
         <td style="padding:6px 10px;border:1px solid #e0e0e0;font-family:monospace">${esc(l.sku) || '—'}</td>
         <td style="padding:6px 10px;border:1px solid #e0e0e0">${esc(l.nombre)}</td>
         <td style="padding:6px 10px;border:1px solid #e0e0e0;text-align:center">${l.cantidad}</td>
-        <td style="padding:6px 10px;border:1px solid #e0e0e0;text-align:right">${S(l.precio)}</td>
-        <td style="padding:6px 10px;border:1px solid #e0e0e0;text-align:right">${S(l.subtotal)}</td></tr>`).join('');
+        <td style="padding:6px 10px;border:1px solid #e0e0e0;text-align:right">${S(l.precio)}${IGV(l)}</td>
+        <td style="padding:6px 10px;border:1px solid #e0e0e0;text-align:right">${S(l.subtotal)}${IGV(l)}</td></tr>`).join('');
       const html = `<div style="font-family:Arial,Helvetica,sans-serif;color:#1a1a1a;max-width:720px">
         <h2 style="color:#000726;margin-bottom:4px">Solicitud de pedido B2B N° ${id} — ${esc(req.cliente.nombre)}</h2>
         <p style="background:#eef2ff;padding:10px 14px;border-radius:6px"><b>Esta solicitud aún no es un pedido confirmado.</b> Se confirma cuando Kuranko la registra en el sistema; puede tener cambios (stock, cantidades o precio).</p>
@@ -563,11 +604,13 @@ module.exports = function registrarCatalogoCliente({ app, authAdmin, requiereMod
           <th style="padding:6px 10px">N°</th><th style="padding:6px 10px;text-align:left">Marca</th><th style="padding:6px 10px;text-align:left">SKU</th>
           <th style="padding:6px 10px;text-align:left">Producto</th><th style="padding:6px 10px">Cant.</th><th style="padding:6px 10px;text-align:right">Precio</th><th style="padding:6px 10px;text-align:right">Subtotal</th></tr></thead>
           <tbody>${filas}</tbody>
-          <tfoot><tr><td colspan="4" style="padding:6px 10px;text-align:right"><b>Total</b></td><td style="padding:6px 10px;text-align:center"><b>${unidades}</b></td><td></td><td style="padding:6px 10px;text-align:right"><b>${S(total)}</b></td></tr></tfoot></table>
+          <tfoot><tr><td colspan="4" style="padding:6px 10px;text-align:right"><b>Total</b></td><td style="padding:6px 10px;text-align:center"><b>${unidades}</b></td><td></td><td style="padding:6px 10px;text-align:right"><b>${S(total)}</b>${notaTotal}</td></tr></tfoot></table>
+        ${notasMarca.length ? `<p style="margin-top:12px;font-size:13px"><b>Notas por marca:</b><br>${notasMarca.map(([m, t]) => `${esc(m)}: ${esc(t)}`).join('<br>')}</p>` : ''}
         <p style="color:#666;font-size:13px;margin-top:14px">Solicitud enviada desde el catálogo del Portal Kuranko. Precios referenciales del catálogo a la fecha; Kuranko confirma disponibilidad y precio final al registrar el pedido.</p></div>`;
       const texto = `Solicitud de pedido B2B N° ${id} — ${req.cliente.nombre}\n(No es un pedido confirmado: se confirma al registrarlo en el sistema y puede tener cambios.)\n` + (nota ? `Nota: ${nota}\n` : '') + '\n' +
-        lineas.map((l, n) => `${n + 1}. ${l.cantidad} x [${l.sku || '—'}] ${l.nombre} — ${S(l.precio)} = ${S(l.subtotal)}`).join('\n') +
-        `\n\nTotal: ${unidades} unidades · ${S(total)}`;
+        lineas.map((l, n) => `${n + 1}. ${l.cantidad} x [${l.sku || '—'}] ${l.nombre} — ${S(l.precio)}${IGV(l)} = ${S(l.subtotal)}${IGV(l)}`).join('\n') +
+        `\n\nTotal: ${unidades} unidades · ${S(total)}${notaTotal}` +
+        (notasMarca.length ? '\n\nNotas por marca:\n' + notasMarca.map(([m, t]) => `${m}: ${t}`).join('\n') : '');
       let correo = false;
       if (process.env.RESEND_API_KEY) {
         try {
@@ -583,8 +626,9 @@ module.exports = function registrarCatalogoCliente({ app, authAdmin, requiereMod
       if (correo) portalPool.query('UPDATE cat_b2b_pedidos SET correo_enviado=1 WHERE id=?', [id]).catch(() => {});
       // Mensaje de WhatsApp (lo abre el navegador de la tienda)
       const wa = `📦 *Solicitud de pedido B2B N° ${id}* — ${req.cliente.nombre}\nUsuario: ${req.cliente.ruc || ''}\n\n` +
-        lineas.map(l => `▪ ${l.cantidad} x ${l.nombre} (SKU ${l.sku || 's/c'}) — ${S(l.precio)}`).join('\n') +
-        `\n\n*Total referencial:* ${unidades} und · ${S(total)}` + (nota ? `\n*Nota:* ${nota}` : '') +
+        lineas.map(l => `▪ ${l.cantidad} x ${l.nombre} (SKU ${l.sku || 's/c'}) — ${S(l.precio)}${IGV(l)}`).join('\n') +
+        `\n\n*Total referencial:* ${unidades} und · ${S(total)}${notaTotal}` + (nota ? `\n*Nota:* ${nota}` : '') +
+        (notasMarca.length ? '\n' + notasMarca.map(([m, t]) => `ℹ️ ${m}: ${t}`).join('\n') : '') +
         `\n\n_Solicitud sin confirmar: Kuranko la confirma al registrarla en el sistema._`;
       res.json({ ok: true, id, unidades, total, correo_enviado: correo, copia_cliente: !!emailCli,
         whatsapp: `https://wa.me/${cfg.wa_b2b}?text=${encodeURIComponent(wa)}` });

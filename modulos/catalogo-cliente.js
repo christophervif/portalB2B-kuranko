@@ -30,6 +30,9 @@
 //     categoría, subcategoría o etiqueta) y a cada uno se le puede poner el valor de
 //     esa tienda. Vacío = usa el general. La prioridad entre reglas no cambia.
 //   · Por defecto solo se muestran productos con stock propio (se puede cambiar).
+//   · Packs y marketplace (PCK o MKP en el SKU o en el nombre, mismo criterio que
+//     Auditoría y Contabilidad) quedan FUERA del catálogo. En "Productos" de cada
+//     marca se puede INCLUIR alguno a mano, y QUITAR a mano cualquier producto normal.
 //
 //  Marca: se detecta sola en el ERP (products.brand_id → brands.name, o
 //  products.brand / marca). Si el ERP no tiene marca, se usa la primera palabra
@@ -77,6 +80,10 @@ function descuentoDe(prod, marcas, ajustes, ajustesTag) {
   return { descuento: Number(m.descuento) || 0, origen: 'marca' };
 }
 const precioCliente = (pvp, d) => r2(Number(pvp) * (1 - (Number(d) || 0) / 100));
+// Pack o marketplace: PCK o MKP en el SKU o en el nombre (variación o producto)
+const esPackMkp = (...t) => t.some(x => /MKP|PCK/i.test(String(x || '')));
+// ¿Va al catálogo según las excepciones? (sin mirar precio, stock ni marca)
+const entraPorProducto = (p, exc) => { const a = exc.get(p.vid); return a === 'excluir' ? false : a === 'incluir' ? true : !p.pack; };
 
 module.exports = function registrarCatalogoCliente({ app, authAdmin, requiereModulo, prodPool, portalPool,
   authCliente, catalogo, grupos, portal }) {
@@ -111,6 +118,11 @@ module.exports = function registrarCatalogoCliente({ app, authAdmin, requiereMod
       descuento DECIMAL(5,2) NOT NULL, actualizado_por VARCHAR(80) NOT NULL DEFAULT '',
       actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (portal_user_id, marca, tipo, ref_id))`);
+    // Excepciones por producto: 'incluir' (un PCK/MKP que sí va) o 'excluir' (uno normal que no va)
+    await portalPool.query(`CREATE TABLE IF NOT EXISTS cat_b2b_productos (
+      vid BIGINT PRIMARY KEY, marca VARCHAR(120) NOT NULL, accion VARCHAR(8) NOT NULL,
+      actualizado_por VARCHAR(80) NOT NULL DEFAULT '', actualizado_en DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      KEY ix_marca (marca))`);
     await portalPool.query(`CREATE TABLE IF NOT EXISTS cat_b2b_cfg (clave VARCHAR(40) PRIMARY KEY, valor VARCHAR(255) NOT NULL DEFAULT '')`);
     await portalPool.query(`CREATE TABLE IF NOT EXISTS cat_b2b_pedidos (
       id INT AUTO_INCREMENT PRIMARY KEY, portal_user_id INT NOT NULL, cliente VARCHAR(255) NOT NULL DEFAULT '',
@@ -241,6 +253,7 @@ module.exports = function registrarCatalogoCliente({ app, authAdmin, requiereMod
           const nombre = (r.variacion || '').trim() || (r.producto || '').trim();
           const marca = normMarca(r.marca) || normMarca((r.producto || nombre).split(/\s+/)[0]) || 'SIN MARCA';
           return { vid: Number(r.vid), sku: r.sku || '', nombre, marca, pvp: Number(r.pvp) || 0,
+            pack: esPackMkp(r.sku, r.variacion, r.producto),
             stock: stock ? (stock[r.vid] || 0) : null, cats: catsDe[r.pid] || [], imagen: imagen[r.vid] || null,
             tags: [...new Set([...(tagsProd[r.pid] || []), ...(tagsVar[r.vid] || [])])] };
         }).filter(p => p.nombre)
@@ -278,16 +291,23 @@ module.exports = function registrarCatalogoCliente({ app, authAdmin, requiereMod
     return { marcas, ajustes: sobre(reglas.ajustes, 'cat'), ajustesTag: sobre(reglas.ajustesTag, 'tag') };
   }
 
+  async function leerExcepciones() {
+    await prepararTablas();
+    const [rows] = await portalPool.query('SELECT vid, accion FROM cat_b2b_productos');
+    return new Map(rows.map(r => [Number(r.vid), r.accion]));
+  }
+
   // Catálogo tal como lo ve la tienda. portalUserId = null → todas las marcas habilitadas
   // (vista general del panel); con un id → solo las marcas activadas para esa tienda.
   async function catalogoCliente(portalUserId) {
-    const [{ lista }, reglasGen, cfg, deTienda, ajTienda] = await Promise.all([productos(), leerReglas(), leerCfg(),
+    const [{ lista }, reglasGen, cfg, deTienda, ajTienda, exc] = await Promise.all([productos(), leerReglas(), leerCfg(),
       portalUserId != null ? marcasDeTienda(portalUserId) : Promise.resolve(null),
-      portalUserId != null ? ajustesDeTienda(portalUserId) : Promise.resolve(null)]);
+      portalUserId != null ? ajustesDeTienda(portalUserId) : Promise.resolve(null), leerExcepciones()]);
     const reglas = deTienda ? reglasDeTienda(reglasGen, deTienda, ajTienda) : reglasGen;
     const out = [];
     for (const p of lista) {
       if (deTienda && !deTienda.has(p.marca)) continue;
+      if (!entraPorProducto(p, exc)) continue;   // PCK/MKP fuera, salvo incluidos; quitados a mano fuera
       if (!(p.pvp > 0)) continue;
       if (cfg.solo_stock && p.stock != null && p.stock <= 0) continue;
       const d = descuentoDe(p, reglas.marcas, reglas.ajustes, reglas.ajustesTag);
@@ -307,15 +327,18 @@ module.exports = function registrarCatalogoCliente({ app, authAdmin, requiereMod
   // Marcas del ERP con su configuración y su árbol de categorías
   app.get('/api/catalogo-b2b/config', authAdmin, mGest, async (req, res) => {
     try {
-      const [{ lista, nombresCat, nombresTag, hayEtiquetas, hayStock }, reglas, cfg] = await Promise.all([productos(req.query.fresh === '1'), leerReglas(), leerCfg()]);
+      const [{ lista, nombresCat, nombresTag, hayEtiquetas, hayStock }, reglas, cfg, exc] = await Promise.all([productos(req.query.fresh === '1'), leerReglas(), leerCfg(), leerExcepciones()]);
       const porMarca = new Map();
       lista.forEach(p => {
-        const m = porMarca.get(p.marca) || { marca: p.marca, productos: 0, con_precio: 0, con_stock: 0, visibles: 0, cats: new Map(), tags: new Map() };
+        const m = porMarca.get(p.marca) || { marca: p.marca, productos: 0, con_precio: 0, con_stock: 0, visibles: 0, packs: 0, incluidos: 0, quitados: 0, cats: new Map(), tags: new Map() };
+        if (p.pack) m.packs++;
+        if (exc.get(p.vid) === 'incluir' && p.pack) m.incluidos++;
+        if (exc.get(p.vid) === 'excluir') m.quitados++;
         (p.tags || []).forEach(t => m.tags.set(t, (m.tags.get(t) || 0) + 1));
         m.productos++;
         if (p.pvp > 0) m.con_precio++;
         if (p.stock > 0) m.con_stock++;
-        if (p.pvp > 0 && (!cfg.solo_stock || p.stock == null || p.stock > 0)) m.visibles++;
+        if (p.pvp > 0 && (!cfg.solo_stock || p.stock == null || p.stock > 0) && entraPorProducto(p, exc)) m.visibles++;
         p.cats.forEach(c => {
           const padre = c.parent_id || c.id;
           const e = m.cats.get(padre) || { id: padre, n: 0, subs: new Map() };
@@ -326,7 +349,7 @@ module.exports = function registrarCatalogoCliente({ app, authAdmin, requiereMod
         porMarca.set(p.marca, m);
       });
       // marcas configuradas que ya no aparecen en el ERP también se listan
-      reglas.marcas.forEach((v, k) => { if (!porMarca.has(k)) porMarca.set(k, { marca: k, productos: 0, con_precio: 0, con_stock: 0, visibles: 0, cats: new Map(), tags: new Map() }); });
+      reglas.marcas.forEach((v, k) => { if (!porMarca.has(k)) porMarca.set(k, { marca: k, productos: 0, con_precio: 0, con_stock: 0, visibles: 0, packs: 0, incluidos: 0, quitados: 0, cats: new Map(), tags: new Map() }); });
       const nom = id => (nombresCat[id] || {}).nombre || `Categoría ${id}`;
       const marcas = [...porMarca.values()].map(m => {
         const r = reglas.marcas.get(m.marca) || { habilitada: false, descuento: 0, mensaje: '', igv: '' };
@@ -334,6 +357,7 @@ module.exports = function registrarCatalogoCliente({ app, authAdmin, requiereMod
         return {
           marca: m.marca, habilitada: r.habilitada, descuento: r.descuento, mensaje: r.mensaje || '', igv: r.igv || '',
           productos: m.productos, con_precio: m.con_precio, con_stock: m.con_stock, visibles: m.visibles,
+          packs: m.packs, incluidos: m.incluidos, quitados: m.quitados,
           ajustes: [...reglas.ajustes.keys(), ...reglas.ajustesTag.keys()].filter(k => k.startsWith(m.marca + '|')).length,
           etiquetas: [...m.tags.entries()].map(([id, n]) => {
             const v = reglas.ajustesTag.get(m.marca + '|' + id);
@@ -364,6 +388,52 @@ module.exports = function registrarCatalogoCliente({ app, authAdmin, requiereMod
       await portalPool.query(`INSERT INTO cat_b2b_marcas (marca, habilitada, descuento, actualizado_por) VALUES (?,?,?,?)
         ON DUPLICATE KEY UPDATE habilitada=VALUES(habilitada), descuento=VALUES(descuento), actualizado_por=VALUES(actualizado_por)`,
         [marca, req.body.habilitada ? 1 : 0, d, quien(req)]);
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: 'Error: ' + e.message }); }
+  });
+
+  // Productos de una marca para elegir qué entra al catálogo.
+  //  vista: 'visibles' (entran por defecto o incluidos) | 'packs' (PCK/MKP) | 'quitados'; q = buscador
+  app.get('/api/catalogo-b2b/productos', authAdmin, mGest, async (req, res) => {
+    const marca = normMarca(req.query.marca);
+    const vista = ['visibles', 'packs', 'quitados'].includes(req.query.vista) ? req.query.vista : 'visibles';
+    const q = String(req.query.q || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().split(/\s+/).filter(Boolean);
+    try {
+      const [{ lista }, exc, cfg] = await Promise.all([productos(), leerExcepciones(), leerCfg()]);
+      const deMarca = lista.filter(p => p.marca === marca);
+      const conteo = { visibles: 0, packs: 0, quitados: 0 };
+      // 'visibles' = los que entran (normales + PCK/MKP incluidos); 'packs' = todos los PCK/MKP
+      // no quitados (incluidos o no); 'quitados' = quitados a mano
+      const en = {
+        visibles: p => entraPorProducto(p, exc),
+        packs: p => p.pack && exc.get(p.vid) !== 'excluir',
+        quitados: p => exc.get(p.vid) === 'excluir'
+      };
+      deMarca.forEach(p => { Object.keys(en).forEach(k => { if (en[k](p)) conteo[k]++; }); });
+      const l = deMarca.filter(en[vista]).filter(p => {
+        if (!q.length) return true;
+        const t = (p.sku + ' ' + p.nombre).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+        return q.every(w => t.includes(w));
+      }).sort((a, b) => (b.stock || 0) - (a.stock || 0) || a.nombre.localeCompare(b.nombre));
+      res.json({ conteo, total: l.length, items: l.slice(0, 300).map(p => {
+        const motivo = !(p.pvp > 0) ? 'sin PVP' : (cfg.solo_stock && p.stock != null && p.stock <= 0) ? 'sin stock' : '';
+        return { vid: p.vid, sku: p.sku, nombre: p.nombre, pvp: p.pvp, stock: p.stock, pack: p.pack, imagen: p.imagen,
+          accion: exc.get(p.vid) || null, entra: entraPorProducto(p, exc), no_se_ve: motivo };
+      }) });
+    } catch (e) { res.status(500).json({ error: 'Error: ' + e.message }); }
+  });
+  // Incluir / quitar un producto del catálogo. accion: 'incluir' | 'excluir' | 'auto' (volver a la regla)
+  app.put('/api/catalogo-b2b/producto', authAdmin, mGest, async (req, res) => {
+    const vid = Number((req.body || {}).vid), accion = (req.body || {}).accion;
+    if (!vid || !['incluir', 'excluir', 'auto'].includes(accion)) return res.status(400).json({ error: 'Datos no válidos' });
+    try {
+      const p = (await productos()).lista.find(x => x.vid === vid);
+      if (!p) return res.status(404).json({ error: 'Producto no encontrado' });
+      await prepararTablas();
+      // 'incluir' en un producto normal o 'auto' = sin excepción (vuelve a la regla por defecto)
+      if (accion === 'auto' || (accion === 'incluir' && !p.pack)) await portalPool.query('DELETE FROM cat_b2b_productos WHERE vid=?', [vid]);
+      else await portalPool.query(`INSERT INTO cat_b2b_productos (vid, marca, accion, actualizado_por) VALUES (?,?,?,?)
+        ON DUPLICATE KEY UPDATE marca=VALUES(marca), accion=VALUES(accion), actualizado_por=VALUES(actualizado_por)`, [vid, p.marca, accion, quien(req)]);
       res.json({ ok: true });
     } catch (e) { res.status(500).json({ error: 'Error: ' + e.message }); }
   });
@@ -638,4 +708,4 @@ module.exports = function registrarCatalogoCliente({ app, authAdmin, requiereMod
   return { prepararTablas };
 };
 
-module.exports._test = { descuentoDe, precioCliente, normMarca };
+module.exports._test = { descuentoDe, precioCliente, normMarca, esPackMkp, entraPorProducto };

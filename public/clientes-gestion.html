@@ -133,7 +133,7 @@ details.ayuda ul{margin:6px 0 0 18px;line-height:1.6}
 
     <!-- ══════════ CATÁLOGO B2B ══════════ -->
     <div id="v-catalogo" style="display:none">
-      <div class="desc" style="margin-top:10px">Catálogo que ven las tiendas en su portal (foto, marca, SKU, nombre, PVP y su precio). <b>Todo empieza deshabilitado</b>: habilita marcas y ponles su % de descuento estándar; dentro de cada marca puedes dar otro % a categorías, subcategorías o etiquetas. El % siempre se calcula desde el PVP. Los % son una sola lista, pero <b>cada tienda ve solo las marcas que le actives</b> (en su ficha o con el botón "Tiendas"); en la ficha de cada tienda puedes cambiar, para esa tienda, cada % del general (estándar, etiquetas y categorías).</div>
+      <div class="desc" style="margin-top:10px">Catálogo que ven las tiendas en su portal (foto, marca, SKU, nombre, PVP y su precio). <b>Todo empieza deshabilitado</b>: habilita marcas y ponles su % de descuento estándar; dentro de cada marca puedes dar otro % a categorías, subcategorías o etiquetas. El % siempre se calcula desde el PVP. Los packs y marketplace (<b>PCK/MKP</b>) no entran salvo que los incluyas en "Productos" de la marca. Los % son una sola lista, pero <b>cada tienda ve solo las marcas que le actives</b> (en su ficha o con el botón "Tiendas"); en la ficha de cada tienda puedes cambiar, para esa tienda, cada % del general (estándar, etiquetas y categorías).</div>
       <div class="fila">
         <label class="desc" style="display:inline-flex;gap:6px;align-items:center">WhatsApp B2B <input class="inp" id="cat-wa" placeholder="51987654321" style="width:150px"></label>
         <label class="desc" style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" id="cat-stock"> Mostrar solo productos con stock</label>
@@ -1068,7 +1068,9 @@ function pintarCatalogo() {
           style="margin-top:6px;width:100%;min-width:220px;font-size:12px;padding:6px 8px${m.mensaje ? ';border-color:var(--accent)' : ''}" onchange="mensajeMarca(${i},this.value)">
         <select class="inp" style="margin-top:6px;font-size:12px;padding:5px 8px${m.igv ? ';border-color:var(--accent)' : ''}" title="Se muestra junto a cada precio de esta marca" onchange="igvMarca(${i},this.value)">
           <option value="" ${!m.igv ? 'selected' : ''}>IGV: no indicar</option><option value="inc" ${m.igv === 'inc' ? 'selected' : ''}>Precios incluyen IGV</option><option value="mas" ${m.igv === 'mas' ? 'selected' : ''}>Precios NO incluyen IGV (+ IGV)</option></select></td>
-      <td style="text-align:right">${N(m.productos)}<div class="sub">${N(m.con_precio)} con PVP · ${N(m.con_stock)} con stock</div></td>
+      <td style="text-align:right">${N(m.productos)}<div class="sub">${N(m.con_precio)} con PVP · ${N(m.con_stock)} con stock</div>
+        <div class="sub">${m.packs ? N(m.packs) + ' PCK/MKP fuera' + (m.incluidos ? ' (' + m.incluidos + ' incluidos)' : '') : ''}${m.quitados ? (m.packs ? ' · ' : '') + m.quitados + ' quitados' : ''}</div>
+        <button class="btn btn-sm btn-sec" style="margin-top:4px" onclick="productosMarca(${i})">Productos</button></td>
       <td style="text-align:right">${m.habilitada ? '<b>' + N(m.visibles) + '</b>' : N(m.visibles)}</td>
       <td><label style="display:inline-flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" ${m.habilitada ? 'checked' : ''} onchange="guardarMarcaCat(${i},{habilitada:this.checked})"> ${m.habilitada ? '<span class="chip c-ok">Sí</span>' : '<span class="chip c-g">No</span>'}</label></td>
       <td style="white-space:nowrap"><input class="inp" type="number" min="0" max="95" step="0.5" value="${m.descuento}" style="width:80px;text-align:right" onchange="guardarMarcaCat(${i},{descuento:this.value})"> %</td>
@@ -1131,6 +1133,43 @@ async function guardarAjusteCat(i, catId, valor) {
   } catch (e) { showToast(e.message, true); }
 }
 // Tiendas que ven una marca (activar varias a la vez, % propio por tienda)
+// Productos de una marca: quitar normales / incluir PCK-MKP, con buscador
+let PM = { i: null, vista: 'visibles', q: '', t: null };
+function productosMarca(i) {
+  PM = { i, vista: 'visibles', q: '', t: null };
+  const m = CAT.marcas[i];
+  DET_ID = null;
+  $('det').innerHTML = `<button class="x" onclick="cerrar('m-det');cargarCatalogo()">×</button>
+    <h3>${esc(m.marca)} · productos del catálogo</h3>
+    <div class="desc" style="margin-top:4px">Los productos con <b>PCK o MKP</b> en el SKU o en el nombre (packs y marketplace) quedan fuera; puedes incluir alguno a mano. Los demás entran por defecto y puedes quitar los que no quieras. Igual solo se ven los que tienen PVP${CAT.cfg.solo_stock ? ' y stock' : ''}.</div>
+    <div class="fila"><div class="seg" id="pm-vistas"></div></div>
+    <div class="fila"><input class="inp" id="pm-q" type="search" placeholder="Buscar por SKU o nombre…" style="flex:1" oninput="clearTimeout(PM.t);PM.t=setTimeout(()=>{PM.q=this.value;pintarPM()},250)"></div>
+    <div class="desc" id="pm-conteo" style="margin-top:6px"></div>
+    <div class="tabla-wrap" style="max-height:55vh"><table id="pm-tbl"></table></div>`;
+  $('m-det').classList.add('show');
+  pintarPM();
+}
+async function pintarPM() {
+  const m = CAT.marcas[PM.i];
+  try {
+    const r = await api(`/api/catalogo-b2b/productos?marca=${encodeURIComponent(m.marca)}&vista=${PM.vista}&q=${encodeURIComponent(PM.q)}`);
+    const V_ = { visibles: 'En el catálogo', packs: 'PCK / MKP', quitados: 'Quitados a mano' };
+    $('pm-vistas').innerHTML = Object.keys(V_).map(k => `<button class="${PM.vista === k ? 'on' : ''}" onclick="PM.vista='${k}';pintarPM()">${V_[k]}<span class="cnt">${r.conteo[k]}</span></button>`).join('');
+    $('pm-conteo').textContent = r.total > r.items.length ? `Se muestran ${r.items.length} de ${r.total}: usa el buscador.` : `${r.total} producto(s)`;
+    const acc = x => PM.vista === 'quitados' ? `<button class="btn btn-sm btn-ok" onclick="accionPM(${x.vid},'auto')">Volver a mostrar</button>`
+      : PM.vista === 'packs' ? (x.accion === 'incluir' ? `<span class="chip c-ok">Incluido</span> <button class="btn btn-sm btn-sec" onclick="accionPM(${x.vid},'auto')">Sacar</button>` : `<button class="btn btn-sm btn-ok" onclick="accionPM(${x.vid},'incluir')">Incluir</button>`)
+      : (x.accion === 'incluir' ? `<span class="chip c-v">PCK/MKP incluido</span> <button class="btn btn-sm btn-sec" onclick="accionPM(${x.vid},'auto')">Sacar</button>` : `<button class="btn btn-sm btn-r" onclick="accionPM(${x.vid},'excluir')">Quitar</button>`);
+    $('pm-tbl').innerHTML = `<thead><tr><th></th><th>Producto</th><th style="text-align:right">PVP</th><th style="text-align:right">Stock</th><th></th></tr></thead><tbody>` +
+      (r.items.map(x => `<tr><td>${x.imagen ? `<img src="${esc(x.imagen)}" alt="" loading="lazy" style="width:36px;height:36px;object-fit:contain;background:#fff;border-radius:6px">` : ''}</td>
+        <td><div class="nom">${esc(x.nombre)}</div><div class="sub"><span class="mono">${esc(x.sku)}</span>${x.no_se_ve && (PM.vista === 'visibles' || x.accion === 'incluir') ? ' · <span style="color:var(--fg-warn)">no se ve: ' + x.no_se_ve + '</span>' : ''}</div></td>
+        <td style="text-align:right">${x.pvp ? 'S/ ' + Number(x.pvp).toFixed(2) : '—'}</td><td style="text-align:right">${x.stock == null ? '—' : N(x.stock)}</td>
+        <td style="white-space:nowrap;text-align:right">${acc(x)}</td></tr>`).join('') || '<tr><td colspan="5" class="vacio">Nada aquí.</td></tr>') + '</tbody>';
+  } catch (e) { showToast(e.message, true); }
+}
+async function accionPM(vid, accion) {
+  try { await api('/api/catalogo-b2b/producto', null, 'PUT', { vid, accion }); showToast(accion === 'incluir' ? 'Incluido en el catálogo ✓' : accion === 'excluir' ? 'Quitado del catálogo ✓' : 'Listo ✓'); pintarPM(); }
+  catch (e) { showToast(e.message, true); }
+}
 async function tiendasMarca(i) {
   const m = CAT.marcas[i];
   DET_ID = null;

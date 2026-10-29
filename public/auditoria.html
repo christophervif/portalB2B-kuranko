@@ -137,7 +137,6 @@ td .probs{display:flex;flex-wrap:wrap;gap:4px}
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn" id="btn-analizar" onclick="analizar()">Analizar catálogo</button>
-        <button class="btn btn-sec oculto" id="btn-excel" onclick="descargarExcel()">Excel (con filtros)</button>
       </div>
     </div>
     <div class="desc" id="estado" style="margin-top:8px">Cargando el último análisis…</div>
@@ -146,6 +145,7 @@ td .probs{display:flex;flex-wrap:wrap;gap:4px}
 
   <div class="tabs" id="tabs">
     <button class="on" data-t="alertas" onclick="verTab('alertas')">Alertas <span class="pill" id="n-alertas"></span></button>
+    <button data-t="catalogo" onclick="verTab('catalogo')">Editar catálogo</button>
     <button data-t="pendientes" onclick="verTab('pendientes')">Pendientes en la web <span class="pill" id="n-pend"></span></button>
     <button data-t="chequeo" onclick="verTab('chequeo')">Chequeo de empresa en ventas</button>
     <button data-t="corregir" onclick="verTab('corregir')">Corregir en el ERP <span class="pill" id="n-erp"></span></button>
@@ -175,6 +175,7 @@ td .probs{display:flex;flex-wrap:wrap;gap:4px}
         <select id="f-vista" onchange="pintarAlertas()"><option value="alerta">Una fila por alerta</option><option value="sku">Agrupar por SKU</option></select>
       </label>
       <button class="btn btn-sec" onclick="limpiarFiltros()">Limpiar</button>
+      <button class="btn btn-sec oculto" id="btn-excel" onclick="descargarExcel()" title="Reporte de las alertas con los filtros de arriba">Excel de alertas</button>
     </div>
     <div class="nota" id="res-alertas"></div>
     <div class="tabla-wrap"><table id="tbl-alertas"></table></div>
@@ -190,32 +191,28 @@ td .probs{display:flex;flex-wrap:wrap;gap:4px}
     </details>
   </div>
 
-  <!-- ══════════ PENDIENTES ══════════ -->
-  <div class="card oculto" id="t-pendientes">
-    <div class="desc">Productos del ERP <b>sin ID de WooCommerce</b> que tienen stock propio o un backorder abierto (venta a pedido aún sin entregar). La columna <i>Le falta</i> dice qué completar antes de crearlo en la web.</div>
+  <!-- ══════════ EDITAR CATÁLOGO ══════════ -->
+  <div class="card oculto" id="t-catalogo">
+    <div class="desc">Todo el catálogo del sistema <b>por familia</b> (producto padre + sus variaciones, o el simple) para corregir en bloque <b>estado, reservas, peso, medidas y precio regular</b>. Por defecto solo las familias con alertas del último análisis; desmarca el check para ver todo el catálogo.</div>
     <div class="fila">
-      <label class="campo">Marca<select id="p-marca" onchange="pintarPendientes()"></select></label>
-      <label class="campo">Motivo
-        <select id="p-motivo" onchange="pintarPendientes()"><option value="">Todos</option><option value="stock">Tiene stock</option><option value="backorder">Solo backorder abierto</option></select>
-      </label>
-      <label class="campo">Preparación
-        <select id="p-prep" onchange="pintarPendientes()"><option value="">Todos</option><option value="listo">Listos para crear</option><option value="incompleto">Les falta algo</option></select>
-      </label>
-      <label class="campo">Buscar<input type="text" id="p-q" placeholder="SKU o nombre…" oninput="pintarPendientes()"></label>
-      <label class="chk"><input type="checkbox" id="p-mkp" onchange="pintarPendientes()"> Ocultar marketplace / packs</label>
-      <button class="btn btn-sec" onclick="plantillaWoo()" title="Mismo archivo que el botón de Sincronización web">Plantilla para WooCommerce</button>
+      <label class="chk"><input type="checkbox" id="k-solo" checked onchange="cargarCatalogo(1)"> Solo con alertas</label>
+      <label class="campo">Severidad<select id="k-sev" onchange="cargarCatalogo(1)"><option value="">Todas</option><option value="critico">Crítico</option><option value="importante">Importante</option><option value="info">Info</option></select></label>
+      <label class="campo">Tipo de alerta<select id="k-tipo" onchange="cargarCatalogo(1)"><option value="">Todas</option></select></label>
+      <label class="campo">Marca<select id="k-marca" onchange="cargarCatalogo(1)"><option value="">Todas</option></select></label>
+      <label class="campo">Estado<select id="k-estado" onchange="cargarCatalogo(1)"><option value="">Todos</option><option value="active">Activa</option><option value="draft">Borrador</option><option value="discontinued">Descontinuada</option></select></label>
+      <label class="campo">En la web<select id="k-web" onchange="cargarCatalogo(1)"><option value="">Todos</option><option value="si">Sí</option><option value="no">No</option></select></label>
+      <label class="campo">Buscar<input type="text" id="k-q" placeholder="SKU o nombre…" oninput="clearTimeout(window._kq);window._kq=setTimeout(()=>cargarCatalogo(1),400)"></label>
     </div>
-    <div class="nota">La plantilla para WooCommerce incluye <b>todos</b> los productos sin ID (con o sin stock, excepto MKP sin stock), por eso puede traer más filas que esta lista.</div>
     <div class="fila" style="align-items:center">
-      <span class="nota" id="sel-pend" style="margin:0">0 seleccionados</span>
+      <span class="nota" id="sel-cat" style="margin:0">0 familias seleccionadas</span>
+      <button class="btn btn-sec" id="btn-cat-todos" onclick="selCatTodos()">Seleccionar todas las filtradas</button>
       <button class="btn" id="btn-bloque" onclick="abrirBloque()" disabled>Modificar en bloque</button>
       <button class="btn btn-sec" onclick="verLogBloque()">Historial de cambios</button>
-      <button class="btn btn-sec" onclick="pdfPendientes()" title="Lista filtrada (o solo los seleccionados) lista para guardar como PDF">PDF de la lista</button>
     </div>
     <div class="blq oculto" id="bloque">
       <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:flex-start">
         <div><h3>Modificar en bloque <span class="chip c-g" id="blq-n"></span></h3>
-          <div class="desc">Se guarda <b>en el sistema (ERP)</b>; la plantilla de WooCommerce y el puente lo toman de ahí. Marca solo los campos que quieres cambiar; lo demás queda igual. Primero revisa la vista previa.</div></div>
+          <div class="desc">Se guarda <b>en el sistema (ERP)</b>; el puente lo lleva a la web en su próxima corrida. Marca solo los campos que quieres cambiar; lo demás queda igual. Primero revisa la vista previa.</div></div>
         <button class="btn btn-sec" onclick="cerrarBloque()">Cerrar</button>
       </div>
       <div class="aviso" style="background:var(--surface3);color:var(--text2)">El valor elegido se pone <b>igual en toda la familia</b> de cada fila marcada: el producto padre (variable) y todas sus variaciones, o el simple.</div>
@@ -227,13 +224,39 @@ td .probs{display:flex;flex-wrap:wrap;gap:4px}
       <div class="nota" id="blq-res"></div>
       <div id="blq-prev"></div>
     </div>
+    <div class="nota" id="res-cat">Cargando…</div>
+    <div class="tabla-wrap"><table id="tbl-cat"></table></div>
+    <div class="fila" id="pag-cat"></div>
+  </div>
+
+  <!-- ══════════ PENDIENTES ══════════ -->
+  <div class="card oculto" id="t-pendientes">
+    <div class="desc">Productos del ERP <b>sin ID de WooCommerce</b>. Por defecto solo los que tienen stock propio o un backorder abierto (venta a pedido aún sin entregar). La columna <i>Le falta</i> dice qué completar antes de crearlo en la web; para corregir datos usa <b>Editar catálogo</b>.</div>
+    <div class="fila">
+      <label class="campo">Marca<select id="p-marca" onchange="pintarPendientes()"></select></label>
+      <label class="campo">Motivo
+        <select id="p-motivo" onchange="pintarPendientes()"><option value="">Todos</option><option value="stock">Tiene stock</option><option value="backorder">Solo backorder abierto</option><option value="sin_stock">Sin stock</option></select>
+      </label>
+      <label class="campo">Preparación
+        <select id="p-prep" onchange="pintarPendientes()"><option value="">Todos</option><option value="listo">Listos para crear</option><option value="incompleto">Les falta algo</option></select>
+      </label>
+      <label class="campo">Buscar<input type="text" id="p-q" placeholder="SKU o nombre…" oninput="pintarPendientes()"></label>
+      <label class="chk"><input type="checkbox" id="p-sinstock" onchange="pintarPendientes()"> Mostrar también sin stock <span class="pill" id="n-pend-sin"></span></label>
+      <label class="chk"><input type="checkbox" id="p-mkp" onchange="pintarPendientes()"> Ocultar marketplace / packs</label>
+    </div>
+    <div class="fila" style="align-items:center">
+      <span class="nota" id="sel-pend" style="margin:0">0 seleccionados</span>
+      <button class="btn" id="btn-woo" onclick="excelWoo()" title="Tu plantilla CREACIÓN PRODUCTOS WOOCOMMERCE con los datos en la pestaña Sistema">Excel para WooCommerce</button>
+      <button class="btn btn-sec" onclick="pdfPendientes()" title="Lista filtrada (o solo los seleccionados) lista para guardar como PDF">PDF de la lista</button>
+    </div>
+    <div class="nota">El Excel y el PDF llevan los <b>seleccionados</b>; si no marcas ninguno, toda la lista filtrada. El Excel es tu plantilla <i>CREACIÓN PRODUCTOS WOOCOMMERCE</i>: los datos van en la pestaña <b>Sistema</b> (desde la fila 2, en el mismo formato que exporta el sistema) y las fórmulas de <b>Para woocommerce</b> hacen el resto. Un producto variable lleva su fila padre (si el padre aún no está en la web) y sus variaciones pendientes.</div>
     <div class="nota" id="res-pend"></div>
     <div class="tabla-wrap"><table id="tbl-pend"></table></div>
   </div>
 
   <!-- ══════════ CHEQUEO DE EMPRESAS ══════════ -->
   <div class="card oculto" id="t-chequeo">
-    <div class="desc">Ventas donde la <b>empresa vendedora</b> falta o no coincide con la empresa dueña del lote vendido. <b>Solo revisa y lista</b>, no corrige nada en el ERP. Los ítems a pedido (backorder sin lote) no cuentan como “sin lote”.</div>
+    <div class="desc">Ventas donde la <b>empresa vendedora</b> falta o no coincide con la empresa dueña del lote vendido. Los ítems a pedido (backorder sin lote) no cuentan como “sin lote”. Puedes <b>aceptar</b> una venta como está (se oculta de la lista; solo se guarda en el portal) o <b>cambiar la empresa vendedora</b> en el sistema, solo si la venta aún no tiene comprobante.</div>
     <div class="fila">
       <label class="campo">Problema
         <select id="c-tipo">
@@ -248,6 +271,7 @@ td .probs{display:flex;flex-wrap:wrap;gap:4px}
       </label>
       <button class="btn" id="btn-chq" onclick="cargarChequeo()">Revisar ventas</button>
       <button class="btn btn-sec" onclick="excelChequeo()">Excel</button>
+      <label class="chk"><input type="checkbox" id="c-acept" onchange="cargarChequeo()"> Mostrar también las aceptadas <span class="pill" id="n-acept"></span></label>
     </div>
     <div class="nota" id="res-chq"></div>
     <div class="tabla-wrap oculto" id="wrap-chq"><table id="tbl-chq"></table></div>
@@ -255,7 +279,7 @@ td .probs{display:flex;flex-wrap:wrap;gap:4px}
   <!-- ══════════ CORREGIR EN EL ERP (write-back) ══════════ -->
   <div class="card oculto" id="t-corregir">
     <h3>Corregir datos en el sistema (ERP)</h3>
-    <div class="desc">Vista previa <b>(solo lectura)</b> de los cambios que se escribirían de vuelta al sistema: <b>vincular el WooCommerce ID</b> por SKU (productos que ya están en la web), pasar <b>reservas de agotados</b> de "permitir" a "notify", y reemplazar <b>links de imagen</b> que no son de kuranko por los de kuranko. No se escribe nada hasta que marques las filas y confirmes.</div>
+    <div class="desc">Vista previa <b>(solo lectura)</b> de los cambios que se escribirían de vuelta al sistema: <b>vincular el WooCommerce ID</b> por SKU (productos que ya están en la web), cambiar las <b>reservas de agotados</b> que están en "permitir" (yes) — sugerido "notify", o "no" si es marketplace/pack (MKP/PCK); puedes cambiar el valor por fila, y reemplazar <b>links de imagen</b> que no son de kuranko por los de kuranko. No se escribe nada hasta que marques las filas y confirmes.</div>
     <div class="fila">
       <button class="btn" id="btn-erp" onclick="verCambiosErp()">Ver cambios propuestos</button>
       <button class="btn oculto" id="btn-erp-aplicar" onclick="aplicarCambiosErp()">Aplicar seleccionados al sistema</button>
@@ -302,7 +326,7 @@ let D = null;
 const CAMPOS = ['f-tipo', 'f-marca', 'f-web', 'f-estado', 'f-vista', 'p-marca', 'p-motivo', 'p-prep', 'c-tipo', 'c-dias'];
 function guardarFiltros() {
   try {
-    const o = { sev: sevActual(), mkp: $('p-mkp').checked };
+    const o = { sev: sevActual(), mkp: $('p-mkp').checked, sinstock: $('p-sinstock').checked };
     CAMPOS.forEach(id => o[id] = $(id).value);
     localStorage.setItem('aud_filtros', JSON.stringify(o));
   } catch (e) {}
@@ -323,8 +347,9 @@ function filtroAlertasQS() {
 
 function verTab(t) {
   document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.t === t));
-  ['alertas', 'pendientes', 'chequeo', 'corregir'].forEach(x => $('t-' + x).classList.toggle('oculto', x !== t));
+  ['alertas', 'catalogo', 'pendientes', 'chequeo', 'corregir'].forEach(x => $('t-' + x).classList.toggle('oculto', x !== t));
   try { localStorage.setItem('aud_tab', t); } catch (e) {}
+  if (t === 'catalogo' && !CAT) cargarCatalogo(1);
 }
 
 // ── Carga ──
@@ -351,6 +376,10 @@ function mostrar(d) {
     (viejo ? ' <span class="chip c-w">tiene más de 1 día</span>' : '') +
     (d.ver_costos ? '' : ' <span class="chip c-g" title="Solo el admin maestro ve costos y márgenes">montos de costo ocultos</span>');
   pintarKpis(); armarOpciones(); pintarAlertas(); pintarPendientes();
+  // Tipos de alerta para el filtro de "Editar catálogo"
+  const c = D.conteo_por_tipo || {};
+  llenar($('k-tipo'), '<option value="">Todas</option>' + Object.keys(c).sort().map(t => `<option value="${esc(t)}">${esc(t)} (${c[t]})</option>`).join(''), $('k-tipo').value);
+  if (CAT) cargarCatalogo(1);
 }
 
 function pintarKpis() {
@@ -365,6 +394,7 @@ function pintarKpis() {
   $('kpis').classList.remove('oculto');
   $('n-alertas').textContent = nfmt(D.total_alertas);
   $('n-pend').textContent = nfmt(D.total_pendientes);
+  $('n-pend-sin').textContent = nfmt(D.total_pendientes_sin_stock || 0);
 }
 function irSev(v) { verTab('alertas'); setSevValor(v); pintarAlertas(); }
 
@@ -424,7 +454,8 @@ function pintarPendientes() {
   if (!D) return;
   guardarFiltros();
   const marca = $('p-marca').value, mot = $('p-motivo').value, prep = $('p-prep').value, q = $('p-q').value.toLowerCase().trim(), sinMkp = $('p-mkp').checked;
-  const lista = D.pendientes.filter(p => (!marca || p.marca === marca) && (!mot || p.motivo === mot) &&
+  const sinStock = $('p-sinstock').checked || mot === 'sin_stock';
+  const lista = D.pendientes.filter(p => (sinStock || p.motivo !== 'sin_stock') && (!marca || p.marca === marca) && (!mot || p.motivo === mot) &&
     (!prep || (prep === 'listo' ? !p.falta.length : p.falta.length > 0)) && (!sinMkp || !p.mkp) &&
     (!q || (p.sku || '').toLowerCase().includes(q) || (p.nombre || '').toLowerCase().includes(q)));
   PEND_FILTRADOS = lista;
@@ -441,35 +472,72 @@ function pintarPendientes() {
 }
 
 async function descargarExcel() {
-  try { await descargar('/admin/auditoria-excel?' + filtroAlertasQS().toString(), 'auditoria-catalogo'); showToast('Excel descargado'); }
+  try { await descargar('/admin/auditoria-excel?' + filtroAlertasQS().toString(), 'alertas-catalogo'); showToast('Excel descargado'); }
   catch (e) { showToast(e.message, true); }
 }
-async function plantillaWoo() {
-  try { await descargar('/admin/pendientes-web-csv?web=1', 'productos-sin-id'); showToast('Plantilla descargada'); }
-  catch (e) { showToast(e.message, true); }
+// Excel para WooCommerce: tu plantilla con los datos en la pestaña "Sistema"
+async function excelWoo() {
+  const base = SEL.size ? PEND_FILTRADOS.filter(p => SEL.has(p.vid)) : PEND_FILTRADOS;
+  if (!base.length) { showToast('No hay productos en la lista', true); return; }
+  const b = $('btn-woo'); b.disabled = true; b.textContent = 'Generando…';
+  try {
+    const r = await fetch('/admin/auditoria/pendientes-woo-excel', { method: 'POST', headers: { 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': 'application/json' }, body: JSON.stringify({ vids: base.map(p => p.vid) }) });
+    if (!r.ok) { let m = 'No se pudo generar el Excel'; try { m = (await r.json()).error || m; } catch (e) {} throw new Error(m); }
+    const filas = r.headers.get('X-Filas'), ext = Number(r.headers.get('X-Formulas-Extendidas') || 0), sinUrl = Number(r.headers.get('X-Imagenes-Sin-Url') || 0);
+    const url = URL.createObjectURL(await r.blob());
+    const a = document.createElement('a'); a.href = url; a.download = 'CREACION-PRODUCTOS-WOOCOMMERCE-' + new Date().toISOString().slice(0, 10) + '.xlsx';
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    showToast(`Excel listo: ${filas} fila(s) en "Sistema"` + (ext ? ` · fórmulas copiadas ${ext} filas más abajo` : '') + (sinUrl ? ` · ${sinUrl} imagen(es) sin URL completa no incluidas` : ''));
+  } catch (e) { showToast(e.message, true); }
+  finally { b.disabled = false; b.textContent = 'Excel para WooCommerce'; }
 }
 
 // ── Chequeo de empresa en ventas ──
 const PROB = { sin_empresa: ['Sin empresa vendedora', 'c-r'], no_coincide: ['Empresa no coincide', 'c-r'], sin_lote: ['Producto sin lote', 'c-w'] };
 const chqQS = () => { guardarFiltros(); const p = new URLSearchParams(); if ($('c-tipo').value) p.set('tipo', $('c-tipo').value); p.set('dias', $('c-dias').value); return p; };
+let CHQ = null;
 async function cargarChequeo() {
   const b = $('btn-chq'); b.disabled = true;
   $('res-chq').textContent = 'Revisando ventas…';
   try {
-    const d = await apiCall('/admin/chequeo-empresas?' + chqQS().toString());
+    const qs = chqQS(); if ($('c-acept').checked) qs.set('ver_aceptadas', '1');
+    const d = CHQ = await apiCall('/admin/chequeo-empresas?' + qs.toString());
     const emp = e => (d.empresas && d.empresas[e]) || ('Empresa ' + e);
+    $('n-acept').textContent = d.aceptadas ? nfmt(d.aceptadas) : '';
     $('res-chq').innerHTML = `<b>${nfmt(d.total)}</b> venta(s) con problema · Sin empresa: ${d.conteo.sin_empresa} · No coincide: ${d.conteo.no_coincide} · Sin lote: ${d.conteo.sin_lote}` +
+      (d.aceptadas ? ` · ${nfmt(d.aceptadas)} aceptada(s) ${$('c-acept').checked ? 'incluidas' : 'ocultas'}` : '') +
       (d.total > 500 ? ' · mostrando las 500 más recientes' : '');
     $('wrap-chq').classList.toggle('oculto', !d.ventas.length);
-    $('tbl-chq').innerHTML = '<thead><tr><th>Venta</th><th>Fecha</th><th>Estado</th><th>Empresa vendedora</th><th>Empresa(s) del producto</th><th>Problema(s)</th><th class="n">Total</th></tr></thead><tbody>' +
-      d.ventas.map(v => `<tr><td><b>${esc(v.code)}</b></td><td>${v.fecha ? new Date(v.fecha).toLocaleDateString('es-PE') : '—'}</td><td>${esc(v.status)}</td>
+    const opcEmp = v => Object.keys(d.empresas || {}).map(k => `<option value="${k}" ${String(v.empresa_venta) === k ? 'selected' : ''}>${esc(d.empresas[k])}</option>`).join('');
+    const sugerida = v => v.empresas_producto.length === 1 ? v.empresas_producto[0] : v.empresa_venta;
+    $('tbl-chq').innerHTML = '<thead><tr><th>Venta</th><th>Fecha</th><th>Estado</th><th>Empresa vendedora</th><th>Empresa(s) del producto</th><th>Problema(s)</th><th class="n">Total</th><th>Acción</th></tr></thead><tbody>' +
+      d.ventas.map((v, i) => `<tr><td><b>${esc(v.code)}</b></td><td>${v.fecha ? new Date(v.fecha).toLocaleDateString('es-PE') : '—'}</td><td>${esc(v.status)}</td>
         <td>${v.empresa_venta != null ? esc(emp(v.empresa_venta)) : '<span class="chip c-r">vacío</span>'}</td>
         <td>${v.empresas_producto.length ? v.empresas_producto.map(e => esc(emp(e))).join(', ') : '<span class="sku">sin lote</span>'}</td>
         <td><div class="probs">${v.problemas.map(p => `<span class="chip ${(PROB[p] || [, 'c-g'])[1]}">${esc((PROB[p] || [p])[0])}</span>`).join('')}</div></td>
-        <td class="n">S/ ${Number(v.total).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</td></tr>`).join('') + '</tbody>';
+        <td class="n">S/ ${Number(v.total).toLocaleString('es-PE', { minimumFractionDigits: 2 })}</td>
+        <td style="min-width:230px">${v.aceptada
+          ? `<span class="chip c-ok" title="${esc(fecha(v.aceptada.en))}">Aceptada · ${esc(v.aceptada.usuario || '')}</span> <a href="#" onclick="aceptarVenta(${i},false);return false">quitar</a>`
+          : `<button class="btn btn-sec" style="padding:5px 9px;font-size:12px" onclick="aceptarVenta(${i},true)">Aceptar como está</button>` +
+            (v.tiene_comprobante ? ' <span class="chip c-g" title="Ya tiene boleta/factura: corrígela con nota de crédito">con comprobante</span>'
+              : d.puede_cambiar ? `<div style="display:flex;gap:4px;margin-top:4px"><select id="chq-emp-${i}" style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:4px;font-size:12px">${opcEmp({ empresa_venta: sugerida(v) })}</select><button class="btn" style="padding:5px 9px;font-size:12px" onclick="cambiarEmpresa(${i})">Cambiar</button></div>` : '')}</td></tr>`).join('') + '</tbody>';
     if (!d.ventas.length) $('res-chq').innerHTML += ' — ✓ nada que revisar.';
   } catch (e) { $('res-chq').textContent = ''; showToast(e.message, true); }
   finally { b.disabled = false; }
+}
+async function aceptarVenta(i, aceptar) {
+  const v = CHQ && CHQ.ventas[i]; if (!v) return;
+  try { await postJSON('/admin/chequeo-empresas/aceptar', { sale_id: v.id, aceptar }); showToast(aceptar ? `Venta ${v.code} aceptada como está` : `Venta ${v.code} vuelve a la lista`); cargarChequeo(); }
+  catch (e) { showToast(e.message, true); }
+}
+async function cambiarEmpresa(i) {
+  const v = CHQ && CHQ.ventas[i]; if (!v) return;
+  const nueva = Number($('chq-emp-' + i).value);
+  const nom = CHQ.empresas[nueva] || nueva, antes = v.empresa_venta != null ? (CHQ.empresas[v.empresa_venta] || v.empresa_venta) : '(vacío)';
+  if (String(v.empresa_venta) === String(nueva)) { showToast('Ya tiene esa empresa', true); return; }
+  if (!confirm(`¿Cambiar la empresa vendedora de la venta ${v.code} en el sistema?\n\n${antes} → ${nom}`)) return;
+  try { await postJSON('/admin/chequeo-empresas/cambiar', { sale_id: v.id, company_id: nueva }); showToast(`Venta ${v.code}: empresa cambiada a ${nom}`); cargarChequeo(); }
+  catch (e) { showToast(e.message, true); }
 }
 async function excelChequeo() {
   try { await descargar('/admin/chequeo-empresas-excel?' + chqQS().toString(), 'chequeo-empresas'); }
@@ -478,18 +546,67 @@ async function excelChequeo() {
 
 
 
-// ── Pendientes: selección y "Modificar en bloque" (escribe en el ERP) ──
+// ── Pendientes: selección (para el Excel y el PDF) ──
 const SEL = new Set();
 let PEND_FILTRADOS = [], BLQ_OPC = null, BLQ_PREV = null;
 function selUno(vid, on) { on ? SEL.add(vid) : SEL.delete(vid); contarSel(); }
 function selTodos(on) { PEND_FILTRADOS.forEach(p => on ? SEL.add(p.vid) : SEL.delete(p.vid)); document.querySelectorAll('.chk-pend').forEach(c => c.checked = on); contarSel(); }
 function contarSel() {
-  $('sel-pend').innerHTML = `<b>${nfmt(SEL.size)}</b> seleccionado(s)` + (SEL.size ? ' · <a href="#" onclick="selTodos(false);SEL.clear();contarSel();return false">quitar selección</a>' : '');
-  $('btn-bloque').disabled = !SEL.size;
-  $('btn-bloque').textContent = SEL.size ? `Modificar en bloque (${nfmt(SEL.size)})` : 'Modificar en bloque';
-  $('blq-n').textContent = nfmt(SEL.size) + ' seleccionado(s)';
+  $('sel-pend').innerHTML = `<b>${nfmt(SEL.size)}</b> seleccionado(s)` + (SEL.size ? ' · <a href="#" onclick="selTodos(false);SEL.clear();contarSel();return false">quitar selección</a>' : ' (el Excel y el PDF llevan toda la lista filtrada)');
   const t = $('chk-todos'); if (t) t.checked = PEND_FILTRADOS.length > 0 && PEND_FILTRADOS.every(p => SEL.has(p.vid));
 }
+
+// ── Editar catálogo: lista por familia + selección ──
+const CSEL = new Set();
+let CAT = null;
+function catQS(pagina) {
+  const p = new URLSearchParams();
+  p.set('solo_alertas', $('k-solo').checked ? '1' : '0');
+  [['sev', 'k-sev'], ['tipo', 'k-tipo'], ['marca', 'k-marca'], ['estado', 'k-estado'], ['web', 'k-web'], ['q', 'k-q']].forEach(([k, id]) => { const v = $(id).value.trim(); if (v) p.set(k, v); });
+  if (pagina) p.set('pagina', pagina);
+  return p;
+}
+const NOM_EST = { active: ['Activa', 'c-ok'], draft: ['Borrador', 'c-w'], discontinued: ['Descontinuada', 'c-r'] };
+const NOM_RES = { no: 'No', notify: 'Notify', yes: 'Yes', 'vacío': 'vacío', 'sin fila': 'sin fila' };
+async function cargarCatalogo(pagina) {
+  $('res-cat').textContent = 'Cargando…';
+  try {
+    const d = CAT = await apiCall('/admin/auditoria/catalogo?' + catQS(pagina).toString());
+    const sel = $('k-marca'), mv = sel.value;
+    sel.innerHTML = '<option value="">Todas</option>' + (d.marcas || []).map(m => `<option value="${esc(m)}"${m === mv ? ' selected' : ''}>${esc(m)}</option>`).join('');
+    $('res-cat').innerHTML = `${nfmt(d.total)} familia(s)` + (d.paginas > 1 ? ` · página ${d.pagina} de ${d.paginas}` : '') +
+      ($('k-solo').checked && !d.generado_en ? ' · <span class="chip c-w">aún no hay análisis: pulsa Analizar catálogo o desmarca "Solo con alertas"</span>' : '');
+    const med = f => [f.peso !== '—' ? (f.peso === 'varios' ? 'peso varios' : f.peso + ' kg') : '', [f.largo, f.ancho, f.alto].every(x => x === '—') ? '' : `${f.largo}×${f.ancho}×${f.alto} cm`].filter(Boolean).join(' · ') || '—';
+    $('tbl-cat').innerHTML = !d.familias.length ? '<tbody><tr><td class="vacio">No hay familias con estos filtros.</td></tr></tbody>' :
+      `<thead><tr><th style="width:34px"><input type="checkbox" id="chk-cat-pag" title="Seleccionar esta página" onclick="selCatPagina(this.checked)"></th><th>Producto</th><th>Estado</th><th>Reservas</th><th class="n">Precio regular</th><th>Peso / medidas</th><th class="n">Stock</th><th>Alertas</th></tr></thead><tbody>` +
+      d.familias.map(f => `<tr><td><input type="checkbox" class="chk-cat" data-vid="${f.vid}" ${CSEL.has(f.vid) ? 'checked' : ''} onchange="selCat(${f.vid},this.checked)"></td>
+        <td><div class="nom">${esc(f.nombre)}</div><div class="sku">${esc(f.sku)} · ${f.tipo}${f.tipo === 'variable' ? ` · ${f.variaciones} variaciones` : ''}${f.en_web ? ' · en la web' : ' · <span style="color:var(--fg-warn)">sin ID web</span>'}</div></td>
+        <td><div class="probs">${f.estados.map(e => `<span class="chip ${(NOM_EST[e] || [, 'c-g'])[1]}">${esc((NOM_EST[e] || [e])[0])}</span>`).join('')}</div></td>
+        <td>${f.reservas.map(r => esc(NOM_RES[r] || r)).join(', ')}</td>
+        <td class="n">${f.precio ? 'S/ ' + Number(f.precio).toLocaleString('es-PE', { minimumFractionDigits: 2 }) + (f.precio_varios ? ' <span class="chip c-w" title="Las variaciones tienen precios distintos">varios</span>' : '') : '—'}</td>
+        <td>${esc(med(f))}</td><td class="n">${nfmt(f.stock)}</td>
+        <td><div class="probs">${f.alertas.map(a => `<span class="chip ${(SEV[a.sev] || [, 'c-g'])[1]}">${esc(a.tipo)}${a.n > 1 ? ' ×' + a.n : ''}</span>`).join('') || '<span class="sku">—</span>'}</div></td></tr>`).join('') + '</tbody>';
+    $('pag-cat').innerHTML = d.paginas > 1 ? `<button class="btn btn-sec" ${d.pagina <= 1 ? 'disabled' : ''} onclick="cargarCatalogo(${d.pagina - 1})">← Anterior</button><span class="nota" style="margin:0 8px">Página ${d.pagina} de ${d.paginas}</span><button class="btn btn-sec" ${d.pagina >= d.paginas ? 'disabled' : ''} onclick="cargarCatalogo(${d.pagina + 1})">Siguiente →</button>` : '';
+    contarSelCat();
+  } catch (e) { $('res-cat').textContent = 'No se pudo cargar: ' + e.message; }
+}
+function selCat(vid, on) { on ? CSEL.add(vid) : CSEL.delete(vid); contarSelCat(); limpiarPrev(); }
+function selCatPagina(on) { (CAT ? CAT.familias : []).forEach(f => on ? CSEL.add(f.vid) : CSEL.delete(f.vid)); document.querySelectorAll('.chk-cat').forEach(c => c.checked = on); contarSelCat(); limpiarPrev(); }
+async function selCatTodos() {
+  try {
+    const d = await apiCall('/admin/auditoria/catalogo?' + catQS().toString() + '&solo_ids=1');
+    d.vids.forEach(v => CSEL.add(v)); document.querySelectorAll('.chk-cat').forEach(c => c.checked = true); contarSelCat(); limpiarPrev();
+    showToast(`${nfmt(d.vids.length)} familia(s) seleccionadas`);
+  } catch (e) { showToast(e.message, true); }
+}
+function contarSelCat() {
+  $('sel-cat').innerHTML = `<b>${nfmt(CSEL.size)}</b> familia(s) seleccionada(s)` + (CSEL.size ? ' · <a href="#" onclick="CSEL.clear();document.querySelectorAll(\'.chk-cat\').forEach(c=>c.checked=false);contarSelCat();return false">quitar selección</a>' : '');
+  $('btn-bloque').disabled = !CSEL.size;
+  $('btn-bloque').textContent = CSEL.size ? `Modificar en bloque (${nfmt(CSEL.size)})` : 'Modificar en bloque';
+  $('blq-n').textContent = nfmt(CSEL.size) + ' familia(s)';
+  const t = $('chk-cat-pag'); if (t) t.checked = !!CAT && CAT.familias.length > 0 && CAT.familias.every(f => CSEL.has(f.vid));
+}
+
 async function postJSON(ep, body) {
   const r = await fetch(ep, { method: 'POST', headers: { 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
   if (r.status === 401) throw new Error('Sesión del portal expirada — vuelve a entrar al panel.');
@@ -533,7 +650,7 @@ function leerFormBloque() {
   if (activo('estado')) c.estado = $('b-es').value;
   if (activo('reservas')) c.reservas = $('b-re').value;
   if (activo('medidas')) ['weight', 'length', 'width', 'height'].forEach(k => { if ($('b-' + k).value !== '') c[k] = $('b-' + k).value; });
-  return { vids: [...SEL], cambios: c };
+  return { vids: [...CSEL], cambios: c };
 }
 const lineaCambio = c => `<div class="cmb">${esc(c.campo)}: <span class="de">${esc(c.antes)}</span> → <b>${esc(c.despues)}</b></div>`;
 async function previsualizarBloque() {
@@ -573,8 +690,9 @@ async function aplicarBloque() {
     const r = await postJSON('/admin/auditoria/bloque/aplicar', BLQ_PREV);
     showToast('Cambios aplicados: ' + r.aplicados);
     $('blq-res').innerHTML = `✓ Aplicados: <b>${nfmt(r.aplicados)}</b>` + (r.sin_cambio ? ` · ${nfmt(r.sin_cambio)} ya tenían ese valor o cambiaron mientras tanto` : '') +
-      '. Pulsa <b>Analizar de nuevo</b> arriba para refrescar la lista de pendientes.';
+      '. Pulsa <b>Analizar de nuevo</b> arriba para actualizar las alertas.';
     $('blq-prev').innerHTML = ''; b.classList.add('oculto'); BLQ_PREV = null;
+    cargarCatalogo(CAT ? CAT.pagina : 1);
   } catch (e) { $('blq-res').textContent = ''; showToast(e.message, true); }
   finally { b.disabled = false; }
 }
@@ -625,8 +743,8 @@ let ERP = null;
 const ERP_GRUPOS = [
   { k: 'vincularId', tipo: 'id', t: 'Vincular WooCommerce ID', desc: 'Están en la web con ese SKU, pero en el sistema tienen el ID vacío.',
     cols: [['SKU', 'sku'], ['Tipo', 'tipo'], ['ID de la web', 'nuevo']] },
-  { k: 'reservas', tipo: 'back', t: 'Reservas de agotados → notify', desc: 'Hoy permiten reservar sin stock ("yes"); pasan a "notify".',
-    cols: [['SKU', 'sku'], ['Tipo', 'tipo'], ['Antes', 'antes'], ['Después', 'despues']] },
+  { k: 'reservas', tipo: 'back', t: 'Reservas de agotados ("yes")', desc: 'Hoy permiten reservar sin stock ("yes"). Sugerido: "notify"; marketplace y packs (MKP / PCK): "no". Cambia el valor de cada fila si hace falta.',
+    cols: [['SKU', 'sku'], ['Producto', 'nombre'], ['Antes', 'antes'], ['Nuevo valor', 'nuevo'], ['Por qué', 'motivo']] },
   { k: 'imagenes', tipo: 'img', t: 'Imágenes → kuranko', desc: 'Link que no es de kuranko.pe, reemplazado por una imagen de la web que el sistema aún no tiene.',
     cols: [['SKU', 'sku'], ['Link actual', 'actual'], ['Link kuranko', 'nuevo']] }
 ];
@@ -652,8 +770,10 @@ function pintarErp() {
     return x + `<div class="tabla-wrap" style="max-height:340px"><table><thead><tr><th style="width:34px"><input type="checkbox" onclick="erpTodos('${g.tipo}',this.checked)" title="Seleccionar todos"></th>` +
       g.cols.map(c => `<th>${c[0]}</th>`).join('') + '</tr></thead><tbody>' +
       filas.map((f, i) => `<tr><td><input type="checkbox" class="erp-chk-${g.tipo}" data-i="${i}" onchange="contarSelErp()"></td>` +
-        g.cols.map(c => `<td style="word-break:break-all">${c[1] === 'sku' ? `<span class="sku">${esc(f[c[1]])}</span>` : esc(f[c[1]])}</td>`).join('') + '</tr>').join('') +
-      '</tbody></table></div>';
+        g.cols.map(c => `<td style="word-break:break-all">${c[1] === 'sku' ? `<span class="sku">${esc(f[c[1]])}</span>`
+          : (g.tipo === 'back' && c[1] === 'nuevo') ? `<select onchange="ERP.reservas[${i}].nuevo=this.value" style="background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:4px">${['no', 'notify'].map(o => `<option value="${o}"${f.nuevo === o ? ' selected' : ''}>${o}${o === f.sugerido ? ' (sugerido)' : ''}</option>`).join('')}</select>`
+          : esc(f[c[1]])}</td>`).join('') + '</tr>').join('') +
+      '</tbody></table></div>' + (g.tipo === 'back' ? `<div class="fila" style="align-items:center"><span class="nota" style="margin:0">A las filas marcadas ponerles:</span><select id="erp-back-masivo"><option value="no">no</option><option value="notify">notify</option></select><button class="btn btn-sec" onclick="reservasMasivo()">Poner</button><button class="btn btn-sec" onclick="reservasSugerido()">Volver al sugerido</button></div>` : '');
   }).join('');
   const conf = d.idConflicto || [];
   if (conf.length) h += `<h3 style="margin-top:16px">IDs que NO se vinculan <span class="chip c-r">${nfmt(conf.length)}</span></h3>
@@ -661,6 +781,19 @@ function pintarErp() {
     <div class="tabla-wrap" style="max-height:260px"><table><thead><tr><th>SKU</th><th>Tipo</th><th>ID de la web</th><th>Motivo</th></tr></thead><tbody>` +
     conf.map(c => `<tr><td><span class="sku">${esc(c.sku)}</span></td><td>${esc(c.tipo)}</td><td>${esc(c.nuevo)}</td><td>${esc(c.motivo)}</td></tr>`).join('') + '</tbody></table></div>';
   $('erp-panel').innerHTML = h;
+  contarSelErp();
+}
+function reservasMasivo() {
+  const v = $('erp-back-masivo').value; let n = 0;
+  document.querySelectorAll('.erp-chk-back:checked').forEach(c => { ERP.reservas[+c.dataset.i].nuevo = v; n++; });
+  if (!n) { showToast('Marca primero las filas', true); return; }
+  pintarErpConservando();
+}
+function reservasSugerido() { (ERP.reservas || []).forEach(r => r.nuevo = r.sugerido); pintarErpConservando(); }
+function pintarErpConservando() {
+  const marcados = {}; ['id', 'back', 'img'].forEach(t => marcados[t] = [...document.querySelectorAll('.erp-chk-' + t + ':checked')].map(c => c.dataset.i));
+  pintarErp();
+  Object.keys(marcados).forEach(t => marcados[t].forEach(i => { const c = document.querySelector(`.erp-chk-${t}[data-i="${i}"]`); if (c) c.checked = true; }));
   contarSelErp();
 }
 function erpTodos(tipo, on) { document.querySelectorAll('.erp-chk-' + tipo).forEach(c => c.checked = on); contarSelErp(); }
@@ -701,6 +834,7 @@ async function aplicarCambiosErp() {
   setSevValor(g.sev || '');
   ['f-web', 'f-estado', 'f-vista', 'p-motivo', 'p-prep', 'c-tipo', 'c-dias'].forEach(id => { if (g[id] != null) { $(id).value = g[id]; if ($(id).selectedIndex < 0) $(id).selectedIndex = 0; } });
   $('p-mkp').checked = !!g.mkp;
+  $('p-sinstock').checked = !!g.sinstock;
   let t = 'alertas'; try { t = localStorage.getItem('aud_tab') || 'alertas'; } catch (e) {}
   verTab(t);
   cargarGuardado();

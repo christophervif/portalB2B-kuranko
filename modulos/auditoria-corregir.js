@@ -5,7 +5,8 @@
 //
 //  GET  /admin/erp-writeback-preview  → SOLO LECTURA. Cambios propuestos:
 //        1) Vincular WooCommerce ID por SKU (está en la web, el ERP lo tiene vacío).
-//        2) Reservas de agotados: backorder_mode 'yes' (permitir) → 'notify'.
+//        2) Reservas de agotados con 'yes' (permitir): sugerido 'notify', salvo marketplace y
+//           packs (MKP / PCK en SKU o nombre) → 'no'. El usuario puede cambiar el valor por fila.
 //        3) Imágenes: link del ERP que NO es de kuranko → link de kuranko (de la web).
 //  POST /admin/erp-writeback-aplicar  → escribe SOLO lo seleccionado con la cuenta
 //        de escritura del portal (ERP_ESCRITURA_URL). Cada UPDATE re-verifica su
@@ -68,7 +69,13 @@ function calcularPropuestas(d) {
       imagenes.push({ sku: w.sku || s, img_id: noK.img_id, actual: noK.path, nuevo: faltan[i], antes: noK.path, despues: faltan[i] }));
   });
 
-  const reservas = d.backs.map(c => ({ sku: c.sku, vid: c.vid, tipo: c.tipo, antes: 'permitir (yes)', despues: 'notify' }));
+  const reservas = d.backs.map(c => {
+    const mkp = /MKP|PCK/i.test(`${c.sku || ''} ${c.nombre || ''} ${c.producto || ''}`);
+    const sug = mkp ? 'no' : 'notify';
+    return { sku: c.sku, vid: c.vid, tipo: c.tipo, nombre: c.nombre || c.producto || '', mkp,
+      antes: 'permitir (yes)', sugerido: sug, nuevo: sug, despues: sug,
+      motivo: mkp ? 'Marketplace / pack: sin reservas' : 'Avisar al cliente (A PEDIDO)' };
+  });
   return { vincularId, idConflicto, reservas, imagenes };
 }
 
@@ -112,11 +119,12 @@ module.exports = function registrarCorregirErp({ app, authAdmin, prodPool, porta
             WHERE deleted_at IS NULL AND (product_variation_id IN (?) OR product_id IN (?))`, [vids, pids]);
       }
       const [backs] = await prodPool.query(
-        `SELECT pv.id AS vid, TRIM(pv.sku) AS sku, pv.product_type AS tipo
+        `SELECT pv.id AS vid, TRIM(pv.sku) AS sku, pv.product_type AS tipo, pv.name AS nombre, p.name AS producto
            FROM product_variations pv
+           JOIN products p ON p.id = pv.product_id
            JOIN product_variation_stocks pvs ON pvs.product_variation_id = pv.id
           WHERE pv.deleted_at IS NULL AND pvs.backorder_mode = 'yes'
-          GROUP BY pv.id, TRIM(pv.sku), pv.product_type`);
+          GROUP BY pv.id, TRIM(pv.sku), pv.product_type, pv.name, p.name`);
 
       res.json({
         ...calcularPropuestas({ web, erpVar, wcEnUso, imgs, backs }),
@@ -158,9 +166,11 @@ module.exports = function registrarCorregirErp({ app, authAdmin, prodPool, porta
               } catch (e) { /* falta GRANT UPDATE(woocommerce_id) ON products: la variación igual quedó */ }
             }
           } else if (c.tipo === 'back') {
+            if (!['no', 'notify'].includes(c.nuevo)) { errores.push({ ref: c.sku || c.vid, error: `Valor de reservas no válido: ${c.nuevo}` }); continue; }
+            c.despues = c.nuevo;
             [r] = await pool.query(
-              `UPDATE product_variation_stocks SET backorder_mode = 'notify'
-                WHERE product_variation_id = ? AND backorder_mode = 'yes'`, [c.vid]);
+              `UPDATE product_variation_stocks SET backorder_mode = ?
+                WHERE product_variation_id = ? AND backorder_mode = 'yes'`, [c.nuevo, c.vid]);
           } else if (c.tipo === 'img') {
             if (!esKuranko(c.nuevo)) { errores.push({ ref: c.sku || c.img_id, error: 'El link nuevo no es de kuranko.pe' }); continue; }
             [r] = await pool.query(

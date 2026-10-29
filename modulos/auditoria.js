@@ -16,7 +16,8 @@
 //  · "Stock" = stock propio (almacenes y tiendas): sin consignación (está en el cliente)
 //    ni ubicaciones no vendibles (COTIZADOR_OTROS). Es lo que realmente se puede vender
 //    en la web. El stock en consignación se muestra aparte.
-//  · Pendientes en la web: variación/simple sin woocommerce_id con stock propio > 0 o
+//  · Pendientes en la web: variación/simple sin woocommerce_id (motivo stock | backorder |
+//    sin_stock; la pantalla oculta los sin stock salvo que se pida). Antes: con stock propio > 0 o
 //    con un backorder ABIERTO (venta viva, ítem a pedido aún sin lote).
 //  · Margen sobre el precio que paga el cliente (oferta si está vigente, si no regular)
 //    contra el costo FIFO (lote más antiguo con existencia). Ambos incluyen IGV.
@@ -140,7 +141,9 @@ function calcularAuditoria(d) {
     if (sale > 0 && reg > 0 && sale >= reg) push('oferta_mal', f, `Precio de oferta ${soles(sale)} es mayor o igual al regular ${soles(reg)}`);
 
     // ── Pendiente en la web ──
-    if (!v.woocommerce_id && (st.propio > 0 || bo[v.id] > 0)) {
+    // Todos los que no tienen ID; la pantalla muestra por defecto solo los que tienen stock
+    // propio o backorder abierto (check "Mostrar también sin stock").
+    if (!v.woocommerce_id) {
       const falta = [];
       if (!f.sku) falta.push('SKU');
       else if (cuentaSku[skuK] > 1) falta.push('SKU único (está duplicado)');
@@ -150,7 +153,7 @@ function calcularAuditoria(d) {
       if (!conCat.has(String(v.product_id))) falta.push('categoría');
       if (v.status !== 'active') falta.push('estado ' + (NOM_ESTADO[v.status] || v.status));
       pendientes.push({ ...f, precio: reg, backorder: bo[v.id] || 0,
-        motivo: st.propio > 0 ? 'stock' : 'backorder', mkp: esMkpPck(v.sku, v.nombre, v.producto), falta });
+        motivo: st.propio > 0 ? 'stock' : (bo[v.id] > 0 ? 'backorder' : 'sin_stock'), mkp: esMkpPck(v.sku, v.nombre, v.producto), falta });
     }
 
     if (!(st.propio > 0)) continue;
@@ -201,9 +204,11 @@ function resumir(alertas, pendientes) {
   const por_tipo = {}, por_sev = { critico: 0, importante: 0, info: 0 }, skus = new Set();
   alertas.forEach(a => { por_tipo[a.tipo] = (por_tipo[a.tipo] || 0) + 1; por_sev[a.sev]++; skus.add(a.vid); });
   return {
-    total_alertas: alertas.length, total_pendientes: pendientes.length,
+    total_alertas: alertas.length,
+    total_pendientes: pendientes.filter(p => p.motivo !== 'sin_stock').length,
+    total_pendientes_sin_stock: pendientes.filter(p => p.motivo === 'sin_stock').length,
     skus_con_alerta: skus.size, por_sev, conteo_por_tipo: por_tipo,
-    pendientes_listos: pendientes.filter(p => !p.falta.length).length
+    pendientes_listos: pendientes.filter(p => p.motivo !== 'sin_stock' && !p.falta.length).length
   };
 }
 
@@ -312,7 +317,7 @@ module.exports = function registrarAuditoria({ app, authAdmin, requiereModulo, p
     if (!row || !row.resultado) return null;
     const data = JSON.parse(row.resultado);
     // Análisis guardado con la versión anterior (sin severidades) → pedir re-análisis
-    if (!data.version || data.version < 2) return null;
+    if (!data.version || data.version < 3) return null;
     data.generado_en = row.generado_en;
     return data;
   }
@@ -327,7 +332,7 @@ module.exports = function registrarAuditoria({ app, authAdmin, requiereModulo, p
       }
       const t0 = Date.now();
       const { alertas, pendientes } = calcularAuditoria(await leerDatos());
-      const data = { version: 2, generado_en: new Date(), ...resumir(alertas, pendientes), alertas, pendientes,
+      const data = { version: 3, generado_en: new Date(), ...resumir(alertas, pendientes), alertas, pendientes,
         reglas: REGLAS, segundos: Math.round((Date.now() - t0) / 100) / 10 };
       await portalPool.query(
         `INSERT INTO auditoria_cache (id, generado_en, resultado) VALUES (1, NOW(), ?)
@@ -367,17 +372,10 @@ module.exports = function registrarAuditoria({ app, authAdmin, requiereModulo, p
       alertas.forEach(a => ws1.addRow([SEV[a.sev], a.grupo, a.tipo, a.sku, a.wc, a.marca, a.nombre, a.estado, a.stock, a.obs]));
       ws1.autoFilter = { from: { row: h1, column: 1 }, to: { row: Math.max(h1, ws1.rowCount), column: c1.length } };
 
-      const ws2 = wb.addWorksheet('Pendientes en la web');
-      const c2 = [['SKU', 22], ['Tipo', 10], ['Marca', 14], ['Nombre', 45], ['Estado', 13], ['Precio regular', 14],
-        ['Stock propio', 12], ['En consignación', 14], ['Backorder abierto', 15], ['Marketplace/pack', 15], ['Le falta', 34]];
-      const h2 = cabecera(ws2, 'Auditoría de catálogo — Pendientes en la web', c2, [['Pendientes', data.pendientes.length]]);
-      data.pendientes.forEach(p => ws2.addRow([p.sku, p.tipo_prod, p.marca, p.nombre, p.estado, p.precio,
-        p.stock, p.consig, p.backorder, p.mkp ? 'Sí' : '', p.falta.length ? p.falta.join(', ') : 'Listo para crear']));
-      ws2.getColumn(6).numFmt = '#,##0.00';
-      ws2.autoFilter = { from: { row: h2, column: 1 }, to: { row: Math.max(h2, ws2.rowCount), column: c2.length } };
+      // (Pendientes en la web tiene su propio Excel: plantilla de WooCommerce → auditoria-woo.js)
 
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      res.setHeader('Content-Disposition', `attachment; filename="${nombreTrazable('auditoria-catalogo')}.xlsx"`);
+      res.setHeader('Content-Disposition', `attachment; filename="${nombreTrazable('alertas-catalogo')}.xlsx"`);
       await wb.xlsx.write(res);
       res.end();
     } catch (e) { res.status(500).json({ error: 'Error al generar la auditoría: ' + e.message }); }
@@ -397,16 +395,95 @@ module.exports = function registrarAuditoria({ app, authAdmin, requiereModulo, p
        WHERE s.deleted_at IS NULL AND s.status <> 'cancelled'
          ${dias ? `AND s.created_at >= DATE_SUB(NOW(), INTERVAL ${dias} DAY)` : ''}
        ORDER BY s.created_at DESC`);
-    return { dias, lista: agruparChequeo(rows, q.tipo) };
+    let lista = agruparChequeo(rows, q.tipo);
+    // Ventas que alguien aceptó "como están" (tabla del portal): se ocultan salvo que se pidan
+    const acept = {};
+    try {
+      const [ac] = await portalPool.query(`SELECT sale_id, usuario, aceptado_en FROM chequeo_empresas_aceptadas`);
+      ac.forEach(a => acept[a.sale_id] = a);
+    } catch (e) { /* tabla aún no creada */ }
+    lista.forEach(v => { const a = acept[v.id]; v.aceptada = a ? { usuario: a.usuario, en: a.aceptado_en } : null; });
+    const aceptadas = lista.filter(v => v.aceptada).length;
+    if (q.ver_aceptadas !== '1') lista = lista.filter(v => !v.aceptada);
+    return { dias, lista, aceptadas };
+  }
+
+  async function prepararChequeo() {
+    await portalPool.query(`CREATE TABLE IF NOT EXISTS chequeo_empresas_aceptadas (
+      sale_id BIGINT PRIMARY KEY, sale_code VARCHAR(40), usuario VARCHAR(100), aceptado_en DATETIME DEFAULT CURRENT_TIMESTAMP)`);
+    await portalPool.query(`CREATE TABLE IF NOT EXISTS chequeo_empresas_log (
+      id INT AUTO_INCREMENT PRIMARY KEY, sale_id BIGINT, sale_code VARCHAR(40), accion VARCHAR(20),
+      antes VARCHAR(40), despues VARCHAR(40), usuario VARCHAR(100), en DATETIME DEFAULT CURRENT_TIMESTAMP)`);
+  }
+
+  // ¿La venta tiene comprobante? (ERP: sale_vouchers · portal: fe_comprobantes)
+  async function comprobantesDe(ids) {
+    const con = new Set();
+    if (!ids.length) return con;
+    const [sv] = await prodPool.query(`SELECT DISTINCT sale_id FROM sale_vouchers WHERE sale_id IN (?)`, [ids]);
+    sv.forEach(r => con.add(Number(r.sale_id)));
+    try {
+      const [fe] = await portalPool.query(`SELECT DISTINCT sale_id FROM fe_comprobantes WHERE sale_id IN (?)`, [ids]);
+      fe.forEach(r => con.add(Number(r.sale_id)));
+    } catch (e) { /* sin módulo de facturación */ }
+    return con;
   }
 
   app.get('/admin/chequeo-empresas', authAdmin, mAud, async (req, res) => {
     try {
-      const { dias, lista } = await obtenerChequeo(req.query);
+      const { dias, lista, aceptadas } = await obtenerChequeo(req.query);
       const conteo = { sin_empresa: 0, no_coincide: 0, sin_lote: 0 };
       lista.forEach(v => v.problemas.forEach(p => conteo[p]++));
-      res.json({ total: lista.length, dias, conteo, empresas: EMPRESAS_BI, ventas: lista.slice(0, 500) });
+      const ventas = lista.slice(0, 500);
+      const conComp = await comprobantesDe(ventas.map(v => v.id));
+      ventas.forEach(v => v.tiene_comprobante = conComp.has(Number(v.id)));
+      res.json({ total: lista.length, dias, conteo, aceptadas, empresas: EMPRESAS_BI, ventas,
+        puede_cambiar: !!erpWritePool });
     } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Aceptar una venta "como está" (o quitar la aceptación). Solo se guarda en el portal.
+  app.post('/admin/chequeo-empresas/aceptar', authAdmin, mAud, async (req, res) => {
+    try {
+      await prepararChequeo();
+      const id = Number(req.body && req.body.sale_id);
+      if (!(id > 0)) return res.status(400).json({ error: 'Venta no válida.' });
+      const u = (req.admin && req.admin.usuario) || '';
+      const [[s]] = await prodPool.query(`SELECT id, code FROM sales WHERE id = ?`, [id]);
+      if (!s) return res.status(404).json({ error: 'La venta no existe.' });
+      if (req.body.aceptar === false) await portalPool.query(`DELETE FROM chequeo_empresas_aceptadas WHERE sale_id = ?`, [id]);
+      else await portalPool.query(`INSERT INTO chequeo_empresas_aceptadas (sale_id, sale_code, usuario) VALUES (?,?,?)
+        ON DUPLICATE KEY UPDATE usuario = VALUES(usuario), aceptado_en = NOW()`, [id, s.code, u]);
+      await portalPool.query(`INSERT INTO chequeo_empresas_log (sale_id, sale_code, accion, usuario) VALUES (?,?,?,?)`,
+        [id, s.code, req.body.aceptar === false ? 'quitar_aceptada' : 'aceptar', u]);
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Cambiar la empresa vendedora en el ERP (sales.company_id). Solo si la venta NO tiene
+  // comprobante (ni en el ERP ni emitido desde el portal) y si nadie la cambió mientras tanto.
+  app.post('/admin/chequeo-empresas/cambiar', authAdmin, mAud, async (req, res) => {
+    try {
+      if (!erpWritePool) return res.status(400).json({ error: 'Falta configurar ERP_ESCRITURA_URL (cuenta de escritura) en Railway.' });
+      await prepararChequeo();
+      const id = Number(req.body && req.body.sale_id), nueva = Number(req.body && req.body.company_id);
+      if (!(id > 0)) return res.status(400).json({ error: 'Venta no válida.' });
+      if (!EMPRESAS_BI[nueva]) return res.status(400).json({ error: 'Empresa no válida.' });
+      const [[s]] = await prodPool.query(`SELECT id, code, company_id, status, deleted_at FROM sales WHERE id = ?`, [id]);
+      if (!s || s.deleted_at) return res.status(404).json({ error: 'La venta no existe.' });
+      if (s.status === 'cancelled') return res.status(400).json({ error: 'La venta está anulada.' });
+      if (Number(s.company_id) === nueva) return res.json({ ok: true, sin_cambio: true });
+      if ((await comprobantesDe([id])).size) return res.status(400).json({ error: `La venta ${s.code} ya tiene comprobante: no se cambia la empresa. Usa "Aceptar como está" o corrígela con nota de crédito.` });
+      const [r] = await erpWritePool.query(`UPDATE sales SET company_id = ? WHERE id = ? AND deleted_at IS NULL AND company_id <=> ?`, [nueva, id, s.company_id]);
+      if (r.affectedRows !== 1) return res.status(409).json({ error: 'La venta cambió mientras tanto; vuelve a revisar.' });
+      const u = (req.admin && req.admin.usuario) || '';
+      await portalPool.query(`INSERT INTO chequeo_empresas_log (sale_id, sale_code, accion, antes, despues, usuario) VALUES (?,?,?,?,?,?)`,
+        [id, s.code, 'cambiar_empresa', s.company_id == null ? '' : String(s.company_id), String(nueva), u]);
+      res.json({ ok: true });
+    } catch (e) {
+      const permiso = /denied/i.test(e.message);
+      res.status(permiso ? 403 : 500).json({ error: (permiso ? 'La cuenta de escritura no tiene permiso para cambiar la empresa de la venta: ' : '') + e.message });
+    }
   });
 
   app.get('/admin/chequeo-empresas-excel', authAdmin, mAud, async (req, res) => {
@@ -445,6 +522,10 @@ module.exports = function registrarAuditoria({ app, authAdmin, requiereModulo, p
   require('./auditoria-corregir')({ app, authAdmin, prodPool, portalPool, erpWritePool });
   // Pestaña Pendientes → "Modificar en bloque" (precios del Cotizador, estado, reservas, categorías…)
   require('./auditoria-bloque')({ app, authAdmin, requiereModulo, prodPool, portalPool, erpWritePool });
+  // Pestaña "Editar catálogo" (lista por familia; usa auditoria-bloque para escribir)
+  require('./auditoria-catalogo')({ app, authAdmin, requiereModulo, prodPool, portalPool });
+  // Pendientes → Excel en la plantilla "CREACIÓN PRODUCTOS WOOCOMMERCE" (pestaña Sistema)
+  require('./auditoria-woo')({ app, authAdmin, requiereModulo, prodPool });
 
   return { prepararTablas };
 };

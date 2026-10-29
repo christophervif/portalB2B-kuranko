@@ -54,6 +54,9 @@ const REGLAS_BASE = {
   },
   marca_origen: { Mondraker: 'Europa (UE)' }, // { Marca: 'Estados Unidos' } · sin asignar = valores generales // US$ sin IGV por envío marítimo · bicis que comparten un envío · recargo IMO por envío con e-bikes
   seguro: 1.75, arancel: 6, arancel_ebike: 6, aduana: 0, // % seguro · % ad valorem bicis (8712: 6%) y e-bikes (8711.60: 6%, salvo origen con tratado) · otros gastos US$ por bici
+  // Cuadros / framesets (8714.91.00.00 «Cuadros y horquillas, y sus partes»): ad valorem 0% en el Arancel de Perú.
+  // Se detectan por «frame», «frameset» o «cuadro» en el modelo o el montaje (ej. Kavenz VHP X FRAME, Mondraker FRAMESET ANARK XR).
+  arancel_cuadro: 0,
   // IGV 16% + IPM 2% y percepción 3.5% de la importación son crédito fiscal: no van al costo
   igv: 18, adelanto: 30,                   // %
   margen_defecto: 25,
@@ -126,7 +129,7 @@ function mezclarReglas(guardadas) {
 }
 
 // Reglas con la logística del origen de la marca (si tiene uno asignado). Idempotente.
-const CLAVES_ORIGEN = ['flete_aereo', 'flete_aereo_ebike', 'flete_maritimo', 'mar_fijos', 'mar_almacen_kg', 'mar_fijos_envio', 'mar_bicis_envio', 'mar_exw_ref', 'imo_envio', 'seguro', 'arancel', 'arancel_ebike', 'aduana', 'prep', 'mar_min', 'mar_max', 'aereo_min', 'aereo_max', 'aduana_min', 'aduana_max'];
+const CLAVES_ORIGEN = ['flete_aereo', 'flete_aereo_ebike', 'flete_maritimo', 'mar_fijos', 'mar_almacen_kg', 'mar_fijos_envio', 'mar_bicis_envio', 'mar_exw_ref', 'imo_envio', 'seguro', 'arancel', 'arancel_ebike', 'arancel_cuadro', 'aduana', 'prep', 'mar_min', 'mar_max', 'aereo_min', 'aereo_max', 'aduana_min', 'aduana_max'];
 function reglasMarca(R, marca) {
   if (R._origen !== undefined) return R;
   const o = (R.origenes || {})[(R.marca_origen || {})[marca]] || {};
@@ -145,7 +148,7 @@ function calcularPrecio(sku, envio, R, tc, margenForzado = null) {
   const ebike = esEbike(sku), aereo = envio === 'aereo';
   const yaPuesto = !!num(sku.costo_puesto); // costo ya puesto en Perú (sin IGV): no se suma importación
   const flete = lima || yaPuesto ? 0 : num(aereo ? (ebike && R.flete_aereo_ebike != null ? R.flete_aereo_ebike : R.flete_aereo) : R.flete_maritimo);
-  const av = yaPuesto ? 0 : num(ebike && R.arancel_ebike != null ? R.arancel_ebike : R.arancel) / 100;
+  const av = yaPuesto ? 0 : num(ebike && R.arancel_ebike != null ? R.arancel_ebike : !ebike && esCuadro(sku) && R.arancel_cuadro != null ? R.arancel_cuadro : R.arancel) / 100;
   // Gastos fijos del envío marítimo repartidos por bici; el recargo IMO de las e-bikes se reparte entre las e-bikes del envío
   const nEnv = Math.max(1, num(R.mar_bicis_envio) || 1);
   // Reparto como en el cotizador: 40% igual por bici y 60% según su valor (una bici cara absorbe más que una barata)
@@ -209,6 +212,55 @@ function datosMotor(motor, specs, desc, d = {}) {
 const slugCat = c => String(c || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 const limpiarMotor = t => String(t || '').replace(/\s*\(\s*\d{2}\s*km\s*\/\s*h\s*\)/ig, '').replace(/\s*[·,]\s*\d{3,4}\s*Wh\b/ig, '').replace(/\s{2,}/g, ' ').trim();
 const esEbike = s => s.categoria === 'E-MTB' || !!(s.motor && String(s.motor).trim());
+// Cuadro o frameset (sin bici completa): «frame», «frameset», «cuadro» o «rahmen» en el modelo o el montaje
+const esCuadro = s => /\b(frame|frameset|frame ?kit|cuadro|rahmen(set)?)\b/i.test(String(s.modelo || '') + ' ' + String(s.montaje || ''));
+
+// ── Opciones sin costo del modelo (texto del panel → JSON) ───────────────────
+// Una por línea: «Grupo {palabra}: valor [S,M] !{225|Pinion} "nota"*, valor2, …»
+//   {palabra} tras el grupo = el grupo solo se muestra si el montaje la contiene (ej. bielas solo con Pinion)
+//   [tallas] = recomendado para esas tallas · * = recomendado por defecto
+//   !{a|b}   = no disponible si el montaje contiene «a» o «b» (ej. dropout +0 no va con 225 ni con Pinion)
+//   "nota"   = texto corto que se muestra bajo el valor (ej. "corto y ágil")
+function partirValores(txt) { // separa por comas que no estén dentro de [], {} ni comillas
+  const out = []; let cur = '', prof = 0, com = false;
+  for (const ch of String(txt)) {
+    if (ch === '"' || ch === '“' || ch === '”') com = !com;
+    else if (!com && (ch === '[' || ch === '{')) prof++;
+    else if (!com && (ch === ']' || ch === '}')) prof = Math.max(0, prof - 1);
+    if (ch === ',' && !prof && !com) { out.push(cur); cur = ''; } else cur += ch;
+  }
+  out.push(cur);
+  return out.map(v => v.trim()).filter(Boolean);
+}
+function parsearOpciones(texto) {
+  return String(texto || '').split('\n').map(l => l.trim()).filter(l => l.includes(':')).slice(0, 4).map(l => {
+    const i = l.indexOf(':');
+    let g = l.slice(0, i).trim(); const si = (g.match(/\{([^}]+)\}/) || [])[1]; g = g.replace(/\{[^}]*\}/, '').trim().slice(0, 40);
+    const rec = {}, no = {}, txt = {}; let d = null;
+    const v = partirValores(l.slice(i + 1)).slice(0, 8).map(x => {
+      let t = x;
+      const nota = (t.match(/["“]([^"”]*)["”]/) || [])[1]; t = t.replace(/["“][^"”]*["”]/, ' ');
+      const ex = (t.match(/!\s*\{([^}]+)\}/) || [])[1]; t = t.replace(/!\s*\{[^}]*\}/, ' ');
+      const tl = (t.match(/\[([^\]]+)\]/) || [])[1]; t = t.replace(/\[[^\]]*\]/, ' ');
+      t = t.replace(/\s+/g, ' ').trim(); const def = t.endsWith('*'); t = t.replace(/\*$/, '').trim().slice(0, 40);
+      if (def) d = t;
+      if (tl) rec[t] = tl.split(/[,\s]+/).map(z => z.trim().toUpperCase()).filter(Boolean);
+      if (ex) no[t] = ex.split('|').map(z => z.trim().slice(0, 30)).filter(Boolean);
+      if (nota && nota.trim()) txt[t] = nota.trim().slice(0, 90);
+      return t;
+    }).filter(Boolean);
+    return { g, v, ...(si ? { si: si.trim().slice(0, 30) } : {}), ...(d ? { d } : {}), ...(Object.keys(rec).length ? { rec } : {}),
+      ...(Object.keys(no).length ? { no } : {}), ...(Object.keys(txt).length ? { txt } : {}) };
+  }).filter(o => o.g && o.v.length > 1);
+}
+// ¿El valor está disponible con este montaje? (regla !{…})
+const opcionPermitida = (o, v, montaje) => !((o.no || {})[v] || []).some(w => String(montaje || '').toLowerCase().includes(String(w).toLowerCase()));
+// Notas del montaje: «valor: nota» por línea (ej. «Trail 185: recorrido más corto, más reactiva»). Se muestran bajo ese valor en la ficha.
+function parsearNotas(texto) {
+  return String(texto || '').split('\n').map(l => l.trim()).filter(l => l.includes(':')).slice(0, 16).map(l => {
+    const i = l.indexOf(':'); return { k: l.slice(0, i).trim().slice(0, 60), t: l.slice(i + 1).trim().slice(0, 140) };
+  }).filter(n => n.k && n.t);
+}
 // Precio final redondeado igual que calcularPrecio (US$ 5 o S/ 10), a partir de un valor en US$ con IGV
 const finPrecio = (usdx, R, tc) => R.moneda_principal === 'PEN' ? ceil10(usdx * tc.usd) : Math.round(Math.ceil(usdx / 5) * 5 * tc.usd);
 // Marítimo: cuántas bicis deben compartir el envío para que, con este precio, el margen en el peor caso no baje del mínimo.
@@ -465,8 +517,8 @@ function tablaTallas(tallas, datos = {}) {
   const ia = Array.isArray(datos.tallas) ? datos.tallas.filter(x => x && x.t && num(x.min) > 100 && num(x.max) > num(x.min)) : [];
   const out = [];
   for (const t of tallas) {
-    const k = String(t).toUpperCase().replace(/\s+/g, '');
-    const de = ia.find(x => String(x.t).toUpperCase().replace(/\s+/g, '') === k);
+    const k = String(t).toUpperCase().replace(/\s+/g, ''), kk = k.replace(/\//g, ''); // «M/L» en Kuranko = «ML» en la web de la marca
+    const de = ia.find(x => String(x.t).toUpperCase().replace(/\s+/g, '') === k) || ia.find(x => String(x.t).toUpperCase().replace(/[\s/]+/g, '') === kk);
     if (de) out.push({ t, min: Math.round(num(de.min)), max: Math.round(num(de.max)) });
     else if (TALLAS_REF[k]) out.push({ t, min: TALLAS_REF[k][0], max: TALLAS_REF[k][1], ref: 1 });
   }
@@ -542,6 +594,7 @@ function armarCatalogo(skus, R, tc, hoy = hoyLima(), mods = {}) {
     if (dt.material && !m.matx) m.matx = dt.material;
     if (dt.geo && !m.geo) m.geo = dt.geo;
     if (Array.isArray((md.datos || {}).opciones) && md.datos.opciones.length && !m.opc) m.opc = md.datos.opciones; // opciones sin costo (ej. largo de dropout)
+    if (Array.isArray((md.datos || {}).notas) && md.datos.notas.length && !m.notas) m.notas = md.datos.notas; // notas bajo cada valor del montaje (ej. «Trail 185: más reactiva»)
     if (dt.geometria && !m.geom) m.geom = dt.geometria;
     if (dt.recorrido && !m.rec) m.rec = dt.recorrido; if (dt.material && !m.mat) m.mat = dt.material; if (dt.peso && !m.peso) m.peso = dt.peso; if (dt.motor && !m.motor) m.motor = dt.motor;
     if (md.url_ficha && !m.ficha) m.ficha = md.url_ficha;
@@ -1501,7 +1554,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       try {
         const md = (await leerModelos())[s.marca + '|' + s.modelo] || {}; const elegidas = b.opc && typeof b.opc === 'object' ? b.opc : {};
         const txt = ((md.datos || {}).opciones || []).filter(o => !o.si || String(s.montaje).toLowerCase().includes(String(o.si).toLowerCase()))
-          .map(o => { const v = String(elegidas[o.g] || ''); return (o.v || []).includes(v) ? `${o.g}: ${v}` : null; }).filter(Boolean);
+          .map(o => { const v = String(elegidas[o.g] || ''); return (o.v || []).includes(v) && opcionPermitida(o, v, s.montaje) ? `${o.g}: ${v}` : null; }).filter(Boolean);
         if (txt.length) montajeRes = [s.montaje !== 'Base' ? s.montaje : '', ...txt].filter(Boolean).join(' · ').slice(0, 240);
       } catch (e) {}
       const codigo = await nuevoCodigo(conn);
@@ -2409,14 +2462,14 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
         await conn.query('INSERT INTO bk_modelos (marca, modelo, datos) VALUES (?,?,?) ON DUPLICATE KEY UPDATE datos=VALUES(datos)', [marca, modelo, JSON.stringify(dat)]); }
       if (b.opciones !== undefined) { // «Grupo: valor1, valor2*» por línea (* = recomendado)
         // «Grupo {palabra}: valor [S,M], valor2*» → {palabra} = solo si el montaje la contiene · [tallas] = recomendado para esas tallas · * = recomendado por defecto
-        const ops = String(b.opciones || '').split('\n').map(l => l.trim()).filter(l => l.includes(':')).slice(0, 4).map(l => { const i = l.indexOf(':');
-          let g = l.slice(0, i).trim(); const si = (g.match(/\{([^}]+)\}/) || [])[1]; g = g.replace(/\{[^}]*\}/, '').trim().slice(0, 40);
-          const crudos = l.slice(i + 1).split(/,(?![^\[]*\])/).map(v => v.trim()).filter(Boolean).slice(0, 8), rec = {}; let d = null;
-          const v = crudos.map(x => { let t = x; const tl = (t.match(/\[([^\]]+)\]/) || [])[1]; t = t.replace(/\[[^\]]*\]/, '').trim(); const def = t.endsWith('*'); t = t.replace(/\*$/, '').trim().slice(0, 40);
-            if (def) d = t; if (tl) rec[t] = tl.split(/[,\s]+/).map(z => z.trim().toUpperCase()).filter(Boolean); return t; });
-          return { g, v, ...(si ? { si: si.trim().slice(0, 30) } : {}), ...(d ? { d } : {}), ...(Object.keys(rec).length ? { rec } : {}) }; }).filter(o => o.g && o.v.length > 1);
+        const ops = parsearOpciones(b.opciones);
         const [[row]] = await conn.query('SELECT datos FROM bk_modelos WHERE marca=? AND modelo=?', [marca, modelo]); let dat = {}; try { dat = JSON.parse((row && row.datos) || '{}') || {}; } catch (e) {}
         if (ops.length) dat.opciones = ops; else delete dat.opciones;
+        await conn.query('INSERT INTO bk_modelos (marca, modelo, datos) VALUES (?,?,?) ON DUPLICATE KEY UPDATE datos=VALUES(datos)', [marca, modelo, JSON.stringify(dat)]); }
+      if (b.notas !== undefined) { // notas por valor del montaje: «Trail 185: recorrido más corto, más reactiva»
+        const notas = parsearNotas(b.notas);
+        const [[row]] = await conn.query('SELECT datos FROM bk_modelos WHERE marca=? AND modelo=?', [marca, modelo]); let dat = {}; try { dat = JSON.parse((row && row.datos) || '{}') || {}; } catch (e) {}
+        if (notas.length) dat.notas = notas; else delete dat.notas;
         await conn.query('INSERT INTO bk_modelos (marca, modelo, datos) VALUES (?,?,?) ON DUPLICATE KEY UPDATE datos=VALUES(datos)', [marca, modelo, JSON.stringify(dat)]); }
       if (b.descuento !== undefined) { const d = Math.min(60, Math.max(0, num(b.descuento))) || null, h = /^\d{4}-\d{2}-\d{2}$/.test(b.descuento_hasta || '') ? b.descuento_hasta : null;
         await conn.query(`INSERT INTO bk_modelos (marca, modelo, descuento, descuento_hasta) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE descuento=VALUES(descuento), descuento_hasta=VALUES(descuento_hasta)`, [marca, modelo, d, h]); }
@@ -2811,6 +2864,6 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
   return { prepararTablas };
 };
 
-module.exports._test = { fichaCompleta, elegirImagenes, htmlATexto, specsSimples, linksDeModelos, emparejarModelos, leerFichaHtml, opcionesEnvio, leerMenuKuranko, MENU_RESPALDO, calcularPrecio, calcularEntrega, reconocerColumnas, normalizarFila, aFecha, aNumero, armarCatalogo, mezclarReglas, claveSku, REGLAS_BASE };
+module.exports._test = { parsearOpciones, parsearNotas, opcionPermitida, esCuadro, fichaCompleta, elegirImagenes, htmlATexto, specsSimples, linksDeModelos, emparejarModelos, leerFichaHtml, opcionesEnvio, leerMenuKuranko, MENU_RESPALDO, calcularPrecio, calcularEntrega, reconocerColumnas, normalizarFila, aFecha, aNumero, armarCatalogo, mezclarReglas, claveSku, REGLAS_BASE };
 // IA compartida (Promociones la usa para proponer descuentos)
 module.exports.ia = { llamarGemini, ultimoError: () => ultimoErrorIA };

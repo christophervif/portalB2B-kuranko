@@ -765,7 +765,8 @@ const opcVisibles=m=>(m.opc||[]).filter(o=>!o.si||String(S.mo||'').toLowerCase()
 const opcOk=(o,v)=>!((o.no||{})[v]||[]).some(w=>String(S.mo||'').toLowerCase().includes(String(w).toLowerCase()));
 const opcRec=o=>{const t=S&&S.t;const r=o.rec?Object.keys(o.rec).find(v=>(o.rec[v]||[]).includes(t)):null;const c=r||o.d||null;
   if(!c||opcOk(o,c))return c;const i=o.v.indexOf(c);return o.v.slice(i+1).find(v=>opcOk(o,v))||o.v.find(v=>opcOk(o,v))||c}; /* si la recomendada no va con el montaje, la siguiente que sí */
-function opcAjustar(){if(!S||!S.m)return;S.opc=S.opc||{};S.opcU=S.opcU||{};for(const o of (S.m.opc||[])){if(S.opcU[o.g]&&!opcOk(o,S.opc[o.g]))delete S.opcU[o.g];if(!S.opcU[o.g])S.opc[o.g]=opcRec(o)||o.v.find(v=>opcOk(o,v))||o.v[0]}}
+/* Solo los grupos visibles con este montaje (puede haber dos con el mismo nombre, ej. «Largo de biela {Forge}» y «{NSB}»); si el valor elegido no existe o no va, vuelve al recomendado */
+function opcAjustar(){if(!S||!S.m)return;S.opc=S.opc||{};S.opcU=S.opcU||{};for(const o of opcVisibles(S.m)){if(S.opcU[o.g]&&(!o.v.includes(S.opc[o.g])||!opcOk(o,S.opc[o.g])))delete S.opcU[o.g];if(!S.opcU[o.g])S.opc[o.g]=opcRec(o)||o.v.find(v=>opcOk(o,v))||o.v[0]}}
 /* Nota de un valor del montaje (ej. «Trail 185 (154 mm)» → «más corto y reactivo»): igual, o el valor contiene la clave */
 const gruposDe=m=>new Set([...(m.opc||[]).map(o=>o.g),...partesMo((m.montajes||[])[0]||'').map(x=>x[0])].filter(Boolean).map(g=>g.toLowerCase()));
 const notaDe=(m,v,exacta)=>{const L=m.notas||[],n=String(v).toLowerCase();return L.find(z=>z.k.toLowerCase()===n)||(exacta?null:L.find(z=>z.k.length>=3&&!gruposDe(m).has(z.k.toLowerCase())&&n.includes(z.k.toLowerCase())))||null};
@@ -778,8 +779,13 @@ function montajeHTML(m,disp){if(!(m.montajes.length>1||m.montajes[0]!=='Base'))r
   const P=m.montajes.map(partesMo),n=P[0].length,estruct=n>1&&P.every(x=>x.length===n&&x.every(([g],k)=>g&&g===P[0][k][0]));
   if(!estruct)return `<div class="opt"><div class="lbl">Montaje</div><div class="opts">${m.montajes.map(mo=>`<button class="o${imgMo(m,mo)?' conimg':''}" aria-pressed="${S.mo===mo}" data-mo="${esc(mo)}" ${disp(x=>x.mo===mo)?'':'disabled'}>${imgMo(m,mo)}<b>${esc(mo)}</b>${notaMo(m,mo)?`<small class="nota">${esc(notaMo(m,mo))}</small>`:''}<small class="num">${M(pm(mo))}</small></button>`).join('')}</div></div>`;
   const cur=partesMo(S.mo).map(x=>x[1]),pc=pm(S.mo);
+  /* Montaje más parecido al elegido con el valor v en el grupo k (cambia lo mínimo: ej. pasar a NSB no cambia el amortiguador) */
+  const cercano=(k,v)=>{let best=null,bn=-1;P.forEach((x,i)=>{if(x[k][1]!==v)return;const n=x.reduce((a,y,j)=>a+(j!==k&&y[1]===cur[j]?1:0),0);if(n>bn){bn=n;best=m.montajes[i]}});return best};
   return P[0].map(([g],k)=>{const minV=v=>Math.min(...m.montajes.filter((x,i)=>P[i][k][1]===v).map(pm));const vals=[...new Set(P.map(x=>x[k][1]))].sort((a,b)=>minV(a)-minV(b));
-    return `<div class="opt"><div class="lbl">${esc(g)}</div>${cardGrupo(m,g)}<div class="opts">${vals.map(v=>{const alt=cur.slice();alt[k]=v;const mo=m.montajes.find(x=>partesMo(x).map(y=>y[1]).join('|')===alt.join('|'))||m.montajes.find(x=>partesMo(x)[k][1]===v);
+    /* Grupo que no aplica con lo elegido en los grupos anteriores (ej. Bielas con pedalier BSA: solo «no incluidas»): no se muestra.
+       Se mira solo hacia arriba: los primeros grupos mandan y los de abajo se adaptan. */
+    const posibles=vals.filter(v=>P.some(x=>x[k][1]===v&&x.every((y,j)=>j>=k||y[1]===cur[j])));if(vals.length>1&&posibles.length<=1)return '';
+    return `<div class="opt"><div class="lbl">${esc(g)}</div>${cardGrupo(m,g)}<div class="opts">${vals.map(v=>{const alt=cur.slice();alt[k]=v;const mo=m.montajes.find(x=>partesMo(x).map(y=>y[1]).join('|')===alt.join('|'))||cercano(k,v);
       const d=minV(v)-minV(cur[k]),sel=cur[k]===v; /* diferencia estable: no depende de los otros grupos (evita saltos de ±US$ 5 por redondeo) */return `<button class="o${imgMo(m,v)?' conimg':''}" aria-pressed="${sel}" data-mo="${esc(mo)}" ${disp(x=>x.mo===mo)?'':'disabled'}>${imgMo(m,v)}<b>${esc(v)}</b>${notaMo(m,v)?`<small class="nota">${esc(notaMo(m,v))}</small>`:''}<small class="num ${sel?'ok':d>0?'mas':''}">${sel?'elegido':d>0?'+ '+M(d):d<0?'− '+M(-d):'mismo precio'}</small></button>`}).join('')}</div></div>`}).join('')}
 function marHTML(marca,o,eb){if(!o||!o.nb)return '';const g=(D.mar||{})[marca]||{van:0};const n=Math.min(o.nb,12),van=g.van||0,con=van+1,ok=con>=n,completa=ok&&van<n,ya=van?(van===1?'Ya hay 1 bici reservada':'Ya hay '+van+' bicis reservadas')+' de '+esc(marca)+' para este envío. ':'';const sale=g.fecha?' (sale aprox. el '+fD(g.fecha)+')':'';
   if(n<=1)return eb?`<div class="grp"><b>✓ Esta e-bike puede viajar en el próximo envío marítimo</b><span>Las e-bikes no pueden ir por avión por sus baterías: viaja por mar con las demás bicis de ${esc(marca)}${sale}.</span></div>`:'';

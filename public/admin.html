@@ -465,9 +465,8 @@ tr:hover td{background:var(--hover)}
         <b>Alertas de vinculación:</b> todo lo que cambió pero <b>no se sincronizó</b>, con el motivo (SKU no coincide, ID no existe en la web, error al escribir, etc.).</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn" onclick="descargarReporteSync()">Descargar reporte (Excel)</button>
-          <button class="btn" onclick="exportarProductosSinId()" title="Productos del ERP sin ID, con el ID y las imágenes que el puente encontró en la web">Exportar productos sin ID</button>
         </div>
-        <div class="desc" style="font-size:12px;margin-top:6px">"Exportar productos sin ID": Excel con dos pestañas. <b>"Con ID (en la web)"</b> = los que el puente encontró en WooCommerce por SKU, ya con su ID e imágenes de la web (listos para vincular). <b>"Sin ID (por crear)"</b> = los que no están en la web todavía, con su info del sistema. El puente recolecta el ID y las imágenes en su corrida (cada pocas horas). Para escribir esos IDs (e imágenes) en el sistema usa <b>Auditoría de catálogo → Corregir en el ERP</b>.</div>
+        <div class="desc" style="font-size:12px;margin-top:6px">Los productos sin ID (plantilla para WooCommerce) y las correcciones en el sistema están en <b>Auditoría de catálogo</b> → pestañas <i>Pendientes en la web</i> y <i>Corregir en el ERP</i>.</div>
         <div id="sync-result" class="muted" style="margin-top:10px"></div>
       </div>
 
@@ -1441,21 +1440,7 @@ async function descargarReporteSync(){
     res.textContent='✓ Reporte descargado.';
   }catch(e){res.textContent='';showToast(e.message,true);}
 }
-async function exportarProductosSinId(){
-  const res=document.getElementById('sync-result');
-  res.textContent='Generando Excel de productos sin ID...';
-  try{
-    const r=await fetch(API+'/admin/pendientes-web-csv?web=1',{headers:{'Authorization':'Bearer '+TOKEN}});
-    if(!r.ok){let m='No se pudo generar el Excel';try{m=(await r.json()).error||m;}catch(e){}throw new Error(m);}
-    const blob=await r.blob();
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement('a');
-    a.href=url;a.download=nombreArchivo('productos-sin-id','xlsx');
-    document.body.appendChild(a);a.click();a.remove();
-    URL.revokeObjectURL(url);
-    res.textContent='✓ Excel descargado.';
-  }catch(e){res.textContent='';showToast(e.message,true);}
-}
+// "Exportar productos sin ID" → Auditoría de catálogo (Pendientes en la web → Plantilla para WooCommerce)
 // "Corregir datos en el ERP" → public/auditoria.html (pestaña Corregir en el ERP)
 // ── Cola de SKUs específicos ──
 async function verColaSkus(){

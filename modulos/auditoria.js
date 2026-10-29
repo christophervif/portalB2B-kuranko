@@ -10,6 +10,7 @@
 //                                      pantalla), con los filtros de la pantalla
 //    GET /admin/chequeo-empresas[-excel]  ?tipo=…&dias=90|365|0
 //    /admin/erp-writeback-preview|aplicar → modulos/auditoria-corregir.js (pestaña Corregir en el ERP)
+//    /admin/auditoria/bloque/*            → modulos/auditoria-bloque.js (Pendientes → Modificar en bloque)
 //
 //  Reglas (todo del ERP, SOLO LECTURA)
 //  · "Stock" = stock propio (almacenes y tiendas): sin consignación (está en el cliente)
@@ -442,6 +443,8 @@ module.exports = function registrarAuditoria({ app, authAdmin, requiereModulo, p
 
   // Pestaña "Corregir en el ERP" (vincular IDs, reservas → notify, imágenes kuranko)
   require('./auditoria-corregir')({ app, authAdmin, prodPool, portalPool, erpWritePool });
+  // Pestaña Pendientes → "Modificar en bloque" (precios del Cotizador, estado, reservas, categorías…)
+  require('./auditoria-bloque')({ app, authAdmin, requiereModulo, prodPool, portalPool, erpWritePool });
 
   return { prepararTablas };
 };

@@ -106,6 +106,22 @@ details.ayuda ul{margin:6px 0 0 18px;line-height:1.6}
 .nota{font-size:11.5px;color:var(--muted);margin-top:8px}
 td .probs{display:flex;flex-wrap:wrap;gap:4px}
 .kpi.ok .v{color:var(--fg-ok)}
+
+.blq{border:1px solid var(--accent);border-radius:14px;padding:14px;margin-top:12px;background:var(--surface2)}
+.blq-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:10px;margin-top:10px}
+.blq-campo{border:1px solid var(--border);border-radius:12px;padding:10px;background:var(--surface)}
+.blq-campo.on{border-color:var(--accent)}
+.blq-campo>label.tit{display:flex;gap:8px;align-items:center;font-weight:600;color:var(--white);font-size:13px;cursor:pointer}
+.blq-campo .cuerpo{margin-top:8px;display:none;flex-direction:column;gap:6px;font-size:12px;color:var(--text2)}
+.blq-campo.on .cuerpo{display:flex}
+.blq-campo select,.blq-campo input[type=text],.blq-campo input[type=number]{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 8px;font-size:12.5px;width:100%}
+.blq-campo .ayuda{font-size:11.5px;color:var(--muted);line-height:1.5}
+.blq-lista{max-height:180px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:4px 6px;background:var(--bg)}
+.blq-lista label{display:flex;gap:6px;align-items:flex-start;padding:2px 0;font-size:12px}
+.medidas{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.cmb{font-size:12px;line-height:1.5}.cmb b{color:var(--white)}
+.cmb .de{color:var(--muted);text-decoration:line-through}
+#sel-pend a{color:var(--accent)}
 </style>
 </head>
 <body>
@@ -190,6 +206,27 @@ td .probs{display:flex;flex-wrap:wrap;gap:4px}
       <button class="btn btn-sec" onclick="plantillaWoo()" title="Mismo archivo que el botón de Sincronización web">Plantilla para WooCommerce</button>
     </div>
     <div class="nota">La plantilla para WooCommerce incluye <b>todos</b> los productos sin ID (con o sin stock, excepto MKP sin stock), por eso puede traer más filas que esta lista.</div>
+    <div class="fila" style="align-items:center">
+      <span class="nota" id="sel-pend" style="margin:0">0 seleccionados</span>
+      <button class="btn" id="btn-bloque" onclick="abrirBloque()" disabled>Modificar en bloque</button>
+      <button class="btn btn-sec" onclick="verLogBloque()">Historial de cambios</button>
+      <button class="btn btn-sec" onclick="pdfPendientes()" title="Lista filtrada (o solo los seleccionados) lista para guardar como PDF">PDF de la lista</button>
+    </div>
+    <div class="blq oculto" id="bloque">
+      <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:flex-start">
+        <div><h3>Modificar en bloque <span class="chip c-g" id="blq-n"></span></h3>
+          <div class="desc">Se guarda <b>en el sistema (ERP)</b>; la plantilla de WooCommerce y el puente lo toman de ahí. Marca solo los campos que quieres cambiar; lo demás queda igual. Primero revisa la vista previa.</div></div>
+        <button class="btn btn-sec" onclick="cerrarBloque()">Cerrar</button>
+      </div>
+      <div class="aviso" style="background:var(--surface3);color:var(--text2)">El valor elegido se pone <b>igual en toda la familia</b> de cada fila marcada: el producto padre (variable) y todas sus variaciones, o el simple.</div>
+      <div class="blq-grid" id="blq-campos"></div>
+      <div class="fila">
+        <button class="btn" id="btn-blq-prev" onclick="previsualizarBloque()">Vista previa</button>
+        <button class="btn oculto" id="btn-blq-apl" onclick="aplicarBloque()">Aplicar en el sistema</button>
+      </div>
+      <div class="nota" id="blq-res"></div>
+      <div id="blq-prev"></div>
+    </div>
     <div class="nota" id="res-pend"></div>
     <div class="tabla-wrap"><table id="tbl-pend"></table></div>
   </div>
@@ -390,15 +427,17 @@ function pintarPendientes() {
   const lista = D.pendientes.filter(p => (!marca || p.marca === marca) && (!mot || p.motivo === mot) &&
     (!prep || (prep === 'listo' ? !p.falta.length : p.falta.length > 0)) && (!sinMkp || !p.mkp) &&
     (!q || (p.sku || '').toLowerCase().includes(q) || (p.nombre || '').toLowerCase().includes(q)));
+  PEND_FILTRADOS = lista;
   $('res-pend').textContent = `${nfmt(lista.length)} pendiente(s) · ${nfmt(lista.filter(p => !p.falta.length).length)} listos para crear` + (lista.length > MAX_FILAS ? ` · mostrando ${MAX_FILAS}` : '');
   $('tbl-pend').innerHTML = !lista.length ? '<tbody><tr><td class="vacio">✓ No hay productos pendientes con estos filtros.</td></tr></tbody>' :
-    '<thead><tr><th>Producto</th><th>Tipo</th><th>Marca</th><th class="n">Precio</th><th class="n">Stock</th><th class="n">Backorder</th><th>Le falta</th></tr></thead><tbody>' +
-    lista.slice(0, MAX_FILAS).map(p => `<tr><td><div class="nom">${esc(p.nombre)}</div><div class="sku">${esc(p.sku)}${p.mkp ? ' · MKP/PCK' : ''}</div></td>
+    `<thead><tr><th style="width:34px"><input type="checkbox" id="chk-todos" title="Seleccionar todos los filtrados (${lista.length})" onclick="selTodos(this.checked)"></th><th>Producto</th><th>Tipo</th><th>Marca</th><th class="n">Precio</th><th class="n">Stock</th><th class="n">Backorder</th><th>Le falta</th></tr></thead><tbody>` +
+    lista.slice(0, MAX_FILAS).map(p => `<tr><td><input type="checkbox" class="chk-pend" data-vid="${p.vid}" ${SEL.has(p.vid) ? 'checked' : ''} onchange="selUno(${p.vid},this.checked)"></td><td><div class="nom">${esc(p.nombre)}</div><div class="sku">${esc(p.sku)}${p.mkp ? ' · MKP/PCK' : ''}</div></td>
       <td>${esc(p.tipo_prod)}</td><td>${esc(p.marca)}</td>
       <td class="n">${p.precio > 0 ? 'S/ ' + Number(p.precio).toLocaleString('es-PE', { minimumFractionDigits: 2 }) : '—'}</td>
       <td class="n">${nfmt(p.stock)}${p.consig ? `<div class="sku">+${nfmt(p.consig)} consig.</div>` : ''}</td>
       <td class="n">${p.backorder ? nfmt(p.backorder) : '—'}</td>
       <td>${p.falta.length ? `<div class="probs">${p.falta.map(f => `<span class="chip c-w">${esc(f)}</span>`).join('')}</div>` : '<span class="chip c-ok">Listo para crear</span>'}</td></tr>`).join('') + '</tbody>';
+  contarSel();
 }
 
 async function descargarExcel() {
@@ -437,6 +476,149 @@ async function excelChequeo() {
   catch (e) { showToast(e.message, true); }
 }
 
+
+
+// ── Pendientes: selección y "Modificar en bloque" (escribe en el ERP) ──
+const SEL = new Set();
+let PEND_FILTRADOS = [], BLQ_OPC = null, BLQ_PREV = null;
+function selUno(vid, on) { on ? SEL.add(vid) : SEL.delete(vid); contarSel(); }
+function selTodos(on) { PEND_FILTRADOS.forEach(p => on ? SEL.add(p.vid) : SEL.delete(p.vid)); document.querySelectorAll('.chk-pend').forEach(c => c.checked = on); contarSel(); }
+function contarSel() {
+  $('sel-pend').innerHTML = `<b>${nfmt(SEL.size)}</b> seleccionado(s)` + (SEL.size ? ' · <a href="#" onclick="selTodos(false);SEL.clear();contarSel();return false">quitar selección</a>' : '');
+  $('btn-bloque').disabled = !SEL.size;
+  $('btn-bloque').textContent = SEL.size ? `Modificar en bloque (${nfmt(SEL.size)})` : 'Modificar en bloque';
+  $('blq-n').textContent = nfmt(SEL.size) + ' seleccionado(s)';
+  const t = $('chk-todos'); if (t) t.checked = PEND_FILTRADOS.length > 0 && PEND_FILTRADOS.every(p => SEL.has(p.vid));
+}
+async function postJSON(ep, body) {
+  const r = await fetch(ep, { method: 'POST', headers: { 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+  if (r.status === 401) throw new Error('Sesión del portal expirada — vuelve a entrar al panel.');
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || 'Error');
+  return d;
+}
+const BLQ_CAMPOS = [
+  { k: 'precio_regular', t: 'Precio regular', html: () => `
+      <select id="b-pr"><option value="vacios">Solo los que no tienen precio</option><option value="subir">Solo si el PVP recomendado es mayor (nunca baja)</option><option value="todos">Todos (puede bajar precios)</option></select>
+      <div class="ayuda">Es el <b>precio del grupo</b>: igual que en el sistema, se pone en el producto y vale para <b>todas</b> sus variaciones. PVP recomendado del Cotizador = costo de la <b>última compra</b> (con IGV) ÷ ${BLQ_OPC ? BLQ_OPC.factor_pvp : '0.65'}, hacia arriba; si las variaciones tienen costos distintos se usa el mayor.</div>` },
+  { k: 'estado', t: 'Estado (Publicado)', html: () => `
+      <select id="b-es"><option value="active">Activa</option><option value="draft">Borrador</option><option value="discontinued">Descontinuada</option></select>
+      <div class="ayuda"><b>Activa</b> → en la web: Publicado; visible si tiene stock o reservas (oculto si no, o si el nombre tiene "PCK").<br><b>Borrador</b> o <b>Descontinuada</b> → Privado + oculto.<br>El producto padre en la web queda descontinuado solo si todas sus variaciones lo están; activo si alguna está activa.</div>` },
+  { k: 'reservas', t: 'Reservas de agotados', html: () => `
+      <select id="b-re"><option value="notify">Permitir y avisar (notify)</option><option value="no">No permitir</option><option value="yes">Permitir (yes)</option></select>
+      <div class="ayuda"><b>notify / yes</b> → en la web se puede comprar sin stock; queda visible y con el aviso "A PEDIDO" en la descripción corta cuando no hay stock (el puente pasa "yes" como "notify").<br><b>No permitir</b> → sin stock se oculta del catálogo.<br>En el sistema solo es informativo: no bloquea ni permite ventas.</div>` },
+  { k: 'medidas', t: 'Peso y medidas', html: () => `
+      <div class="medidas"><input type="number" step="0.01" min="0" id="b-weight" placeholder="Peso kg"><input type="number" step="0.01" min="0" id="b-length" placeholder="Largo cm"><input type="number" step="0.01" min="0" id="b-width" placeholder="Ancho cm"><input type="number" step="0.01" min="0" id="b-height" placeholder="Alto cm"></div>
+      <div class="ayuda">Deja en blanco lo que no quieras cambiar. Se guarda con 2 decimales, igual que en el sistema.</div>` }
+];
+async function abrirBloque() {
+  $('bloque').classList.remove('oculto');
+  $('bloque').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (!BLQ_OPC) {
+    $('blq-campos').innerHTML = '<div class="nota">Cargando…</div>';
+    try { BLQ_OPC = await postJSON('/admin/auditoria/bloque/opciones'); }
+    catch (e) { $('blq-campos').innerHTML = ''; showToast(e.message, true); return; }
+    $('blq-campos').innerHTML = BLQ_CAMPOS.map(c => `<div class="blq-campo" id="bc-${c.k}">
+      <label class="tit"><input type="checkbox" onchange="this.closest('.blq-campo').classList.toggle('on',this.checked);limpiarPrev()"> ${c.t}</label>
+      <div class="cuerpo" onchange="limpiarPrev()" oninput="limpiarPrev()">${c.html()}</div></div>`).join('');
+  }
+  limpiarPrev();
+}
+function cerrarBloque() { $('bloque').classList.add('oculto'); }
+function limpiarPrev() { BLQ_PREV = null; $('btn-blq-apl').classList.add('oculto'); $('blq-prev').innerHTML = ''; $('blq-res').textContent = ''; }
+const activo = k => { const e = $('bc-' + k); return e && e.classList.contains('on'); };
+function leerFormBloque() {
+  const c = {};
+  if (activo('precio_regular')) c.precio_regular = { alcance: $('b-pr').value };
+  if (activo('estado')) c.estado = $('b-es').value;
+  if (activo('reservas')) c.reservas = $('b-re').value;
+  if (activo('medidas')) ['weight', 'length', 'width', 'height'].forEach(k => { if ($('b-' + k).value !== '') c[k] = $('b-' + k).value; });
+  return { vids: [...SEL], cambios: c };
+}
+const lineaCambio = c => `<div class="cmb">${esc(c.campo)}: <span class="de">${esc(c.antes)}</span> → <b>${esc(c.despues)}</b></div>`;
+async function previsualizarBloque() {
+  const body = leerFormBloque();
+  if (!Object.keys(body.cambios).length) { showToast('Marca al menos un campo para cambiar', true); return; }
+  const b = $('btn-blq-prev'); b.disabled = true; $('blq-res').textContent = 'Calculando…'; $('blq-prev').innerHTML = '';
+  try {
+    const d = await postJSON('/admin/auditoria/bloque/previsualizar', body);
+    BLQ_PREV = body;
+    const nCamb = d.filas.reduce((s, f) => s + f.cambios.length, 0);
+    $('blq-res').innerHTML = `${nfmt(d.resumen.productos)} producto(s) · ${nfmt(d.resumen.variaciones)} variación(es) · <b>${nfmt(nCamb)}</b> cambio(s)` +
+      (d.puede_aplicar ? '' : ' <span class="chip c-r">Falta ERP_ESCRITURA_URL: no se puede aplicar</span>');
+    let h = '';
+    if (d.avisos.length) h += `<div class="aviso"><b>Avisos (${d.avisos.length})</b><ul style="margin:4px 0 0 18px">${d.avisos.slice(0, 40).map(a => `<li>${esc(a)}</li>`).join('')}</ul>${d.avisos.length > 40 ? '…' : ''}</div>`;
+    h += '<div class="tabla-wrap" style="max-height:60vh"><table><thead><tr><th>Producto / variación</th><th>Cambios</th><th>En la web quedará</th></tr></thead><tbody>';
+    d.productos.forEach(p => {
+      const hs = d.filas.filter(f => f.pid === p.pid);
+      if (!hs.length) return;
+      const web = p.web_antes === p.web_despues ? esc(p.web_despues) : `<span class="de">${esc(p.web_antes)}</span><br><b>${esc(p.web_despues)}</b>`;
+      h += `<tr style="background:var(--surface3)"><td><div class="nom">${esc(p.nombre)}</div><div class="sku">${esc(p.sku)} · ${p.tipo}${p.tipo === 'variable' ? ` · ${p.variaciones} variaciones` : ''}${p.en_web ? ' · en la web' : ''}</div></td>
+        <td>${p.precio_grupo ? lineaCambio({ campo: 'Precio regular del grupo', antes: p.precio_grupo.antes > 0 ? p.precio_grupo.antes.toFixed(2) : '—', despues: p.precio_grupo.despues.toFixed(2) + (p.precio_grupo.baja ? ' ⚠ baja' : '') }) : ''}<span class="sku">${hs.length} variación(es) con cambios</span></td><td class="cmb">${web}</td></tr>`;
+      hs.forEach(f => h += `<tr><td style="padding-left:22px"><div>${esc(f.nombre)}</div><div class="sku">${esc(f.sku)}${f.tipo === 'variable' ? ' · fila del padre' : (f.seleccionada ? '' : ' · misma familia')}${f.en_web ? ' · en la web' : ''}</div></td><td>${f.cambios.map(lineaCambio).join('')}</td><td></td></tr>`);
+    });
+    h += '</tbody></table></div>';
+    $('blq-prev').innerHTML = nCamb ? h : (h.startsWith('<div class="aviso"') ? h.split('<div class="tabla-wrap"')[0] : '') + '<div class="nota">✓ No hay nada que cambiar: ya tienen esos valores.</div>';
+    const ap = $('btn-blq-apl');
+    ap.classList.toggle('oculto', !(nCamb && d.puede_aplicar));
+    ap.textContent = `Aplicar ${nfmt(nCamb)} cambio(s) en el sistema`;
+  } catch (e) { $('blq-res').textContent = ''; showToast(e.message, true); }
+  finally { b.disabled = false; }
+}
+async function aplicarBloque() {
+  if (!BLQ_PREV) return;
+  if (!confirm('¿Aplicar estos cambios en el sistema (ERP)? Se escriben en la base del sistema y el puente los llevará a la web en su próxima corrida.')) return;
+  const b = $('btn-blq-apl'); b.disabled = true; $('blq-res').textContent = 'Aplicando…';
+  try {
+    const r = await postJSON('/admin/auditoria/bloque/aplicar', BLQ_PREV);
+    showToast('Cambios aplicados: ' + r.aplicados);
+    $('blq-res').innerHTML = `✓ Aplicados: <b>${nfmt(r.aplicados)}</b>` + (r.sin_cambio ? ` · ${nfmt(r.sin_cambio)} ya tenían ese valor o cambiaron mientras tanto` : '') +
+      '. Pulsa <b>Analizar de nuevo</b> arriba para refrescar la lista de pendientes.';
+    $('blq-prev').innerHTML = ''; b.classList.add('oculto'); BLQ_PREV = null;
+  } catch (e) { $('blq-res').textContent = ''; showToast(e.message, true); }
+  finally { b.disabled = false; }
+}
+async function verLogBloque() {
+  $('bloque').classList.remove('oculto');
+  try {
+    const r = await fetch('/admin/auditoria/bloque/log', { headers: { 'Authorization': 'Bearer ' + TOKEN } });
+    const rows = await r.json().catch(() => []);
+    $('blq-res').textContent = '';
+    $('blq-prev').innerHTML = !rows.length ? '<div class="nota">Aún no se aplicaron cambios en bloque.</div>' :
+      '<h3 style="margin-top:6px">Historial (últimos 300)</h3><div class="tabla-wrap" style="max-height:50vh"><table><thead><tr><th>Fecha</th><th>Usuario</th><th>SKU</th><th>Campo</th><th>Antes</th><th>Después</th></tr></thead><tbody>' +
+      rows.map(x => `<tr><td>${esc(fecha(x.aplicado_en))}</td><td>${esc(x.usuario)}</td><td><span class="sku">${esc(x.sku)}</span></td><td>${esc(x.tabla.replace('product_', '') + '.' + x.campo)}</td><td>${esc(x.antes)}</td><td>${esc(x.despues)}</td></tr>`).join('') + '</tbody></table></div>';
+  } catch (e) { showToast(e.message, true); }
+}
+
+
+// ── PDF de pendientes: abre una versión para imprimir → "Guardar como PDF" ──
+function pdfPendientes() {
+  const base = SEL.size ? PEND_FILTRADOS.filter(p => SEL.has(p.vid)) : PEND_FILTRADOS;
+  if (!base.length) { showToast('No hay productos en la lista', true); return; }
+  const filtros = [['Marca', $('p-marca').value], ['Motivo', $('p-motivo').selectedOptions[0].text], ['Preparación', $('p-prep').selectedOptions[0].text],
+    ['Búsqueda', $('p-q').value.trim()], ['Sin marketplace/packs', $('p-mkp').checked ? 'sí' : '']].filter(([k, v]) => v && v !== 'Todos' && v !== 'Todas');
+  const conteo = {}; base.forEach(p => p.falta.forEach(f => conteo[f] = (conteo[f] || 0) + 1));
+  const money = n => n > 0 ? 'S/ ' + Number(n).toLocaleString('es-PE', { minimumFractionDigits: 2 }) : '—';
+  const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Pendientes en la web — ${new Date().toLocaleDateString('es-PE')}</title>
+<style>@page{size:A4 landscape;margin:12mm}body{font-family:system-ui,Arial,sans-serif;color:#111;font-size:10.5px;margin:0}
+h1{font-size:16px;margin:0 0 2px}.sub{color:#555;margin-bottom:8px}.res{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 10px}
+.res span{border:1px solid #ccc;border-radius:10px;padding:2px 8px}table{width:100%;border-collapse:collapse}
+th{background:#000726;color:#fff;text-align:left;padding:5px 6px;font-size:10px}td{border-bottom:1px solid #ddd;padding:4px 6px;vertical-align:top}
+tr{page-break-inside:avoid}.n{text-align:right;white-space:nowrap}.sku{font-family:monospace;color:#555;font-size:9.5px}
+.f{display:inline-block;background:#fdf1d0;color:#7a5400;border-radius:8px;padding:0 6px;margin:1px 2px 1px 0;font-size:9.5px}.ok{background:#dff5e6;color:#17663a}
+.chk{width:14px}.box{display:inline-block;width:10px;height:10px;border:1px solid #888}</style></head><body>
+<h1>Pendientes en la web — productos sin ID de WooCommerce</h1>
+<div class="sub">Kuranko · ${esc(new Date().toLocaleString('es-PE', { timeZone: 'America/Lima' }))} · Análisis del ${esc(fecha(D.generado_en))} · ${base.length} producto(s)${SEL.size ? ' seleccionados' : ''}${filtros.length ? ' · ' + filtros.map(([k, v]) => esc(k) + ': ' + esc(v)).join(' · ') : ''}</div>
+<div class="res">${Object.keys(conteo).sort((a, b) => conteo[b] - conteo[a]).map(k => `<span>Falta ${esc(k)}: <b>${conteo[k]}</b></span>`).join('')}<span>Listos para crear: <b>${base.filter(p => !p.falta.length).length}</b></span></div>
+<table><thead><tr><th class="chk"></th><th>Producto</th><th>Tipo</th><th>Marca</th><th class="n">Precio</th><th class="n">Stock</th><th class="n">Backorder</th><th>Le falta</th></tr></thead><tbody>
+${base.map(p => `<tr><td><span class="box"></span></td><td>${esc(p.nombre)}<div class="sku">${esc(p.sku)}${p.mkp ? ' · MKP/PCK' : ''}</div></td><td>${esc(p.tipo_prod)}</td><td>${esc(p.marca)}</td>
+<td class="n">${money(p.precio)}</td><td class="n">${nfmt(p.stock)}${p.consig ? `<div class="sku">+${nfmt(p.consig)} consig.</div>` : ''}</td><td class="n">${p.backorder ? nfmt(p.backorder) : '—'}</td>
+<td>${p.falta.length ? p.falta.map(f => `<span class="f">${esc(f)}</span>`).join('') : '<span class="f ok">Listo para crear</span>'}</td></tr>`).join('')}
+</tbody></table><script>window.onload=()=>setTimeout(()=>window.print(),200)<\/script></body></html>`;
+  const w = window.open('', '_blank');
+  if (!w) { showToast('El navegador bloqueó la ventana: permite ventanas emergentes para este sitio', true); return; }
+  w.document.open(); w.document.write(html); w.document.close();
+}
 
 // ── Corregir en el ERP (vista previa + aplicar lo seleccionado) ──
 let ERP = null;

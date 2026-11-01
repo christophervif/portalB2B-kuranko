@@ -113,6 +113,63 @@ textarea{width:100%;min-height:60px;background:var(--bg);border:1px solid var(--
 .fila{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
 .toast{position:fixed;bottom:20px;right:20px;background:var(--bg-ok);color:var(--fg-ok);padding:12px 18px;border-radius:12px;font-size:13px;display:none;z-index:100;border:1px solid var(--border);max-width:320px}
 .toast.err{background:var(--bg-r);color:var(--fg-r)}
+
+/* ══ Rediseño nov 2026: tabla tipo Consulta de inventario ══ */
+.wrap{max-width:1500px}
+.barra{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
+.barra input[type=search]{flex:1;min-width:240px;background:var(--bg);border:1px solid var(--accent);color:var(--text);border-radius:var(--radius-sm);padding:12px 14px;font-size:16px}
+.barra input[type=search]:focus{outline:none;box-shadow:0 0 0 2px rgba(255,179,13,.25)}
+.barra select{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:11px 10px;font-size:13px;max-width:220px}
+.barra .chk{margin-top:0}
+.modo{margin-top:8px;font-size:12px;color:var(--muted)}
+.modo b{color:var(--text2)}
+.modo.m-ok{color:var(--fg-ok)}.modo.m-warn{color:var(--fg-warn)}
+.tabla-wrap{overflow-x:auto}
+table.inv{width:100%;border-collapse:collapse;font-size:13px}
+table.inv th{font-size:11px;color:var(--muted2);text-transform:uppercase;font-weight:600;text-align:left;padding:8px 6px;border-bottom:1px solid var(--border);white-space:nowrap;vertical-align:bottom}
+table.inv th small{display:block;font-size:9px;font-weight:600;opacity:.8}
+table.inv th.con{color:var(--fg-warn)}table.inv th.otr{color:var(--muted)}
+table.inv td{padding:7px 6px;border-bottom:1px solid var(--border);color:var(--text2);vertical-align:middle}
+table.inv td.n,table.inv th.n{text-align:right}
+table.inv tr.fp{cursor:pointer}
+table.inv tr.fp:hover td{background:var(--hover)}
+table.inv tr.fp.sel td{background:var(--hover);box-shadow:inset 0 1px 0 var(--accent)}
+table.inv tr.fp.foco td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
+table.inv td.cero{color:var(--border)}
+table.inv td.ctot{font-weight:800;color:var(--white)}
+table.inv td.kur{font-weight:700;color:var(--fg-ok)}
+table.inv td.res-x small{display:block;font-size:10px;color:var(--fg-warn)}
+.pnom{color:var(--white);font-weight:600;line-height:1.3}
+.web{font-size:11px;color:var(--accent);text-decoration:none;white-space:nowrap;margin-left:6px}
+.web:hover{text-decoration:underline}
+.catc{display:inline-block;font-size:11px;padding:2px 8px;border-radius:20px;border:1px solid var(--fg-warn);color:var(--fg-warn);white-space:nowrap;margin:1px 0}
+tr.detalle>td{background:var(--surface2);padding:14px 12px !important;border-bottom:2px solid var(--accent) !important;cursor:default}
+.det{display:grid;grid-template-columns:110px minmax(0,1fr);gap:14px}
+/* el detalle queda fijo a la izquierda y del ancho de la pantalla aunque la tabla se deslice de lado */
+#detalle{position:sticky;left:12px;max-width:calc(100vw - 110px)}
+table.inv td.pcol{min-width:200px}
+@media(max-width:700px){.det{grid-template-columns:1fr}#detalle{max-width:calc(100vw - 100px)}.precios{grid-template-columns:1fr 1fr}}
+.det-top{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:flex-start}
+.det-top .cant{margin:0}
+.refs{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:flex-start}
+.refs .it{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:6px 10px;font-size:12px;color:var(--text2);max-width:100%}
+.refs .it b{color:var(--white)}
+.refs .it small{display:block;color:var(--muted);font-size:11px;margin-top:2px}
+.acciones-det{display:flex;justify-content:flex-end;margin-top:10px}
+table.cart{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}
+table.cart th{font-size:11px;color:var(--muted2);text-transform:uppercase;font-weight:600;text-align:left;padding:6px;border-bottom:1px solid var(--border);white-space:nowrap}
+table.cart td{padding:6px;border-bottom:1px solid var(--border);color:var(--text2);vertical-align:middle}
+table.cart td.n,table.cart th.n{text-align:right}
+table.cart input{padding:6px 8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:13px;text-align:right}
+table.cart input.q{width:56px}table.cart input.pr{width:96px}
+table.cart input.bajo{border-color:var(--fg-r);color:var(--fg-r)}
+.totales-l{display:flex;justify-content:flex-end;gap:18px;flex-wrap:wrap;margin-top:10px;font-size:13px;color:var(--text2);align-items:center}
+.totales-l b{color:var(--white);font-size:16px}
+.cot-pie{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;margin-top:10px}
+@media(max-width:700px){.cot-pie{grid-template-columns:1fr}}
+.cot-pie input,.cot-pie textarea{width:100%;padding:9px;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:13px;font-family:inherit;margin:0}
+.barra-cot{position:sticky;bottom:10px;z-index:50;margin-top:6px;background:var(--surface);border:1px solid var(--accent);border-radius:12px;padding:9px 14px;display:none;justify-content:space-between;align-items:center;font-size:13px;box-shadow:0 6px 20px rgba(0,0,0,.25);cursor:pointer}
+.barra-cot b{color:var(--white)}
 </style>
 </head>
 <body>
@@ -134,41 +191,41 @@ textarea{width:100%;min-height:60px;background:var(--bg);border:1px solid var(--
   </div>
 </div>
 <div class="wrap">
-  <div class="grid">
-    <!-- Columna izquierda: buscador + detalle -->
-    <div>
-      <div class="card">
-        <h3>Cotizador rápido</h3>
-        <div class="desc">Busca por nombre o SKU, como sea que lo escribas: con errores, en otro orden, sin tildes o en español (azul, llanta, casete…).</div>
-        <div class="buscador">
-          <input id="q" type="search" autocomplete="off" placeholder="Ej: crafti carbon azul M, maxis ardent 29, SHM-XT…" autofocus/>
-        </div>
-        <label class="chk"><input type="checkbox" id="solo-stock" checked/> Solo con stock</label>
-        <div id="resultados" class="res-list"><div class="vacio">Escribe al menos 2 letras para buscar.</div></div>
-      </div>
-      <div class="card" id="detalle" style="display:none"></div>
+  <!-- 1. Buscador -->
+  <div class="card">
+    <h3>Cotizador</h3>
+    <div class="barra">
+      <input id="q" type="search" autocomplete="off" placeholder="Nombre o SKU exacto — ej: casco 100% red, R10CAS02100004" autofocus/>
+      <select id="f-cat"><option value="">Categoría: todas</option></select>
+      <select id="f-marca"><option value="">Marca: todas</option></select>
+      <label class="chk"><input type="checkbox" id="solo-stock" checked/> Solo con stock</label>
     </div>
+    <div id="modo" class="modo">Escribe un nombre o un SKU, o elige una categoría o marca.</div>
+  </div>
 
-    <!-- Columna derecha: cotización -->
-    <div>
-      <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
-          <h3>Cotización</h3>
-          <button class="btn btn-sec btn-sm" onclick="vaciarCarrito()">Vaciar</button>
-        </div>
-        <div class="desc">Agrega productos, ajusta cantidad y precio ofrecido. El texto para el cliente no incluye precios mínimos.</div>
-        <div style="margin-top:10px">
-          <input id="cliente" placeholder="Nombre del cliente (opcional)" style="width:100%;padding:9px;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:14px"/>
-        </div>
-        <div id="carrito" style="margin-top:10px"></div>
-        <div id="totales"></div>
-        <textarea id="nota" placeholder="Nota para el cliente (opcional): delivery, validez, forma de pago…"></textarea>
-        <div class="fila">
-          <button class="btn" onclick="copiarWhatsApp()">Copiar para WhatsApp</button>
-        </div>
-      </div>
+  <!-- 2. Resultados (tabla) con el detalle abierto debajo de la fila elegida -->
+  <div class="card" style="padding:.6rem .8rem">
+    <div id="resultados" class="tabla-wrap"><div class="vacio">Sin búsqueda todavía.</div></div>
+  </div>
+
+  <!-- 3. Cotización -->
+  <div class="card" id="cot-card">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+      <h3 id="cot-titulo">Cotización</h3>
+      <button class="btn btn-sec btn-sm" onclick="vaciarCarrito()">Vaciar</button>
+    </div>
+    <div id="carrito"></div>
+    <div id="totales"></div>
+    <div class="cot-pie">
+      <input id="cliente" placeholder="Nombre del cliente (opcional)"/>
+      <textarea id="nota" rows="1" placeholder="Nota para el cliente (opcional): delivery, validez, forma de pago…"></textarea>
+    </div>
+    <div class="fila" style="justify-content:space-between;align-items:center">
+      <span class="desc">El texto para el cliente no incluye precios mínimos.</span>
+      <button class="btn" onclick="copiarWhatsApp()">Copiar para WhatsApp</button>
     </div>
   </div>
+  <div class="barra-cot" id="mini" onclick="document.getElementById('cot-card').scrollIntoView({behavior:'smooth'})"></div>
 </div>
 
 <script>
@@ -188,27 +245,72 @@ const fecha=d=>{if(!d)return '—';const m=String(d).match(/^(\d{4})-(\d{2})-(\d
 const diasDesde=d=>d?Math.floor((Date.now()-new Date(d).getTime())/864e5):null;
 
 // ══════════ Búsqueda ══════════
-let RES=[],SEL=-1,ACTUAL=null,_tBus=null,_seqBus=0;
+let RES=[],SEL=-1,FOCO=-1,ACTUAL=null,_tBus=null,_seqBus=0,COLS=[];
 const $q=document.getElementById('q');
-$q.addEventListener('input',()=>{clearTimeout(_tBus);_tBus=setTimeout(buscar,220);});
-document.getElementById('solo-stock').addEventListener('change',buscar);
+$q.addEventListener('input',()=>{clearTimeout(_tBus);_tBus=setTimeout(buscar,250);});
+['solo-stock','f-cat','f-marca'].forEach(id=>document.getElementById(id).addEventListener('change',buscar));
 $q.addEventListener('keydown',e=>{
-  if(e.key==='ArrowDown'){e.preventDefault();SEL=Math.min(RES.length-1,SEL+1);pintarRes();}
-  else if(e.key==='ArrowUp'){e.preventDefault();SEL=Math.max(0,SEL-1);pintarRes();}
-  else if(e.key==='Enter'){e.preventDefault();if(RES[SEL<0?0:SEL])elegir(SEL<0?0:SEL);}
+  if(!RES.length)return;
+  if(e.key==='ArrowDown'){e.preventDefault();FOCO=Math.min(RES.length-1,FOCO+1);marcarFoco();}
+  else if(e.key==='ArrowUp'){e.preventDefault();FOCO=Math.max(0,FOCO-1);marcarFoco();}
+  else if(e.key==='Enter'){e.preventDefault();elegir(FOCO<0?0:FOCO);}
 });
-
-async function buscar(){
-  const q=$q.value.trim();
-  const cont=document.getElementById('resultados');
-  if(q.length<2){RES=[];cont.innerHTML='<div class="vacio">Escribe al menos 2 letras para buscar.</div>';return;}
-  const seq=++_seqBus;
-  const solo=document.getElementById('solo-stock').checked?'1':'0';
+function marcarFoco(){
+  document.querySelectorAll('tr.fp').forEach(tr=>tr.classList.toggle('foco',+tr.dataset.i===FOCO));
+  const tr=document.querySelector('tr.fp.foco');if(tr)tr.scrollIntoView({block:'nearest'});
+}
+async function cargarFiltros(){
   try{
-    const d=await apiCall('/api/cotizador/buscar?q='+encodeURIComponent(q)+'&solo_stock='+solo);
+    const d=await apiCall('/api/cotizador/filtros');
+    const llenar=(id,arr,txt)=>{document.getElementById(id).innerHTML='<option value="">'+txt+'</option>'+arr.map(v=>'<option>'+esc(v)+'</option>').join('');};
+    llenar('f-cat',d.categorias||[],'Categoría: todas');llenar('f-marca',d.marcas||[],'Marca: todas');
+  }catch(e){/* sin filtros: se puede buscar igual */}
+}
+async function buscar(){
+  const q=$q.value.trim(),cat=document.getElementById('f-cat').value,marca=document.getElementById('f-marca').value;
+  const solo=document.getElementById('solo-stock').checked?'1':'0';
+  const modo=document.getElementById('modo');
+  if(q.length<2&&!cat&&!marca){RES=[];ACTUAL=null;pintarRes();modo.className='modo';modo.textContent='Escribe un nombre o un SKU, o elige una categoría o marca.';return;}
+  const seq=++_seqBus;
+  try{
+    const d=await apiCall('/api/cotizador/buscar?q='+encodeURIComponent(q)+'&categoria='+encodeURIComponent(cat)+'&marca='+encodeURIComponent(marca)+'&solo_stock='+solo);
     if(seq!==_seqBus)return; // llegó una búsqueda más nueva
-    RES=d.items;SEL=RES.length?0:-1;pintarRes();
-  }catch(e){cont.innerHTML='<div class="vacio">'+esc(e.message)+'</div>';}
+    RES=d.items||[];FOCO=-1;
+    // si el producto abierto sigue en la lista, se mantiene abierto
+    SEL=ACTUAL?RES.findIndex(x=>x.vid===ACTUAL.item.vid):-1;if(SEL<0)ACTUAL=null;
+    if(!ACTUAL&&RES.length===1){pintarRes();elegir(0);}else pintarRes();
+    const n=d.total,mas=n>RES.length?' (se muestran '+RES.length+')':'';
+    const txt={sku:'🔢 SKU exacto',nombre:'🔤 Por nombre: aparecen todas las palabras · '+n+' resultado'+(n===1?'':'s')+mas,
+      filtro:'📂 '+[cat,marca].filter(Boolean).join(' · ')+' · '+n+' producto'+(n===1?'':'s')+mas,
+      sku_parecidos:'🔢 '+(d.mensaje||''),aproximado:'≈ '+(d.mensaje||'Sin coincidencias.')}[d.modo]||'';
+    modo.className='modo'+(d.modo==='sku'||d.modo==='nombre'||d.modo==='filtro'?' m-ok':' m-warn');
+    modo.innerHTML=esc(txt)+(d.modo==='nombre'||d.modo==='filtro'?' <span style="color:var(--muted)">· Si escribes un SKU completo se muestra solo ese.</span>':'');
+  }catch(e){document.getElementById('resultados').innerHTML='<div class="vacio">'+esc(e.message)+'</div>';}
+}
+// Columnas de almacenes: solo las que tienen stock en los resultados.
+// Orden: KURANKO → Almacén principal → otros propios → consignaciones → otros (cuarentena…)
+function columnas(items){
+  const m=new Map();
+  items.forEach(x=>(x.almacenes||[]).forEach(a=>{
+    if(!(a.cantidad>0))return;
+    const c=m.get(a.almacen)||{nombre:a.almacen,grupo:a.grupo||(a.consignacion?'consignacion':'propio'),tot:0};
+    c.tot+=a.cantidad;m.set(a.almacen,c);
+  }));
+  const rango=c=>{const n=c.nombre.toLowerCase();
+    if(n.includes('kuranko'))return 0;if(n.includes('principal'))return 1;
+    return c.grupo==='propio'?2:c.grupo==='consignacion'?3:4;};
+  return [...m.values()].sort((a,b)=>rango(a)-rango(b)||b.tot-a.tot||a.nombre.localeCompare(b.nombre));
+}
+function celdaAlm(x,col){
+  const a=(x.almacenes||[]).find(z=>z.almacen===col.nombre);
+  if(!a||!(a.cantidad>0))return '<td class="n cero">·</td>';
+  const kur=col.nombre.toLowerCase().includes('kuranko');
+  return '<td class="n'+(kur?' kur':'')+(a.reservado?' res-x':'')+'" title="'+esc(col.nombre)+': '+a.cantidad+(a.reservado?' ('+a.reservado+' reservado)':'')+'">'+a.cantidad+(a.reservado?'<small>'+a.reservado+' res.</small>':'')+'</td>';
+}
+const totalFisico=x=>(x.almacenes||[]).reduce((s,a)=>s+(a.cantidad||0),0);
+function precioCelda(x){
+  if(!x.sin_precio)return S(x.precio_normal)+(x.precio_oferta!=null&&x.precio_oferta<x.precio_regular?'<br><small style="color:var(--fg-ok)">oferta</small>':'');
+  return '<span class="chip bad">sin precio</span>'+(x.pvp_recomendado?'<br><small style="color:var(--muted)">rec. '+S(x.pvp_recomendado)+'</small>':'');
 }
 // Antigüedad del stock (según el lote más antiguo con existencia). Verde < 6 meses, amarillo < 1 año, rojo ≥ 1 año.
 function textoEdad(dias){
@@ -249,14 +351,26 @@ function chipStock(x){
 function empresasTxt(x){return x.empresas&&x.empresas.length?x.empresas.map(e=>e.empresa).join(' · '):'—';}
 function pintarRes(){
   const cont=document.getElementById('resultados');
-  if(!RES.length){cont.innerHTML='<div class="vacio">Sin coincidencias. Prueba con menos palabras o desmarca "Solo con stock".</div>';return;}
-  cont.innerHTML=RES.map((x,i)=>`<div class="res${i===SEL?' sel':''}" onclick="elegir(${i})">
-      <div class="izq">${thumb(x)}<div style="min-width:0"><div class="nom">${esc(x.nombre)}</div>
-        <div class="meta"><span class="sku">${esc(x.sku||'sin SKU')}</span> · ${esc(empresasTxt(x))}</div>
-        <div style="margin-top:5px;display:flex;gap:4px;flex-wrap:wrap">${chipStock(x)} ${x.anio_modelo?'<span class="chip emp">MY '+x.anio_modelo+'</span>':''} ${chipEdad(x)}</div></div></div>
-      <div class="der">${x.sin_precio?(x.pvp_recomendado?'<div class="precio">'+S(x.pvp_recomendado)+'</div><div class="meta">PVP recomendado</div>':'<div class="meta" style="color:var(--fg-r)">sin precio</div>'):'<div class="precio">'+S(x.precio_normal)+'</div>'}</div>
-    </div>`).join('');
-  const s=cont.querySelector('.res.sel');if(s)s.scrollIntoView({block:'nearest'});
+  if(!RES.length){cont.innerHTML='<div class="vacio">'+($q.value.trim().length>=2||document.getElementById('f-cat').value||document.getElementById('f-marca').value?'Sin coincidencias. Revisa la escritura, quita un filtro o desmarca "Solo con stock".':'Sin búsqueda todavía.')+'</div>';return;}
+  COLS=columnas(RES);
+  const nCols=6+COLS.length;
+  const cab='<tr><th></th><th>Producto</th><th>SKU</th><th>Categoría</th><th class="n">Precio</th><th class="n">Stock total</th>'+
+    COLS.map(c=>'<th class="n'+(c.grupo==='consignacion'?' con':c.grupo==='otros'?' otr':'')+'">'+esc(c.nombre)+(c.grupo==='consignacion'?'<small>consig.</small>':c.grupo==='otros'?'<small>otros</small>':'')+'</th>').join('')+'</tr>';
+  const filas=RES.map((x,i)=>{
+    const tot=totalFisico(x);
+    let h='<tr class="fp'+(i===SEL?' sel':'')+(i===FOCO?' foco':'')+'" data-i="'+i+'" onclick="elegir('+i+')">'+
+      '<td style="width:48px">'+thumb(x,'mini')+'</td>'+
+      '<td class="pcol"><span class="pnom">'+esc(x.nombre)+'</span>'+(x.web_url?'<a class="web" href="'+esc(x.web_url)+'" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Ver en la web">🌐 web ↗</a>':'')+'</td>'+
+      '<td class="sku" style="white-space:nowrap">'+esc(x.sku||'—')+'</td>'+
+      '<td>'+((x.categorias_lista||[]).slice(0,2).map(c=>'<span class="catc">'+esc(c)+'</span>').join(' ')||'<span class="desc">—</span>')+'</td>'+
+      '<td class="n" style="white-space:nowrap">'+precioCelda(x)+'</td>'+
+      '<td class="n ctot">'+(tot||'<span style="color:var(--fg-r)">0</span>')+'</td>'+
+      COLS.map(c=>celdaAlm(x,c)).join('')+'</tr>';
+    if(i===SEL)h+='<tr class="detalle"><td colspan="'+nCols+'"><div id="detalle"></div></td></tr>';
+    return h;
+  }).join('');
+  cont.innerHTML='<table class="inv"><thead>'+cab+'</thead><tbody>'+filas+'</tbody></table>';
+  if(ACTUAL&&SEL>=0)pintarDetalle();
 }
 
 // ══════════ Comparación de precios (sistema vs recomendado / vendido / internet) ══════════
@@ -314,49 +428,43 @@ function pintarComparacion(){
   const el=document.getElementById('det-comp');if(!el||!ACTUAL)return;
   const x=ACTUAL.item,p=ACTUAL.precio||{},in_=ACTUAL.inet||{},c=p.comparacion||{};
   const normal=x.precio_normal>0?x.precio_normal:null;
-  const filas=[];
-  // 1) PVP recomendado
-  filas.push(`<div class="fila-c"><div class="t">PVP recomendado<small>costo de la última compra ÷ ${p.factor_pvp||0.65}</small></div>
-    <div class="v"><b>${x.pvp_recomendado?S(x.pvp_recomendado):'—'}</b><br>${normal?chipComp(c.vs_pvp_recomendado,'rec'):'<span class="chip bad">sin precio en sistema</span>'}</div></div>`);
-  // 2) Ventas registradas
+  const items=[];
+  // 1) Lo vendido
   const v=p.vendido;
-  filas.push(`<div class="fila-c"><div class="t">Vendido (últimos 24 meses)<small>${v?v.ventas+' venta'+(v.ventas===1?'':'s')+' · '+v.unidades+' u.'+(v.ultimo_precio?' · última '+S(v.ultimo_precio)+' el '+fecha(v.ultima):''):'Sin ventas registradas'}</small></div>
-    <div class="v"><b>${v?S(v.precio_prom):'—'}</b>${v&&normal?'<br>'+chipComp(c.vs_vendido,'ven'):''}</div></div>`);
-  // 3) Internet
-  let inet='';
-  if(in_.cargando)inet='<small>Buscando precios en tiendas online…</small>';
-  else if(in_.error&&ES_MAESTRO&&in_.modelo_sugerido)inet='<small>No se pudo consultar: <span style="opacity:.75">'+esc(in_.error)+'</span></small>'+
+  items.push('<div class="it">Vendido 24 m: '+(v?'<b>'+S(v.precio_prom)+'</b> '+(normal?chipComp(c.vs_vendido,'ven'):'')+
+    '<small>'+v.ventas+' venta'+(v.ventas===1?'':'s')+' · '+v.unidades+' u.'+(v.ultimo_precio?' · última '+S(v.ultimo_precio)+' el '+fecha(v.ultima):'')+'</small>':'<b>—</b><small>sin ventas registradas</small>')+'</div>');
+  // 2) Internet
+  let det='';
+  if(in_.cargando)det='<small>buscando en tiendas online…</small>';
+  else if(in_.error&&ES_MAESTRO&&in_.modelo_sugerido)det='<small>No se pudo consultar: '+esc(in_.error)+'</small>'+
       '<div style="display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap"><span class="desc">Modelo de IA:</span>'+
       '<input id="inp-modelo" value="'+esc(in_.modelo_sugerido)+'" style="width:170px;padding:5px 8px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:12px"/>'+
       '<button class="btn btn-sm" onclick="cambiarModelo()">Usar</button></div>';
-    else if(in_.error)inet='<small>'+(in_.cuota?'Se acabó la cuota de la IA de Google para esta clave (plan / facturación). Revisa la facturación en Google AI Studio o espera a que se renueve. '
+  else if(in_.error)det='<small>'+(in_.cuota?'Se acabó la cuota de la IA de Google (plan / facturación de la clave). '
       :in_.saturado?'La IA de Google está saturada; prueba ↻ en unos segundos. ':'No se pudo consultar: ')+'<span style="opacity:.7">'+esc(in_.error)+'</span></small>';
-  else if(in_.disponible===false)inet='<small>'+esc(in_.motivo||'No disponible')+'</small>';
-  else if(!in_.resumen)inet='<small>No se encontró el mismo producto en tiendas online'+(in_.error?' ('+esc(in_.error)+')':'')+'.</small>';
-  else inet='<small>Mediana de '+in_.resumen.n+' tienda'+(in_.resumen.n===1?'':'s')+(in_.resumen.n>1?' · rango '+S(in_.resumen.min)+' – '+S(in_.resumen.max):'')+' · extranjeras ×1.18 IGV</small>'+
-      '<div class="tiendas">'+in_.resultados.map(r=>{const t=esc(r.tienda)+' '+S(r.precio_pen_igv)+(r.igv_incluido?'':' ('+esc(r.moneda)+' '+r.precio+')');
+  else if(in_.disponible===false)det='<small>'+esc(in_.motivo||'No disponible')+'</small>';
+  else if(!in_.resumen)det='<small>no se encontró el mismo producto en tiendas online</small>';
+  else det='<small>'+in_.resumen.n+' tienda'+(in_.resumen.n===1?'':'s')+(in_.resumen.n>1?' · '+S(in_.resumen.min)+' – '+S(in_.resumen.max):'')+' · extranjeras ×1.18</small>'+
+      '<div class="tiendas">'+in_.resultados.map(r=>{const t=esc(r.tienda)+' '+S(r.precio_pen_igv);
         return r.url?'<a href="'+esc(r.url)+'" target="_blank" rel="noopener noreferrer">'+t+' ↗</a>':'<span class="tnd">'+t+'</span>';}).join('')+'</div>';
-  // Botón de recarga: para todos cuando falló o no encontró; con resultados, solo el maestro
   const puedeRecargar=!in_.cargando&&(in_.error||(in_.disponible!==false&&!in_.resumen)||(ES_MAESTRO&&in_.actualizado));
-  const refr=puedeRecargar?' <button class="btn btn-sec btn-sm" style="padding:2px 8px;font-size:11px;margin-left:4px" title="Volver a buscar" onclick="cargarInternet(true)">↻</button>':'';
-  const keb=ES_MAESTRO?' <button class="kebab" style="font-size:16px;padding:0 6px;vertical-align:middle" title="Modelo de IA" onclick="abrirModelos()">⋮</button>':'';
-  filas.push(`<div class="fila-c"><div class="t">Precio en internet (c/IGV)${refr}${keb}${inet}</div>
-    <div class="v"><b>${in_.resumen?S(in_.resumen.mediana):in_.cargando?'…':'—'}</b>${in_.resumen&&normal?'<br>'+chipComp(in_.comparacion,'inet'):''}</div></div>`);
-  // Veredicto
-  let ver='';
-  if(normal){
-    const partes=[];const n=(cc,ref)=>{if(cc&&cc.nivel!=='similar')partes.push((cc.nivel==='alto'?'más alto':'más bajo')+' que '+ref);};
-    n(c.vs_pvp_recomendado,'el recomendado');n(c.vs_vendido,'lo vendido');n(in_.comparacion,'internet');
-    ver=partes.length?'El precio del sistema está '+partes.join(', ')+'.':(c.vs_pvp_recomendado||c.vs_vendido||in_.comparacion?'El precio del sistema está en línea con las referencias.':'');
-  } else ver='Este producto no tiene precio en el sistema: se cotiza con el PVP recomendado. Avisa a administración para que lo asignen.';
-  el.innerHTML='<div class="comp"><h4>¿El precio está bien?</h4>'+(ver?'<div class="desc" style="margin-bottom:4px">'+esc(ver)+'</div>':'')+filas.join('')+'</div>';
+  const refr=puedeRecargar?' <button class="btn btn-sec btn-sm" style="padding:1px 7px;font-size:11px" title="Volver a buscar" onclick="cargarInternet(true)">↻</button>':'';
+  const keb=ES_MAESTRO?' <button class="kebab" style="font-size:15px;padding:0 5px" title="Modelo de IA" onclick="abrirModelos()">⋮</button>':'';
+  items.push('<div class="it" style="flex:1;min-width:260px">Internet c/IGV: <b>'+(in_.resumen?S(in_.resumen.mediana):in_.cargando?'…':'—')+'</b> '+
+    (in_.resumen&&normal?chipComp(in_.comparacion,'inet'):'')+refr+keb+det+'</div>');
+  // 3) Reservados (lo demás del stock ya está en la fila de la tabla)
+  const res=(x.almacenes||[]).filter(a=>a.reservado>0);
+  if(res.length)items.push('<div class="it" style="color:var(--fg-warn)">Reservado: '+res.map(a=>a.reservado+' en '+esc(a.almacen)).join(', ')+'</div>');
+  el.innerHTML='<div class="refs">'+items.join('')+'</div>';
 }
 
 // ══════════ Detalle del producto + precio mínimo ══════════
 let _seqPre=0,_tCant=null;
 function elegir(i){
-  SEL=i;pintarRes();ACTUAL={item:RES[i],cantidad:1,precio:null};
-  pintarDetalle();cargarPrecio();cargarInternet();
+  if(SEL===i&&ACTUAL){SEL=-1;ACTUAL=null;pintarRes();return;}   // segundo clic: cierra el detalle
+  SEL=i;FOCO=i;ACTUAL={item:RES[i],cantidad:1,precio:null};
+  pintarRes();cargarPrecio();cargarInternet();
+  const tr=document.querySelector('tr.fp.sel');if(tr)tr.scrollIntoView({block:'nearest',behavior:'smooth'});
 }
 function cambiarCant(delta,abs){
   if(!ACTUAL)return;
@@ -378,39 +486,35 @@ async function cargarPrecio(){
   finally{const el=document.getElementById('det-precios');if(el)el.style.opacity=1;}
 }
 function pintarDetalle(){
-  const x=ACTUAL.item,box=document.getElementById('detalle');
-  box.style.display='';
-  const grp=a=>a.grupo||(a.consignacion?'consignacion':'propio');
-  const propios=(x.almacenes||[]).filter(a=>grp(a)==='propio'),consig=(x.almacenes||[]).filter(a=>grp(a)==='consignacion'),otros=(x.almacenes||[]).filter(a=>grp(a)==='otros');
-  const fila=a=>`<tr><td>${esc(a.almacen)}</td><td class="n">${a.cantidad}</td><td class="n">${a.reservado||0}</td><td class="n"><b>${a.disponible}</b></td></tr>`;
-  const sub=(t,arr)=>`<tr><td colspan="3" style="font-weight:600;color:var(--white)">${t}</td><td class="n" style="font-weight:700;color:var(--white)">${arr.reduce((s,a)=>s+a.disponible,0)}</td></tr>`;
-  const alm=x.almacenes&&x.almacenes.length
-    ? '<table><thead><tr><th>Almacén</th><th class="n">Cantidad</th><th class="n">Reservado</th><th class="n">Disponible</th></tr></thead><tbody>'+
-      (propios.length?sub('Almacenes propios · se entrega ya',propios)+propios.map(fila).join(''):'')+
-      (consig.length?sub('En consignación · hay que pedirlo a la tienda',consig)+consig.map(fila).join(''):'')+
-      (otros.length?sub('Otros · cuarentena, exhibición, embajador…',otros)+otros.map(fila).join(''):'')+
-      `<tr><td colspan="3" style="font-weight:700;color:var(--white);border-top:2px solid var(--border)">Stock total</td><td class="n" style="font-weight:700;color:var(--white);border-top:2px solid var(--border)">${x.stock_total!=null?x.stock_total:x.stock}</td></tr>`+
-      '</tbody></table>'
-    : '<div class="desc">Sin unidades en almacenes.</div>';
-  const emp=x.empresas&&x.empresas.length?x.empresas.map(e=>`<span class="chip emp">${esc(e.empresa)} · ${e.unidades} u.</span>`).join(' '):'<span class="chip emp">Sin lotes con stock</span>';
+  const box=document.getElementById('detalle');if(!box||!ACTUAL)return;
+  const x=ACTUAL.item;
+  const emp=x.empresas&&x.empresas.length?x.empresas.map(e=>`<span class="chip emp">${esc(e.empresa)} · ${e.unidades} u.</span>`).join(' '):'';
   box.innerHTML=`
-    <div style="display:flex;gap:12px;align-items:flex-start">${thumb(x,'grande')}<div style="min-width:0">
-    <div class="det-nom">${esc(x.nombre)}</div>
-    <div class="desc" style="margin-top:3px"><span class="sku">${esc(x.sku||'sin SKU')}</span> · ${chipStock(x)}</div>
-    </div></div>
-    <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">${emp}</div>
-    <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">${x.tipo_nombre?'<span class="chip emp">'+esc(x.tipo_nombre)+(x.anio_modelo?' · año modelo '+x.anio_modelo:'')+'</span>':''}${x.lote_mas_antiguo?'<span class="desc">Antigüedad</span> '+chipEdad(x,true):''}</div>
-    <div class="cant">
-      <span class="desc" style="margin-right:4px">Cantidad</span>
-      <button onclick="cambiarCant(-1)">−</button>
-      <input id="det-cant" type="number" min="1" max="999" value="${ACTUAL.cantidad}" oninput="cambiarCant(0,this.value)"/>
-      <button onclick="cambiarCant(1)">+</button>
-    </div>
-    <div id="det-precios"></div>
-    <div id="det-comp"></div>
-    <div class="fila"><button class="btn" onclick="agregarActual()">+ Agregar a cotización</button></div>
-    <h3 style="margin-top:16px">Stock por almacén</h3>
-    <div style="margin-top:6px;overflow-x:auto">${alm}</div>`;
+    <div class="det">
+      <div>${thumb(x,'grande')}</div>
+      <div style="min-width:0">
+        <div class="det-top">
+          <div style="min-width:0">
+            <div class="det-nom">${esc(x.nombre)}</div>
+            <div style="margin-top:5px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+              <span class="sku desc">${esc(x.sku||'sin SKU')}</span>${emp}
+              ${x.tipo_nombre?'<span class="chip emp">'+esc(x.tipo_nombre)+(x.anio_modelo?' · MY '+x.anio_modelo:'')+'</span>':''}
+              ${x.lote_mas_antiguo?chipEdad(x,true):''}
+              ${x.web_url?'<a class="web" style="font-size:12px;margin:0" href="'+esc(x.web_url)+'" target="_blank" rel="noopener">🌐 Ver en la web ↗</a>':'<span class="desc">sin página en la web</span>'}
+            </div>
+          </div>
+          <div class="cant">
+            <span class="desc" style="margin-right:4px">Cantidad</span>
+            <button onclick="cambiarCant(-1)">−</button>
+            <input id="det-cant" type="number" min="1" max="999" value="${ACTUAL.cantidad}" oninput="cambiarCant(0,this.value)"/>
+            <button onclick="cambiarCant(1)">+</button>
+          </div>
+        </div>
+        <div id="det-precios" style="margin-top:10px"></div>
+        <div id="det-comp"></div>
+        <div class="acciones-det"><button class="btn" onclick="agregarActual()">+ Agregar a cotización</button></div>
+      </div>
+    </div>`;
   pintarPrecios();pintarComparacion();
 }
 function pintarPrecios(){
@@ -422,25 +526,26 @@ function pintarPrecios(){
   let avisos='';
   if(p.sin_costo)avisos+='<div class="aviso bad">No hay costo registrado para estas unidades: no se puede calcular el precio mínimo. Consulta antes de dar descuento.</div>';
   if(p.insuficiente&&!p.sin_costo)avisos+=`<div class="aviso warn">Solo hay ${p.unidades_con_costo} unidad(es) en lotes; el mínimo se calculó con esas.</div>`;
-  if(x.sin_precio)avisos+='<div class="aviso warn">Sin precio en el sistema: se cotiza con el PVP recomendado'+(x.pvp_recomendado?' ('+S(x.pvp_recomendado)+')':' (no hay costo de compra para calcularlo)')+'.</div>';
+  if(x.sin_precio&&!x.pvp_recomendado)avisos+='<div class="aviso warn">Sin precio en el sistema y sin costo de compra: no hay precio de referencia. Consulta a administración.</div>';
   if(p.precio_minimo!=null&&x.precio_normal>0&&p.precio_minimo>x.precio_normal)avisos+='<div class="aviso bad">El precio mínimo supera al precio normal: el precio de sistema está por debajo del costo. Avisa a administración.</div>';
   let costo='';
   if(ES_MAESTRO&&p.costo_prom!=null){
     costo=`<div class="aviso" style="background:var(--surface3);color:var(--text2)"><b>Solo admin:</b> costo prom. ${S(p.costo_prom)} (factor ${p.factor})`+
       (p.lotes&&p.lotes.length?'<br>'+p.lotes.map(l=>`Lote ${l.lote} · ${fecha(l.fecha)} · ${l.unidades} u × ${S(l.costo)} · ${esc(l.empresa)}`).join('<br>'):'')+'</div>';
   }
+  const vsRec=x.precio_normal>0&&(p.comparacion||{}).vs_pvp_recomendado;
   el.innerHTML=`
     <div class="precios">
-      <div class="pbox${x.sin_precio?' falta':''}"><div class="lbl">Precio normal (sistema)</div><div class="val">${x.sin_precio?'Sin precio':S(x.precio_normal)}</div>
-        <div class="sub">${x.sin_precio?'se usa el PVP recomendado':(x.precio_oferta!=null&&x.precio_oferta<x.precio_regular?'Oferta · regular '+S(x.precio_regular):'por unidad')}${n>1&&!x.sin_precio?' · total '+S(x.precio_normal*n):''}</div></div>
+      <div class="pbox${x.sin_precio?' falta':''}"><div class="lbl">Precio normal</div><div class="val">${x.sin_precio?'Sin precio':S(x.precio_normal)}</div>
+        <div class="sub">${x.sin_precio?'se usa el PVP recomendado':(x.precio_oferta!=null&&x.precio_oferta<x.precio_regular?'oferta · regular '+S(x.precio_regular):'por unidad')}${n>1&&!x.sin_precio?' · total '+S(x.precio_normal*n):''}</div>
+        ${vsRec?'<div style="margin-top:4px">'+chipComp(vsRec,'rec')+' <span class="desc">vs rec.</span></div>':''}</div>
       <div class="pbox rec"><div class="lbl">PVP recomendado</div><div class="val">${x.pvp_recomendado?S(x.pvp_recomendado):'—'}</div>
         <div class="sub">${x.pvp_recomendado?'costo última compra ÷ '+(p.factor_pvp||0.65):'sin costo de compra'}</div></div>
       <div class="pbox sug"><div class="lbl">Precio sugerido</div><div class="val">${p.precio_sugerido!=null?S(p.precio_sugerido):'—'}</div>
-        <div class="sub">${p.sugerido?(p.sugerido.descuento_pct>0?'desc. '+p.sugerido.descuento_pct+'%':'sin descuento')+' · '+esc(p.sugerido.motivo)+(n>1?' · total '+S(p.precio_sugerido*n):''):''}</div></div>
+        <div class="sub" title="${p.sugerido?esc(p.sugerido.tipo_nombre+': '+p.sugerido.motivo+(p.sugerido.nota?' · '+p.sugerido.nota:'')):''}">${p.sugerido?(p.sugerido.descuento_pct>0?'−'+p.sugerido.descuento_pct+'%':'sin descuento')+' · '+esc(p.sugerido.motivo)+(p.sugerido.topado_en_minimo?' (tope: mínimo)':'')+(n>1?' · total '+S(p.precio_sugerido*n):''):''}</div></div>
       <div class="pbox min"><div class="lbl">Precio mínimo${n>1?' ('+n+' u.)':''}</div><div class="val">${minTxt}</div>
-        <div class="sub">${p.precio_minimo!=null?'por unidad'+(n>1?' · total '+S(p.precio_minimo*n):''):''}${p.descuento_max_pct!=null?' · desc. máx. '+p.descuento_max_pct+'%':''}</div></div>
+        <div class="sub">${p.descuento_max_pct!=null?'desc. máx. '+p.descuento_max_pct+'%':''}${n>1&&p.precio_minimo!=null?' · total '+S(p.precio_minimo*n):''}${antig!=null?' · lote de '+textoEdad(antig):''}</div></div>
     </div>
-    <div class="desc" style="margin-top:6px">${p.sugerido?'Sugerido para cliente final · '+esc(p.sugerido.tipo_nombre)+': '+esc(p.sugerido.motivo)+' → '+(p.sugerido.regla_pct==='min'?'precio mínimo':Number(p.sugerido.regla_pct)>0?'−'+p.sugerido.regla_pct+'%':'sin descuento')+(p.sugerido.topado_en_minimo?' (limitado al mínimo)':'')+(p.sugerido.nota?' · '+esc(p.sugerido.nota):'')+'. ':''}Mínimo según ${n>1?'las '+n+' unidades más antiguas':'la unidad más antigua'}${antig!=null?' · lote más antiguo: '+fecha(p.lote_mas_antiguo)+' ('+antig+' días)':''}.</div>
     ${avisos}${costo}`;
 }
 
@@ -471,6 +576,7 @@ function editarLinea(i,campo,valor){
   const l=CARRITO[i];if(!l)return;
   if(campo==='cantidad'){const n=parseInt(valor,10);if(!(n>=1))return;l.cantidad=Math.min(999,n);clearTimeout(l._t);l._t=setTimeout(()=>recalcularLinea(l),300);}
   else if(campo==='precio'){const v=parseFloat(valor);if(!(v>=0))return;l.precio=v;}
+  const st=document.getElementById('ls-'+i);if(st)st.textContent=S(l.precio*l.cantidad);
   guardarCarrito();pintarTotales();marcarBajos();
 }
 function quitarLinea(i){CARRITO.splice(i,1);guardarCarrito();pintarCarrito();}
@@ -484,35 +590,37 @@ function marcarBajos(){
 }
 function pintarCarrito(){
   const c=document.getElementById('carrito');
-  if(!CARRITO.length){c.innerHTML='<div class="vacio">Aún no agregas productos.</div>';pintarTotales();return;}
-  c.innerHTML=CARRITO.map((l,i)=>`<div class="linea">
-      <div class="top"><div style="display:flex;gap:8px;min-width:0">${thumb(l,'mini')}<div style="min-width:0"><div class="nm">${esc(l.nombre)}</div><div class="desc"><span class="sku">${esc(l.sku||'')}</span> · ${l.sin_precio?'PVP rec.':'normal'} ${S(l.precio_normal)} · sug. ${S(l.precio_sugerido)} · mín. ${S(l.precio_minimo)}</div></div></div>
-        <button class="x" title="Quitar" onclick="quitarLinea(${i})">×</button></div>
-      <div class="ctr">Cant. <input class="q" type="number" min="1" value="${l.cantidad}" oninput="editarLinea(${i},'cantidad',this.value)"/>
-        Precio u. <input id="lp-${i}" type="number" min="0" step="1" value="${l.precio}" oninput="editarLinea(${i},'precio',this.value)"/>
-        <button class="btn btn-sec btn-sm" onclick="usarSug(${i})" ${l.precio_sugerido==null?'disabled':''}>Sugerido</button>
-        <button class="btn btn-sec btn-sm" onclick="usarMin(${i})" ${l.precio_minimo==null?'disabled':''}>Mínimo</button>
-        ${l.stock!=null&&l.cantidad>l.stock?'<span class="chip warn">'+l.stock+' en almacén'+(l.stock_consig?' + '+l.stock_consig+' en consignación':'')+'</span>':''}</div>
-      <div id="la-${i}" class="aviso bad" style="display:none">Precio por debajo del mínimo permitido.</div>
-    </div>`).join('');
+  document.getElementById('cot-titulo').textContent='Cotización'+(CARRITO.length?' · '+CARRITO.length+' producto'+(CARRITO.length===1?'':'s'):'');
+  if(!CARRITO.length){c.innerHTML='<div class="vacio">Aún no agregas productos. Elige uno en la tabla y pulsa “+ Agregar a cotización”.</div>';pintarTotales();return;}
+  c.innerHTML='<div class="tabla-wrap"><table class="cart"><thead><tr><th></th><th>Producto</th><th class="n">Cant.</th><th class="n">Normal</th><th class="n">Mínimo</th><th class="n">Precio ofrecido</th><th class="n">Subtotal</th><th></th></tr></thead><tbody>'+
+    CARRITO.map((l,i)=>`<tr>
+      <td style="width:44px">${thumb(l,'mini')}</td>
+      <td><div class="pnom">${esc(l.nombre)}</div><div class="desc"><span class="sku">${esc(l.sku||'')}</span>${l.stock!=null&&l.cantidad>l.stock?' · <span class="chip warn">'+l.stock+' en almacén'+(l.stock_consig?' + '+l.stock_consig+' consig.':'')+'</span>':''}<span id="la-${i}" class="chip bad" style="display:none;margin-left:4px">bajo el mínimo</span></div></td>
+      <td class="n"><input class="q" type="number" min="1" value="${l.cantidad}" oninput="editarLinea(${i},'cantidad',this.value)"/></td>
+      <td class="n" style="white-space:nowrap">${S(l.precio_normal)}${l.sin_precio?' <small class="desc">rec.</small>':''}</td>
+      <td class="n" style="white-space:nowrap">${S(l.precio_minimo)}</td>
+      <td class="n" style="white-space:nowrap"><input id="lp-${i}" class="pr" type="number" min="0" step="1" value="${l.precio}" oninput="editarLinea(${i},'precio',this.value)"/>
+        <button class="btn btn-sec btn-sm" style="padding:4px 8px" onclick="usarSug(${i})" ${l.precio_sugerido==null?'disabled':''} title="${l.precio_sugerido!=null?'Sugerido '+S(l.precio_sugerido):''}">Sug.</button>
+        <button class="btn btn-sec btn-sm" style="padding:4px 8px" onclick="usarMin(${i})" ${l.precio_minimo==null?'disabled':''}>Mín.</button></td>
+      <td class="n" id="ls-${i}" style="white-space:nowrap;color:var(--white);font-weight:600">${S(l.precio*l.cantidad)}</td>
+      <td><button class="x" title="Quitar" onclick="quitarLinea(${i})">×</button></td></tr>`).join('')+'</tbody></table></div>';
   marcarBajos();pintarTotales();
 }
 function usarSug(i){const l=CARRITO[i];if(l&&l.precio_sugerido!=null){l.precio=l.precio_sugerido;guardarCarrito();pintarCarrito();}}
 function usarMin(i){const l=CARRITO[i];if(l&&l.precio_minimo!=null){l.precio=l.precio_minimo;guardarCarrito();pintarCarrito();}}
 function pintarTotales(){
-  const t=document.getElementById('totales');
-  if(!CARRITO.length){t.innerHTML='';return;}
+  const t=document.getElementById('totales'),mini=document.getElementById('mini');
+  if(!CARRITO.length){t.innerHTML='';mini.style.display='none';return;}
   const normal=CARRITO.reduce((s,l)=>s+l.precio_normal*l.cantidad,0);
   const ofrecido=CARRITO.reduce((s,l)=>s+l.precio*l.cantidad,0);
   const minimo=CARRITO.reduce((s,l)=>s+(l.precio_minimo??l.precio)*l.cantidad,0);
   const desc=normal>0?Math.round((1-ofrecido/normal)*1000)/10:0;
   const margen=ofrecido-minimo;
-  t.innerHTML=`
-    <div class="tot"><span>Total a precio normal</span><span>${S(normal)}</span></div>
-    <div class="tot"><span>Total sugerido</span><span>${S(CARRITO.reduce((s,l)=>s+(l.precio_sugerido??l.precio_normal)*l.cantidad,0))}</span></div>
-    <div class="tot"><span>Total mínimo permitido</span><span>${S(minimo)}</span></div>
-    <div class="tot"><span>Espacio para negociar</span><span style="color:${margen<0?'var(--fg-r)':'var(--fg-ok)'}">${S(margen)}</span></div>
-    <div class="tot grande"><span>Total ofrecido${desc>0?' (−'+desc+'%)':''}</span><b>${S(ofrecido)}</b></div>`;
+  t.innerHTML=`<div class="totales-l"><span>Normal ${S(normal)}</span><span>Mínimo ${S(minimo)}</span>
+    <span>Margen para negociar <span style="color:${margen<0?'var(--fg-r)':'var(--fg-ok)'}">${S(margen)}</span></span>
+    <span>Total ofrecido${desc>0?' (−'+desc+'%)':''} <b>${S(ofrecido)}</b></span></div>`;
+  mini.style.display='flex';
+  mini.innerHTML='<span>🧾 Cotización · '+CARRITO.length+' producto'+(CARRITO.length===1?'':'s')+' · <b>'+S(ofrecido)+'</b></span><span style="color:var(--accent)">Ver ↓</span>';
 }
 async function copiarWhatsApp(){
   if(!CARRITO.length){showToast('La cotización está vacía',true);return;}
@@ -526,6 +634,7 @@ async function copiarWhatsApp(){
 }
 pintarCarrito();
 if(!TOKEN)document.getElementById('resultados').innerHTML='<div class="vacio">Entra al panel de administración para usar el cotizador.</div>';
+else cargarFiltros();
 </script>
 </body>
 </html>

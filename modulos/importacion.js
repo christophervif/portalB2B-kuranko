@@ -325,6 +325,126 @@ module.exports = function registrarImportacion({
   // render. TTL corto: si subes un ingreso, se refleja en pocos minutos.
   const _erpCache = new Map(); // refUpper -> { hit:{...}|null, at }
   const ERP_TTL = 5 * 60 * 1000;
+  // ── Revisar que el ingreso subido al ERP coincide con el Excel «Ingreso» ────
+  //    El navegador manda las filas del Excel (SKU, cantidad, costo unitario sin y
+  //    con impuesto deducible, almacén destino) y las referencias de la importación.
+  //    Aquí se leen las entradas del ERP con esa Ref. importación (o, si no hay, con
+  //    el N° de factura como documento) y se compara producto por producto.
+  //    SOLO LECTURA sobre el ERP.
+  const REF_ENTRADA = 'App\\Models\\StockEntry';
+  let _colsMov = null, _colLocCod = null;
+  async function colsMovimientos() {
+    if (_colsMov) return _colsMov;
+    try { const [c] = await prodPool.query('SHOW COLUMNS FROM stock_movements'); _colsMov = new Set(c.map(x => x.Field)); }
+    catch (e) { _colsMov = new Set(); }
+    return _colsMov;
+  }
+  async function colCodigoLocation() {
+    if (_colLocCod !== null) return _colLocCod;
+    try {
+      const [c] = await prodPool.query('SHOW COLUMNS FROM locations');
+      const n = c.map(x => String(x.Field).toLowerCase());
+      _colLocCod = ['code', 'codigo', 'abbreviation', 'short_code', 'codigo_almacen', 'warehouse_code'].find(x => n.includes(x)) || '';
+    } catch (e) { _colLocCod = ''; }
+    return _colLocCod;
+  }
+  const normSku = v => String(v == null ? '' : v).trim().toUpperCase();
+  const r2 = n => Math.round((Number(n) || 0) * 100) / 100;
+  app.post('/api/importacion/erp-verificar', authAdmin, mImp, async (req, res) => {
+    try {
+      const b = req.body || {};
+      const refs = [...new Set((Array.isArray(b.refs) ? b.refs : []).map(x => String(x || '').trim()).filter(Boolean))].slice(0, 6);
+      const factura = String(b.factura || '').trim();
+      const filas = Array.isArray(b.filas) ? b.filas.slice(0, 2000) : [];
+      if (!filas.length) return res.status(400).json({ error: 'El Excel de ingreso no tiene filas' });
+
+      // 1) Entradas del ERP: por Ref. importación; si no hay, por N° de documento (factura)
+      let entradas = [], por = '';
+      if (refs.length) {
+        const [r1] = await prodPool.query(
+          `SELECT id, importacion_ref AS ref, reference_number AS doc, operation_type_code AS codigo FROM stock_entries WHERE importacion_ref IN (?)`, [refs]);
+        entradas = r1; por = 'Ref. importación';
+      }
+      if (!entradas.length && factura) {
+        const [r2_] = await prodPool.query(
+          `SELECT id, importacion_ref AS ref, reference_number AS doc, operation_type_code AS codigo FROM stock_entries WHERE UPPER(TRIM(reference_number)) = ?`, [factura.toUpperCase()]);
+        entradas = r2_; por = 'N° de factura';
+      }
+      if (!entradas.length) return res.json({ encontrada: false, refs, factura });
+
+      // 2) Líneas de esas entradas: SKU, cantidad, costo del lote y almacén (si el movimiento lo guarda)
+      const cm = await colsMovimientos();
+      const colLoc = ['location_id', 'to_location_id', 'destination_location_id', 'warehouse_id'].find(c => cm.has(c));
+      const colCod = colLoc ? await colCodigoLocation() : '';
+      const ids = entradas.map(e => e.id);
+      const [lin] = await prodPool.query(`
+        SELECT sm.reference_id AS entrada, pv.sku, SUM(ABS(sm.quantity)) AS cantidad,
+          (SELECT b.cost_price FROM stock_batches b WHERE b.stock_entry_id = sm.reference_id AND b.product_variation_id = sm.product_variation_id ORDER BY b.id LIMIT 1) AS costo,
+          (SELECT b.company_id FROM stock_batches b WHERE b.stock_entry_id = sm.reference_id AND b.product_variation_id = sm.product_variation_id ORDER BY b.id LIMIT 1) AS empresa
+          ${colLoc ? `, MAX(l.name) AS almacen${colCod ? ', MAX(l.`' + colCod + '`) AS almacen_cod' : ''}` : ''}
+        FROM stock_movements sm
+        JOIN product_variations pv ON pv.id = sm.product_variation_id
+        ${colLoc ? 'LEFT JOIN locations l ON l.id = sm.`' + colLoc + '`' : ''}
+        WHERE sm.reference_type = ? AND sm.reference_id IN (?)
+        GROUP BY sm.reference_id, sm.product_variation_id, pv.sku`, [REF_ENTRADA, ids]);
+
+      // 3) Agrupar por SKU (el Excel puede repetir un SKU en varias filas; el ERP en varias entradas)
+      const xl = {}, erp = {};
+      filas.forEach(f => {
+        const k = normSku(f.sku); if (!k) return;
+        const c = Number(f.cantidad) || 0, x = xl[k] = xl[k] || { cant: 0, valSin: 0, valCon: 0, almacen: '' };
+        x.cant += c; x.valSin += c * (Number(f.costo) || 0); x.valCon += c * (Number(f.costo_con) || 0);
+        if (f.almacen) x.almacen = String(f.almacen).trim();
+      });
+      lin.forEach(l => {
+        const k = normSku(l.sku), c = Number(l.cantidad) || 0, e = erp[k] = erp[k] || { cant: 0, val: 0, sinCosto: 0, almacenes: new Set(), entradas: new Set() };
+        e.cant += c; if (l.costo == null || +l.costo === 0) e.sinCosto += c; else e.val += c * Number(l.costo);
+        if (l.almacen_cod || l.almacen) e.almacenes.add(String(l.almacen_cod || l.almacen).trim());
+        e.entradas.add(l.entrada);
+      });
+
+      // 4) Comparar
+      const tolCosto = (a, bb) => Math.abs(a - bb) <= Math.max(0.02, Math.abs(bb) * 0.005);
+      const difs = [];
+      let okN = 0;
+      new Set([...Object.keys(xl), ...Object.keys(erp)]).forEach(k => {
+        const x = xl[k], e = erp[k];
+        if (x && !e) return difs.push({ sku: k, tipo: 'falta_en_erp', texto: 'Está en el Excel pero no en el ERP', excel_cant: x.cant });
+        if (e && !x) return difs.push({ sku: k, tipo: 'sobra_en_erp', texto: 'Está en el ERP pero no en el Excel', erp_cant: e.cant, entradas: [...e.entradas] });
+        const prob = [];
+        if (Math.abs(x.cant - e.cant) > 1e-6) prob.push({ tipo: 'cantidad', texto: `Cantidad: Excel ${x.cant} · ERP ${e.cant}` });
+        const cSin = x.cant ? x.valSin / x.cant : 0, cCon = x.cant ? x.valCon / x.cant : 0;
+        const conCosto = e.cant - e.sinCosto;
+        if (e.sinCosto > 0) prob.push({ tipo: 'sin_costo', texto: `${e.sinCosto} unidad(es) sin costo en el ERP` });
+        if (conCosto > 0) {
+          const cErp = e.val / conCosto;
+          if (!tolCosto(cErp, cSin)) {
+            if (cCon && tolCosto(cErp, cCon)) prob.push({ tipo: 'costo_con_igv', texto: `Costo: el ERP tiene S/ ${r2(cErp)} = el costo CON impuesto deducible; el Excel indica S/ ${r2(cSin)} sin deducible` });
+            else prob.push({ tipo: 'costo', texto: `Costo unitario: Excel S/ ${r2(cSin)} · ERP S/ ${r2(cErp)} (${cSin ? ((cErp / cSin - 1) * 100).toFixed(1) : '—'}%)` });
+          }
+        }
+        if (x.almacen && e.almacenes.size && ![...e.almacenes].some(a => a.toUpperCase() === x.almacen.toUpperCase()))
+          prob.push({ tipo: 'almacen', texto: `Almacén: Excel ${x.almacen} · ERP ${[...e.almacenes].join(', ')}` });
+        if (prob.length) prob.forEach(p => difs.push({ sku: k, ...p }));
+        else okN++;
+      });
+      // Documento de la entrada vs N° de factura del Excel
+      const docs = [...new Set(entradas.map(e => String(e.doc || '').trim()).filter(Boolean))];
+      const avisos = [];
+      if (factura && docs.length && !docs.some(d => d.toUpperCase() === factura.toUpperCase()))
+        avisos.push(`N° de documento en el ERP (${docs.join(', ')}) distinto a la factura del Excel (${factura})`);
+      if (factura && !docs.length) avisos.push('La entrada del ERP no tiene N° de documento');
+      if (entradas.length > 1) avisos.push(`Hay ${entradas.length} entradas en el ERP con esta referencia (#${entradas.map(e => e.id).join(', #')}): revisa si se subió dos veces`);
+      const totXl = Object.values(xl).reduce((a, x) => a + x.valSin, 0), totErp = Object.values(erp).reduce((a, e) => a + e.val, 0);
+      res.json({ encontrada: true, por, entradas: entradas.map(e => ({ id: e.id, ref: e.ref || '', doc: e.doc || '', codigo: e.codigo || '' })),
+        skus_excel: Object.keys(xl).length, skus_erp: Object.keys(erp).length, ok: okN, diferencias: difs, avisos,
+        total_excel: r2(totXl), total_erp: r2(totErp), almacen_en_erp: !!colLoc });
+    } catch (e) {
+      console.error('[importacion] erp-verificar', e.message);
+      res.status(500).json({ error: 'No se pudo revisar el ERP: ' + e.message });
+    }
+  });
+
   app.post('/api/importacion/erp-subidas', authAdmin, mImp, async (req, res) => {
     try {
       const refs = Array.isArray(req.body && req.body.refs)

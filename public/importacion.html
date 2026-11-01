@@ -45,6 +45,13 @@
   .flex2{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:680px){.flex2{grid-template-columns:1fr}}
   .hide{display:none!important}
   #tab-calc{display:flex;flex-direction:column}
+  /* Barra referencial de la Calculadora: se recalcula sola mientras llenas los datos */
+  .refbar{position:sticky;top:0;z-index:30;background:#0f2742;color:#e2e8f0;border-radius:10px;padding:9px 14px;margin-bottom:12px;display:flex;flex-wrap:wrap;gap:6px 22px;align-items:center;font-size:13px;box-shadow:0 4px 14px rgba(0,0,0,.18)}
+  .refbar .rb-t{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#94a3b8;font-weight:700}
+  .refbar .rb-v{font-weight:800;font-size:15px;color:#fff;white-space:nowrap}
+  .refbar .rb-s{font-size:11px;color:#94a3b8;white-space:nowrap}
+  .refbar .rb-trk{margin-left:auto;text-align:right}
+  .refbar .rb-trk a{color:#7dd3fc}
 
   /* ── Tema oscuro (sincronizado con el panel admin vía /tema.js) ──
      La página se diseñó en claro con colores fijos; aquí se re-mapean a la paleta
@@ -185,6 +192,7 @@
 
 <!-- ===================== TAB CALCULADORA ===================== -->
 <div id="tab-calc" class="hide">
+  <div class="refbar" id="refBar" style="order:-10"></div>
   <div class="card" id="cardImpTop" style="order:-3;border:2px solid #fde68a;background:#fffdf5">
     <h2>¿Esta importación paga impuestos?</h2>
     <div class="hint" style="margin-bottom:6px">Defínelo primero. Si <b>no</b> paga (courier bajo US$200, sin DUA), no necesitas liquidación. Si <b>sí</b> paga, sube la liquidación abajo.</div>
@@ -558,7 +566,66 @@ function previsualizarFactura(){const f=$('ai_pdf').files[0];if(!invoiceURL&&f)s
 
 function tab(t){document.querySelectorAll('.tabbtn').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
   ['factura','recep','dua','calc','part','guard'].forEach(x=>{const p=$('tab-'+x);if(p)p.classList.toggle('hide',x!==t);});
-  if(t==='recep')cargarRecepLista();}
+  if(t==='recep')cargarRecepLista();
+  if(t==='calc'){refCalc();refTracking();}}
+
+// ══════════════ Barra referencial de la Calculadora ══════════════
+// Muestra EXW, FOB, CIF y el total estimado, recalculados en silencio cada vez que cambias
+// algo en la Calculadora (no reemplaza «▶ Calcular»), y el tracking asignado en Seguimiento.
+let _refT=null,REF_TRK=null,_refTrkClave='';
+function _fmtRef(v){return (Number(v)||0).toLocaleString('es-PE',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function refCalc(){
+  const bar=$('refBar');if(!bar)return;
+  let html='';
+  try{
+    const s=buildState(),r=computeImport(s),T=r.totals,J1=T.J1,fobCur=(J1==='USD')?'USD':'S/';
+    const sum=a=>a.reduce((x,y)=>x+(Number(y)||0),0);
+    const cif=sum(r.items.map(i=>i.cifItem));
+    const real=!!(s.real&&s.real.enabled&&T.O8);
+    const tcF=+s.tc.fact||0;
+    // Total estimado en soles: real (con impuestos pagados) o teórico (con impuestos teóricos)
+    const totTeo=sum(r.items.map(i=>i.costoConTeo))*(J1==='USD'?tcF:1);
+    const total=real?T.costoImportacionTotal:totTeo;
+    const inv=real?T.costoInvTotal:sum(r.items.map(i=>i.costoSinTeo))*(J1==='USD'?tcF:1);
+    const n=r.items.length;
+    const blk=(t,v,sub)=>`<div><div class="rb-t">${t}</div><div class="rb-v">${v}</div>${sub?`<div class="rb-s">${sub}</div>`:''}</div>`;
+    html=n?blk('EXW',_fmtRef(T.sumEXW)+' '+J1,n+' ítem(s)')+
+      blk('FOB',_fmtRef(T.sumFOB)+' '+fobCur,'EXW + gastos de origen')+
+      blk('CIF',_fmtRef(cif)+' '+fobCur,'FOB + flete y seguro')+
+      blk('Total importación','S/ '+_fmtRef(total),(real?'real':'teórico')+' · con impuestos')+
+      blk('Costo inventario','S/ '+_fmtRef(inv),'sin impuestos deducibles')
+      :'<div class="rb-s">Carga la factura en <b>1 · Factura → SKU</b> para ver EXW, FOB y total.</div>';
+  }catch(e){html='<div class="rb-s">Completa los datos para ver los valores referenciales.</div>';}
+  bar.innerHTML=html+`<div class="rb-trk" id="refTrk">${refTrkHtml()}</div>`;
+}
+function refTrkHtml(){
+  const e=REF_TRK;
+  if(e===null)return '<div class="rb-t">Tracking</div><div class="rb-s">buscando…</div>';
+  if(!e)return '<div class="rb-t">Tracking</div><div class="rb-s">sin envío en Seguimiento</div>';
+  const fc=d=>{const m=String(d||'').match(/^(\d{4})-(\d{2})-(\d{2})/);return m?(+m[3]+'/'+(+m[2])+'/'+m[1].slice(2)):'';};
+  return `<div class="rb-t">Tracking ${e.estado==='recibido'?'· recibido':''}</div>`+
+    (e.tracking?`<div class="rb-v">${esc(e.courier||'')} ${esc(e.tracking)}</div>`:'<div class="rb-v" style="color:#fcd34d">sin asignar</div>')+
+    `<div class="rb-s">${e.api_resumen?esc(e.api_resumen):''}${e.eta?(' · ETA '+fc(e.eta)):''}</div>`;
+}
+// Busca el envío de Seguimiento de esta factura (por id de importación o N° de factura)
+async function refTracking(force){
+  const inv=(($('f_inv')&&$('f_inv').value)||'').trim();
+  const clave=recepId()+'|'+inv;
+  if(!force&&clave===_refTrkClave&&REF_TRK!==null)return;
+  _refTrkClave=clave;REF_TRK=null;const box=$('refTrk');if(box)box.innerHTML=refTrkHtml();
+  try{
+    const env=await recApi('/api/seguimiento/envios?incluir_archivados=1');
+    const nF=x=>String(x==null?'':x).replace(/[^A-Za-z0-9]/g,'').toUpperCase();
+    const ids=[recepId(),codigoImportacion()].map(nF);
+    REF_TRK=(env||[]).find(e=>e.importacion_id&&ids.includes(nF(e.importacion_id)))||
+            (env||[]).find(e=>nF(inv)&&nF(e.n_factura)===nF(inv))||false;
+  }catch(e){REF_TRK=false;}
+  if(clave!==_refTrkClave)return;
+  const b2=$('refTrk');if(b2)b2.innerHTML=refTrkHtml();
+}
+document.addEventListener('input',ev=>{if(ev.target.closest&&ev.target.closest('#tab-calc')){clearTimeout(_refT);_refT=setTimeout(refCalc,250);}});
+document.addEventListener('change',ev=>{if(ev.target.closest&&ev.target.closest('#tab-calc')){clearTimeout(_refT);_refT=setTimeout(refCalc,150);}});
+document.addEventListener('click',ev=>{if(ev.target.closest&&ev.target.closest('#tab-calc button')){clearTimeout(_refT);_refT=setTimeout(refCalc,300);}});
 
 const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
 const n2=v=>(Number(v)||0).toFixed(2);
@@ -1374,7 +1441,7 @@ function renderSavedList(){
       const fleteKg=(kg>0)?((+tt.costoFleteSoles||0)/kg):null;
       return `<tr><td>${r.n}</td><td>${esc(r.tipo)}${r.tipo==='Compra'?' <span class="badge b-exact">real</span>':' <span class="badge b-rev">teórico</span>'}</td><td>${esc(r.nombre)}</td><td>${esc((r.meta.proveedorNombre||r.meta.proveedor||'').split('(')[0])}</td><td>${esc(r.meta.numImp||'')}</td><td class="n">${n2(costoTotal)}</td><td class="n">${n2(tt.costoFleteSoles)}</td><td class="n">${n2(tt.costoLogisticoTotal)}</td><td class="n" title="${kg>0?('flete '+n2(tt.costoFleteSoles)+' S/ ÷ '+n2(kg)+' kg (bruto)'):'sin peso registrado'}">${fleteKg==null?'—':n2(fleteKg)}</td><td class="nm">${esc(r.savedAt)}</td>
       <td class="nm"><span class="erp-chk" data-refs="${esc(_refCands(r).join('|'))}"><span class="hint">…</span></span></td>
-      <td style="white-space:nowrap"><button class="btn-sm" onclick="cargarImportacion('${r.id}')">Cargar</button> <button class="btn-sm" onclick="exportImportExcel('${r.id}')">Excel</button> <button class="btn-sm" onclick="exportIngresoSaved('${r.id}')">Ingreso</button> ${(r.state&&r.state.dua&&((r.state.dua.series&&r.state.dua.series.length)||r.state.dua.header))?`<button class="btn-sm" onclick="exportDuaSaved('${r.id}')">DUA</button> `:''}<button class="btn-sm" onclick="exportImportPDF('${r.id}')">PDF</button> <span class="btn-del" onclick="eliminarImportacion('${r.id}')">✕</span></td></tr>`;}).join('')+'</tbody></table></div>'
+      <td style="white-space:nowrap"><button class="btn-sm" onclick="cargarImportacion('${r.id}')">Cargar</button> <button class="btn-sm" onclick="exportImportExcel('${r.id}')">Excel</button> <button class="btn-sm" onclick="exportIngresoSaved('${r.id}')">Ingreso</button> <button class="btn-sm" title="Revisa que lo subido al ERP coincida con el Excel «Ingreso»: productos, cantidades, costos y almacén" onclick="verificarErp('${r.id}')">🔎 vs ERP</button> ${(r.state&&r.state.dua&&((r.state.dua.series&&r.state.dua.series.length)||r.state.dua.header))?`<button class="btn-sm" onclick="exportDuaSaved('${r.id}')">DUA</button> `:''}<button class="btn-sm" onclick="exportImportPDF('${r.id}')">PDF</button> <span class="btn-del" onclick="eliminarImportacion('${r.id}')">✕</span></td></tr>`;}).join('')+'</tbody></table></div>'
       +'<div class="actions" style="margin-top:8px"><button class="btn-sm" onclick="exportResumenGeneral()">⬇ Exportar tabla general (resumen + detalle)</button></div>';
   marcarSubidasERP();
 }
@@ -1702,6 +1769,7 @@ function calcular(){
     <div class="tw" style="margin-top:8px"><table><thead><tr><th class="l">SKU · descripción (sistema)</th><th class="n">Sub EXW (${J1})</th><th class="n">FOB ít. (${fobCur})</th><th class="n">CIF ít. (${fobCur})</th><th class="n">A/V teór. (USD)</th><th class="n">IGV teór. (USD)</th><th class="n">UNIT sin ded. (S/)</th><th class="n">UNIT con ded. (S/)</th></tr></thead><tbody>${rows}</tbody></table></div>
     <div class="hint" style="margin-top:6px"><b>UNIT sin ded.</b> = tu costo de inventario (soles). <b>UNIT con ded.</b> = desembolso total (soles). Los impuestos teóricos se muestran en USD; en una Compra los reales se calculan en soles.</div>
     <div class="hint" style="margin-top:6px">Guarda la importación para descargar el <b>Excel de «Ingreso de Stock»</b> y el detalle desde la pestaña <b>💾 Guardadas</b>.</div></div>`;
+  refCalc();
 }
 function _ingresoHead(){return ["fecha","Código","Cantidad","destino","almacen_nombre","Precio EXW","moneda","tipo_cambio","Costo real sin impuesto deducible soles UNITARIO","Costo real soles UNITARIO","Importación","tipo_documento","numero_documento","tipo_doc_proveedor","proveedor","empresa","N","costo_logistico","costo_envio_origen","impuesto_deducible","impuesto_no_deducible1"];}
 function _ingresoRows(r,ctx){const H=_ingresoHead();
@@ -1740,6 +1808,41 @@ async function _descargarIngreso(aoa,filename){
   xlsxDownloadMulti(filename,[{name:'Ingreso de Stock',aoa},pedidos]);
 }
 function descargarIngresoLive(){if(!lastIngreso){alert('Primero pulsa Calcular.');return;}_descargarIngreso(lastIngreso.aoa.map((row,ri)=>ri===0?row:row.map(_num)),_fname('IngresoStock-'+lastIngreso.nombre)+'.xlsx');}
+// ── ¿Lo que se subió al ERP coincide con el Excel «Ingreso»? ──
+function _filasIngreso(rec){
+  const r=computeImport(rec.state),m=rec.meta||{},rp=(rec.state&&rec.state.recep)||{};
+  const ctx={fecha:'',tc:rec.state.tc.fact,impCode:m.codigo||'',numDoc:m.invoice||'',prov:m.proveedor||'',empresa:m.empresa||'',N:m.numImp||'',
+    destino:rp.destino||'',almacenNombre:rp.almacenNombre||'',recibidas:rp.recibidas||null};
+  const H=_ingresoHead(),ix=k=>H.indexOf(k),num=v=>Number(String(v==null?'':v).replace(/,/g,''))||0;
+  return _ingresoRows(r,ctx).map(row=>({sku:row[ix('Código')],cantidad:num(row[ix('Cantidad')]),almacen:row[ix('destino')],
+    costo:num(row[ix('Costo real sin impuesto deducible soles UNITARIO')]),costo_con:num(row[ix('Costo real soles UNITARIO')])}));
+}
+async function verificarErp(id){
+  const rec=saved.find(x=>x.id===id);if(!rec)return;
+  let box=$('erpVerif');
+  if(!box){box=document.createElement('div');box.id='erpVerif';box.style.marginTop='12px';$('savedList').after(box);}
+  box.innerHTML='<div class="card"><span class="hint">Revisando el ERP…</span></div>';box.scrollIntoView({behavior:'smooth',block:'nearest'});
+  let filas;try{filas=_filasIngreso(rec);}catch(e){box.innerHTML='<div class="card" style="color:#991b1b">No se pudo calcular el Excel de ingreso: '+esc(e.message)+'</div>';return;}
+  let d;
+  try{
+    const r=await fetch(API+'/erp-verificar',{method:'POST',headers:_authHeaders(true),body:JSON.stringify({refs:_refCands(rec),factura:(rec.meta&&rec.meta.invoice)||'',filas})});
+    d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||('API '+r.status));
+  }catch(e){box.innerHTML='<div class="card" style="color:#991b1b">No se pudo revisar: '+esc(e.message)+'</div>';return;}
+  const tit=`<b>${esc(rec.nombre||'')}</b> <span class="hint">${esc((rec.meta&&rec.meta.codigo)||'')}</span>`;
+  if(!d.encontrada){box.innerHTML=`<div class="card">${tit}<div style="margin-top:6px">⏳ Aún no encuentro esta importación en el ERP (ni por Ref. importación ${esc((d.refs||[]).join(', '))} ni por la factura ${esc(d.factura||'—')}).</div></div>`;return;}
+  const n=d.diferencias.length+(d.avisos||[]).length;
+  const cab=n?`<div style="margin-top:6px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:8px 10px;color:#991b1b;font-weight:700">⚠ Hay ${d.diferencias.length} diferencia(s)${(d.avisos||[]).length?' y '+d.avisos.length+' aviso(s)':''} entre el ERP y el Excel</div>`
+    :`<div style="margin-top:6px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 10px;color:#166534;font-weight:700">✓ Todo coincide: ${d.ok} producto(s) con la misma cantidad, costo${d.almacen_en_erp?' y almacén':''}</div>`;
+  const ent=d.entradas.map(e=>'#'+e.id+(e.doc?' · doc '+esc(e.doc):'')).join(' · ');
+  const avisos=(d.avisos||[]).map(a=>`<div style="margin-top:4px">⚠ ${esc(a)}</div>`).join('');
+  const filasHtml=d.diferencias.map(x=>`<tr><td class="sku">${esc(x.sku)}</td><td>${esc(descSistema(x.sku)||'')}</td><td>${esc(x.texto)}</td></tr>`).join('');
+  box.innerHTML=`<div class="card">${tit}
+    <div class="hint" style="margin-top:2px">Entrada(s) del ERP: ${ent} (encontrada por ${esc(d.por)}) · Excel ${d.skus_excel} SKU · ERP ${d.skus_erp} SKU · Total costo Excel S/ ${n2(d.total_excel)} · ERP S/ ${n2(d.total_erp)}</div>
+    ${cab}${avisos}
+    ${filasHtml?`<div class="tw" style="margin-top:8px"><table><thead><tr><th>SKU</th><th>Producto</th><th>Diferencia</th></tr></thead><tbody>${filasHtml}</tbody></table></div>`:''}
+    ${d.almacen_en_erp?'':'<div class="hint" style="margin-top:6px">El ERP no guarda el almacén en el movimiento: no se comparó el almacén.</div>'}
+  </div>`;
+}
 function exportIngresoSaved(id){const rec=saved.find(x=>x.id===id);if(!rec)return;let r;try{r=computeImport(rec.state);}catch(e){alert('No se pudo calcular.');return;}const m=rec.meta;const rp=(rec.state&&rec.state.recep)||{};
   const ctx={fecha:new Date().toISOString().slice(0,10),tc:rec.state.tc.fact,impCode:m.codigo||'',numDoc:m.invoice||'',prov:m.proveedor||'',empresa:m.empresa||'',N:m.numImp||'',
     destino:rp.destino||'',almacenNombre:rp.almacenNombre||'',recibidas:rp.recibidas||null};

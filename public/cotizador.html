@@ -119,9 +119,11 @@ textarea{width:100%;min-height:60px;background:var(--bg);border:1px solid var(--
 [data-theme="light"]{--zebra:#f4f6fb;--hc:#e9eefa;--hcx:#dde5f7}
 .wrap{max-width:none;padding:1rem 1.1rem}
 .barra{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
-.barra input[type=search]{flex:1;min-width:240px;background:var(--bg);border:1px solid var(--accent);color:var(--text);border-radius:var(--radius-sm);padding:12px 14px;font-size:16px}
+.barra input[type=search]{flex:1;min-width:240px;background:var(--bg);border:1px solid var(--accent);color:var(--text);border-radius:var(--radius-sm);padding:6px 12px;font-size:14px}
 .barra input[type=search]:focus{outline:none;box-shadow:0 0 0 2px rgba(255,179,13,.25)}
-.barra select{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:11px 10px;font-size:13px;max-width:220px}
+.barra select{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:5px 8px;font-size:13px;max-width:220px}
+/* buscador delgado; en celular 16px para que el iPhone no haga zoom al escribir */
+@media(max-width:700px){.barra input[type=search]{font-size:16px}}
 .barra .chk{margin-top:0}
 .modo{margin-top:8px;font-size:12px;color:var(--muted)}
 .modo b{color:var(--text2)}
@@ -186,7 +188,10 @@ tr.detalle>td{background:var(--surface2);padding:14px 12px !important;border-bot
 .det{display:grid;grid-template-columns:110px minmax(0,1fr);gap:14px}
 /* el detalle queda fijo a la izquierda y del ancho de la pantalla aunque la tabla se deslice de lado */
 #detalle{position:sticky;left:12px;max-width:calc(100vw - 110px)}
-table.inv td.pcol{min-width:200px}
+/* Producto: columna ancha (crece con la pantalla) y nombre en máx. 2 líneas para que las filas no se hagan altas; el nombre completo sale al pasar el mouse y en el detalle */
+table.inv td.pcol{min-width:clamp(230px,30vw,480px)}
+.pclamp{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.pmeta{line-height:1;margin-top:2px}.pmeta:empty{display:none}.pmeta .etq{margin-left:0;margin-right:4px}.pmeta .web{margin-left:0}
 @media(max-width:700px){.det{grid-template-columns:1fr}#detalle{max-width:calc(100vw - 100px)}.precios{grid-template-columns:1fr 1fr}}
 .det-top{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:flex-start}
 .det-top .cant{margin:0}
@@ -231,9 +236,9 @@ table.cart input.bajo{border-color:var(--fg-r);color:var(--fg-r)}
 </div>
 <div class="wrap">
   <!-- 1. Buscador -->
-  <div class="card">
+  <div class="card" style="padding:.7rem 1rem">
     <h3>Cotizador</h3>
-    <div class="barra">
+    <div class="barra" style="margin-top:6px">
       <input id="q" type="search" autocomplete="off" placeholder="Nombre o SKU exacto — ej: casco 100% red, R10CAS02100004   ( / )" autofocus/>
       <select id="f-cat"><option value="">Categoría: todas</option></select>
       <select id="f-sub" disabled><option value="">Subcategoría: todas</option></select>
@@ -502,9 +507,9 @@ function pintarRes(){
   const celda=(x,c,tot)=>{
     const k=' data-c="'+c+'"';
     switch(c){
-      case 'prod':return '<td class="pcol"'+k+'><div class="pcell">'+(CFG.img?thumb(x,'mini'):'')+'<div><span class="pnom">'+esc(x.nombre)+'</span>'+
+      case 'prod':return '<td class="pcol"'+k+'><div class="pcell">'+(CFG.img?thumb(x,'mini'):'')+'<div style="min-width:0"><div class="pnom pclamp" title="'+esc(x.nombre)+'">'+esc(x.nombre)+'</div><div class="pmeta">'+
         (x.estado==='borrador'?'<span class="etq borr" title="Borrador en el ERP (se puede vender)">borrador</span>':x.estado==='descontinuado'?'<span class="etq dsc">descontinuado</span>':'')+
-        (x.web_url?'<a class="web" href="'+esc(x.web_url)+'" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Ver en la web">🌐 web ↗</a>':'')+'</div></div></td>';
+        (x.web_url?'<a class="web" href="'+esc(x.web_url)+'" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Ver en la web">🌐 web ↗</a>':'')+'</div></div></div></td>';
       case 'sku':return '<td style="white-space:nowrap"'+k+'>'+skuCp(x.sku)+'</td>';
       case 'cat':return '<td'+k+'>'+((x.categorias_lista||[]).slice(0,2).map(v=>'<span class="catc">'+esc(v)+'</span>').join(' ')||'<span class="desc">—</span>')+'</td>';
       case 'marca':return '<td'+k+'>'+esc(x.marca||'—')+'</td>';

@@ -88,6 +88,30 @@ function tipoDocCliente(doc) {
   return '';
 }
 
+// Tipo probable cuando no hay otro dato: RUC/DNI por longitud; 9 a 12 dígitos = carné de
+// extranjería (4); letras y números = pasaporte (7). El tipo que el ERP tiene en la ficha manda.
+function tipoDocProbable(doc) {
+  const t = tipoDocCliente(doc);
+  if (t) return t;
+  const s = String(doc || '').replace(/[\s-]/g, '');
+  if (/^\d{9,12}$/.test(s)) return '4';
+  if (/^[A-Za-z0-9]{6,15}$/.test(s) && /[A-Za-z]/.test(s)) return '7';
+  return '';
+}
+// Catálogo "tipo_documento_identidad" del ERP (catalog_items.code 01, 04, 06, 07…) → código SUNAT
+function tipoDocDeERP(code, name, doc) {
+  const c = String(code == null ? '' : code).trim();
+  const n = String(name || '');
+  let t = { '1': '1', '01': '1', '4': '4', '04': '4', '6': '6', '06': '6', '7': '7', '07': '7' }[c] || '';
+  if (!t) t = /RUC/i.test(n) ? '6' : /DNI|electoral/i.test(n) ? '1' : /extranj|^CE$/i.test(n) ? '4' : /pasaporte/i.test(n) ? '7' : '';
+  const num = String(doc || '').replace(/\s/g, '');
+  // Si el número no calza con lo que dice la ficha (p. ej. "DNI" con 11 dígitos), manda el número
+  if (t === '6' && tipoDocCliente(num) !== '6') return tipoDocProbable(num);
+  if (t === '1' && !/^\d{8}$/.test(num)) return tipoDocProbable(num);
+  return t || tipoDocProbable(num);
+}
+const NOMBRE_TIPO_DOC = { '6': 'RUC', '1': 'DNI', '4': 'CE', '7': 'Pasaporte' };
+
 // Tipo sugerido: factura si el cliente tiene RUC y la empresa puede emitir facturas.
 function sugerirTipo(cliente, cfg) {
   if (cfg && cfg.solo_boletas) return 'boleta';
@@ -111,8 +135,8 @@ function armarComprobante(datos, cfg = {}) {
   if (tipo === 'factura' && (cfg.solo_boletas || afect === 'nrus')) errores.push('Esta empresa solo emite boletas');
 
   const cli = datos.cliente || {};
-  let tipoDoc = String(cli.tipo_doc || tipoDocCliente(cli.doc) || '').trim();
   let doc = String(cli.doc || '').replace(/\s/g, '');
+  let tipoDoc = String(cli.tipo_doc || tipoDocProbable(doc) || '').trim();
   let nombre = limpiar(cli.nombre, 200);
 
   const items = [];
@@ -157,7 +181,8 @@ function armarComprobante(datos, cfg = {}) {
   // Reglas del cliente según el tipo
   const tipoBase = tipo === 'nc' ? (datos.nc && datos.nc.ref_tipo) : tipo;
   if (tipoBase === 'factura') {
-    if (tipoDoc !== '6' || tipoDocCliente(doc) !== '6') errores.push(/^\d{8}$/.test(doc) ? 'La factura exige RUC y el número tiene 8 dígitos (es un DNI): emite boleta o pide el RUC' : 'La factura exige un RUC válido (11 dígitos)');
+    if (tipoDoc !== '6' && tipoDocCliente(doc) === '6') errores.push('La factura va con RUC: cambia el tipo de documento a RUC (no se puede emitir "sin documento")');
+    else if (tipoDoc !== '6' || tipoDocCliente(doc) !== '6') errores.push(/^\d{8}$/.test(doc) ? 'La factura exige RUC y el número tiene 8 dígitos (es un DNI): emite boleta o pide el RUC' : 'La factura exige un RUC válido (11 dígitos)');
     if (!nombre) errores.push('Falta la razón social del cliente');
     if (!limpiar(cli.direccion)) avisos.push('El cliente no tiene dirección; la factura sale sin dirección');
     if (cli.sunat_estado && !/ACTIVO/i.test(cli.sunat_estado)) avisos.push(`SUNAT: el RUC figura ${cli.sunat_estado}. Revisa antes de facturar`);
@@ -166,10 +191,12 @@ function armarComprobante(datos, cfg = {}) {
     if (tipoDoc === '6' && doc && doc !== '-' && tipoDocCliente(doc) !== '6')
       errores.push(/^\d{8}$/.test(doc) ? 'Elegiste RUC pero el número tiene 8 dígitos (parece un DNI): cambia el tipo de documento' : 'El RUC no es válido (11 dígitos, empieza con 10, 15, 16, 17 o 20)');
     if (['4', '7'].includes(tipoDoc) && !/^[A-Za-z0-9]{6,15}$/.test(doc)) errores.push('El carné de extranjería o pasaporte no es válido');
-    if (!doc || doc === '-' || !tipoDoc || tipoDoc === '-') {
+    // Hay número pero no se sabe qué documento es: no se manda como "varios" sin avisar
+    if (doc && doc !== '-' && !tipoDoc) errores.push(`No se reconoce el tipo de documento de "${doc}": elige DNI, carné de extranjería o pasaporte`);
+    else if (!doc || doc === '-' || !tipoDoc || tipoDoc === '-') {
       if (totalSoles >= TOPE_BOLETA_SIN_DOC) errores.push(`Boletas desde S/ ${TOPE_BOLETA_SIN_DOC}${moneda === 'USD' ? ` (≈ US$ ${(TOPE_BOLETA_SIN_DOC / tc).toFixed(2)})` : ''} exigen DNI u otro documento del cliente`);
       tipoDoc = '-'; doc = '-'; nombre = nombre || 'CLIENTES VARIOS';
-    } else if (tipoDoc === '1' && !/^\d{8}$/.test(doc)) errores.push('El DNI debe tener 8 dígitos');
+    } else if (tipoDoc === '1' && !/^\d{8}$/.test(doc)) errores.push(/^\d{9,12}$/.test(doc) ? 'El DNI debe tener 8 dígitos (este número parece un carné de extranjería: elige CE)' : 'El DNI debe tener 8 dígitos');
     if (!nombre) nombre = 'CLIENTES VARIOS';
   }
 
@@ -604,7 +631,7 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
     const emisorLegal = `${emp}${ruc ? ' · RUC ' + ruc : ''}`;
     const esc = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     const f = isoFecha(comp.fecha_emision || hoyLima()).split('-'); const fecha = f.length === 3 ? `${f[2]}/${f[1]}/${f[0]}` : '';
-    const docCli = comp.cliente_doc && comp.cliente_doc !== '-' ? `${comp.cliente_tipo_doc === '6' ? 'RUC' : comp.cliente_tipo_doc === '1' ? 'DNI' : 'Doc.'} ${comp.cliente_doc}` : '';
+    const docCli = comp.cliente_doc && comp.cliente_doc !== '-' ? `${NOMBRE_TIPO_DOC[comp.cliente_tipo_doc] || 'Doc.'} ${comp.cliente_doc}` : '';
     const importe = comp.tipo === 'guia' ? '' : `${comp.tipo === 'nc' ? '-' : ''}${SIMBOLO[comp.moneda] || 'S/'} ${Number(comp.total || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     const fila = (k, v) => v ? `<tr><td style="padding:6px 0;color:#6b7280;width:150px">${k}</td><td style="padding:6px 0;color:#111827"><b>${esc(v)}</b></td></tr>` : '';
     const html = `<!doctype html><html><body style="margin:0;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#111827">
@@ -704,7 +731,7 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
     await portalPool.query(`CREATE TABLE IF NOT EXISTS fe_erp_log (
       id INT AUTO_INCREMENT PRIMARY KEY,
       tabla VARCHAR(40) NOT NULL, registro_id BIGINT NOT NULL,
-      accion VARCHAR(10) NOT NULL,           -- insert | update
+      accion VARCHAR(10) NOT NULL,           -- insert | update | delete
       campo VARCHAR(40) NULL, antes TEXT NULL, despues TEXT NULL,
       comprobante_id INT NULL, usuario VARCHAR(100), creado DATETIME DEFAULT CURRENT_TIMESTAMP,
       deshecho_por VARCHAR(100) NULL, deshecho_en DATETIME NULL,
@@ -773,7 +800,8 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
       colsParty = {
         direccion: ['address', 'fiscal_address', 'direccion', 'address_line'].find(x => set.has(x)) || null,
         telefono: ['phone', 'mobile', 'cellphone', 'telefono'].find(x => set.has(x)) || null,
-        email: ['email', 'email_address'].find(x => set.has(x)) || null
+        email: ['email', 'email_address'].find(x => set.has(x)) || null,
+        tipoDoc: set.has('document_type_id') ? 'document_type_id' : null   // → catalog_items (tipo_documento_identidad)
       };
     } catch (e) { colsParty = { direccion: null, telefono: 'phone', email: 'email' }; }
     return colsParty;
@@ -815,7 +843,9 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
     if (!ids.length) return [];
     const cp = await columnasParty();
     const cs = await columnasSales();
-    const extra = ['direccion', 'telefono', 'email'].map(k => cp[k] ? `cli.\`${cp[k]}\` AS cli_${k}` : `NULL AS cli_${k}`).join(', ');
+    const extra = ['direccion', 'telefono', 'email'].map(k => cp[k] ? `cli.\`${cp[k]}\` AS cli_${k}` : `NULL AS cli_${k}`).join(', ')
+      + (cp.tipoDoc ? ', tdi.code AS tdoc_code, tdi.name AS tdoc_name' : ', NULL AS tdoc_code, NULL AS tdoc_name');
+    const joinTdi = cp.tipoDoc ? `LEFT JOIN catalog_items tdi ON tdi.id = cli.\`${cp.tipoDoc}\`` : '';
     let selMon = `NULL AS mon_raw, NULL AS tc_raw`, joinMon = '';
     if (cs.moneda) selMon = `s.\`${cs.moneda}\` AS mon_raw, ${cs.tc ? `s.\`${cs.tc}\`` : 'NULL'} AS tc_raw`;
     else if (cs.tc) selMon = `NULL AS mon_raw, s.\`${cs.tc}\` AS tc_raw`;
@@ -826,7 +856,7 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
     const ventas = await enBloques(`
       SELECT s.id, s.code, s.company_id, s.customer_id, s.total, s.status, s.created_at, ${cs.envio ? 's.`' + cs.envio + '`' : 'NULL'} AS envio_raw,
         cli.is_company, cli.business_name, cli.first_name, cli.last_name, cli.document_number, ${extra}, ${selMon}
-      FROM sales s LEFT JOIN parties cli ON cli.id = s.customer_id ${joinMon}
+      FROM sales s LEFT JOIN parties cli ON cli.id = s.customer_id ${joinTdi} ${joinMon}
       WHERE s.id IN (?) AND s.deleted_at IS NULL`, ids);
     const items = await enBloques(`
       SELECT si.id, si.sale_id, si.quantity, si.unit_price, si.total, p.name AS producto, pv.name AS variacion, pv.sku
@@ -882,7 +912,7 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
         tipo_cambio: Number(v.tc_raw) > 1 ? Number(v.tc_raw) : null,
         id: v.id, code: v.code, company_id: v.company_id, empresa: empresas[v.company_id] || ('Empresa ' + v.company_id),
         status: v.status, fecha: v.created_at, total: r2(v.total), pagado: r2(pgV[v.id] || 0),
-        cliente: { tipo_doc: tipoDocCliente(v.document_number), doc: (v.document_number || '').trim(), nombre: limpiar(nombre, 200),
+        cliente: { tipo_doc: (v.document_number || '').trim() ? tipoDocDeERP(v.tdoc_code, v.tdoc_name, v.document_number) : '', tipo_doc_fuente: v.tdoc_code ? 'sistema' : 'número', doc: (v.document_number || '').trim(), nombre: limpiar(nombre, 200),
           direccion: limpiar(v.cli_direccion), email: limpiar(v.cli_email, 120), telefono: limpiar(v.cli_telefono, 40) },
         ...fac,
         items: itemsPendientes(itV[v.id], porItem, fac.externo > 0.009, v.total, v.envio_raw)
@@ -912,6 +942,10 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
       if (!sv) return { erp_estado: 'error', erp_error: 'La venta ya no existe en el sistema' };
       if (sv.status === 'draft') return { erp_estado: 'pendiente', erp_error: 'La venta sigue en borrador en el sistema: confírmala y luego usa "Registrar en sistema"' };
       if (sv.status === 'cancelled') return { erp_estado: 'error', erp_error: 'La venta está anulada en el sistema; no se registra el comprobante' };
+      // Comprobantes de esta venta anulados con nota de crédito que siguen anotados en el sistema:
+      // se retiran para que entre el que los reemplaza (queda en el log y se puede deshacer).
+      const retirado = await retirarAnuladosERP(comp, usuario);
+      if (retirado > 0) sv.registrado = Number(sv.registrado) - retirado;
       const montoV = Number(comp.monto_venta != null ? comp.monto_venta : comp.total);
       if (Number(sv.registrado) + montoV > Number(sv.total) + 0.05)
         return { erp_estado: 'error', erp_error: `Con este comprobante la venta tendría S/ ${(Number(sv.registrado) + montoV).toFixed(2)} en comprobantes y su total es S/ ${Number(sv.total).toFixed(2)}. Revisa los comprobantes ya anotados en el sistema.` };
@@ -929,6 +963,33 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
       await logERP({ tabla: 'sale_vouchers', registro_id: ins.insertId, accion: 'insert', despues: `${comp.tipo} ${comp.serie}-${comp.numero} · venta ${comp.sale_id} · ${valores.amount}`, comprobante_id: comp.id, usuario });
       return { erp_estado: 'registrado', erp_error: null, erp_por: usuario };
     } catch (e) { return { erp_estado: 'error', erp_error: limpiar(e.message, 300) }; }
+  }
+
+  // Quita de sale_vouchers los comprobantes de la venta que el portal anuló con una NC aceptada
+  // (motivos que anulan todo: 1, 2, 3, 6). Devuelve el monto retirado.
+  async function retirarAnuladosERP(comp, usuario) {
+    const [anul] = await portalPool.query(`SELECT c.id, c.tipo, c.serie, c.numero, nc.serie AS nc_serie, nc.numero AS nc_numero
+      FROM fe_comprobantes c JOIN fe_comprobantes nc ON nc.id = c.anulado_por_nc
+      WHERE c.sale_id = ? AND c.id <> ? AND c.tipo IN ('factura','boleta') AND nc.estado IN ('aceptado','pendiente_sunat')`, [comp.sale_id, comp.id || 0]);
+    let monto = 0;
+    for (const a of anul) {
+      const [rows] = await erpWritePool.query(`SELECT *, DATE_FORMAT(emission_date, '%Y-%m-%d') AS _ed, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS _ca,
+        DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS _ua FROM sale_vouchers WHERE sale_id = ? AND UPPER(TRIM(serie)) = ? AND CAST(number AS UNSIGNED) = ?`,
+        [comp.sale_id, String(a.serie).toUpperCase(), a.numero]);
+      for (const r of rows) {
+        const { _ed, _ca, _ua, ...fila } = r;
+        Object.assign(fila, { emission_date: _ed, created_at: _ca, updated_at: _ua });
+        const [d] = await erpWritePool.query(`DELETE FROM sale_vouchers WHERE id = ?`, [r.id]);
+        if (!d.affectedRows) continue;
+        monto += Number(r.amount) || 0;
+        await logERP({ tabla: 'sale_vouchers', registro_id: r.id, accion: 'delete', antes: JSON.stringify(fila),
+          despues: `retirado: ${numDoc(a.serie, a.numero)} anulado con NC ${numDoc(a.nc_serie, a.nc_numero)}; lo reemplaza ${numDoc(comp.serie, comp.numero)}`,
+          comprobante_id: a.id, usuario });
+      }
+      await portalPool.query(`UPDATE fe_comprobantes SET erp_estado='retirado', erp_error=?, erp_en=NOW() WHERE id=?`,
+        [`Quitado del sistema (anulado con NC ${numDoc(a.nc_serie, a.nc_numero)}); lo reemplaza ${numDoc(comp.serie, comp.numero)}`, a.id]);
+    }
+    return r2(monto);
   }
 
   async function logERP(x) {
@@ -1257,7 +1318,10 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
     const err = m => Object.assign(new Error(m), { validacion: true });
 
     const cliente = { ...venta.cliente, ...(body.cliente || {}) };
-    if (body.cliente && body.cliente.doc != null && !body.cliente.tipo_doc) cliente.tipo_doc = tipoDocCliente(body.cliente.doc);
+    if (body.cliente && body.cliente.doc != null && !body.cliente.tipo_doc) {
+      const d = String(body.cliente.doc).trim();
+      cliente.tipo_doc = d && d === venta.cliente.doc ? venta.cliente.tipo_doc : ((await fichaERP(d) || {}).tipo_doc || tipoDocProbable(d));
+    }
     // El nombre (y la dirección fiscal del RUC) se toma de SUNAT si responde
     const docLimpio = String(cliente.doc || '').replace(/\D/g, '');
     if (tipoDocCliente(docLimpio)) {
@@ -1435,15 +1499,25 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
     try {
       const cp = await columnasParty();
       const extra = ['direccion', 'email', 'telefono'].map(k => cp[k] ? `\`${cp[k]}\` AS ${k}` : `NULL AS ${k}`).join(', ');
-      const [[p]] = await prodPool.query(`SELECT is_company, business_name, first_name, last_name, ${extra} FROM parties WHERE TRIM(document_number) = ? LIMIT 1`, [num]);
+      const tdi = cp.tipoDoc ? `, (SELECT ci.code FROM catalog_items ci WHERE ci.id = parties.\`${cp.tipoDoc}\`) AS tdoc_code, (SELECT ci.name FROM catalog_items ci WHERE ci.id = parties.\`${cp.tipoDoc}\`) AS tdoc_name` : '';
+      const [[p]] = await prodPool.query(`SELECT is_company, business_name, first_name, last_name, ${extra}${tdi} FROM parties WHERE TRIM(document_number) = ? LIMIT 1`, [num]);
       return p ? { nombre: limpiar(p.is_company ? p.business_name : `${p.first_name || ''} ${p.last_name || ''}`, 200),
-        direccion: limpiar(p.direccion), email: limpiar(p.email, 120), telefono: limpiar(p.telefono, 40) } : null;
+        direccion: limpiar(p.direccion), email: limpiar(p.email, 120), telefono: limpiar(p.telefono, 40),
+        tipo_doc: tipoDocDeERP(p.tdoc_code, p.tdoc_name, num) } : null;
     } catch (e) { return null; }
   }
   app.get('/api/fe/documento/:num', authAdmin, mFe, async (req, res) => {
-    const num = String(req.params.num || '').replace(/\D/g, '');
+    const crudo = String(req.params.num || '').replace(/[\s-]/g, '').toUpperCase();
+    const num = /^\d+$/.test(crudo) ? crudo : crudo.replace(/[^A-Z0-9]/g, '');
     const tipo = tipoDocCliente(num);
-    if (!tipo) return res.status(400).json({ error: 'Número no válido (8 dígitos DNI u 11 RUC)' });
+    if (!tipo) {
+      // Carné de extranjería / pasaporte: SUNAT no los consulta; se usa la ficha del sistema
+      if (!/^[A-Z0-9]{6,15}$/.test(num)) return res.status(400).json({ error: 'Número no válido (DNI 8 dígitos, RUC 11, CE o pasaporte 6 a 15)' });
+      try {
+        const erp = await fichaERP(num);
+        return res.json({ tipo_doc: (erp && erp.tipo_doc) || tipoDocProbable(num), doc: num, ...(erp || { nombre: '' }), tipo_doc_fuente: erp ? 'sistema' : 'número', fuente: erp ? 'sistema' : null });
+      } catch (e) { return res.status(500).json({ error: e.message }); }
+    }
     try {
       const [sunat, erp] = await Promise.all([consultarSunat(num), fichaERP(num)]);
       if (sunat) return res.json({ ...sunat, email: erp && erp.email || '', telefono: erp && erp.telefono || '', direccion: sunat.direccion || (erp && erp.direccion) || '' });
@@ -1482,7 +1556,7 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
       const resultados = [];
       for (const it of lista) {
         try {
-          const cli = it.cliente && it.cliente.doc ? { doc: String(it.cliente.doc).trim(), tipo_doc: it.cliente.tipo_doc || tipoDocCliente(it.cliente.doc), nombre: limpiar(it.cliente.nombre, 200) } : undefined;
+          const cli = it.cliente && it.cliente.doc ? { doc: String(it.cliente.doc).trim(), tipo_doc: it.cliente.tipo_doc || '', nombre: limpiar(it.cliente.nombre, 200) } : undefined;
           if (cli && !cli.nombre) throw Object.assign(new Error(`Falta el nombre o razón social para el documento ${cli.doc}`), { validacion: true });
           const { venta, cfg, tipo, datos } = await prepararDesdeVenta({ sale_id: it.sale_id, tipo: it.tipo, enviar_email: req.body.enviar_email, cliente: cli }, cfgs);
           const r = await emitirDocumento({ companyId: venta.company_id, tipo, serie: seriePara(cfg, tipo), datos, cfg, venta, usuario: quien(req) });
@@ -1728,7 +1802,7 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
       const notas = String((x && x.notes) || '');
       if (!notas.includes(l.cliente.doc)) {
         const su = await consultarSunat(l.cliente.doc);
-        const linea = [`${l.cliente.tipo_doc === '1' ? 'DNI' : 'RUC'} ${l.cliente.doc}`, su ? su.nombre : l.cliente.nombre].filter(Boolean).join(' · ');
+        const linea = [`${NOMBRE_TIPO_DOC[l.cliente.tipo_doc] || 'Doc.'} ${l.cliente.doc}`, su ? su.nombre : l.cliente.nombre].filter(Boolean).join(' · ');
         const nuevas = (notas.trim() ? notas.trim() + ' | ' : '') + linea;
         const [u] = await erpWritePool.query(`UPDATE stock_transfers SET notes = ? WHERE id = ? AND notes <=> ?`, [nuevas, t.id, x.notes]);
         if (u.affectedRows) { hecho.push('notas'); await logERP({ tabla: 'stock_transfers', registro_id: t.id, accion: 'update', campo: 'notes', antes: x.notes, despues: nuevas, comprobante_id: null, usuario: quien(req) }); }
@@ -1753,6 +1827,16 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
       const [[l]] = await portalPool.query(`SELECT * FROM fe_erp_log WHERE id = ?`, [Number(req.params.id)]);
       if (!l) return res.status(404).json({ error: 'No existe' });
       if (l.deshecho_en) return res.status(400).json({ error: 'Ese cambio ya se deshizo' });
+      if (l.tabla === 'sale_vouchers' && l.accion === 'delete') {
+        const fila = JSON.parse(l.antes || '{}');
+        if (!fila.sale_id) return res.status(400).json({ error: 'No hay datos para restaurar' });
+        const [[ya]] = await erpWritePool.query(`SELECT COUNT(*) n FROM sale_vouchers WHERE id = ?`, [fila.id]);
+        if (ya.n) return res.status(400).json({ error: 'Ese comprobante ya está de nuevo en el sistema' });
+        await erpWritePool.query(`INSERT INTO sale_vouchers SET ?`, [fila]);
+        await portalPool.query(`UPDATE fe_erp_log SET deshecho_por = ?, deshecho_en = NOW() WHERE id = ?`, [quien(req), l.id]);
+        if (l.comprobante_id) await portalPool.query(`UPDATE fe_comprobantes SET erp_estado = 'registrado', erp_error = NULL WHERE id = ?`, [l.comprobante_id]);
+        return res.json({ ok: true });
+      }
       if (l.tabla === 'sale_vouchers' && l.accion === 'insert') {
         const [r] = await erpWritePool.query(`DELETE FROM sale_vouchers WHERE id = ?`, [l.registro_id]);
         if (!r.affectedRows) return res.status(400).json({ error: 'El comprobante ya no estaba en el sistema' });
@@ -1772,7 +1856,7 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
 
   function obsTransferencia(t) {
     const l = t.destino.consignacion ? t.destino : t.origen.consignacion ? t.origen : null;
-    const c = l && l.cliente && l.cliente.doc ? ` (${l.cliente.tipo_doc === '1' ? 'DNI' : 'RUC'} ${l.cliente.doc})` : '';
+    const c = l && l.cliente && l.cliente.doc ? ` (${NOMBRE_TIPO_DOC[l.cliente.tipo_doc] || 'Doc.'} ${l.cliente.doc})` : '';
     if (t.destino.consignacion) return `Entrega en consignación a ${t.destino.nombre}${c}`;
     if (t.origen.consignacion) return `Devolución de consignación de ${t.origen.nombre}${c}`;
     return `Transferencia ${t.origen.nombre} → ${t.destino.nombre}`;
@@ -2161,7 +2245,7 @@ module.exports = function ({ app, authAdmin, requiereModulo, prodPool, portalPoo
     catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-  return { _test: { armarComprobante, calcularFacturado, itemsPendientes, tipoDocCliente, sugerirTipo, proveedorNubefact, proveedorApisunat } };
+  return { _test: { armarComprobante, calcularFacturado, itemsPendientes, tipoDocCliente, tipoDocProbable, tipoDocDeERP, sugerirTipo, proveedorNubefact, proveedorApisunat } };
 };
 
-module.exports._test = { armarComprobante, calcularFacturado, itemsPendientes, tipoDocCliente, sugerirTipo, proveedorNubefact, proveedorApisunat, apisunatJSON, nubefactJSON, MOTIVOS_NC };
+module.exports._test = { armarComprobante, calcularFacturado, itemsPendientes, tipoDocCliente, tipoDocProbable, tipoDocDeERP, sugerirTipo, proveedorNubefact, proveedorApisunat, apisunatJSON, nubefactJSON, MOTIVOS_NC };

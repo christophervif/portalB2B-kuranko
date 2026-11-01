@@ -558,9 +558,10 @@ async function abrirEmitir(id) {
   $('me-sub').textContent = `${ME.empresa} · ${ME.moneda === 'USD' ? 'Venta en DÓLARES' + (ME.tipo_cambio ? ' (TC ' + ME.tipo_cambio + ')' : '') + ' · ' : ''}Total ${S(ME.total, ME.moneda)} · Pendiente de comprobante ${S(ME.pendiente, ME.moneda)}`;
   $('me-previos').innerHTML = ME.comprobantes.length ? `<div class="aviso">Ya tiene comprobante(s): ${ME.comprobantes.map(c => `${esc(c.serie)}-${esc(c.numero)} (${S(c.total, ME.moneda)}${c.anticipo ? ', anticipo' : ''}${c.origen === 'erp' ? ', hecho fuera del portal' : ''})`).join(', ')}.${ME.externo > 0 ? ' Marca solo los ítems que faltan.' : ''}</div>` : '';
   const c = ME.cliente;
-  $('me-doc').value = c.doc || ''; $('me-tdoc').value = c.tipo_doc || (c.doc ? '1' : '-'); $('me-doc-fuente').textContent = '';
+  $('me-doc').value = c.doc || ''; $('me-tdoc').value = c.tipo_doc || (c.doc ? (tipoProbable(c.doc) || '1') : '-');
+  $('me-doc-fuente').textContent = ['4', '7'].includes(c.tipo_doc) ? `${c.tipo_doc === '4' ? 'Carné de extranjería' : 'Pasaporte'} ${c.tipo_doc_fuente === 'sistema' ? 'según la ficha del sistema' : 'por el número (revísalo)'}` : '';
   $('me-nombre').readOnly = false; $('me-dir').readOnly = false;
-  { const d0 = String(c.doc || '').replace(/\D/g, ''); if (d0.length === 8 || d0.length === 11) buscarDoc(d0); } // el nombre lo confirma SUNAT
+  { const d0 = String(c.doc || '').replace(/\D/g, ''); if (d0.length === 8 || d0.length === 11) buscarDoc(d0); } // el nombre lo confirma SUNAT (CE/pasaporte: la ficha del sistema)
   $('me-nombre').value = c.nombre || ''; $('me-dir').value = c.direccion || ''; $('me-email').value = c.email || ''; $('me-tel').value = c.telefono || '';
   $('me-fecha').value = ME.hoy; $('me-fecha').min = ME.fecha_min; $('me-fecha').max = ME.hoy;
   $('me-obs').value = 'Venta ' + ME.code;
@@ -649,17 +650,27 @@ function setTipo(t, sinPrevia) {
   ME_TIPO = t;
   ['factura', 'boleta'].forEach(x => { $('me-t-' + x).className = 'btn ' + (x === t ? '' : 'btn-sec'); });
   $('me-credito-box').style.display = t === 'factura' && ME_MODO !== 'anticipo' ? 'flex' : 'none';
+  // La factura solo va con RUC: se bloquean DNI, CE, pasaporte y "sin documento"
+  [...$('me-tdoc').options].forEach(o => { o.disabled = t === 'factura' && o.value !== '6'; });
   if (t === 'factura' && $('me-tdoc').value !== '6') $('me-tdoc').value = '6';
+  else if (t === 'boleta' && $('me-tdoc').value === '6' && String($('me-doc').value).replace(/\D/g, '').length !== 11) $('me-tdoc').value = tipoProbable($('me-doc').value) || '-';
   $('me-btn').textContent = 'Emitir ' + NOMBRE_TIPO[t].toLowerCase();
   const serie = ME.cfg ? (t === 'factura' ? ME.cfg.serie_factura : ME.cfg.serie_boleta) : '';
   $('me-serie').textContent = serie ? 'Serie ' + serie + ' · el número lo asigna el portal al emitir' : '';
   if (!sinPrevia) previa();
 }
+// Tipo por el número: 11 = RUC, 8 = DNI, 9 a 12 dígitos = carné de extranjería, con letras = pasaporte
+function tipoProbable(v) {
+  const s = String(v || '').replace(/[\s-]/g, ''), d = s.replace(/\D/g, '');
+  if (/^\d+$/.test(s)) { if (d.length === 11 && /^(10|15|16|17|20)/.test(d)) return '6'; if (d.length === 8) return '1'; if (d.length >= 9 && d.length <= 12) return '4'; }
+  else if (/^[A-Za-z0-9]{6,15}$/.test(s)) return '7';
+  return '';
+}
 function autoTipoDoc() {
-  const d = $('me-doc').value.replace(/\D/g, '');
-  if (d.length === 11) $('me-tdoc').value = '6'; else if (d.length === 8 && ['6', '-', ''].includes($('me-tdoc').value)) $('me-tdoc').value = '1';
+  const v = $('me-doc').value.trim(), t = tipoProbable(v);
+  if (ME_TIPO !== 'factura' && t) $('me-tdoc').value = t; else if (ME_TIPO === 'factura') $('me-tdoc').value = '6';
   $('me-nombre').readOnly = false; $('me-dir').readOnly = false;
-  if (d.length === 8 || d.length === 11) buscarDoc(d);
+  if (t) buscarDoc(v.replace(/[\s-]/g, ''));
 }
 // Nombre (y dirección) del RUC/DNI: de la ficha del sistema o de SUNAT
 let tDoc = null;
@@ -667,12 +678,14 @@ function buscarDoc(d) {
   clearTimeout(tDoc);
   tDoc = setTimeout(async () => {
     try {
-      const r = await api('/api/fe/documento/' + d);
-      if ($('me-doc').value.replace(/\D/g, '') !== d) return;
+      const r = await api('/api/fe/documento/' + encodeURIComponent(d));
+      if ($('me-doc').value.trim().replace(/[\s-]/g, '') !== d) return;
+      if (r.tipo_doc && ME_TIPO !== 'factura') $('me-tdoc').value = r.tipo_doc; // la ficha del sistema dice qué documento es
       if (r.nombre) { $('me-nombre').value = r.nombre; if (r.direccion) $('me-dir').value = r.direccion; if (r.email && !$('me-email').value) $('me-email').value = r.email; }
       const sunat = r.fuente === 'SUNAT';
       $('me-nombre').readOnly = sunat; if (sunat && r.direccion && r.tipo_doc === '6') $('me-dir').readOnly = true;
-      $('me-doc-fuente').textContent = r.nombre ? (sunat ? `✓ SUNAT${r.estado ? ' · ' + r.estado + (r.condicion ? ' / ' + r.condicion : '') : ''}` : 'del sistema (SUNAT no respondió)') : 'no encontrado: escribe el nombre';
+      const ce = ['4', '7'].includes(r.tipo_doc);
+      $('me-doc-fuente').textContent = r.nombre ? (sunat ? `✓ SUNAT${r.estado ? ' · ' + r.estado + (r.condicion ? ' / ' + r.condicion : '') : ''}` : (ce ? 'del sistema (SUNAT no consulta CE ni pasaporte)' : 'del sistema (SUNAT no respondió)')) : 'no encontrado: escribe el nombre';
       previaLenta();
     } catch (e) { $('me-doc-fuente').textContent = ''; }
   }, 350);
@@ -785,7 +798,7 @@ function pintarLote() {
     const bloq = x.res && x.res.ok ? 'disabled' : '';
     return `<tr><td class="mono">${esc(x.v.code)}</td><td>
       <input style="width:100%;padding:4px 7px;font-size:12px" placeholder="Nombre o razón social" value="${esc(x.nombre)}" ${bloq || (x.sunat ? 'readonly title="Nombre según SUNAT"' : '')} oninput="LOTE[${i}].nombre=this.value">${x.sunat ? '<div class="sub">✓ SUNAT</div>' : ''}
-      <input class="mono" style="margin-top:4px;width:140px;padding:4px 7px;font-size:12px" placeholder="RUC o DNI" value="${esc(x.doc)}" ${bloq} onchange="docLote(${i}, this.value)">
+      <input class="mono" style="margin-top:4px;width:140px;padding:4px 7px;font-size:12px" placeholder="RUC, DNI o CE" value="${esc(x.doc)}" ${bloq} onchange="docLote(${i}, this.value)">
       ${x.aviso ? `<div class="sub" style="color:var(--fg-warn)">${esc(x.aviso)}</div>` : ''}</td>
       <td class="n">${S(x.v.pendiente, x.v.moneda)}</td>
       <td><select ${x.res ? 'disabled' : ''} onchange="LOTE[${i}].tipo=this.value"><option value="boleta" ${x.tipo === 'boleta' ? 'selected' : ''}>Boleta</option><option value="factura" ${x.tipo === 'factura' ? 'selected' : ''} ${sinRuc || x.v.solo_boletas ? 'disabled' : ''}>Factura${x.v.solo_boletas ? ' (Nuevo RUS: no)' : ''}</option></select></td>
@@ -795,12 +808,12 @@ function pintarLote() {
   $('ml-resumen').textContent = `${LOTE.length} comprobante(s) · ${SM(LOTE.map(x => x.v), v => v.pendiente)}`;
 }
 async function docLote(i, val) {
-  const x = LOTE[i], d = String(val || '').replace(/\D/g, '');
+  const x = LOTE[i], v0 = String(val || '').trim().replace(/[\s-]/g, ''), d = /^\d+$/.test(v0) ? v0 : v0.toUpperCase();
   x.doc = d; x.aviso = '';
   if (d !== (x.v.cliente.doc || '')) {
     x.nombre = ''; x.sunat = false;
-    if (d.length === 8 || d.length === 11) {
-      try { const r = await api('/api/fe/documento/' + d); if (r.nombre) { x.nombre = r.nombre; x.sunat = r.fuente === 'SUNAT'; } } catch (e) {}
+    if (tipoProbable(d)) {
+      try { const r = await api('/api/fe/documento/' + encodeURIComponent(d)); if (r.nombre) { x.nombre = r.nombre; x.sunat = r.fuente === 'SUNAT'; } } catch (e) {}
     }
     if (!x.nombre) x.aviso = 'No encontrado: escribe el nombre o razón social';
   } else x.nombre = x.v.cliente.nombre || '';
@@ -858,6 +871,7 @@ function pintarEM(EM, body) {
       c.erp_estado === 'registrado' ? `<span class="chip c-ok">Registrado</span>${c.erp_por === 'ya estaba en el sistema' ? '<div class="sub">ya estaba anotado</div>' : ''}` :
       c.tipo === 'nc' && c.erp_estado === 'pendiente' ? `<span class="chip c-w" title="${esc(c.erp_error || '')}">Espera anulación</span>` :
       c.erp_estado === 'error' ? `<span class="chip c-r" title="${esc(c.erp_error)}">Error</span>` :
+      c.erp_estado === 'retirado' ? `<span class="chip c-g" title="${esc(c.erp_error || '')}">Quitado del sistema</span>` :
       ['aceptado', 'pendiente_sunat'].includes(c.estado) ? '<span class="chip c-w">Por anotar</span>' : '<span class="sub">—</span>';
     const acc = [];
     if (c.enlace_pdf) acc.push(`<a class="lnk" target="_blank" href="${esc(c.enlace_pdf)}">PDF</a>`);

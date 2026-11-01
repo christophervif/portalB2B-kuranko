@@ -105,7 +105,7 @@ const MODELO_IA = limpiarModelo(process.env.COTIZADOR_MODELO_IA) || 'gemini-3.6-
 // Modelo en uso: empieza en MODELO_IA (3.6 por defecto); puede cambiarlo el maestro desde la página
 // o aprenderse solo si Google sugiere otro. Vive en memoria (vuelve a MODELO_IA al reiniciar).
 let modeloActual = MODELO_IA;
-const INTERNET_TTL = 7 * 24 * 60 * 60 * 1000;   // cada producto se vuelve a buscar como máximo 1 vez por semana
+const INTERNET_TTL = 30 * 24 * 60 * 60 * 1000;   // un producto con precios encontrados no se vuelve a buscar en 30 días (queda guardado en la base)
 const INTERNET_TTL_FALLA = 6 * 60 * 60 * 1000;  // si no encontró nada, reintenta en 6 h
 
 function comparar(precio, ref) {
@@ -217,8 +217,8 @@ function distancia(a, b, max) {
 const tolerancia = len => len <= 3 ? 0 : len <= 5 ? 1 : 2;
 
 // Qué tan bien una palabra buscada calza con las palabras del producto (0..1)
-function puntajePalabra(q, palabras, compactoItem) {
-  const alternativas = SIN_MAP[q];
+function puntajePalabra(q, palabras, compactoItem, usarSinonimos = true) {
+  const alternativas = usarSinonimos ? SIN_MAP[q] : null;
   if (alternativas) {
     // un sinónimo exacto vale casi como la palabra original
     for (const alt of alternativas) if (alt !== q && palabras.includes(alt)) return 0.95;
@@ -242,7 +242,7 @@ function puntajePalabra(q, palabras, compactoItem) {
   return mejor;
 }
 
-function puntuar(consulta, item) {
+function puntuar(consulta, item, usarSinonimos = true) {
   const qComp = compacto(consulta);
   if (!qComp) return 0;
   // 1) SKU: exacto o contenido (ignorando guiones/espacios)
@@ -255,7 +255,7 @@ function puntuar(consulta, item) {
   if (!qs.length) return sku;
   let suma = 0, fallas = 0;
   for (const q of qs) {
-    const p = puntajePalabra(q, item._pal, item._comp);
+    const p = puntajePalabra(q, item._pal, item._comp, usarSinonimos);
     if (p < 0.5) fallas++;
     suma += p;
   }
@@ -304,19 +304,19 @@ module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, p
   const mCot = requiereModulo('cotizador');
 
   // ── Catálogo en caché: variantes vendibles + stock por almacén + empresa ──
-  let _cat = null, _catAt = 0, _cargando = null;
+  let _cat = null, _catAt = 0, _cargando = null, _arbol = [];
   async function catalogo(forzar) {
     if (!forzar && _cat && Date.now() - _catAt < CAT_TTL) return _cat;
     if (_cargando) return _cargando;
     _cargando = (async () => {
       const [prods] = await prodPool.query(`
-        SELECT pv.id AS vid, TRIM(pv.sku) AS sku, pv.name AS variacion,
+        SELECT pv.id AS vid, TRIM(pv.sku) AS sku, pv.name AS variacion, pv.status AS estado,
           pv.regular_price, pv.sale_price, pv.product_id AS pid, p.name AS producto
         FROM product_variations pv
         LEFT JOIN products p ON p.id = pv.product_id
         WHERE pv.deleted_at IS NULL AND (p.id IS NULL OR p.deleted_at IS NULL)
           AND COALESCE(pv.product_type,'') <> 'variable'
-          AND (pv.status IS NULL OR pv.status = 'active')`);
+          AND (pv.status IS NULL OR pv.status IN ('active','draft','discontinued'))`);
 
       const [stock] = await prodPool.query(`
         SELECT ls.product_variation_id AS vid, l.id AS loc_id, l.name AS almacen, l.type AS tipo,
@@ -358,10 +358,10 @@ module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, p
       });
 
       // Categorías por producto (para clasificar bicicleta / componente / ropa / consumible)
-      const catMap = {}, catHijas = {}, catTodas = {};
+      const catMap = {}, catHijas = {}, catTodas = {}, catIds = {}, arbol = new Map();
       try {
         const [cats] = await prodPool.query(`
-          SELECT ppc.product_id AS pid, c.name AS cat, padre.name AS padre
+          SELECT ppc.product_id AS pid, c.id AS cat_id, c.name AS cat, c.parent_id AS padre_id, padre.name AS padre
           FROM product_product_category ppc
           JOIN product_categories c ON c.id = ppc.product_category_id
           LEFT JOIN product_categories padre ON padre.id = c.parent_id`);
@@ -370,6 +370,10 @@ module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, p
           (catHijas[r.pid] = catHijas[r.pid] || new Set()).add(r.cat);
           (catTodas[r.pid] = catTodas[r.pid] || new Set()).add(r.cat);
           if (r.padre) catTodas[r.pid].add(r.padre);
+          // ids: si la categoría tiene padre → (padre, sub); si no → es categoría principal
+          const ids = catIds[r.pid] = catIds[r.pid] || new Set();
+          if (r.padre_id) { ids.add('c' + r.padre_id); ids.add('s' + r.cat_id); arbol.set(r.padre_id, arbol.get(r.padre_id) || { id: r.padre_id, nombre: r.padre, subs: new Map() }); arbol.get(r.padre_id).subs.set(r.cat_id, r.cat); }
+          else { ids.add('c' + r.cat_id); if (!arbol.has(r.cat_id)) arbol.set(r.cat_id, { id: r.cat_id, nombre: r.cat, subs: new Map() }); }
         });
       } catch (e) { console.warn('[cotizador] no se pudieron leer categorías:', e.message); }
 
@@ -431,6 +435,7 @@ module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, p
         return {
           imagen: imgVar[p.vid] || imgProd[p.pid] || null,
           web_url: linkWeb(p.vid, p.pid),
+          estado: p.estado === 'draft' ? 'borrador' : p.estado === 'discontinued' ? 'descontinuado' : 'activo',
           // marca = primer tramo del nombre ("100% - Casco - …" → "100%"; "Magura - Freno - …" → "Magura")
           marca: String(p.producto || nombre).split(' - ')[0].trim() || null,
           categorias_lista: [...(catHijas[p.pid] || [])],
@@ -458,15 +463,19 @@ module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, p
           lote_mas_nuevo: (antMap[p.vid] || {}).nuevo || null,
           _sku: compacto(p.sku), _pal: tokens(nombre + ' ' + (p.producto || '')), _comp: compacto(nombre),
           _cats: new Set([...(catTodas[p.pid] || [])].map(normalizar)),
+          _catIds: catIds[p.pid] || new Set(),
           _marca: normalizar(String(p.producto || nombre).split(' - ')[0])
         };
       });
+      _arbol = [...arbol.values()].map(c => ({ id: c.id, nombre: c.nombre,
+          subs: [...c.subs].map(([id, nombre]) => ({ id, nombre })).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es')) }))
+        .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
       _catAt = Date.now();
       return _cat;
     })();
     try { return await _cargando; } finally { _cargando = null; }
   }
-  const publico = ({ _sku, _pal, _comp, _cats, _marca, _costo_ultimo, _fecha_ultima_compra, _costo, ...x }) => x;
+  const publico = ({ _sku, _pal, _comp, _cats, _catIds, _marca, _costo_ultimo, _fecha_ultima_compra, _costo, ...x }) => x;
 
   // ── Costo FIFO de las N unidades más antiguas ─────────────────────────────
   async function precioMinimo(vid, cantidad) {
@@ -496,74 +505,140 @@ module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, p
       lote_mas_antiguo: lotes.length ? lotes[0].entry_date : null, lotes: usados };
   }
 
-  // GET /api/cotizador/buscar?q=…&categoria=…&marca=…&solo_stock=1
-  //  · SKU exacto (sin importar guiones/espacios) → solo ese producto.
-  //  · Nombre → deben calzar TODAS las palabras (tolera errores pequeños y sinónimos).
-  //    Si no hay ninguno, se intenta una búsqueda aproximada y se avisa.
-  //  · Sin texto pero con categoría o marca → lista todo lo de ese filtro.
+  // ── Mercadería en camino (base del PORTAL, solo lectura) ───────────────────
+  //  · Seguimiento (seg_envios): envíos no recibidos ni archivados → "en camino", con su ETA.
+  //  · Recepciones (imp_recepciones) pendientes/borrador → "en recepción" (llegó, falta ingresar),
+  //    salvo que su N° de factura siga en un envío no recibido (no se cuenta dos veces).
+  //  Mapa por SKU normalizado → { cant, eta, detalle: [{tipo, cant, eta, ref, para_clientes}] }. Caché 5 min.
+  let _camino = null, _caminoAt = 0;
+  async function enCamino() {
+    if (_camino && Date.now() - _caminoAt < 5 * 60 * 1000) return _camino;
+    const mapa = new Map();
+    const agregar = (sku, d) => {
+      const k = compacto(sku); if (!k || !(d.cant > 0)) return;
+      const e = mapa.get(k) || { cant: 0, eta: null, detalle: [] };
+      e.cant += d.cant; e.detalle.push(d);
+      if (d.eta && (!e.eta || d.eta < e.eta)) e.eta = d.eta;
+      mapa.set(k, e);
+    };
+    const json = v => { if (v == null) return []; if (typeof v === 'object') return v; try { return JSON.parse(v); } catch (e) { return []; } };
+    const dia = v => v ? (v instanceof Date ? v.toISOString() : String(v)).slice(0, 10) : null;
+    const facturasEnCamino = new Set();
+    if (cfgPool) {
+      try {
+        const [envs] = await cfgPool.query(`SELECT proveedor, n_factura, estado, fase, eta, fecha_estimada, items
+          FROM seg_envios WHERE archivado = 0 AND estado <> 'recibido' AND fase <> 'recibido'`);
+        envs.forEach(e => {
+          if (e.n_factura) facturasEnCamino.add(normalizar(e.n_factura));
+          const eta = dia(e.eta) || dia(e.fecha_estimada);
+          const ref = [e.proveedor, e.n_factura].filter(Boolean).join(' · ');
+          json(e.items).forEach(it => agregar(it.sku, { tipo: 'camino', cant: Number(it.cantidad) || 0, eta, ref, para_clientes: it.es_backorder ? (Number(it.cantidad) || 0) : 0 }));
+        });
+      } catch (e) { console.warn('[cotizador] en camino (seguimiento):', e.message); }
+      try {
+        const [recs] = await cfgPool.query(`SELECT proveedor, n_factura, codigo, items FROM imp_recepciones
+          WHERE estado IN ('pendiente','borrador') AND COALESCE(archivada,0) = 0`).catch(async () =>
+          cfgPool.query(`SELECT proveedor, n_factura, '' AS codigo, items FROM imp_recepciones WHERE estado IN ('pendiente','borrador')`));
+        recs.forEach(r => {
+          if (r.n_factura && facturasEnCamino.has(normalizar(r.n_factura))) return;
+          const ref = [r.codigo || r.proveedor, r.n_factura].filter(Boolean).join(' · ');
+          json(r.items).forEach(it => {
+            const cant = it.cant_recibida != null ? Number(it.cant_recibida) : Number(it.cantidad) || 0;
+            agregar(it.sku_confirmado || it.sku_sugerido, { tipo: 'recepcion', cant, eta: null, ref, para_clientes: 0 });
+          });
+        });
+      } catch (e) { console.warn('[cotizador] en camino (recepciones):', e.message); }
+    }
+    _camino = mapa; _caminoAt = Date.now();
+    return mapa;
+  }
+
+  // GET /api/cotizador/buscar?q=…&categoria=<id>&subcategoria=<id>&marca=…&solo_stock=1
+  //  · SKU exacto (sin importar guiones/espacios/mayúsculas) → solo ese producto.
+  //  · Nombre → deben calzar TODAS las palabras, en cualquier orden; tolera errores de tipeo
+  //    (1 letra en palabras de 4–5, 2 en 6 o más; las de ≤3 letras van exactas). Sin sinónimos.
+  //  · Parece SKU y no existe → SKUs parecidos. Nada → búsqueda aproximada.
+  //  · Sin texto pero con categoría/subcategoría/marca → todo lo del filtro.
+  //  · Si "solo con stock" deja 0, se informa cuántos hay sin stock (sin_stock_ocultos).
   app.get('/api/cotizador/buscar', authAdmin, mCot, async (req, res) => {
     try {
       const q = String(req.query.q || '').trim().slice(0, 80);
-      const fCat = normalizar(req.query.categoria || ''), fMarca = normalizar(req.query.marca || '');
+      const fCat = parseInt(req.query.categoria, 10) || 0, fSub = parseInt(req.query.subcategoria, 10) || 0;
+      const fMarca = normalizar(req.query.marca || '');
       const soloStock = req.query.solo_stock === '1';
-      const LIM = 120;
+      const LIM = 150;
       const cat = await catalogo(req.query.fresh === '1');
-      const pasa = it => (!soloStock || it.stock_total > 0) && (!fCat || it._cats.has(fCat)) && (!fMarca || it._marca === fMarca);
-      const salida = (lista, modo, mensaje) => res.json({ modo, mensaje: mensaje || null, total: lista.length,
-        items: lista.slice(0, LIM).map(publico), actualizado: new Date(_catAt).toISOString() });
+      const camino = await enCamino();
+      const enFiltro = it => (!fCat || it._catIds.has('c' + fCat)) && (!fSub || it._catIds.has('s' + fSub)) && (!fMarca || it._marca === fMarca);
+      const conStock = it => !soloStock || it.stock_total > 0;
+      const salida = (lista, modo, mensaje, ocultos) => res.json({ modo, mensaje: mensaje || null, total: lista.length,
+        sin_stock_ocultos: ocultos || 0,
+        items: lista.slice(0, LIM).map(it => {
+          const c = camino.get(it._sku);
+          return { ...publico(it), en_camino: c ? { cant: c.cant, eta: c.eta, detalle: c.detalle } : null };
+        }),
+        actualizado: new Date(_catAt).toISOString() });
       const porStock = (a, b) => b.stock_total - a.stock_total || a.nombre.localeCompare(b.nombre);
+      // separa con / sin stock para avisar cuántos quedaron ocultos
+      const partir = arr => { const si = arr.filter(conStock); return [si, arr.length - si.length]; };
 
       if (q.length < 2) {
-        if (!fCat && !fMarca) return salida([], 'vacio');
-        return salida(cat.filter(pasa).sort(porStock), 'filtro');
+        if (!fCat && !fSub && !fMarca) return salida([], 'vacio');
+        const [si, ocultos] = partir(cat.filter(enFiltro).sort(porStock));
+        return salida(si, 'filtro', null, si.length ? 0 : ocultos);
       }
-      // 1) SKU exacto (se muestra aunque no tenga stock o no esté en el filtro)
+      // 1) SKU exacto (aunque no tenga stock ni esté en el filtro)
       const qComp = compacto(q);
       const exactos = cat.filter(it => it._sku && it._sku === qComp);
       if (exactos.length) return salida(exactos, 'sku');
-      // 2) Nombre estricto: todas las palabras
-      const qs = tokens(q).filter(t => !(t.length === 1 && /[a-z]/.test(t)));
+      // 2) Nombre: todas las palabras, cualquier orden, con tolerancia a errores de tipeo
+      // letras sueltas (tallas S, M, L…) deben ser una palabra exacta del nombre
+      const qs = tokens(q);
       const estrictos = [];
       if (qs.length) for (const it of cat) {
-        if (!pasa(it)) continue;
+        if (!enFiltro(it)) continue;
         let suma = 0, ok = true;
-        for (const t of qs) { const p = puntajePalabra(t, it._pal, it._comp); if (p < 0.5) { ok = false; break; } suma += p; }
+        for (const t of qs) {
+          const p = t.length === 1 ? (it._pal.includes(t) ? 1 : 0) : puntajePalabra(t, it._pal, it._comp, false);
+          if (p < 0.5) { ok = false; break; } suma += p;
+        }
         if (ok) estrictos.push([suma / qs.length, it]);
       }
       if (estrictos.length) {
         estrictos.sort((a, b) => b[0] - a[0] || porStock(a[1], b[1]));
-        return salida(estrictos.map(x => x[1]), 'nombre');
+        const [si, ocultos] = partir(estrictos.map(x => x[1]));
+        if (si.length || ocultos) return salida(si, 'nombre', null, si.length ? 0 : ocultos);
       }
-      // 3) Parece un SKU que no existe → SKUs parecidos (un carácter de diferencia o mismo inicio)
+      // 3) Parece un SKU que no existe → SKUs parecidos
       const pareceSku = !/\s/.test(q) && /\d/.test(q) && /[a-z]/i.test(q) && qComp.length >= 6;
       if (pareceSku) {
         const par = cat.filter(it => it._sku && (it._sku.startsWith(qComp.slice(0, -2)) || distancia(qComp, it._sku, 1) <= 1)).sort(porStock);
         return salida(par.slice(0, 20), 'sku_parecidos', par.length ? 'No existe ese SKU exacto. SKUs parecidos:' : 'No existe ese SKU.');
       }
-      // 4) Aproximada (antes era la única): solo si la estricta no encontró nada
+      // 4) Aproximada: solo si lo anterior no encontró nada
       const aprox = [];
       for (const it of cat) {
-        if (!pasa(it)) continue;
-        const sc = puntuar(q, it);
+        if (!enFiltro(it)) continue;
+        const sc = puntuar(q, it, false);
         if (sc >= 30) aprox.push([sc, it]);
       }
       aprox.sort((a, b) => b[0] - a[0] || porStock(a[1], b[1]));
-      return salida(aprox.map(x => x[1]).slice(0, 30), 'aproximado',
-        aprox.length ? 'No hay productos con todas esas palabras; estos son los más parecidos.' : null);
+      const [si, ocultos] = partir(aprox.map(x => x[1]).slice(0, 30));
+      return salida(si, 'aproximado', si.length ? 'No hay productos con todas esas palabras; estos son los más parecidos.' : null, si.length ? 0 : ocultos);
     } catch (e) { console.error('[cotizador] buscar', e.message); res.status(500).json({ error: 'No se pudo buscar: ' + e.message }); }
   });
 
-  // GET /api/cotizador/filtros → categorías y marcas para los desplegables
+  // GET /api/cotizador/filtros → árbol Categoría → Subcategorías (solo las que tienen productos) y marcas
   app.get('/api/cotizador/filtros', authAdmin, mCot, async (req, res) => {
     try {
       const cat = await catalogo();
-      const cats = new Map(), marcas = new Map();
-      cat.forEach(it => {
-        (it.categorias_lista || []).forEach(c => { if (c) cats.set(normalizar(c), c); });
-        if (it.marca) marcas.set(it._marca, it.marca);
-      });
-      const ord = m => [...m.values()].sort((a, b) => a.localeCompare(b, 'es'));
-      res.json({ categorias: ord(cats), marcas: ord(marcas) });
+      const marcas = new Map();
+      cat.forEach(it => { if (it.marca) marcas.set(it._marca, it.marca); });
+      // almacenes con stock en todo el catálogo (para la opción "mostrar todos" de las columnas)
+      const alms = new Map();
+      cat.forEach(it => (it.almacenes || []).forEach(x => { if (x.cantidad > 0 && !alms.has(x.almacen)) alms.set(x.almacen, x.grupo); }));
+      res.json({ categorias: _arbol, marcas: [...marcas.values()].sort((a, b) => a.localeCompare(b, 'es')),
+        almacenes: [...alms].map(([nombre, grupo]) => ({ nombre, grupo })) });
     } catch (e) { res.status(500).json({ error: 'No se pudieron leer los filtros: ' + e.message }); }
   });
 
@@ -631,6 +706,10 @@ module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, p
         precio_minimo: r.precio_minimo,
         precio_sugerido: sug ? sug.precio : null, sugerido: sug, edad_dias: r.edad_dias,
         vendido, comparacion,
+        // Otras variantes del mismo producto (tallas / colores), con su stock
+        hermanos: it && it.pid ? (await catalogo()).filter(h => h.pid === it.pid && h.vid !== it.vid)
+          .map(h => ({ vid: h.vid, sku: h.sku, nombre: h.nombre, stock_total: h.stock_total, estado: h.estado }))
+          .sort((a, b) => (b.stock_total > 0) - (a.stock_total > 0) || a.nombre.localeCompare(b.nombre)).slice(0, 40) : [],
         insuficiente: r.insuficiente, unidades_con_costo: r.unidades_con_costo,
         sin_costo: r.sin_costo, lote_mas_antiguo: r.lote_mas_antiguo,
         descuento_max_pct: base > 0 && r.precio_minimo
@@ -652,6 +731,33 @@ module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, p
   // se multiplica × 1.18 (IGV) para compararlo con nuestro precio. Las tiendas de
   // TIENDAS_OCULTAS nunca se muestran. Resultado en memoria por producto (1 semana).
   const _inet = new Map(), _inetEnCurso = new Map();
+  // Respaldo en la base del portal (tabla cotizador_inet): así un reinicio de Railway no
+  // vuelve a gastar la cuota de la IA en productos ya consultados.
+  let _inetTabla = null;
+  function inetTabla() {
+    if (!cfgPool) return Promise.resolve(false);
+    if (!_inetTabla) _inetTabla = cfgPool.query(`CREATE TABLE IF NOT EXISTS cotizador_inet (
+        vid INT PRIMARY KEY, datos JSON NOT NULL, consultado_en DATETIME NOT NULL)`).then(() => true)
+      .catch(e => { console.warn('[cotizador] tabla cotizador_inet:', e.message); _inetTabla = null; return false; });
+    return _inetTabla;
+  }
+  async function inetGuardado(vid) {
+    try {
+      if (!(await inetTabla())) return null;
+      const [[r]] = await cfgPool.query(`SELECT datos, consultado_en FROM cotizador_inet WHERE vid = ?`, [vid]);
+      if (!r) return null;
+      const t = new Date(r.consultado_en).getTime();
+      if (!(Date.now() - t < INTERNET_TTL)) return null;
+      return { t, data: typeof r.datos === 'string' ? JSON.parse(r.datos) : r.datos };
+    } catch (e) { return null; }
+  }
+  async function inetGuardar(vid, r) {
+    try {
+      if (!(await inetTabla())) return;
+      await cfgPool.query(`INSERT INTO cotizador_inet (vid, datos, consultado_en) VALUES (?, ?, ?)
+        ON DUPLICATE KEY UPDATE datos = VALUES(datos), consultado_en = VALUES(consultado_en)`, [vid, JSON.stringify(r.data), new Date(r.t)]);
+    } catch (e) { console.warn('[cotizador] guardar precio de internet:', e.message); }
+  }
   async function buscarInternet(it) {
     const key = process.env.GEMINI_API_KEY;
     if (!key) return { disponible: false, motivo: 'Falta GEMINI_API_KEY en el servidor' };
@@ -770,6 +876,7 @@ Si no encuentras nada, responde {"resultados":[]}.`;
       const it = (await catalogo()).find(x => x.vid === vid);
       if (!it) return res.status(404).json({ error: 'Producto no encontrado' });
       let r = _inet.get(vid);
+      if (!r) { const g = await inetGuardado(vid); if (g) { r = g; _inet.set(vid, r); } }
       const vigente = r && (Date.now() - r.t) < (r.data.resumen ? INTERNET_TTL : INTERNET_TTL_FALLA);
       const pideRecarga = req.query.fresh === '1' && (!r || !r.data.resumen || (req.admin && req.admin.maestro))
         && (!r || Date.now() - (r.intento || r.t) > 15000);
@@ -785,6 +892,7 @@ Si no encuentras nada, responde {"resultados":[]}.`;
             saturado: !!e.saturado, cuota: !!e.cuota, modelo_sugerido: e.modelo_sugerido || null } };
         }
         if (r.data.disponible !== false) _inet.set(vid, r);
+        if (r.data.resumen) inetGuardar(vid, r);   // solo los que encontraron precios
       }
       const d = r.data;
       const normal = it.precio_normal;

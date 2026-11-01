@@ -1440,8 +1440,8 @@ function renderSavedList(){
       if(!kg){const dua=r.state&&r.state.dua;if(dua){kg=(+_dnum(dua.header&&dua.header['Peso Bruto KG']))||sum((dua.series||[]).map(s=>+_dnum(s['PESO BRUTO KG'])))||sum((dua.series||[]).map(s=>+(s.peso)||0));}}
       const fleteKg=(kg>0)?((+tt.costoFleteSoles||0)/kg):null;
       return `<tr><td>${r.n}</td><td>${esc(r.tipo)}${r.tipo==='Compra'?' <span class="badge b-exact">real</span>':' <span class="badge b-rev">teórico</span>'}</td><td>${esc(r.nombre)}</td><td>${esc((r.meta.proveedorNombre||r.meta.proveedor||'').split('(')[0])}</td><td>${esc(r.meta.numImp||'')}</td><td class="n">${n2(costoTotal)}</td><td class="n">${n2(tt.costoFleteSoles)}</td><td class="n">${n2(tt.costoLogisticoTotal)}</td><td class="n" title="${kg>0?('flete '+n2(tt.costoFleteSoles)+' S/ ÷ '+n2(kg)+' kg (bruto)'):'sin peso registrado'}">${fleteKg==null?'—':n2(fleteKg)}</td><td class="nm">${esc(r.savedAt)}</td>
-      <td class="nm"><span class="erp-chk" data-refs="${esc(_refCands(r).join('|'))}"><span class="hint">…</span></span></td>
-      <td style="white-space:nowrap"><button class="btn-sm" onclick="cargarImportacion('${r.id}')">Cargar</button> <button class="btn-sm" onclick="exportImportExcel('${r.id}')">Excel</button> <button class="btn-sm" onclick="exportIngresoSaved('${r.id}')">Ingreso</button> <button class="btn-sm" title="Revisa que lo subido al ERP coincida con el Excel «Ingreso»: productos, cantidades, costos y almacén" onclick="verificarErp('${r.id}')">🔎 vs ERP</button> ${(r.state&&r.state.dua&&((r.state.dua.series&&r.state.dua.series.length)||r.state.dua.header))?`<button class="btn-sm" onclick="exportDuaSaved('${r.id}')">DUA</button> `:''}<button class="btn-sm" onclick="exportImportPDF('${r.id}')">PDF</button> <span class="btn-del" onclick="eliminarImportacion('${r.id}')">✕</span></td></tr>`;}).join('')+'</tbody></table></div>'
+      <td class="nm"><span class="erp-chk" data-id="${esc(r.id)}" data-refs="${esc(_refCands(r).join('|'))}"><span class="hint">…</span></span></td>
+      <td style="white-space:nowrap"><button class="btn-sm" onclick="cargarImportacion('${r.id}')">Cargar</button> <button class="btn-sm" onclick="exportImportExcel('${r.id}')">Excel</button> <button class="btn-sm" onclick="exportIngresoSaved('${r.id}')">Ingreso</button> ${(r.state&&r.state.dua&&((r.state.dua.series&&r.state.dua.series.length)||r.state.dua.header))?`<button class="btn-sm" onclick="exportDuaSaved('${r.id}')">DUA</button> `:''}<button class="btn-sm" onclick="exportImportPDF('${r.id}')">PDF</button> <span class="btn-del" onclick="eliminarImportacion('${r.id}')">✕</span></td></tr>`;}).join('')+'</tbody></table></div>'
       +'<div class="actions" style="margin-top:8px"><button class="btn-sm" onclick="exportResumenGeneral()">⬇ Exportar tabla general (resumen + detalle)</button></div>';
   marcarSubidasERP();
 }
@@ -1466,7 +1466,15 @@ function _erpPinta(s){
   let visto=false, hit=null;
   for(const c of cands){ if(c in _erpChk){ visto=true; if(_erpChk[c]){ hit=_erpChk[c]; break; } } }
   if(!visto) return false;
-  if(hit) s.innerHTML='<span style="display:inline-block;background:#16a34a;color:#fff;border-radius:10px;padding:2px 9px;font-size:12px;font-weight:800;box-shadow:0 1px 3px rgba(22,163,74,.4)" title="Ya registrada en el ERP de Renzo (tabla '+esc(hit.tabla||'')+', campo '+esc(hit.campo||'')+', ingreso #'+esc(hit.entry_id)+')">✓ Subida</span>';
+  if(hit){
+    // Subida: además se revisa sola contra el Excel «Ingreso» (una vez; si coincide queda guardado)
+    const rec=saved.find(x=>x.id===s.dataset.id), v=rec&&rec.erpVerif;
+    const base='display:inline-block;border-radius:10px;padding:2px 9px;font-size:12px;font-weight:800;';
+    const tt='Registrada en el ERP (ingreso #'+esc(hit.entry_id)+')';
+    if(v&&v.ok) s.innerHTML='<span style="'+base+'background:#16a34a;color:#fff" title="'+tt+'. Revisada '+esc(v.at||'')+': productos, cantidades y costos iguales al Excel «Ingreso».">✓ Subida y coincide</span>';
+    else if(v&&v.ok===false) s.innerHTML='<span style="'+base+'background:#dc2626;color:#fff;cursor:pointer" title="'+tt+'. Clic para ver las diferencias con el Excel «Ingreso»." onclick="verificarErp(\''+esc(s.dataset.id)+'\')">⚠ Subida · '+v.n+' dif.</span>';
+    else{ s.innerHTML='<span style="'+base+'background:#16a34a;color:#fff;opacity:.75" title="'+tt+'. Revisando contra el Excel «Ingreso»…">✓ Subida · revisando…</span>'; if(rec)_erpVerifEncolar(rec); }
+  }
   else s.innerHTML='<span style="display:inline-block;background:#e2e8f0;color:#475569;border-radius:10px;padding:2px 9px;font-size:12px;font-weight:600" title="Aún no aparece en el ERP de Renzo">Pendiente</span>';
   return true;
 }
@@ -1817,6 +1825,35 @@ function _filasIngreso(rec){
   return _ingresoRows(r,ctx).map(row=>({sku:row[ix('Código')],cantidad:num(row[ix('Cantidad')]),almacen:row[ix('destino')],
     costo:num(row[ix('Costo real sin impuesto deducible soles UNITARIO')]),costo_con:num(row[ix('Costo real soles UNITARIO')])}));
 }
+// Revisión automática ERP vs Excel para las importaciones subidas (en cola, de a una).
+// "Coincide" se guarda en la importación (rec.erpVerif) y ya no se vuelve a revisar;
+// si hay diferencias se vuelve a revisar al abrir la lista (por si ya se corrigió en el ERP).
+const _erpCola=[];let _erpCorriendo=false;const _erpRevisadas=new Set();
+function _erpVerifEncolar(rec){ if(_erpRevisadas.has(rec.id)||_erpCola.includes(rec.id))return; _erpCola.push(rec.id); _erpVerifCorrer(); }
+async function _erpVerifCorrer(){
+  if(_erpCorriendo)return;_erpCorriendo=true;
+  try{
+    while(_erpCola.length){
+      const id=_erpCola.shift(),rec=saved.find(x=>x.id===id);if(!rec)continue;
+      _erpRevisadas.add(id);
+      try{
+        const d=await _erpVerifDatos(rec);
+        if(d&&d.encontrada){
+          const n=d.diferencias.length+(d.avisos||[]).length;
+          rec.erpVerif={ok:n===0,n,at:new Date().toLocaleString('es-PE',{timeZone:'America/Lima'}),entradas:d.entradas.map(e=>e.id)};
+          if(n===0)persistOne(rec); // queda guardado: no se vuelve a revisar
+        }
+      }catch(e){ console.warn('[ERP] verificación',id,e.message); }
+      _erpPintaTodo();
+    }
+  }finally{_erpCorriendo=false;}
+}
+async function _erpVerifDatos(rec){
+  const filas=_filasIngreso(rec);
+  const r=await fetch(API+'/erp-verificar',{method:'POST',headers:_authHeaders(true),body:JSON.stringify({refs:_refCands(rec),factura:(rec.meta&&rec.meta.invoice)||'',filas})});
+  const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||('API '+r.status));
+  return d;
+}
 async function verificarErp(id){
   const rec=saved.find(x=>x.id===id);if(!rec)return;
   let box=$('erpVerif');
@@ -1824,10 +1861,7 @@ async function verificarErp(id){
   box.innerHTML='<div class="card"><span class="hint">Revisando el ERP…</span></div>';box.scrollIntoView({behavior:'smooth',block:'nearest'});
   let filas;try{filas=_filasIngreso(rec);}catch(e){box.innerHTML='<div class="card" style="color:#991b1b">No se pudo calcular el Excel de ingreso: '+esc(e.message)+'</div>';return;}
   let d;
-  try{
-    const r=await fetch(API+'/erp-verificar',{method:'POST',headers:_authHeaders(true),body:JSON.stringify({refs:_refCands(rec),factura:(rec.meta&&rec.meta.invoice)||'',filas})});
-    d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||('API '+r.status));
-  }catch(e){box.innerHTML='<div class="card" style="color:#991b1b">No se pudo revisar: '+esc(e.message)+'</div>';return;}
+  try{ d=await _erpVerifDatos(rec); }catch(e){box.innerHTML='<div class="card" style="color:#991b1b">No se pudo revisar: '+esc(e.message)+'</div>';return;}
   const tit=`<b>${esc(rec.nombre||'')}</b> <span class="hint">${esc((rec.meta&&rec.meta.codigo)||'')}</span>`;
   if(!d.encontrada){box.innerHTML=`<div class="card">${tit}<div style="margin-top:6px">⏳ Aún no encuentro esta importación en el ERP (ni por Ref. importación ${esc((d.refs||[]).join(', '))} ni por la factura ${esc(d.factura||'—')}).</div></div>`;return;}
   const n=d.diferencias.length+(d.avisos||[]).length;

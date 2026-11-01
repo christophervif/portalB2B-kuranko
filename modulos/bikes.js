@@ -1657,6 +1657,37 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
   //    Reemplaza las meta de la portada (no las duplica) y agrega datos estructurados Product
   //    para que Google muestre el precio y la disponibilidad.
   let htmlTienda = null;
+  // ── Textos de cada categoría para buscadores (lo que la gente busca: «bicicletas downhill», «bicicletas xco», «bicicletas enduro perú»…) ──
+  const CAT_ALIAS = { xco: 'xc', 'cross-country': 'xc', crosscountry: 'xc', 'xc-xco': 'xc', 'xc-cross-country': 'xc', dh: 'downhill', 'down-hill': 'downhill',
+    ebike: 'e-mtb', 'e-bike': 'e-mtb', 'e-bikes': 'e-mtb', emtb: 'e-mtb', electricas: 'e-mtb', 'bicicletas-electricas': 'e-mtb', electrica: 'e-mtb',
+    bikepark: 'bike-park', 'dirt-jump': 'dirt', 'dirt-pump': 'dirt', ninos: 'kids', infantiles: 'kids' };
+  const CAT_SEO = {
+    downhill: { nombre: 'de downhill', intro: 'Bicicletas de descenso (DH) de fábrica: doble suspensión de unos 200 mm de recorrido, para bike park y carreras. Ves el precio final en Perú antes de reservar.',
+      h2: 'Bicicletas de downhill (DH) en Perú', texto: ['Las bicicletas de downhill están hechas para bajar: geometría larga y lanzada, horquilla de doble pletina y alrededor de 200 mm de recorrido trasero. Son la opción para bike park, pistas de descenso y carreras de DH.',
+      'Encuentras modelos completos y cuadros (frameset) para armar a tu medida, en aro 29 o mullet 29/27.5, con amortiguador de aire o de resorte (coil).'] },
+    enduro: { nombre: 'de enduro', intro: 'Bicicletas de enduro de fábrica: 160 a 180 mm de recorrido para subir pedaleando y bajar rápido por senderos técnicos. Precio final en Perú, sin sorpresas.',
+      texto: ['El enduro combina subidas pedaleando con bajadas cronometradas en terreno técnico. Una bici de enduro tiene entre 160 y 180 mm de recorrido, geometría moderna y componentes reforzados.',
+      'Es la bici más versátil para quien quiere bajar fuerte sin renunciar a pedalear: sirve para rutas largas, bike park y carreras de enduro.'] },
+    trail: { nombre: 'de trail', intro: 'Bicicletas de trail de fábrica: doble suspensión de 130 a 160 mm, ágiles para subir y divertidas para bajar. Precio final en Perú con envío, aduana e IGV.',
+      texto: ['La bici de trail es la todoterreno del MTB: entre 130 y 160 mm de recorrido, buena para subir pedaleando y para bajar con confianza por senderos de montaña.',
+      'Es la opción ideal si sales a rodar por los cerros de Lima, Cieneguilla, Pachacámac o el Valle Sagrado y quieres una sola bici para todo.'] },
+    xc: { nombre: 'XC y XCO (cross country)', intro: 'Bicicletas de cross country (XC y XCO) de fábrica: livianas y rápidas, rígidas o de doble suspensión de 100 a 120 mm. Precio final en Perú antes de reservar.',
+      h2: 'Bicicletas XC y XCO (cross country) en Perú', texto: ['Las bicicletas de cross country (XC) priorizan el peso y la eficiencia al pedalear. Las de XCO (cross country olímpico) están pensadas para competir: cuadros de carbono, 100 a 120 mm de recorrido y geometría de carrera.',
+      'También sirven para maratones (XCM) y rutas largas de montaña. Encuentras rígidas (hardtail) y de doble suspensión.'] },
+    'e-mtb': { nombre: 'eléctricas de montaña (e-MTB)', intro: 'Bicicletas eléctricas de montaña de fábrica, con motores Bosch o DJI y baterías de hasta 800 Wh. Precio final en Perú con envío, aduana, IGV y armado.',
+      h2: 'Bicicletas eléctricas de montaña (e-MTB) en Perú', texto: ['Una e-MTB es una bicicleta de montaña con motor de asistencia al pedaleo: subes más, llegas más lejos y bajas con la misma geometría de una bici de trail o enduro.',
+      'Compara motor (torque en Nm), batería (Wh) y recorrido de suspensión. Las e-bikes viajan por vía marítima por sus baterías.'] },
+    gravel: { nombre: 'gravel', intro: 'Bicicletas gravel de fábrica, de aluminio o carbono, para carretera y caminos de tierra. Precio final en Perú con envío, aduana e IGV.',
+      texto: ['La bicicleta gravel une la posición de una bici de ruta con llantas más anchas y geometría estable: sirve para asfalto, trocha y caminos de tierra.',
+      'Es ideal para viajes largos, bikepacking y para salir de la ciudad sin preocuparte por el terreno.'] },
+    'bike-park': { nombre: 'de bike park', intro: 'Bicicletas de bike park de fábrica, robustas y con mucho recorrido para saltos y pistas de descenso. Precio final en Perú.',
+      texto: ['Las bicicletas de bike park están hechas para aguantar saltos, peraltes y pistas de descenso, con cuadros reforzados y suspensión de mucho recorrido a un precio más accesible que una de downhill.'] },
+    dirt: { nombre: 'de dirt jump', intro: 'Bicicletas de dirt jump y pump track de fábrica: cuadros rígidos y resistentes para saltar. Precio final en Perú.',
+      texto: ['Las bicicletas de dirt jump son rígidas, compactas y muy resistentes, pensadas para saltos de tierra, pump track y skatepark.'] },
+    kids: { nombre: 'para niños', intro: 'Bicicletas de montaña para niños de fábrica, en aro 24 y 26, con la misma calidad de las bicis de adulto. Precio final en Perú.',
+      texto: ['Bicicletas de montaña para niños y jóvenes, en aro 24 y 26, con componentes de verdad y geometría pensada para su tamaño.'] }
+  };
+  const catSeo = cat => CAT_SEO[slugCat(cat)] || { nombre: String(cat), intro: `Bicicletas ${cat} de fábrica con precio final en Perú: envío, aduana, IGV y armado incluidos.`, texto: [`Modelos de ${cat} a pedido, con fecha estimada de llegada y reserva gratis.`] };
   const SIN_META_PORTADA = /<meta (?:name="description"|property="og:[a-z:_]+"|name="twitter:[a-z:_]+")[^>]*>\s*|<link rel="canonical"[^>]*>\s*/g;
   app.get('/bici/:id', async (req, res) => {
     try {
@@ -1699,7 +1730,8 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
           `<meta property="og:type" content="product"><meta property="og:title" content="${escH(titulo)}"><meta property="og:description" content="${escH(desc)}">` +
           `${m.img ? `<meta property="og:image" content="${escH(m.img)}">` : ''}<meta property="og:url" content="${escH(url)}"><meta name="twitter:card" content="summary_large_image">` +
           `<script type="application/ld+json">${JSON.stringify(ld).replace(/</g, '\\u003c')}</script>`;
-        h = h.replace(SIN_META_PORTADA, '').replace(/<title>[^<]*<\/title>/, `<title>${escH(titulo)}</title>${meta}`);
+        h = h.replace(/<div class="hero-txt">[\s\S]*?<\/div>/, `<div class="hero-txt" data-bici="1"><h1>${escH(m.marca)} ${escH(m.modelo)} <em>en Perú</em></h1><p>${escH(desc)}</p></div>`);
+        h = h.replace(SEO_TXT_PORTADA, '').replace(SIN_META_PORTADA, '').replace(/<title>[^<]*<\/title>/, `<title>${escH(titulo)}</title>${meta}`);
       } else res.status(404);
       res.set('Cache-Control', 'no-cache').type('html').send(h);
     } catch (e) { res.status(500).send('No se pudo cargar'); }
@@ -1723,6 +1755,12 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
   // ── Buscadores ──
   // Bloque de texto para buscadores que no ejecutan JavaScript (Bing, redes sociales…). Con JS la tienda lo oculta (clase .js en <html>).
   const seoBloque = (h, interior) => h.replace('<main>', `<main><section id="ssr" class="ssr wrap">${interior}</section>`);
+  // Texto visible al pie de las páginas de categoría y marca (antes de «Cómo funciona la reserva»)
+  const SEO_TXT_PORTADA = /<section class="seo-txt" id="seoTxt">[\s\S]*?<\/section>\s*/;
+  const textoSeo = (h, interior) => h.replace(SEO_TXT_PORTADA, '').replace('<div class="terms" id="terminos">', `<section class="seo-txt" id="seoTxt">${interior}</section><div class="terms" id="terminos">`);
+  // Enlaces a las demás categorías (buscadores y clientes llegan a todas desde cualquiera)
+  const enlacesCat = (D, actual) => { const cs = [...new Set(D.modelos.filter(m => m.tag !== 'proximamente').flatMap(m => m.cats || [m.cat]).filter(Boolean))].filter(c => c !== actual);
+    return cs.length ? `<p class="seo-cats">Otras categorías: ${cs.map(c => `<a href="/categoria/${escH(slugCat(c))}">Bicicletas ${escH(catSeo(c).nombre)}</a>`).join(' · ')}</p>` : ''; };
   const listaSeo = (D, ms) => { const usd = D.moneda !== 'PEN'; return `<ul>${ms.filter(m => m.tag !== 'proximamente').map(m => { const p = Math.min(...m.skus.map(x => x.pm).filter(x => x > 0));
     return `<li><a href="/bici/${escH(encodeURIComponent(m.id))}">${escH(m.marca)} ${escH(m.modelo)}</a>${isFinite(p) ? ' · desde ' + escH(usd ? 'US$ ' + Math.round(p / D.tc_usd).toLocaleString('en-US') : soles(p)) : ''}</li>`; }).join('')}</ul>`; };
 
@@ -1791,16 +1829,35 @@ ${items.join('\n')}
   app.get('/categoria/:slug', async (req, res) => {
     try {
       if (!htmlTienda) htmlTienda = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'bikes.html'), 'utf8');
-      const D = await catalogoPublicoEs(), slug = String(req.params.slug || '').toLowerCase().slice(0, 60);
+      const slug = String(req.params.slug || '').toLowerCase().slice(0, 60);
+      // Lo que la gente escribe (xco, dh, eléctricas…) → la página de la categoría (301: Google junta todo en una URL)
+      if (CAT_ALIAS[slug]) return res.redirect(301, '/categoria/' + CAT_ALIAS[slug] + (req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''));
+      const D = await catalogoPublicoEs();
       const cat = [...new Set(D.modelos.flatMap(m => m.cats || [m.cat]).filter(Boolean))].find(c => slugCat(c) === slug);
       let h = htmlTienda;
       if (cat) {
-        const n = D.modelos.filter(m => m.tag !== 'proximamente' && (m.cats || [m.cat]).includes(cat)).length;
-        const titulo = `Bicicletas ${cat} a pedido · Kuranko`, url = `https://${req.hostname}/categoria/${slug}`;
-        const desc = `${n} modelos de ${cat} de las mejores marcas, con precio final en Perú: envío, aduana, IGV y armado incluidos.`;
-        h = seoBloque(h, `<h1>Bicicletas ${escH(cat)} a pedido en Perú</h1><p>${escH(desc)}</p>${listaSeo(D, D.modelos.filter(m => (m.cats || [m.cat]).includes(cat)))}`);
-        h = h.replace(SIN_META_PORTADA, '').replace(/<title>[^<]*<\/title>/, `<title>${escH(titulo)}</title><meta name="description" content="${escH(desc)}"><link rel="canonical" href="${escH(url)}">` +
-          `<meta property="og:title" content="${escH(titulo)}"><meta property="og:description" content="${escH(desc)}"><meta property="og:url" content="${escH(url)}">`);
+        const ms = D.modelos.filter(m => m.tag !== 'proximamente' && (m.cats || [m.cat]).includes(cat));
+        const sx = catSeo(cat), url = `https://${req.hostname}/categoria/${slug}`, usd = D.moneda !== 'PEN';
+        const pMin = Math.min(...ms.flatMap(m => m.skus.map(x => x.pm)).filter(x => x > 0));
+        const desde = isFinite(pMin) ? (usd ? 'US$ ' + Math.round(pMin / D.tc_usd).toLocaleString('en-US') : soles(pMin)) : '';
+        const marcas = [...new Set(ms.map(m => m.marca))], ejemplos = [...new Set(ms.map(m => m.marca + ' ' + m.modelo.replace(/^FRAMESET\s+/i, '')))].slice(0, 3);
+        const oficiales = marcas.filter(b => (D.distribuidor || []).includes(b));
+        const titulo = `Bicicletas ${sx.nombre} en Perú${desde ? ' desde ' + desde : ''} · Kuranko`;
+        const desc = `${ms.length} ${ms.length === 1 ? 'modelo' : 'modelos'} de bicicletas ${sx.nombre}${ejemplos.length ? ' (' + ejemplos.join(', ') + ')' : ''} con precio final en Perú: envío, aduana, IGV y armado incluidos.${oficiales.length ? ' Distribuidor oficial ' + oficiales.join(' y ') + '.' : ''}`;
+        // Encabezado visible (no solo para buscadores): reemplaza el título de la portada
+        h = h.replace(/<div class="hero-txt">[\s\S]*?<\/div>/, `<div class="hero-txt" data-cat="${escH(cat)}"><h1>Bicicletas ${escH(sx.nombre)} <em>en Perú</em></h1><p>${escH(sx.intro)}</p></div>`);
+        h = seoBloque(h, `<h2>Bicicletas ${escH(sx.nombre)} en Perú</h2><p>${escH(desc)}</p>${listaSeo(D, ms)}`);
+        h = textoSeo(h, `<h2>${escH(sx.h2 || 'Bicicletas ' + sx.nombre + ' en Perú')}</h2>${sx.texto.map(t => `<p>${escH(t)}</p>`).join('')}
+          <p>Precio final en Perú, con flete, seguro, desaduanaje, IGV y armado incluidos. ${oficiales.length ? `Kuranko es distribuidor oficial de ${escH(oficiales.join(' y '))} en Perú, con garantía oficial y taller en Lima.` : 'Garantía oficial del fabricante y taller en Lima.'} Envío a todo el Perú.</p>
+          ${enlacesCat(D, cat)}`);
+        const ld = [{ '@context': 'https://schema.org', '@type': 'CollectionPage', name: `Bicicletas ${sx.nombre} en Perú`, description: desc, url, inLanguage: 'es-PE',
+            isPartOf: { '@type': 'WebSite', name: 'Kuranko Bikes', url: `https://${req.hostname}/` },
+            mainEntity: { '@type': 'ItemList', numberOfItems: ms.length, itemListElement: ms.slice(0, 30).map((m, i) => ({ '@type': 'ListItem', position: i + 1, url: `https://${req.hostname}/bici/${encodeURIComponent(m.id)}`, name: `${m.marca} ${m.modelo}` })) } },
+          { '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [{ '@type': 'ListItem', position: 1, name: 'Bicicletas en Perú', item: `https://${req.hostname}/` }, { '@type': 'ListItem', position: 2, name: `Bicicletas ${sx.nombre}`, item: url }] }];
+        h = h.replace(SIN_META_PORTADA, '').replace(/<title>[^<]*<\/title>/, `<title>${escH(titulo)}</title><meta name="description" content="${escH(desc.slice(0, 300))}"><link rel="canonical" href="${escH(url)}">` +
+          `<meta property="og:title" content="${escH(titulo)}"><meta property="og:description" content="${escH(desc.slice(0, 300))}"><meta property="og:url" content="${escH(url)}">` +
+          `${(ms.find(m => m.img) || {}).img ? `<meta property="og:image" content="${escH(ms.find(m => m.img).img)}">` : ''}` +
+          ld.map(x => `<script type="application/ld+json">${JSON.stringify(x).replace(/</g, '\\u003c')}</script>`).join(''));
       } else res.status(404);
       res.set('Cache-Control', 'no-cache').type('html').send(h);
     } catch (e) { res.status(500).send('No se pudo cargar'); }
@@ -1870,8 +1927,11 @@ Incluye solo bicicletas y cuadros (no repuestos sueltos, flete, seguro ni impues
         const ms = D.modelos.filter(m => m.marca === marca && m.tag !== 'proximamente'), img = (ms.find(m => m.img) || {}).img;
         const of = (D.distribuidor || []).includes(marca);
         const titulo = `${marca} en Perú · ${of ? 'distribuidor oficial' : 'bicicletas a pedido'} · Kuranko`, url = `https://${req.hostname}/marca/${slug}`;
-        const desc = `${of ? `Kuranko, distribuidor oficial de ${marca} en Perú. ` : ''}${ms.length} modelos de ${marca} con precio final en Perú: envío, aduana, IGV y armado incluidos. Garantía oficial y soporte en Lima.`;
-        h = seoBloque(h, `<h1>${escH(marca)} en Perú${of ? ' · distribuidor oficial' : ' · bicicletas a pedido'}</h1><p>${escH(desc)}</p>${listaSeo(D, ms)}`);
+        const desc = `${of ? `Kuranko, distribuidor oficial de ${marca} en Perú. ` : ''}${ms.length} ${ms.length === 1 ? 'modelo' : 'modelos'} de ${marca} con precio final en Perú: envío, aduana, IGV y armado incluidos. Garantía oficial y soporte en Lima.`;
+        h = h.replace(/<div class="hero-txt">[\s\S]*?<\/div>/, `<div class="hero-txt" data-marca="${escH(marca)}"><h1>${escH(marca)} <em>en Perú</em></h1><p>${escH(desc)}</p></div>`);
+        h = seoBloque(h, `<h2>${escH(marca)} en Perú${of ? ' · distribuidor oficial' : ' · bicicletas a pedido'}</h2><p>${escH(desc)}</p>${listaSeo(D, ms)}`);
+        const csM = [...new Set(ms.flatMap(m => m.cats || [m.cat]).filter(Boolean))];
+        h = textoSeo(h, `<h2>Bicicletas ${escH(marca)} en Perú</h2><p>${escH(desc)}</p>${csM.length ? `<p class="seo-cats">${escH(marca)} por tipo: ${csM.map(c => `<a href="/categoria/${escH(slugCat(c))}">Bicicletas ${escH(catSeo(c).nombre)}</a>`).join(' · ')}</p>` : ''}`);
         h = h.replace(SIN_META_PORTADA, '').replace(/<title>[^<]*<\/title>/, `<title>${escH(titulo)}</title><meta name="description" content="${escH(desc)}"><link rel="canonical" href="${escH(url)}">` +
           `<meta property="og:title" content="${escH(titulo)}"><meta property="og:description" content="${escH(desc)}"><meta property="og:url" content="${escH(url)}">${img ? `<meta property="og:image" content="${escH(img)}">` : ''}`);
       } else res.status(404);
@@ -1883,7 +1943,8 @@ Incluye solo bicicletas y cuadros (no repuestos sueltos, flete, seguro ni impues
   app.get('/robots.txt', (req, res) => {
     res.type('text/plain').set('Cache-Control', 'public, max-age=86400');
     if (!/^bikes\./i.test(req.hostname || '')) return res.send('User-agent: *\nDisallow: /\n');
-    res.send(`User-agent: *\nAllow: /\nAllow: /api/bikes/img\nAllow: /api/bikes/foto/\nDisallow: /api/\nDisallow: /bikes/proforma/\nDisallow: /admin\nDisallow: /bikes-admin.html\nDisallow: /en\n\nSitemap: https://${req.hostname}/sitemap.xml\n`);
+    // Google dibuja la tienda con JavaScript: si no puede leer /api/bikes/catalogo ve la página vacía
+    res.send(`User-agent: *\nAllow: /\nAllow: /api/bikes/catalogo\nAllow: /api/bikes/cabecera\nAllow: /api/bikes/img\nAllow: /api/bikes/foto/\nAllow: /api/bikes/silueta/\nDisallow: /api/\nDisallow: /bikes/proforma/\nDisallow: /admin\nDisallow: /bikes-admin.html\nDisallow: /en\n\nSitemap: https://${req.hostname}/sitemap.xml\n`);
   });
   app.get('/sitemap.xml', async (req, res) => {
     if (!/^bikes\./i.test(req.hostname || '')) return res.status(404).end();

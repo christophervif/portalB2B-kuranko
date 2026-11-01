@@ -745,11 +745,11 @@ const ERP_GRUPOS = [
     cols: [['SKU', 'sku'], ['Tipo', 'tipo'], ['ID de la web', 'nuevo']] },
   { k: 'reservas', tipo: 'back', t: 'Reservas de agotados ("yes")', desc: 'Hoy permiten reservar sin stock ("yes"). Sugerido: "notify"; marketplace y packs (MKP / PCK): "no". Cambia el valor de cada fila si hace falta.',
     cols: [['SKU', 'sku'], ['Producto', 'nombre'], ['Antes', 'antes'], ['Nuevo valor', 'nuevo'], ['Por qué', 'motivo']] },
-  { k: 'imagenes', tipo: 'img', t: 'Imágenes → kuranko', desc: 'Link que no es de kuranko.pe, reemplazado por una imagen de la web que el sistema aún no tiene.',
-    cols: [['SKU', 'sku'], ['Link actual', 'actual'], ['Link kuranko', 'nuevo']] }
+  { k: 'imagenes', tipo: 'img', t: 'Imágenes → kuranko', desc: 'Productos que en el sistema no tienen ninguna imagen de kuranko.pe pero en la web sí: se reemplazan los links que no son de kuranko y se agregan las que faltan (producto = galería del padre o simple; variación = su imagen).',
+    cols: [['SKU', 'sku'], ['Nivel', 'nivel'], ['Acción', 'accion_txt'], ['Link actual', 'actual'], ['Link kuranko', 'nuevo']] }
 ];
 async function verCambiosErp() {
-  const b = $('btn-erp'); b.disabled = true; $('res-erp').textContent = 'Cargando cambios propuestos…'; $('erp-panel').innerHTML = '';
+  const b = $('btn-erp'); b.disabled = true; $('res-erp').textContent = 'Cargando cambios propuestos (consulta las imágenes en la web; puede tardar un poco)…'; $('erp-panel').innerHTML = '';
   try {
     ERP = await apiCall('/admin/erp-writeback-preview');
     pintarErp();
@@ -762,7 +762,8 @@ function pintarErp() {
   $('n-erp').textContent = total ? nfmt(total) : '';
   $('res-erp').innerHTML = `${nfmt(total)} cambio(s) propuesto(s).` +
     (d.recolectado_en ? ` Datos de la web recolectados por el puente: <b>${esc(fecha(d.recolectado_en))}</b>.` : ' <span class="chip c-w">El puente aún no recolectó los datos de la web: no hay IDs ni imágenes que proponer.</span>') +
-    (d.puede_aplicar ? '' : ' <span class="chip c-r">Falta ERP_ESCRITURA_URL: solo se puede ver, no aplicar.</span>');
+    (d.puede_aplicar ? '' : ' <span class="chip c-r">Falta ERP_ESCRITURA_URL: solo se puede ver, no aplicar.</span>') +
+    ((d.avisos_imagenes || []).length ? `<div class="aviso">${d.avisos_imagenes.slice(0, 8).map(esc).join('<br>')}</div>` : '');
   let h = ERP_GRUPOS.map(g => {
     const filas = d[g.k] || [];
     let x = `<h3 style="margin-top:16px">${esc(g.t)} <span class="chip c-g">${nfmt(filas.length)}</span></h3><div class="desc">${esc(g.desc)}</div>`;

@@ -7,7 +7,10 @@
 //        1) Vincular WooCommerce ID por SKU (está en la web, el ERP lo tiene vacío).
 //        2) Reservas de agotados con 'yes' (permitir): sugerido 'notify', salvo marketplace y
 //           packs (MKP / PCK en SKU o nombre) → 'no'. El usuario puede cambiar el valor por fila.
-//        3) Imágenes: link del ERP que NO es de kuranko → link de kuranko (de la web).
+//        3) Imágenes: link del ERP que NO es de kuranko → link de kuranko (de la web), y para lo
+//           que YA está en la web (con ID) y en el ERP no tiene ninguna imagen de kuranko: se
+//           consultan sus imágenes en WooCommerce (WC_URL/KEY/SECRET) → reemplazar y/o AGREGAR
+//           (INSERT en product_images como el importador: disk 'external').
 //  POST /admin/erp-writeback-aplicar  → escribe SOLO lo seleccionado con la cuenta
 //        de escritura del portal (ERP_ESCRITURA_URL). Cada UPDATE re-verifica su
 //        condición (idempotente) y queda registrado en sync_erp_writeback_log.
@@ -66,7 +69,8 @@ function calcularPropuestas(d) {
     if (!e.noKuranko.length || !w || !w.imagenes) return;
     const faltan = String(w.imagenes).split(',').map(x => x.trim()).filter(x => esKuranko(x) && !e.kuranko.has(x));
     e.noKuranko.slice(0, faltan.length).forEach((noK, i) =>
-      imagenes.push({ sku: w.sku || s, img_id: noK.img_id, actual: noK.path, nuevo: faltan[i], antes: noK.path, despues: faltan[i] }));
+      imagenes.push({ sku: w.sku || s, img_id: noK.img_id, actual: noK.path, nuevo: faltan[i], antes: noK.path, despues: faltan[i],
+        nivel: 'producto', accion: 'reemplazar', accion_txt: 'Reemplazar' }));
   });
 
   const reservas = d.backs.map(c => {
@@ -79,6 +83,33 @@ function calcularPropuestas(d) {
   return { vincularId, idConflicto, reservas, imagenes };
 }
 
+
+// ─── Imágenes desde la web para productos YA vinculados (puro) ───────────────
+//  objetivos: [{nivel:'producto'|'variacion', pid, vid|null, wc, sku, nombre, erp:[{id,path,sort_order}]}]
+//  web: { 'p:<wc>': {sku, imgs:[url]}, 'v:<wc>': {sku, imgs:[url]} }
+//  Si el ERP no tiene ninguna imagen de kuranko en ese nivel y la web sí: los links que no
+//  son de kuranko se REEMPLAZAN (en orden) y las imágenes que falten se AGREGAN.
+function propuestasImagenesWeb(objetivos, web, maxAgregar = 8) {
+  const out = [], avisos = [];
+  for (const o of objetivos) {
+    if (o.erp.some(e => esKuranko(e.path))) continue;
+    const w = web[(o.nivel === 'producto' ? 'p:' : 'v:') + o.wc];
+    if (!w) continue;
+    if (w.sku && o.sku && k(w.sku) !== k(o.sku)) { avisos.push(`${o.sku}: en la web el ID ${o.wc} tiene el SKU "${w.sku}"; no se copian sus imágenes.`); continue; }
+    const imgs = [...new Set((w.imgs || []).filter(esKuranko))];
+    if (!imgs.length) continue;
+    const viejas = o.erp.slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0) || a.id - b.id);
+    const base = { sku: o.sku, nombre: o.nombre, nivel: o.nivel, pid: o.pid, vid: o.vid };
+    viejas.slice(0, imgs.length).forEach((v, i) => out.push({ ...base, img_id: v.id, actual: v.path, nuevo: imgs[i],
+      antes: v.path, despues: imgs[i], accion: 'reemplazar', accion_txt: 'Reemplazar' }));
+    const maxSort = viejas.reduce((m, v) => Math.max(m, Number(v.sort_order) || 0), -1);
+    imgs.slice(viejas.length, viejas.length + maxAgregar).forEach((u, i) => out.push({ ...base, img_id: null, actual: '(sin imagen)',
+      nuevo: u, antes: '', despues: u, accion: 'agregar', accion_txt: viejas.length ? 'Agregar' : 'Agregar (no tenía)',
+      sort_order: maxSort + 1 + i, is_primary: !viejas.length && i === 0 ? 1 : 0 }));
+  }
+  return { imagenes: out, avisos };
+}
+
 module.exports = function registrarCorregirErp({ app, authAdmin, prodPool, portalPool, erpWritePool }) {
   // Acceso: auditoría o sincronización (el maestro siempre pasa)
   const permite = (req, res, next) => {
@@ -86,6 +117,80 @@ module.exports = function registrarCorregirErp({ app, authAdmin, prodPool, porta
     if (a.maestro || (Array.isArray(a.modulos) && (a.modulos.includes('auditoria') || a.modulos.includes('sync')))) return next();
     return res.status(403).json({ error: 'No tienes acceso a este módulo' });
   };
+
+
+  // ── WooCommerce (mismas variables que Promociones): imágenes de lo que ya está en la web ──
+  const WC_URL = String(process.env.WC_URL || '').trim().replace(/\/+$/, '');
+  const WC_AUTH = process.env.WC_CONSUMER_KEY && process.env.WC_CONSUMER_SECRET
+    ? 'Basic ' + Buffer.from(`${process.env.WC_CONSUMER_KEY}:${process.env.WC_CONSUMER_SECRET}`).toString('base64') : null;
+  const MAX_PADRES = 400;                 // padres variables consultados por vista previa
+  const cacheWeb = new Map();             // clave → {t, val}; 30 min
+  const TTL = 30 * 60e3;
+  async function wcGet(ruta) {
+    const r = await fetch(`${WC_URL}/wp-json/wc/v3${ruta}`, { headers: { Authorization: WC_AUTH }, signal: AbortSignal.timeout(30e3) });
+    const d = await r.json().catch(() => null);
+    if (!r.ok) throw new Error(`WooCommerce HTTP ${r.status}${d && d.message ? ' ' + d.message : ''}`.slice(0, 160));
+    return d;
+  }
+  async function enParalelo(items, n, fn) {
+    let i = 0; const corre = async () => { while (i < items.length) { const x = items[i++]; await fn(x); } };
+    await Promise.all(Array.from({ length: Math.min(n, items.length) }, corre));
+  }
+  async function imagenesDesdeWeb() {
+    if (!WC_URL || !WC_AUTH || typeof fetch !== 'function') return { imagenes: [], avisos: ['No se consultaron las imágenes de la web: faltan WC_URL / WC_CONSUMER_KEY / WC_CONSUMER_SECRET en Railway.'] };
+    const q = (sql, a) => prodPool.query(sql, a).then(r => r[0]);
+    const prods = await q(`SELECT p.id AS pid, p.name, TRIM(COALESCE(NULLIF(p.sku_base,''), dv.sku)) AS sku,
+              COALESCE(p.woocommerce_id, dv.woocommerce_id) AS wc
+         FROM products p
+         LEFT JOIN product_variations dv ON dv.id = (SELECT x.id FROM product_variations x WHERE x.product_id = p.id AND x.deleted_at IS NULL
+                AND x.product_type IN ('variable','simple') ORDER BY x.woocommerce_id IS NULL, x.is_default DESC, x.id LIMIT 1)
+        WHERE p.deleted_at IS NULL AND COALESCE(p.woocommerce_id, dv.woocommerce_id) IS NOT NULL`);
+    const vars = await q(`SELECT pv.id AS vid, pv.product_id AS pid, TRIM(pv.sku) AS sku, pv.name, pv.woocommerce_id AS wc
+         FROM product_variations pv WHERE pv.deleted_at IS NULL AND pv.product_type = 'variation' AND pv.woocommerce_id IS NOT NULL`);
+    const imgs = await q(`SELECT id, product_id, product_variation_id, path, sort_order FROM product_images WHERE deleted_at IS NULL`);
+    const porProd = {}, porVar = {};
+    imgs.forEach(im => { if (im.product_variation_id != null) (porVar[im.product_variation_id] = porVar[im.product_variation_id] || []).push(im);
+                         else if (im.product_id != null) (porProd[im.product_id] = porProd[im.product_id] || []).push(im); });
+    const prodPorId = {}; prods.forEach(p => prodPorId[p.pid] = p);
+    // Simple: cuenta también la imagen guardada en su variación
+    const simples = await q(`SELECT product_id AS pid, id AS vid FROM product_variations WHERE deleted_at IS NULL AND product_type = 'simple'`);
+    const extraSimple = {}; simples.forEach(x => (extraSimple[x.pid] = extraSimple[x.pid] || []).push(...(porVar[x.vid] || [])));
+    const objetivos = [];
+    prods.forEach(p => objetivos.push({ nivel: 'producto', pid: p.pid, vid: null, wc: p.wc, sku: p.sku, nombre: p.name,
+      erp: porProd[p.pid] || [], conKuranko: (extraSimple[p.pid] || []).some(e => esKuranko(e.path)) }));
+    vars.forEach(v => { const p = prodPorId[v.pid]; if (p) objetivos.push({ nivel: 'variacion', pid: v.pid, vid: v.vid, wc: v.wc, padreWc: p.wc,
+      sku: v.sku, nombre: v.name, erp: porVar[v.vid] || [] }); });
+    const faltan = objetivos.filter(o => !o.conKuranko && !o.erp.some(e => esKuranko(e.path)));
+    // Consultar la web solo para lo que falta (con caché)
+    const web = {}, avisos = [], ahora = Date.now();
+    const desdeCache = key => { const c = cacheWeb.get(key); if (c && ahora - c.t < TTL) { if (c.val) web[key] = c.val; return true; } return false; };
+    const prodIds = [...new Set(faltan.filter(o => o.nivel === 'producto').map(o => o.wc))].filter(id => !desdeCache('p:' + id));
+    for (let i = 0; i < prodIds.length; i += 100) {
+      const lote = prodIds.slice(i, i + 100);
+      try {
+        const d = await wcGet(`/products?include=${lote.join(',')}&per_page=100&_fields=id,sku,images`);
+        const vistos = new Set();
+        (d || []).forEach(x => { vistos.add(x.id); const val = { sku: x.sku, imgs: (x.images || []).map(m => m.src).filter(Boolean) }; web['p:' + x.id] = val; cacheWeb.set('p:' + x.id, { t: ahora, val }); });
+        lote.filter(id => !vistos.has(Number(id))).forEach(id => cacheWeb.set('p:' + id, { t: ahora, val: null }));
+      } catch (e) { avisos.push('No se pudo leer productos de la web: ' + e.message); break; }
+    }
+    let padres = [...new Set(faltan.filter(o => o.nivel === 'variacion').map(o => o.padreWc))].filter(id => !desdeCache('vp:' + id));
+    if (padres.length > MAX_PADRES) { avisos.push(`Se revisaron ${MAX_PADRES} productos variables de ${padres.length}; vuelve a cargar para seguir con el resto.`); padres = padres.slice(0, MAX_PADRES); }
+    await enParalelo(padres, 4, async pw => {
+      try {
+        for (let page = 1; page < 20; page++) {
+          const d = await wcGet(`/products/${pw}/variations?per_page=100&page=${page}&_fields=id,sku,image`);
+          (d || []).forEach(x => { const val = { sku: x.sku, imgs: x.image && x.image.src ? [x.image.src] : [] }; web['v:' + x.id] = val; cacheWeb.set('v:' + x.id, { t: ahora, val }); });
+          if (!d || d.length < 100) break;
+        }
+        cacheWeb.set('vp:' + pw, { t: ahora, val: true });
+      } catch (e) { if (avisos.length < 5) avisos.push(`Variaciones del producto web ${pw}: ${e.message}`); }
+    });
+    // las variaciones ya leídas en cachés anteriores
+    faltan.filter(o => o.nivel === 'variacion').forEach(o => desdeCache('v:' + o.wc));
+    const r = propuestasImagenesWeb(faltan, web);
+    return { imagenes: r.imagenes, avisos: avisos.concat(r.avisos) };
+  }
 
   app.get('/admin/erp-writeback-preview', authAdmin, permite, async (req, res) => {
     try {
@@ -126,8 +231,17 @@ module.exports = function registrarCorregirErp({ app, authAdmin, prodPool, porta
           WHERE pv.deleted_at IS NULL AND pvs.backorder_mode = 'yes'
           GROUP BY pv.id, TRIM(pv.sku), pv.product_type, pv.name, p.name`);
 
+      const base = calcularPropuestas({ web, erpVar, wcEnUso, imgs, backs });
+      // Imágenes de productos que YA están en la web (el puente solo recolecta los que no tienen ID)
+      let avisosImg = [];
+      if (req.query.imagenes !== '0') {
+        const iw = await imagenesDesdeWeb();
+        const ya = new Set(base.imagenes.map(x => x.img_id).filter(Boolean));
+        base.imagenes = base.imagenes.concat(iw.imagenes.filter(x => !x.img_id || !ya.has(x.img_id)));
+        avisosImg = iw.avisos;
+      }
       res.json({
-        ...calcularPropuestas({ web, erpVar, wcEnUso, imgs, backs }),
+        ...base, avisos_imagenes: avisosImg,
         recolectado_en: recolectadoEn,
         puede_aplicar: !!erpWritePool
       });
@@ -171,6 +285,18 @@ module.exports = function registrarCorregirErp({ app, authAdmin, prodPool, porta
             [r] = await pool.query(
               `UPDATE product_variation_stocks SET backorder_mode = ?
                 WHERE product_variation_id = ? AND backorder_mode = 'yes'`, [c.nuevo, c.vid]);
+          } else if (c.tipo === 'img' && c.accion === 'agregar') {
+            if (!esKuranko(c.nuevo)) { errores.push({ ref: c.sku, error: 'El link nuevo no es de kuranko.pe' }); continue; }
+            const pid = c.vid ? null : Number(c.pid), vid = c.vid ? Number(c.vid) : null;
+            if (!(pid > 0) && !(vid > 0)) { errores.push({ ref: c.sku, error: 'Producto no válido' }); continue; }
+            // Igual que el importador del ERP: URL completa, disk 'external'; no repite el mismo link
+            [r] = await pool.query(
+              `INSERT INTO product_images (product_id, product_variation_id, path, disk, alt_text, sort_order, is_primary, created_at, updated_at)
+               SELECT ?, ?, ?, 'external', ?, ?, ?, NOW(), NOW() FROM DUAL
+                WHERE NOT EXISTS (SELECT 1 FROM product_images WHERE deleted_at IS NULL AND path = ?
+                                     AND product_id <=> ? AND product_variation_id <=> ?)`,
+              [pid, vid, c.nuevo, String(c.nombre || '').slice(0, 250), Number(c.sort_order) || 0, c.is_primary ? 1 : 0, c.nuevo, pid, vid]);
+            c.vid = vid || ''; c.img_id = '';
           } else if (c.tipo === 'img') {
             if (!esKuranko(c.nuevo)) { errores.push({ ref: c.sku || c.img_id, error: 'El link nuevo no es de kuranko.pe' }); continue; }
             [r] = await pool.query(
@@ -191,4 +317,4 @@ module.exports = function registrarCorregirErp({ app, authAdmin, prodPool, porta
   });
 };
 
-module.exports._test = { calcularPropuestas, esKuranko };
+module.exports._test = { calcularPropuestas, propuestasImagenesWeb, esKuranko };

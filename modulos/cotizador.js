@@ -147,6 +147,8 @@ function jsonDeTexto(t) {
   try { return JSON.parse(s.slice(a, b + 1)); } catch (e) { return null; }
 }
 
+// Link a la página del producto en la web (WooCommerce): <dominio>/?p=<id>. WordPress redirige a la URL bonita.
+const WEB_URL = String(process.env.COTIZADOR_WEB_URL || process.env.WC_URL || 'https://kuranko.pe').trim().replace(/\/+$/, '');
 const CAT_TTL = 5 * 60 * 1000; // el catálogo con stock se refresca cada 5 min
 
 // Ubicaciones propias que no son almacén/tienda de venta directa: se agrupan como "Otros"
@@ -356,14 +358,19 @@ module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, p
       });
 
       // Categorías por producto (para clasificar bicicleta / componente / ropa / consumible)
-      const catMap = {};
+      const catMap = {}, catHijas = {}, catTodas = {};
       try {
         const [cats] = await prodPool.query(`
           SELECT ppc.product_id AS pid, c.name AS cat, padre.name AS padre
           FROM product_product_category ppc
           JOIN product_categories c ON c.id = ppc.product_category_id
           LEFT JOIN product_categories padre ON padre.id = c.parent_id`);
-        cats.forEach(r => { (catMap[r.pid] = catMap[r.pid] || []).push([r.padre, r.cat].filter(Boolean).join(' ')); });
+        cats.forEach(r => {
+          (catMap[r.pid] = catMap[r.pid] || []).push([r.padre, r.cat].filter(Boolean).join(' '));
+          (catHijas[r.pid] = catHijas[r.pid] || new Set()).add(r.cat);
+          (catTodas[r.pid] = catTodas[r.pid] || new Set()).add(r.cat);
+          if (r.padre) catTodas[r.pid].add(r.padre);
+        });
       } catch (e) { console.warn('[cotizador] no se pudieron leer categorías:', e.message); }
 
       // Imagen de referencia: la de la variación si tiene; si no, la del producto padre
@@ -389,6 +396,26 @@ module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, p
         uc.forEach(r => { if (!ultCosto[r.vid]) ultCosto[r.vid] = { costo: Number(r.cost_price), fecha: r.entry_date }; });
       } catch (e) { console.warn('[cotizador] no se pudo leer la última compra:', e.message); }
 
+      // IDs de WooCommerce: simple → el suyo; variación → el del producto padre (products.woocommerce_id
+      // o la fila 'variable' de product_variations). Consulta aparte: si falla, solo no hay link.
+      const wcVar = {}, wcProd = {}, wcPadreVariable = {};
+      try {
+        const [wc] = await prodPool.query(`
+          SELECT pv.id AS vid, pv.product_id AS pid, pv.product_type AS tipo, pv.woocommerce_id AS wc_var, p.woocommerce_id AS wc_prod
+          FROM product_variations pv LEFT JOIN products p ON p.id = pv.product_id
+          WHERE pv.deleted_at IS NULL AND (pv.woocommerce_id IS NOT NULL OR p.woocommerce_id IS NOT NULL)`);
+        wc.forEach(r => {
+          if (r.tipo === 'variable') { if (r.wc_var) wcPadreVariable[r.pid] = r.wc_var; }
+          else wcVar[r.vid] = { tipo: r.tipo, id: r.wc_var };
+          if (r.wc_prod) wcProd[r.pid] = r.wc_prod;
+        });
+      } catch (e) { console.warn('[cotizador] no se pudieron leer los IDs de la web:', e.message); }
+      const linkWeb = (vid, pid) => {
+        const v = wcVar[vid] || {};
+        const id = v.tipo === 'simple' ? (v.id || wcProd[pid]) : (wcProd[pid] || wcPadreVariable[pid]);
+        return id ? `${WEB_URL}/?p=${id}` : null;
+      };
+
       _cat = prods.map(p => {
         // Se muestra solo el nombre del hijo (variación/simple), que en el ERP ya es el nombre completo.
         // El del padre se usa solo si el hijo no tiene nombre. Para buscar se usan los dos.
@@ -403,6 +430,10 @@ module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, p
         const tipo = tipoProducto(categorias, p.producto || nombre);
         return {
           imagen: imgVar[p.vid] || imgProd[p.pid] || null,
+          web_url: linkWeb(p.vid, p.pid),
+          // marca = primer tramo del nombre ("100% - Casco - …" → "100%"; "Magura - Freno - …" → "Magura")
+          marca: String(p.producto || nombre).split(' - ')[0].trim() || null,
+          categorias_lista: [...(catHijas[p.pid] || [])],
           // PVP recomendado (costo última compra ÷ 0.65). Si el producto no tiene precio en el
           // sistema, se usa como precio base para cotizar.
           pvp_recomendado: pvpRec, sin_precio: !(normalSis > 0),
@@ -425,7 +456,9 @@ module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, p
           // antigüedad del stock: fecha de ingreso del lote más antiguo y del más reciente con existencia
           lote_mas_antiguo: (antMap[p.vid] || {}).antiguo || null,
           lote_mas_nuevo: (antMap[p.vid] || {}).nuevo || null,
-          _sku: compacto(p.sku), _pal: tokens(nombre + ' ' + (p.producto || '')), _comp: compacto(nombre)
+          _sku: compacto(p.sku), _pal: tokens(nombre + ' ' + (p.producto || '')), _comp: compacto(nombre),
+          _cats: new Set([...(catTodas[p.pid] || [])].map(normalizar)),
+          _marca: normalizar(String(p.producto || nombre).split(' - ')[0])
         };
       });
       _catAt = Date.now();
@@ -433,7 +466,7 @@ module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, p
     })();
     try { return await _cargando; } finally { _cargando = null; }
   }
-  const publico = ({ _sku, _pal, _comp, _costo_ultimo, _fecha_ultima_compra, _costo, ...x }) => x;
+  const publico = ({ _sku, _pal, _comp, _cats, _marca, _costo_ultimo, _fecha_ultima_compra, _costo, ...x }) => x;
 
   // ── Costo FIFO de las N unidades más antiguas ─────────────────────────────
   async function precioMinimo(vid, cantidad) {
@@ -463,23 +496,75 @@ module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, p
       lote_mas_antiguo: lotes.length ? lotes[0].entry_date : null, lotes: usados };
   }
 
-  // GET /api/cotizador/buscar?q=crafty carbon m
+  // GET /api/cotizador/buscar?q=…&categoria=…&marca=…&solo_stock=1
+  //  · SKU exacto (sin importar guiones/espacios) → solo ese producto.
+  //  · Nombre → deben calzar TODAS las palabras (tolera errores pequeños y sinónimos).
+  //    Si no hay ninguno, se intenta una búsqueda aproximada y se avisa.
+  //  · Sin texto pero con categoría o marca → lista todo lo de ese filtro.
   app.get('/api/cotizador/buscar', authAdmin, mCot, async (req, res) => {
     try {
       const q = String(req.query.q || '').trim().slice(0, 80);
-      if (q.length < 2) return res.json({ items: [] });
+      const fCat = normalizar(req.query.categoria || ''), fMarca = normalizar(req.query.marca || '');
       const soloStock = req.query.solo_stock === '1';
+      const LIM = 120;
       const cat = await catalogo(req.query.fresh === '1');
-      const res_ = [];
-      for (const it of cat) {
-        if (soloStock && it.stock_total <= 0) continue;
-        const s = puntuar(q, it);
-        if (s >= 30) res_.push([s + (it.stock > 0 ? 3 : it.stock_total > 0 ? 1 : 0), it]);
+      const pasa = it => (!soloStock || it.stock_total > 0) && (!fCat || it._cats.has(fCat)) && (!fMarca || it._marca === fMarca);
+      const salida = (lista, modo, mensaje) => res.json({ modo, mensaje: mensaje || null, total: lista.length,
+        items: lista.slice(0, LIM).map(publico), actualizado: new Date(_catAt).toISOString() });
+      const porStock = (a, b) => b.stock_total - a.stock_total || a.nombre.localeCompare(b.nombre);
+
+      if (q.length < 2) {
+        if (!fCat && !fMarca) return salida([], 'vacio');
+        return salida(cat.filter(pasa).sort(porStock), 'filtro');
       }
-      res_.sort((a, b) => b[0] - a[0] || b[1].stock_total - a[1].stock_total);
-      res.json({ items: res_.slice(0, 30).map(([s, it]) => ({ ...publico(it), puntaje: Math.round(s) })),
-        total: res_.length, actualizado: new Date(_catAt).toISOString() });
+      // 1) SKU exacto (se muestra aunque no tenga stock o no esté en el filtro)
+      const qComp = compacto(q);
+      const exactos = cat.filter(it => it._sku && it._sku === qComp);
+      if (exactos.length) return salida(exactos, 'sku');
+      // 2) Nombre estricto: todas las palabras
+      const qs = tokens(q).filter(t => !(t.length === 1 && /[a-z]/.test(t)));
+      const estrictos = [];
+      if (qs.length) for (const it of cat) {
+        if (!pasa(it)) continue;
+        let suma = 0, ok = true;
+        for (const t of qs) { const p = puntajePalabra(t, it._pal, it._comp); if (p < 0.5) { ok = false; break; } suma += p; }
+        if (ok) estrictos.push([suma / qs.length, it]);
+      }
+      if (estrictos.length) {
+        estrictos.sort((a, b) => b[0] - a[0] || porStock(a[1], b[1]));
+        return salida(estrictos.map(x => x[1]), 'nombre');
+      }
+      // 3) Parece un SKU que no existe → SKUs parecidos (un carácter de diferencia o mismo inicio)
+      const pareceSku = !/\s/.test(q) && /\d/.test(q) && /[a-z]/i.test(q) && qComp.length >= 6;
+      if (pareceSku) {
+        const par = cat.filter(it => it._sku && (it._sku.startsWith(qComp.slice(0, -2)) || distancia(qComp, it._sku, 1) <= 1)).sort(porStock);
+        return salida(par.slice(0, 20), 'sku_parecidos', par.length ? 'No existe ese SKU exacto. SKUs parecidos:' : 'No existe ese SKU.');
+      }
+      // 4) Aproximada (antes era la única): solo si la estricta no encontró nada
+      const aprox = [];
+      for (const it of cat) {
+        if (!pasa(it)) continue;
+        const sc = puntuar(q, it);
+        if (sc >= 30) aprox.push([sc, it]);
+      }
+      aprox.sort((a, b) => b[0] - a[0] || porStock(a[1], b[1]));
+      return salida(aprox.map(x => x[1]).slice(0, 30), 'aproximado',
+        aprox.length ? 'No hay productos con todas esas palabras; estos son los más parecidos.' : null);
     } catch (e) { console.error('[cotizador] buscar', e.message); res.status(500).json({ error: 'No se pudo buscar: ' + e.message }); }
+  });
+
+  // GET /api/cotizador/filtros → categorías y marcas para los desplegables
+  app.get('/api/cotizador/filtros', authAdmin, mCot, async (req, res) => {
+    try {
+      const cat = await catalogo();
+      const cats = new Map(), marcas = new Map();
+      cat.forEach(it => {
+        (it.categorias_lista || []).forEach(c => { if (c) cats.set(normalizar(c), c); });
+        if (it.marca) marcas.set(it._marca, it.marca);
+      });
+      const ord = m => [...m.values()].sort((a, b) => a.localeCompare(b, 'es'));
+      res.json({ categorias: ord(cats), marcas: ord(marcas) });
+    } catch (e) { res.status(500).json({ error: 'No se pudieron leer los filtros: ' + e.message }); }
   });
 
   // GET /api/cotizador/precio?vid=123&cantidad=3

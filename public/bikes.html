@@ -3,16 +3,18 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Kuranko Bikes · Bicicletas de fábrica a pedido</title>
+<title>Bicicletas en Perú: MTB, downhill, enduro, trail y XC · Kuranko Bikes</title>
 <link rel="icon" href="/favicon.ico" sizes="48x48">
 <link rel="icon" href="/icono-192.png" sizes="192x192" type="image/png">
 <link rel="apple-touch-icon" href="/icono-180.png">
-<meta name="description" content="Bicis de montaña y eléctricas de fábrica a pedido (Mondraker y más marcas). Precio final en Lima con envío, aduana e IGV, fecha de llegada y reserva sin pagar nada.">
+<meta name="description" content="Bicicletas de montaña y eléctricas en Perú: downhill, enduro, trail, XC/XCO, gravel y e-MTB de Mondraker y Kavenz. Distribuidor oficial. Precio final con envío, aduana, IGV y armado, y reserva gratis.">
 <link rel="canonical" href="https://bikes.kuranko.pe/">
-<meta property="og:title" content="Kuranko Bikes · Bicis de fábrica a pedido">
+<meta property="og:title" content="Bicicletas en Perú de fábrica · Kuranko Bikes">
 <meta property="og:description" content="MTB y e-MTB de fábrica. Configura tu bici, ve el precio final en Lima y la fecha de llegada, y solicita tu reserva sin pagar nada.">
 <meta property="og:type" content="website">
 <meta name="theme-color" content="#141414">
+<meta property="og:locale" content="es_PE"><meta property="og:site_name" content="Kuranko Bikes">
+<script type="application/ld+json">[{"@context":"https://schema.org","@type":"WebSite","name":"Kuranko Bikes","alternateName":"Bicicletas Kuranko","url":"https://bikes.kuranko.pe/","inLanguage":"es-PE","publisher":{"@type":"Organization","name":"Kuranko","url":"https://kuranko.pe"}},{"@context":"https://schema.org","@type":"Organization","name":"Kuranko","url":"https://kuranko.pe","logo":"https://bikes.kuranko.pe/icono-192.png","areaServed":{"@type":"Country","name":"Perú"},"description":"Bicicletas de montaña, eléctricas y componentes en Perú. Distribuidor oficial de Mondraker y Kavenz."}]</script>
 <!-- Fuentes propias (las de kuranko.pe): se precargan para que el texto no cambie de letra al cargar -->
 <link rel="preload" href="/bikes-assets/URW-DIN-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/bikes-assets/Unvidia-Bold.woff2" as="font" type="font/woff2" crossorigin>
@@ -187,6 +189,8 @@ s.antes{color:var(--muted,#888);font-weight:400;font-size:.8em;margin-right:6px}
 .steps li::before{content:counter(s);font-family:var(--display);font-weight:800;font-size:16px;width:28px;height:28px;border:2px solid var(--ink);border-radius:50%;display:grid;place-items:center;line-height:1}
 .steps b{display:block;font-size:14px;line-height:1.25}.steps li>div>span{color:var(--muted);font-size:12.5px;line-height:1.35;display:block}
 .brands{display:flex;gap:8px;overflow-x:auto;padding-block:4px 16px;scrollbar-width:thin}
+.tipos{display:flex;gap:6px 8px;flex-wrap:wrap;margin:-6px 0 16px}.tipos a{border:1px solid var(--line);border-radius:999px;padding:5px 12px;font-size:13.5px;font-weight:600;color:var(--ink);text-decoration:none;background:var(--surface)}.tipos a:hover{border-color:var(--ink)}.tipos a[aria-current="page"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}.tipos a[hidden]{display:none}
+.seo-txt{margin:28px 0 18px;font-size:14.5px;color:var(--muted);max-width:820px}.seo-txt h2{font-size:20px;color:var(--ink);margin:0 0 8px}.seo-txt p{margin:0 0 10px}.seo-txt a{color:var(--ink)}
 .chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:6px 14px;font-weight:600;font-size:14px;white-space:nowrap;display:flex;gap:6px;align-items:center}
 .chip .ct{font-family:var(--mono);font-size:12px;color:var(--muted)}
 .chip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
@@ -399,7 +403,7 @@ a.card{text-decoration:none;cursor:pointer}
   <div class="hero">
     <div class="hero-txt">
       
-      <h1>Tu bici, <em>de fábrica</em><br>a la puerta de tu casa.</h1>
+      <h1>Bicicletas <em>de fábrica</em><br>a tu puerta en Perú.</h1>
       <p>Bicis de montaña y eléctricas de las mejores marcas, armadas a tu medida. Antes de reservar ves el precio final, con envío, aduana, IGV y armado incluidos, y la fecha estimada de llegada.</p>
     </div>
     <div class="foto foto-hero" data-foto="hero" aria-hidden="true"></div>
@@ -411,6 +415,7 @@ a.card{text-decoration:none;cursor:pointer}
       <li><div><b>Recíbela lista para rodar</b><span>Pagas el saldo al llegar. En Lima la armamos y ajustamos en nuestro taller; a provincia el envío va incluido.</span></div></li>
     </ol>
   <div class="brands" id="brands" aria-label="Marcas"></div>
+  <nav class="tipos" id="tipos" aria-label="Tipos de bicicleta"><a href="/categoria/downhill" data-tc="Downhill">Downhill</a><a href="/categoria/enduro" data-tc="Enduro">Enduro</a><a href="/categoria/trail" data-tc="Trail">Trail</a><a href="/categoria/xc" data-tc="XC">XC / XCO</a><a href="/categoria/e-mtb" data-tc="E-MTB">Eléctricas e-MTB</a><a href="/categoria/gravel" data-tc="Gravel">Gravel</a><a href="/categoria/bike-park" data-tc="Bike Park">Bike Park</a><a href="/categoria/dirt" data-tc="Dirt">Dirt</a><a href="/categoria/kids" data-tc="Kids">Niños</a></nav>
   <div class="layout">
     <button type="button" class="btn sec ffbtn" id="fToggle" aria-expanded="false" aria-controls="filtros">Filtrar y ordenar <span id="fCuenta" class="ct"></span></button>
     <aside class="filters" id="filtros">
@@ -444,6 +449,11 @@ a.card{text-decoration:none;cursor:pointer}
       <button class="btn full" type="submit" id="agEnviar">Agendar llamada</button>
     </form></div>
   <div class="taller"><div class="foto" data-foto="taller"></div><div class="foto" data-foto="taller2"></div></div>
+  <section class="seo-txt" id="seoTxt">
+    <h2>Bicicletas de montaña en Perú, de fábrica</h2>
+    <p>En Kuranko Bikes eliges tu bicicleta de montaña directamente del catálogo de la marca y la recibes armada en Lima o en cualquier ciudad del Perú. Antes de reservar ves el precio final, con flete, seguro, desaduanaje, IGV y armado incluidos, y la fecha estimada de llegada.</p>
+    <p>Encuentras <a href="/categoria/downhill">bicicletas de downhill</a>, <a href="/categoria/enduro">bicicletas de enduro</a>, <a href="/categoria/trail">bicicletas de trail</a>, <a href="/categoria/xc">bicicletas XC y XCO de cross country</a>, <a href="/categoria/e-mtb">bicicletas eléctricas de montaña</a> y <a href="/categoria/gravel">bicicletas gravel</a>. Kuranko es distribuidor oficial de <a href="/marca/mondraker">Mondraker</a> y <a href="/marca/kavenz">Kavenz</a> en Perú, con garantía oficial y taller en Lima.</p>
+  </section>
   <div class="terms" id="terminos">
     <h2>Cómo funciona la reserva</h2>
     <ul>
@@ -681,8 +691,19 @@ function siluetear(img){
     x.putImageData(d,0,0);const u=c.toDataURL('image/png');SIL_CACHE.set(orig,u);img.src=u;
   }catch(e){SIL_CACHE.set(orig,SIL_GEN);img.src=SIL_GEN}
   img.classList.add('sil-ok')}
+/* Título de la página según la categoría o marca elegida (lo que el servidor puso al abrir /categoria/… o /marca/… se respeta) */
+const H1_PORTADA='Bicicletas <em>de fábrica</em><br>a tu puerta en Perú.',P_PORTADA='Bicis de montaña y eléctricas de las mejores marcas, armadas a tu medida. Antes de reservar ves el precio final, con envío, aduana, IGV y armado incluidos, y la fecha estimada de llegada.';
+const CAT_NOMBRE={Downhill:'de downhill',Enduro:'de enduro',Trail:'de trail',XC:'XC y XCO',Gravel:'gravel','E-MTB':'eléctricas de montaña','Bike Park':'de bike park',Dirt:'de dirt jump',Kids:'para niños'};
+function pintarTitulo(){const ht=document.querySelector('.hero-txt');if(!ht)return;const h=ht.querySelector('h1'),p=ht.querySelector('p');if(!h)return;
+  if(ht.dataset.bici&&/^\/bici\//.test(location.pathname))return; /* /bici/<id>: el título es la bici mientras se está en su URL */
+  if(!ht.dataset.p0){ht.dataset.p0=p?p.textContent:'';ht.dataset.t0=document.title;ht.dataset.h0=h.innerHTML}const T0=ht.dataset.t0;const srvCat=ht.dataset.cat,srvMarca=ht.dataset.marca;
+  if(F.cat!=='all'&&F.marca==='all'){const n=CAT_NOMBRE[F.cat]||F.cat;h.innerHTML=srvCat===F.cat?ht.dataset.h0:`Bicicletas ${esc(n)} <em>en Perú</em>`;if(p)p.textContent=srvCat===F.cat?ht.dataset.p0:`Modelos ${n} con precio final en Perú: envío, aduana, IGV y armado incluidos.`;document.title=srvCat===F.cat?T0:`Bicicletas ${n} en Perú · Kuranko`}
+  else if(F.marca!=='all'){h.innerHTML=srvMarca===F.marca&&F.cat==='all'?ht.dataset.h0:`${esc(F.marca)} <em>en Perú</em>`+(F.cat!=='all'?` · ${esc(F.cat)}`:'');if(p)p.textContent=srvMarca===F.marca?ht.dataset.p0:`Bicicletas ${F.marca} con precio final en Perú: envío, aduana, IGV y armado incluidos.`;document.title=srvMarca===F.marca&&F.cat==='all'?T0:`${F.marca} en Perú · Kuranko`}
+  else{h.innerHTML=H1_PORTADA;if(p)p.textContent=srvCat||srvMarca?P_PORTADA:ht.dataset.p0||P_PORTADA;document.title=srvCat||srvMarca||ht.dataset.bici?'Bicicletas en Perú: MTB, downhill, enduro, trail y XC · Kuranko Bikes':T0}
+  /* Enlaces por tipo: solo los que tienen bicis, y el elegido marcado */
+  const hay=new Set(D.modelos.filter(m=>m.tag!=='proximamente').flatMap(catsDe));document.querySelectorAll('#tipos a').forEach(a=>{a.hidden=!hay.has(a.dataset.tc);if(F.cat===a.dataset.tc)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current')})}
 function pintarGrid(){
-  contarFiltros();
+  contarFiltros();pintarTitulo();
   let L=D.modelos.map(m=>({m,r:resumen(m)}));
   const pronto=L.filter(x=>x.m.tag==='proximamente'&&(F.marca==='all'||x.m.marca===F.marca));L=L.filter(x=>x.m.tag!=='proximamente');
   const ok=F.q?new Set(buscarBicis(F.q)):null;
@@ -733,8 +754,10 @@ function cerrar(despues){
   ocultarDrawer();
   if(history.state&&history.state.bk){POP_PROPIO=despues||true;history.back();return}
   try{history.replaceState(null,'',urlBase())}catch(e){}
+  if(D)pintarTitulo();
   if(typeof despues==='function')despues()}
 addEventListener('popstate',e=>{
+  if(D)setTimeout(pintarTitulo,0); // al volver de /bici/<id> el título vuelve a la categoría o portada
   if(POP_PROPIO){const f=POP_PROPIO;POP_PROPIO=null;if(typeof f==='function')f();return}
   const st=e.state||{};
   if(st.bk&&D){abrir(st.bk,false);return}
@@ -1015,6 +1038,9 @@ document.addEventListener('change',e=>{if(e.target.dataset.x&&S){S.extras[e.targ
 $('#scrim').addEventListener('click',cerrar);
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#drawer').hidden)cerrar()});
 $('#fToggle').addEventListener('click',()=>{const f=$('#filtros'),ab=f.classList.toggle('abierto');$('#fToggle').setAttribute('aria-expanded',ab)});
+// Enlaces por tipo: sin recargar la página (el enlace igual sirve para buscadores y para abrir en otra pestaña)
+document.addEventListener('click',e=>{const a=e.target.closest('#tipos a');if(!a||!D||e.ctrlKey||e.metaKey||e.shiftKey||e.button)return;e.preventDefault();
+  F.cat=F.cat===a.dataset.tc?'all':a.dataset.tc;pintarFiltros();pintarGrid();if(conRuta())try{history.replaceState(null,'',urlBase())}catch(_){}ev('filtro',{cat:F.cat==='all'?null:F.cat})});
 $('#fCat').addEventListener('change',e=>{F.cat=e.target.value;pintarGrid();if(conRuta())try{history.replaceState(null,'',urlBase())}catch(_){}});
 $('#fEta').addEventListener('change',e=>{F.eta=e.target.value;pintarGrid()});
 $('#sort').addEventListener('change',e=>{F.sort=e.target.value;pintarGrid()});
@@ -1057,6 +1083,22 @@ async function recargar(silencioso){
   const pb=location.pathname.match(/^\/bici\/([^/]+)/);
   if(!pb&&!h)setTimeout(mostrarAviso,1200);
   if(h==='pedido')vista('pedido');else if(pb&&D)abrir(decodeURIComponent(pb[1]),false);else if(h&&D)abrir(h,false);
+})();
+</script>
+<!-- Chat de Kommo (botón flotante). Se carga después de la página para no hacerla más lenta (ni bajarla en Google). -->
+<style>
+/* El botón no tapa el aviso, la búsqueda, el menú ni las ventanas (Kommo ya lo pone 90 px arriba, sobre la barra «Solicitar reserva» del celular) */
+body:has(.aviso.on) .amo-button-holder,body:has(#kBus:not([hidden])) .amo-button-holder,body:has(#kPanel:not([hidden])) .amo-button-holder,body:has(.modal:not([hidden])) .amo-button-holder{display:none!important}
+</style>
+<script>
+(function(){
+  if(/^\/en\/?$/.test(location.pathname))return; // la versión en inglés es solo para mostrar a las marcas
+  var cargado=false;
+  function kommo(){if(cargado)return;cargado=true;
+    (function(a,m,o,c,r,m){a[m]={id:"1084168",hash:"c3fb67b64713cb3ebc757f2ce4a4ce19dea5b55d524a6819fd71c148e4a2a7a7",locale:"es",setMeta:function(p){this.params=(this.params||[]).concat([p])}};a[o]=a[o]||function(){(a[o].q=a[o].q||[]).push(arguments)};var d=a.document,s=d.createElement('script');s.async=true;s.id=m+'_script';s.src='https://gso.kommo.com/js/button.js';d.head&&d.head.appendChild(s)}(window,0,'crmPlugin',0,0,'crm_plugin'));}
+  // Al primer toque/scroll o 3 s después de cargar la página, lo que pase primero
+  ['pointerdown','scroll','keydown','touchstart'].forEach(function(e){addEventListener(e,kommo,{once:true,passive:true})});
+  if(document.readyState==='complete')setTimeout(kommo,3000);else addEventListener('load',function(){setTimeout(kommo,3000)});
 })();
 </script>
 </body>

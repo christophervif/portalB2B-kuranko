@@ -117,7 +117,7 @@ textarea{width:100%;min-height:60px;background:var(--bg);border:1px solid var(--
 /* ══ Rediseño nov 2026: tabla tipo Consulta de inventario ══ */
 :root{--zebra:#142050;--hc:#22306a;--hcx:#2b3b80}
 [data-theme="light"]{--zebra:#f4f6fb;--hc:#e9eefa;--hcx:#dde5f7}
-.wrap{max-width:1500px}
+.wrap{max-width:none;padding:1rem 1.1rem}
 .barra{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
 .barra input[type=search]{flex:1;min-width:240px;background:var(--bg);border:1px solid var(--accent);color:var(--text);border-radius:var(--radius-sm);padding:12px 14px;font-size:16px}
 .barra input[type=search]:focus{outline:none;box-shadow:0 0 0 2px rgba(255,179,13,.25)}
@@ -247,7 +247,8 @@ table.cart input.bajo{border-color:var(--fg-r);color:var(--fg-r)}
   <div class="card" style="padding:.6rem .8rem">
     <div class="tbar">
       <span class="desc">Clic en un título para ordenar · clic en un SKU para copiarlo · tecla <b>/</b> para buscar</span>
-      <div style="position:relative">
+      <div style="position:relative;display:flex;gap:6px">
+        <button class="btn btn-sm" id="btn-ir-cot" onclick="irACotizacion()" title="Bajar a la cotización">🧾 Cotización ↓</button>
         <button class="btn btn-sec btn-sm" onclick="togglePanelCol(event)">⚙ Columnas</button>
         <div class="panel-col" id="panel-col" onclick="event.stopPropagation()"></div>
       </div>
@@ -259,7 +260,8 @@ table.cart input.bajo{border-color:var(--fg-r);color:var(--fg-r)}
   <div class="card" id="cot-card">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
       <h3 id="cot-titulo">Cotización</h3>
-      <button class="btn btn-sec btn-sm" onclick="vaciarCarrito()">Vaciar</button>
+      <div style="display:flex;gap:6px"><button class="btn btn-sec btn-sm" onclick="irABuscador()" title="Subir al buscador">↑ Buscador</button>
+      <button class="btn btn-sec btn-sm" onclick="vaciarCarrito()">Vaciar</button></div>
     </div>
     <div id="carrito"></div>
     <div id="totales"></div>
@@ -272,7 +274,7 @@ table.cart input.bajo{border-color:var(--fg-r);color:var(--fg-r)}
       <button class="btn" onclick="copiarWhatsApp()">Copiar para WhatsApp</button>
     </div>
   </div>
-  <div class="barra-cot" id="mini" onclick="document.getElementById('cot-card').scrollIntoView({behavior:'smooth'})"></div>
+  <div class="barra-cot" id="mini" onclick="irACotizacion()"></div>
 </div>
 
 <script>
@@ -375,6 +377,9 @@ async function buscar(){
   }catch(e){document.getElementById('resultados').innerHTML='<div class="vacio">'+esc(e.message)+'</div>';}
 }
 // Ir a otro producto por su SKU (otras tallas/colores)
+function irACotizacion(){document.getElementById('cot-card').scrollIntoView({behavior:'smooth',block:'start'});}
+function irABuscador(){window.scrollTo({top:0,behavior:'smooth'});setTimeout(()=>$q.focus({preventScroll:true}),350);}
+function pintarBtnCot(){const b=document.getElementById('btn-ir-cot');if(b)b.textContent='🧾 Cotización'+(CARRITO.length?' ('+CARRITO.length+')':'')+' ↓';}
 function irASku(sku){$q.value=sku;buscar();$q.scrollIntoView({behavior:'smooth',block:'center'});}
 // Copiar SKU con un clic
 async function copiarSku(ev,sku){
@@ -806,6 +811,7 @@ function usarSug(i){const l=CARRITO[i];if(l&&l.precio_sugerido!=null){l.precio=l
 function usarMin(i){const l=CARRITO[i];if(l&&l.precio_minimo!=null){l.precio=l.precio_minimo;guardarCarrito();pintarCarrito();}}
 function pintarTotales(){
   const t=document.getElementById('totales'),mini=document.getElementById('mini');
+  pintarBtnCot();
   if(!CARRITO.length){t.innerHTML='';mini.style.display='none';return;}
   const normal=CARRITO.reduce((s,l)=>s+l.precio_normal*l.cantidad,0);
   const ofrecido=CARRITO.reduce((s,l)=>s+l.precio*l.cantidad,0);

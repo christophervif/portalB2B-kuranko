@@ -65,6 +65,8 @@ body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min
 .btn-sm{padding:6px 14px;font-size:12px;border-radius:10px}
 .btn-danger{background:var(--bg-r);color:var(--fg-r);box-shadow:none}.btn-ok{background:var(--bg-ok);color:var(--fg-ok);box-shadow:none}
 .wrap{max-width:1100px;margin:0 auto;padding:1.5rem}
+/* Cotizador: solo su panel usa todo el ancho de la ventana (menú y pestañas siguen igual). --sbw = ancho de la barra de scroll, lo pone fijarAnchoCot() */
+#tab-cotizador.active{width:calc(100vw - var(--sbw,0px) - 24px);margin-left:calc(50% - (100vw - var(--sbw,0px)) / 2 + 12px)}
 .login-box{max-width:380px;margin:5rem auto;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:2.25rem;position:relative;box-shadow:var(--shadow)}
 .login-box h2{font-size:1.1rem;margin-bottom:.5rem;color:var(--white)}
 .login-box p{font-size:13px;color:var(--muted);margin-bottom:1.5rem}
@@ -728,6 +730,9 @@ let ES_MAESTRO=false,MIS_MODULOS=[];
 
 // Tema
 function aplicarTema(t){document.documentElement.setAttribute('data-theme',t);localStorage.setItem('tema_admin',t);avisarTemaIframes(t);const ic=t==='light'?'☀️':'🌙';['theme-btn','theme-btn-login'].forEach(id=>{const b=document.getElementById(id);if(b)b.textContent=ic;});}
+// Cotizador a todo el ancho: mide la barra de scroll para que no aparezca scroll horizontal
+function fijarAnchoCot(){document.documentElement.style.setProperty('--sbw',(window.innerWidth-document.documentElement.clientWidth)+'px');}
+window.addEventListener('resize',fijarAnchoCot);window.addEventListener('load',fijarAnchoCot);
 // Sincroniza el tema con las mini-apps en iframe (cotizador, CxC, créditos, seguimiento, importaciones)
 function avisarTemaIframes(t){document.querySelectorAll('iframe').forEach(f=>{try{if(f.contentWindow)f.contentWindow.postMessage({tipo:'tema',tema:t},location.origin);}catch(e){}});}
 // Si el tema se cambia desde otra pestaña del panel, esta también se actualiza (y sus iframes)
@@ -994,6 +999,7 @@ function cargarDatosTab(id){
     // Cotizador rápido en iframe; comparte token/origen. Carga perezosa.
     const fr=document.getElementById('cot-frame');
     if(fr&&!fr.src){fr.src='/cotizador.html?v='+Date.now();}
+    fijarAnchoCot();
   }
   else if(id==='asistencia'){
     // Asistencia (marcar jornada + control) en iframe (public/asistencia.html); comparte token/origen.

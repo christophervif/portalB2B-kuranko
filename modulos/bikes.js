@@ -86,6 +86,41 @@ const REGLAS_BASE = {
   moneda_principal: 'USD', // 'USD' = precios en dólares (saldo fijo en US$) con soles al lado; 'PEN' = en soles
   prep: 7, mar_min: 45, mar_max: 60, aereo_min: 10, aereo_max: 16, aduana_min: 4, aduana_max: 8, lima_min: 2, lima_max: 4,
   validez_horas: 48,
+  // ── Logística por marca (v4). Montos en US$ sin IGV. Ver calcRuta(). ──
+  // Si traer una unidad sola sube el precio más de este % frente a traerla con el envío lleno, solo se ofrece en grupo (editable por marca)
+  tope_grupo: 15,
+  // Operadores: lo que cobran en Lima (desaduanaje, almacén, agente…). Se cargan una vez y sirven para todas las marcas.
+  operadores: {
+    'dhl-express': { nombre: 'DHL Express', modo: 'courier', lima: [{ c: 'Nacionalización DHL', usd: 164, por: 'envio' }], nota: 'Tarifa DHL Express Aduanas. Almacenaje solo si pasa 3 días libres: 9 × días + 0.24 × kg × días.' },
+    'ups-courier': { nombre: 'UPS (courier)', modo: 'courier', lima: [{ c: 'Desaduanaje UPS', usd: 295, por: 'envio' }, { c: 'Almacén', usd: 76, por: 'envio' }], nota: 'Supuesto: mismos montos que la carga aérea UPS de IMP-73. Confirmar con un recibo de courier UPS.' },
+    'ups-scs': { nombre: 'UPS SCS (carga aérea)', modo: 'aereo', lima: [{ c: 'Desaduanaje UPS (agente)', usd: 295, por: 'envio' }, { c: 'Almacén depósito temporal', usd: 76, por: 'envio' }], nota: 'Real IMP-73: desaduanaje US$ 348 con IGV, almacén US$ 90 con IGV (volante 35572).' },
+    'dhl-gf': { nombre: 'DHL Global Forwarding (carga aérea)', modo: 'aereo', lima: [{ c: 'Desaduanaje / agente', usd: 295, por: 'envio' }, { c: 'Depósito temporal (por kg)', usd: 150, por: 'envio' }], nota: 'Por confirmar: la cotización SPOT_MAD_182049 es CPT aeropuerto Lima (no incluye Lima). Montos de referencia.' },
+    'agente-maritimo': { nombre: 'Agente marítimo (IMP-70)', modo: 'maritimo', lima: [{ c: 'Handling', usd: 30, por: 'envio' }, { c: 'Desconsolidación', usd: 30, por: 'envio' }, { c: 'Retiro de almacén', usd: 700, por: 'envio' },
+      { c: 'Comisión agente de aduana', usd: 100, por: 'envio' }, { c: 'Gastos operativos', usd: 30, por: 'envio' }, { c: 'Transporte local', usd: 90, por: 'envio' }, { c: 'Visto bueno', usd: 110, por: 'envio' }], nota: 'Real IMP-70 (7 bicis, 181.6 kg), montos sin IGV.' }
+  },
+  // Ficha de cada marca: país, preparación (días) y rutas. flete = hasta Perú por unidad (vacío = no trae ese tipo). seguro en el peor caso (1.75%).
+  logistica: {
+    Mondraker: { pais: 'España', prep: [7, 7], rutas: [
+      { id: 'mon-mar', modo: 'maritimo', op: 'agente-maritimo', activo: true, flete: { bici: 0, cuadro: 0, ebike: 0 }, unidades: 7, seguro: 1.75, eur1: 150, libera: { bici: 0, cuadro: 0, ebike: 100 },
+        costos: [{ c: 'Flete marítimo', usd: 220, donde: 'origen', por: 'envio' }, { c: 'Pick up', usd: 120, donde: 'origen', por: 'envio' }, { c: 'Recargo IMO (baterías)', usd: 200, donde: 'origen', por: 'envio', solo: 'ebike' }],
+        dias: [45, 60], aduana: [4, 8], nota: 'Real IMP-70.' },
+      { id: 'mon-ups', modo: 'aereo', op: 'ups-scs', activo: true, flete: { bici: 564, cuadro: 250, ebike: '' }, unidades: 3, seguro: 1.75, eur1: 0, libera: { bici: 0, cuadro: 0, ebike: 0 }, costos: [],
+        dias: [7, 12], aduana: [2, 4], nota: 'Real IMP-73 (Summum R 28.1 kg): flete US$ 564. Cuadro estimado.' },
+      { id: 'mon-dhl-eb', modo: 'aereo', op: 'dhl-gf', activo: true, flete: { bici: '', cuadro: '', ebike: 357 }, unidades: 6, seguro: 1.75, eur1: 150, libera: { bici: 0, cuadro: 0, ebike: 100 },
+        costos: [{ c: 'Fijos DHL del envío (admin., exportación, carga peligrosa, energía)', usd: 204, donde: 'origen', por: 'envio' }],
+        dias: [4, 7], aduana: [3, 6], nota: 'Cotización DHL SPOT_MAD_182049: pallet de 6 e-bikes €2,090.76 (492 kg cobrables). €182 fijos + €3.88/kg.' },
+      { id: 'mon-dhlx', modo: 'courier', op: 'dhl-express', activo: false, flete: { bici: '', cuadro: '', ebike: '' }, unidades: 1, seguro: 1.75, eur1: 0, libera: {}, costos: [], dias: [3, 6], aduana: [1, 3], nota: 'Falta cotización de DHL Express desde Mondraker.' }
+    ] },
+    Kavenz: { pais: 'Alemania', prep: [70, 84], rutas: [
+      { id: 'kav-dhl', modo: 'courier', op: 'dhl-express', activo: true, flete: { bici: '', cuadro: 112, ebike: '' }, no: ['Pinion'], unidades: 1, seguro: 1.75, eur1: 0, libera: {}, costos: [], dias: [3, 6], aduana: [1, 3], nota: 'Kavenz: €100 por DHL (no lleva cuadros con Pinion).' },
+      { id: 'kav-ups', modo: 'courier', op: 'ups-courier', activo: true, flete: { bici: '', cuadro: 269, ebike: '' }, unidades: 1, seguro: 1.75, eur1: 0, libera: {}, costos: [], dias: [3, 6], aduana: [2, 4], nota: 'Kavenz: €240 por UPS (también con Pinion).' },
+      { id: 'kav-mar', modo: 'maritimo', op: 'agente-maritimo', activo: false, flete: { bici: '', cuadro: 0, ebike: '' }, unidades: 15, seguro: 1.75, eur1: 0, libera: {}, costos: [], dias: [45, 60], aduana: [4, 8], nota: 'Mínimo 1 pallet (hasta 15 cuadros). Precio a pedir.' }
+    ] },
+    Zerode: { pais: 'Nueva Zelanda', prep: [14, 21], rutas: [
+      { id: 'zrd-cou', modo: 'courier', op: 'dhl-express', activo: true, flete: { bici: 616, cuadro: 431, ebike: '' }, unidades: 1, seguro: 1.75, eur1: 0, libera: {}, costos: [], dias: [7, 7], aduana: [2, 2], nota: 'Zerode: NZ$ 900–1,100 bici completa, NZ$ 700 frameset (≈ 0.616 US$/NZ$). Operador a confirmar.' },
+      { id: 'zrd-mar', modo: 'maritimo', op: 'agente-maritimo', activo: false, flete: { bici: 0, cuadro: 0, ebike: '' }, unidades: 10, seguro: 1.75, eur1: 0, libera: {}, costos: [], dias: [30, 45], aduana: [4, 8], nota: 'Zerode solo lo usa desde 10 bicis o 20 cuadros. Precio a pedir.' }
+    ] }
+  },
   extras: [
     { id: 'armado', nombre: 'Armado, ajuste de suspensión y fitting básico', precio: 0, incluido: true },
     { id: 'pedales', nombre: 'Pedales de plataforma', precio: 190 },
@@ -124,6 +159,7 @@ function mezclarReglas(guardadas) {
     modos: { ...REGLAS_BASE.modos, ...(g.modos || {}) }, cuotas: g.cuotas && typeof g.cuotas === 'object' ? g.cuotas : REGLAS_BASE.cuotas, aereo_marcas: { ...(g.aereo_marcas || {}) }, aereo_ebike_marcas: { ...(g.aereo_ebike_marcas || {}) }, factores_pvp: { ...REGLAS_BASE.factores_pvp, ...(g.factores_pvp || {}) } };
   if (!Array.isArray(r.extras)) r.extras = REGLAS_BASE.extras;
   r.origenes = { ...REGLAS_BASE.origenes, ...(g.origenes || {}) }; r.marca_origen = { ...REGLAS_BASE.marca_origen, ...(g.marca_origen || {}) };
+  r.operadores = { ...REGLAS_BASE.operadores, ...(g.operadores || {}) }; r.logistica = { ...REGLAS_BASE.logistica, ...(g.logistica || {}) }; // v4: lo guardado manda por marca / operador
   if (r.moneda_principal !== 'PEN') r.moneda_principal = 'USD';
   return r;
 }
@@ -140,6 +176,7 @@ function reglasMarca(R, marca) {
 // Precio final en soles (IGV incluido) de un SKU para un tipo de envío.
 // tc = { usd, eur } en soles (ya con recargo). Devuelve también el desglose (solo admin).
 function calcularPrecio(sku, envio, R, tc, margenForzado = null) {
+  { const x = precioLogistica(sku, envio, R, tc, margenForzado); if (x) return x; } // marca con ficha de logística (v4)
   R = reglasMarca(R, sku.marca);
   // Precio final: en dólares redondeado a US$ 5 (moneda principal USD) o en soles redondeado a S/ 10
   const fin = usdx => R.moneda_principal === 'PEN' ? ceil10(usdx * tc.usd) : Math.round(Math.ceil(usdx / 5) * 5 * tc.usd);
@@ -299,15 +336,18 @@ function opcionesEnvio(sku, R, tc, mod = {}, hoy = hoyLima()) {
     const ppPct = num(R.powerpay_pct) / 100, ppP = ppPct > 0 ? Math.max(base, piso(p, ppPct)) : 0;
     const tjPct = num(R.tarjeta_pct) / 100, tjP = tjPct > 0 ? Math.max(base, piso(p, tjPct)) : 0; // contado con tarjeta
     const sinI = base / igv / tc.usd, L = p.pen / igv / tc.usd;
-    return { k, p: base, f: calcularEntrega(sku, k, R, hoy), margen: L > 0 ? Math.round((sinI - p.puesto) / L * 1000) / 10 : 0, m0: p.margen,
+    return { k, p: base, f: p.f || calcularEntrega(sku, k, R, hoy), margen: L > 0 ? Math.round((sinI - p.puesto) / L * 1000) / 10 : 0, m0: p.margen,
       mb: L > 0 ? (sinI - p.cw) / L * 100 : 0, ma: p.margen_alto + (base > p.pen ? (base - p.pen) / p.pen * 100 : 0),
       cu, cq, pp: !!ppP, ...(ppP ? { ppp: ppP } : {}), ...(tjP ? { tj: tjP } : {}), ...(base > p.pen ? { sub: 1 } : {}),
       ...(base < lista ? { pl: lista, dc: Math.round((1 - base / lista) * 100), ...(desc * 100 > Math.round((1 - base / lista) * 100) + 0.5 ? { dtope: 1 } : {}) } : {}),
-      ...(['maritimo', 'unidad', 'grupo'].includes(k) && forzado == null ? { nb: bicisMinimas(skuP, R, tc, base, p, k) } : {}) };
+      ...(p.nb != null ? (p.nb > 1 ? { nb: p.nb, g: 1 } : {}) : ['maritimo', 'unidad', 'grupo'].includes(k) && forzado == null ? { nb: bicisMinimas(skuP, R, tc, base, p, k) } : {}) }; // v4: nb = unidades de la marca que deben ir en el envío
   };
   if (sku.estado === 'Stock Lima') return [op('lima')];
   const out = [];
-  if (esEbike(sku)) { // las e-bikes no viajan en avión
+  if (logDe(R, sku.marca)) { // v4: una opción por modo (courier, aéreo, marítimo) con la mejor ruta de la marca; primero las que viajan solas, luego por precio
+    for (const k of Object.keys(MODOS_LOG)) if (!(k === 'aereo' && mod.aereo === 'no') && mejorRuta(skuP, k, R, tc)) out.push(op(k)); // «aéreo: nunca» en el modelo se respeta
+    out.sort((a, b) => (a.nb > 1) - (b.nb > 1) || a.p - b.p);
+  } else if (esEbike(sku)) { // las e-bikes no viajan en avión
     const u = op('unidad');
     if (mod.unidad === 'si' || (mod.unidad !== 'no' && u.m0 >= num(R.margen_minimo))) out.push(u);
     else {
@@ -341,11 +381,147 @@ function opcionesEnvio(sku, R, tc, mod = {}, hoy = hoyLima()) {
 
 // Rango de fechas estimadas de entrega en Lima (AAAA-MM-DD).
 function calcularEntrega(sku, envio, R, hoy = hoyLima()) {
+  { const L = logDe(R, sku.marca); if (L && sku.estado !== 'Stock Lima' && envio !== 'lima') { const r = L.rutas.find(x => x && x.activo !== false && x.modo === envio) || L.rutas.find(x => x && x.activo !== false); if (r) return entregaRuta(sku, L, r, hoy); } }
   R = reglasMarca(R, sku.marca);
   if (sku.estado === 'Stock Lima' || envio === 'lima') return [sumarDias(hoy, num(R.lima_min)), sumarDias(hoy, num(R.lima_max))];
   const disp = sku.fecha_disponible && sku.fecha_disponible > hoy ? sku.fecha_disponible : hoy;
   const t = envio === 'aereo' ? [num(R.aereo_min), num(R.aereo_max)] : [num(R.mar_min), num(R.mar_max)];
   return [sumarDias(disp, num(R.prep) + t[0] + num(R.aduana_min)), sumarDias(disp, num(R.prep) + t[1] + num(R.aduana_max))];
+}
+
+// ═══ Logística por marca (v4) ════════════════════════════════════════════════
+// Lo único común a todas las marcas son las partidas (las fija la ley) y el armado (interno). Todo lo demás está en la ficha de
+// logística de cada marca (R.logistica[marca]): país, preparación y «rutas». Una ruta = modo (courier, aéreo carga o marítimo carga)
+// + operador (DHL, UPS, agente marítimo…, con sus gastos en Lima en R.operadores) + flete hasta Perú por unidad (bici, cuadro,
+// e-bike; vacío = no se puede) + otros costos (de origen o de Lima, por envío o por unidad, para todos o solo e-bikes) + EUR.1 y
+// % del ad valorem que se libera + seguro + días. Todos los montos en US$ sin IGV (el IGV de importación y de servicios es crédito fiscal).
+// Una ruta se ofrece sola (1 unidad) si deja el margen mínimo y traerla sola no sube el precio más del «tope» frente a traerla en
+// grupo; si no, se ofrece en grupo (sale cuando se junten N de la marca); si ni así, no se ofrece.
+const PARTIDAS = {
+  bici: { cod: '8712.00.00.00', nom: 'Bicicleta', av: 6 },
+  ebike: { cod: '8711.60.00.00', nom: 'Bicicleta eléctrica', av: 6 },
+  cuadro: { cod: '8714.91.00.00', nom: 'Cuadro / frame kit', av: 0 },
+  courier: { cod: '9809.00.00.20', nom: 'Courier hasta US$ 2,000', av: 4, tope: 2000 }
+};
+const MODOS_LOG = { courier: 'Courier', aereo: 'Aéreo', maritimo: 'Marítimo' };
+const tipoSku = s => esEbike(s) ? 'ebike' : esCuadro(s) ? 'cuadro' : 'bici';
+const TIPO_NOM = { bici: 'bici completa', cuadro: 'cuadro / frame kit', ebike: 'e-bike' };
+// Ficha de la marca si tiene al menos una ruta activa (si no, la marca sigue con las reglas generales anteriores)
+const logDe = (R, marca) => { const L = (R.logistica || {})[marca]; return L && Array.isArray(L.rutas) && L.rutas.some(r => r && r.activo !== false) ? L : null; };
+// Limpia lo que llega del panel (montos ≥ 0, textos cortos, listas acotadas)
+const txt = (v, n = 80) => String(v == null ? '' : v).trim().slice(0, n);
+const monto = v => v === '' || v == null ? '' : Math.max(0, Math.round(num(v) * 100) / 100);
+const limpiarCostos = (arr, conDonde = true) => (Array.isArray(arr) ? arr : []).slice(0, 25).map(c => ({ c: txt(c && c.c, 80) || 'Gasto', usd: Math.max(0, num(c && c.usd)),
+  por: c && c.por === 'unidad' ? 'unidad' : 'envio', ...(conDonde ? { donde: c && c.donde === 'lima' ? 'lima' : 'origen' } : {}), ...(c && ['bici', 'cuadro', 'ebike'].includes(c.solo) ? { solo: c.solo } : {}) }));
+function limpiarOperadores(o) {
+  const out = {};
+  for (const [id, v] of Object.entries(o || {}).slice(0, 30)) { const k = slug(id).slice(0, 40); if (!k || !v) continue;
+    out[k] = { nombre: txt(v.nombre, 60) || k, modo: MODOS_LOG[v.modo] ? v.modo : 'aereo', lima: limpiarCostos(v.lima, false), nota: txt(v.nota, 300) }; }
+  return out;
+}
+function limpiarLogistica(l) {
+  const out = {}, dias = v => { const a = Array.isArray(v) ? v : [v, v]; const x = Math.max(0, Math.round(num(a[0]))), y = Math.max(x, Math.round(num(a[1] ?? a[0]))); return [x, Math.min(y, 365)]; };
+  for (const [marca, v] of Object.entries(l || {}).slice(0, 60)) { if (!v) continue;
+    out[txt(marca, 60)] = { pais: txt(v.pais, 40), prep: dias(v.prep), ...(v.margen_minimo !== '' && v.margen_minimo != null && isFinite(+v.margen_minimo) ? { margen_minimo: Math.min(80, Math.max(0, +v.margen_minimo)) } : {}),
+      ...(v.tope_grupo !== '' && v.tope_grupo != null && isFinite(+v.tope_grupo) ? { tope_grupo: Math.min(500, Math.max(0, +v.tope_grupo)) } : {}),
+      rutas: (Array.isArray(v.rutas) ? v.rutas : []).slice(0, 12).map((r, i) => ({ id: slug(r.id || (marca + '-' + r.modo + '-' + i)).slice(0, 40), modo: MODOS_LOG[r.modo] ? r.modo : 'aereo', op: slug(r.op || '').slice(0, 40),
+        activo: r.activo !== false, flete: { bici: monto((r.flete || {}).bici), cuadro: monto((r.flete || {}).cuadro), ebike: monto((r.flete || {}).ebike) },
+        no: (Array.isArray(r.no) ? r.no : String(r.no || '').split(',')).map(w => txt(w, 30)).filter(Boolean).slice(0, 6),
+        unidades: Math.min(60, Math.max(1, Math.round(num(r.unidades)) || 1)), seguro: Math.min(20, Math.max(0, num(r.seguro ?? 1.75))), eur1: Math.max(0, num(r.eur1)),
+        libera: { bici: Math.min(100, Math.max(0, num((r.libera || {}).bici))), cuadro: Math.min(100, Math.max(0, num((r.libera || {}).cuadro))), ebike: Math.min(100, Math.max(0, num((r.libera || {}).ebike))) },
+        costos: limpiarCostos(r.costos), dias: dias(r.dias), aduana: dias(r.aduana), nota: txt(r.nota, 300) })) };
+  }
+  return out;
+}
+const rangoDias = (v, d) => Array.isArray(v) && v.length ? [num(v[0]), num(v[1] ?? v[0])] : d;
+
+// Costo puesto en Lima de un SKU por una ruta, con n unidades en el envío (los costos «por envío» se reparten entre n)
+function calcRuta(sku, ruta, R, tc, n = 1) {
+  if (!ruta || ruta.activo === false) return null;
+  const tipo = tipoSku(sku), fl = (ruta.flete || {})[tipo];
+  if (fl == null || fl === '') return null; // esta ruta no trae ese tipo (ej. e-bikes por courier)
+  const texto = (String(sku.modelo || '') + ' ' + String(sku.montaje || '')).toLowerCase();
+  const no = (ruta.no || []).find(w => w && texto.includes(String(w).toLowerCase())); if (no) return null; // ej. DHL no lleva cuadros con Pinion
+  const op = (R.operadores || {})[ruta.op] || { nombre: ruta.op || '—', lima: [] };
+  n = Math.max(1, Math.round(num(n)) || 1);
+  const igv = 1 + num(R.igv) / 100;
+  const costoUSD = sku.moneda === 'EUR' ? num(sku.costo) * tc.eur / tc.usd : num(sku.costo);
+  const armado = num(R.armado_pen ?? 150) / igv / tc.usd;
+  if (num(sku.costo_puesto)) return { ruta, op, n, tipo, costoUSD, flete: 0, origen: 0, seguro: 0, cif: costoUSD, partida: PARTIDAS[tipo], libera: 0, avPct: 0, av: 0, lima: 0, armado, puesto: costoUSD + armado, logist: 0, detalle: [] };
+  const aplica = c => !c.solo || c.solo === tipo;
+  const items = [...(ruta.costos || []).map(c => ({ ...c, donde: c.donde === 'lima' ? 'lima' : 'origen' })), ...(op.lima || []).map(c => ({ ...c, donde: 'lima', op: 1 }))].filter(aplica);
+  const parte = c => num(c.usd) / ((c.por || 'envio') === 'envio' ? n : 1);
+  const flete = num(fl), eur1 = num(ruta.eur1) / n;
+  const origen = items.filter(c => c.donde === 'origen').reduce((a, c) => a + parte(c), 0) + eur1;
+  const lima = items.filter(c => c.donde === 'lima').reduce((a, c) => a + parte(c), 0);
+  const segPct = num(ruta.seguro ?? 1.75), seguro = costoUSD * segPct / 100;
+  const cif = costoUSD + flete + origen + seguro;
+  const partida = ruta.modo === 'courier' && cif <= PARTIDAS.courier.tope ? PARTIDAS.courier : PARTIDAS[tipo];
+  const libera = partida === PARTIDAS.courier ? 0 : Math.min(100, Math.max(0, num((ruta.libera || {})[tipo])));
+  const avPct = partida.av * (1 - libera / 100), av = cif * avPct / 100;
+  const puesto = cif + av + lima + armado;
+  const detalle = [['Costo de la bici (' + TIPO_NOM[tipo] + ')', costoUSD], ['Flete hasta Perú', flete],
+    ...items.filter(c => c.donde === 'origen').map(c => [c.c + ((c.por || 'envio') === 'envio' && n > 1 ? ` (÷ ${n})` : ''), parte(c)]),
+    ...(num(ruta.eur1) ? [['EUR.1' + (n > 1 ? ` (÷ ${n})` : ''), eur1]] : []), ['Seguro (' + segPct + '%)', seguro], ['= Valor en aduana (CIF)', cif],
+    ['Ad valorem ' + partida.cod + ' (' + partida.av + '%' + (libera ? `, ${libera}% liberado` : '') + ')', av],
+    ...items.filter(c => c.donde === 'lima').map(c => [c.c + (c.op ? ' · ' + op.nombre : '') + ((c.por || 'envio') === 'envio' && n > 1 ? ` (÷ ${n})` : ''), parte(c)]),
+    ['Armado (interno)', armado], ['= Costo puesto en Lima (sin IGV)', puesto]];
+  return { ruta, op, n, tipo, costoUSD, flete, origen, seguro, cif, partida, libera, avPct, av, lima, armado, puesto, logist: puesto - costoUSD - armado, detalle };
+}
+// Precio de lista (S/, con IGV) para un costo puesto: PVP × factor (igual para cualquier envío) o costo ÷ (1 − margen)
+function precioLista(sku, puesto, R, tc) {
+  const fin = usdx => R.moneda_principal === 'PEN' ? ceil10(usdx * tc.usd) : Math.round(Math.ceil(usdx / 5) * 5 * tc.usd);
+  const igv = 1 + num(R.igv) / 100, modo = (R.modos && R.modos[sku.marca]) || 'costo';
+  if (modo === 'pvp' && num(sku.pvp) > 0) {
+    const f = num(R.factores_pvp && R.factores_pvp[sku.marca] != null ? R.factores_pvp[sku.marca] : R.factor_pvp_defecto) || 1;
+    return { pen: fin((sku.moneda === 'EUR' ? num(sku.pvp) * tc.eur / tc.usd : num(sku.pvp)) * f), modo: 'pvp' };
+  }
+  const m = Math.min(90, num(R.margenes && R.margenes[sku.marca] != null ? R.margenes[sku.marca] : R.margen_defecto)) / 100;
+  return { pen: fin(puesto / (1 - m) * igv), modo: 'costo' };
+}
+// Evalúa una ruta: con cuántas unidades en el envío se puede ofrecer (1 = sola; >1 = en grupo) o null si no se puede
+function evaluarRuta(sku, ruta, R, tc) {
+  const L = (R.logistica || {})[sku.marca] || {}, igv = 1 + num(R.igv) / 100;
+  const min = num(L.margen_minimo ?? R.margen_minimo) / 100, tope = num(L.tope_grupo ?? R.tope_grupo ?? 15) / 100;
+  const nMax = Math.max(1, Math.round(num(ruta.unidades)) || 1);
+  const lleno = calcRuta(sku, ruta, R, tc, nMax); if (!lleno) return null;
+  const pLleno = precioLista(sku, lleno.puesto, R, tc).pen;
+  let ultimo = null;
+  for (let n = 1; n <= nMax; n++) {
+    const c = calcRuta(sku, ruta, R, tc, n), pr = precioLista(sku, c.puesto, R, tc), sin = pr.pen / igv / tc.usd;
+    const margen = sin > 0 ? (sin - c.puesto) / sin : 0;
+    ultimo = { c, n, pen: pr.pen, modo: pr.modo, margen, sube: pLleno > 0 ? pr.pen / pLleno - 1 : 0 };
+    if (margen + 1e-9 >= min && ultimo.sube <= tope + 1e-9) return { ...ultimo, ok: true, grupo: n > 1 };
+  }
+  return { ...ultimo, ok: false }; // ni con el envío lleno deja el margen mínimo
+}
+// Mejor ruta de un modo: primero las que se pueden traer solas (la más barata), luego en grupo (la que pide menos unidades)
+function mejorRuta(sku, modo, R, tc) {
+  const L = logDe(R, sku.marca); if (!L) return null;
+  const ev = L.rutas.filter(r => r && r.modo === modo && r.activo !== false).map(r => evaluarRuta(sku, r, R, tc)).filter(e => e && e.ok);
+  if (!ev.length) return null;
+  ev.sort((a, b) => (a.n > 1) - (b.n > 1) || a.n - b.n || a.pen - b.pen);
+  return ev[0];
+}
+function entregaRuta(sku, L, ruta, hoy = hoyLima()) {
+  const disp = sku.fecha_disponible && sku.fecha_disponible > hoy ? sku.fecha_disponible : hoy;
+  const prep = rangoDias(L.prep, [7, 7]), t = rangoDias(ruta.dias, [10, 16]), a = rangoDias(ruta.aduana, [2, 4]);
+  return [sumarDias(disp, prep[0] + t[0] + a[0]), sumarDias(disp, prep[1] + t[1] + a[1])];
+}
+// Lo que devuelve calcularPrecio para una marca con ficha de logística (misma forma que el cálculo anterior)
+function precioLogistica(sku, envio, R, tc, margenForzado = null) {
+  if (sku.estado === 'Stock Lima' || envio === 'lima') return null; // en tienda: sin importación (cálculo de siempre)
+  const L = logDe(R, sku.marca); if (!L) return null;
+  const modos = MODOS_LOG[envio] ? [envio, ...Object.keys(MODOS_LOG).filter(k => k !== envio)] : Object.keys(MODOS_LOG);
+  let e = null, k = null; for (const m of modos) { e = mejorRuta(sku, m, R, tc); if (e) { k = m; break; } }
+  if (!e) return null;
+  const c = e.c, igv = 1 + num(R.igv) / 100;
+  const pen = margenForzado != null ? Math.round(Math.ceil(c.puesto / (1 - margenForzado / 100) * igv / 5) * 5 * tc.usd) : e.pen;
+  const sin = pen / igv / tc.usd, margen = sin > 0 ? (sin - c.puesto) / sin * 100 : 0;
+  return { pen, cw: c.puesto, armado: c.armado, almacen: 0, peso_bruto: 0, peso_ref: false, usd: pen / tc.usd, costoUSD: c.costoUSD, flete: c.flete + c.origen, fijos: c.lima, av: c.avPct,
+    puesto: c.puesto, margen, ganancia: sin - c.puesto, margen_bajo: margen, margen_alto: margen, modo: margenForzado != null ? 'minimo' : e.modo,
+    envio: k, nb: e.n, ruta: c.ruta.id || '', operador: c.op.nombre, partida: c.partida.cod, f: entregaRuta(sku, L, c.ruta),
+    pasos: c.detalle.map(([kk, v]) => ({ k: kk, v: Math.round(v) })) };
 }
 
 // ── Lectura de Excel de marcas: reconocimiento de columnas ────────────────────
@@ -620,7 +796,7 @@ function armarCatalogo(skus, R, tc, hoy = hoyLima(), mods = {}) {
     }
     const base = ops.reduce((a, o) => o.p < a.p ? o : a, ops[0]);
     const it = { id: s.id, mo: s.montaje, t: s.talla, c: s.color, d: sinLimite(s) ? 99 : Math.max(0, num(s.stock) - num(s.reservado)) + num(s.preventa), e: s.estado, ...(num(s.stock_kuranko) > 0 ? { tk: num(s.stock_kuranko), ...(s.stock_ciudad && s.stock_ciudad !== 'Lima' ? { tkc: s.stock_ciudad } : {}) } : {}),
-      ...(s.categoria ? { ct: s.categoria } : {}), pm: base.p, fm: base.f, ...(base.pl ? { pml: base.pl, dc: base.dc } : {}), op: ops.map(o => ({ k: o.k, p: o.p, f: o.f, cu: o.cu, cq: o.cq, ...(o.tj ? { tj: o.tj } : {}), ...(o.pp ? { pp: o.ppp } : {}), ...(o.adicional ? { ad: 1 } : {}), ...(o.pl ? { pl: o.pl, dc: o.dc } : {}), ...(o.nb ? { nb: o.nb } : {}), ...(o.pv ? { pv: o.pv, ...(o.ppct ? { ppct: o.ppct } : {}) } : {}) })) };
+      ...(s.categoria ? { ct: s.categoria } : {}), pm: base.p, fm: base.f, ...(base.pl ? { pml: base.pl, dc: base.dc } : {}), op: ops.map(o => ({ k: o.k, p: o.p, f: o.f, cu: o.cu, cq: o.cq, ...(o.tj ? { tj: o.tj } : {}), ...(o.pp ? { pp: o.ppp } : {}), ...(o.adicional ? { ad: 1 } : {}), ...(o.pl ? { pl: o.pl, dc: o.dc } : {}), ...(o.nb ? { nb: o.nb } : {}), ...(o.g ? { g: 1 } : {}), ...(o.pv ? { pv: o.pv, ...(o.ppct ? { ppct: o.ppct } : {}) } : {}) })) };
     if (s.pvp > 0) it.ref = Math.ceil(s.pvp * (s.moneda === 'EUR' ? tc.eur : tc.usd) / 10) * 10; // PVP de la marca en soles, referencia
     m.skus.push(it);
   }
@@ -1312,6 +1488,9 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
             for (const [mk, v] of Object.entries(infoMarcas)) if (v && (num(v.mar_stock) > 0 || v.mar_fecha)) out[mk] = { van: (out[mk] ? out[mk].van : 0) + num(v.mar_stock), ...(v.mar_fecha && v.mar_fecha >= hoyLima() ? { fecha: v.mar_fecha } : {}) };
             return out; })(),
           grupos: await gruposPorMarca(R), grupo_min: Math.max(2, num(R.grupo_min) || 3),
+          grp: await (async () => { // v4: reservas activas por marca y tipo de envío (para los envíos en grupo de la ficha de logística)
+            const out = {}; const [rs] = await portalPool.query(`SELECT marca, envio, COUNT(*) n FROM bk_reservas WHERE estado IN ('Nueva','Confirmada con marca','Adelanto pagado') GROUP BY marca, envio`).catch(() => [[]]);
+            rs.forEach(x => { (out[x.marca] ||= {})[x.envio] = num(x.n); }); return out; })(),
           pagina: await (async () => { const pg = await leerPagina(); const f = pg.fotos || {};
             return { asesor_nombre: pg.asesor_nombre || 'Jean Pierre', asesor_cargo: pg.asesor_cargo || 'Asesor de bicicletas', asesor_whatsapp: (pg.asesor_whatsapp || '').replace(/\D/g, '') || null,
               soporte_url: pg.soporte_url || null, soporte_texto: pg.soporte_texto || null,
@@ -1573,7 +1752,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       limpiarCache();
       intentos.set('ok:' + ip, [...(intentos.get('ok:' + ip) || []), Date.now()]);
 
-      const ENV_TXT = { preventa: 'preventa (unidad ya en camino a Lima)', lima: 'stock en ' + ciuStk, aereo: 'aéreo', maritimo: 'marítimo', unidad: 'marítimo individual', grupo: 'marítimo en grupo' };
+      const ENV_TXT = { courier: 'courier (puerta a puerta)', preventa: 'preventa (unidad ya en camino a Lima)', lima: 'stock en ' + ciuStk, aereo: 'aéreo', maritimo: 'marítimo', unidad: 'marítimo individual', grupo: 'marítimo en grupo' };
       let envTxt = ENV_TXT[env] || env;
       if (env === 'grupo') {
         const g = (await gruposPorMarca(R))[s.marca] || { min: Math.max(2, num(R.grupo_min) || 3), actual: 0, completos: 0 };
@@ -1974,7 +2153,7 @@ Incluye solo bicicletas y cuadros (no repuestos sueltos, flete, seguro ni impues
       const $ = v => usdM ? `US$ ${Math.round(num(v) / tc).toLocaleString('en-US')}` : soles(v);
       const $2 = v => usdM ? `<span class="s">${soles(v)}</span>` : '';
       const fc = iso => iso ? new Date(iso + 'T12:00:00Z').toLocaleDateString('es-PE', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }) : '';
-      const ENV = { preventa: 'Preventa (unidad en camino)', lima: 'Unidad en stock', aereo: 'Aéreo', maritimo: 'Marítimo', unidad: 'Marítimo individual', grupo: 'Marítimo en grupo' };
+      const ENV = { courier: 'Courier', preventa: 'Preventa (unidad en camino)', lima: 'Unidad en stock', aereo: 'Aéreo', maritimo: 'Marítimo', unidad: 'Marítimo individual', grupo: 'Marítimo en grupo' };
       let extras = []; try { extras = JSON.parse(r.extras || '[]'); } catch (e) {}
       const gar = (info[r.marca] || {}).garantia || ((mods[r.marca + '|' + r.modelo] || {}).datos || {}).garantia || 'Garantía oficial del fabricante, gestionada por Kuranko en Lima.';
       const fila = (a, b, c = '') => `<tr><td>${a}</td><td class="n">${b}${c}</td></tr>`;
@@ -2144,6 +2323,25 @@ ${num(r.adelanto) ? fila(`Adelanto (${num(R.adelanto)}%) para separar la unidad,
   });
 
   // Simulador de precios: muestra paso a paso cómo se llega al precio de una bici (para validar las reglas)
+  // Logística por marca: prueba la ficha (sin guardar) con los modelos de la marca. Por ruta: sola / en grupo de N / no se ofrece.
+  app.post('/api/bikes/admin/logistica/probar', authAdmin, mBikes, async (req, res) => {
+    try {
+      const b = req.body || {}, marca = String(b.marca || '').slice(0, 60); const R0 = await leerReglas(); const tc = await tcEfectivo(R0);
+      const R = { ...R0, ...(b.operadores ? { operadores: { ...R0.operadores, ...limpiarOperadores(b.operadores) } } : {}), ...(b.logistica ? { logistica: { ...R0.logistica, [marca]: limpiarLogistica({ [marca]: b.logistica })[marca] } } : {}),
+        ...(b.tope_grupo != null && b.tope_grupo !== '' ? { tope_grupo: num(b.tope_grupo) } : {}) };
+      const L = (R.logistica || {})[marca]; if (!L) throw new Error('Esa marca no tiene ficha de logística');
+      const vistos = new Set(), skus = (await leerSkus(true)).filter(s => s.marca === marca && !vistos.has(s.modelo + '|' + s.montaje) && vistos.add(s.modelo + '|' + s.montaje)).slice(0, 60);
+      const igv = 1 + num(R.igv) / 100, usd = pen => Math.round(pen / tc.usd);
+      const filas = skus.map(s => {
+        const rutas = L.rutas.map(r => { const e = r.activo === false ? null : evaluarRuta(s, r, R, tc);
+          if (!e) return { id: r.id, estado: r.activo === false ? 'inactiva' : 'no aplica' };
+          const c = e.c; return { id: r.id, estado: e.ok ? (e.n > 1 ? 'grupo' : 'sola') : 'no da', n: e.n, puesto: Math.round(c.puesto), logistica: Math.round(c.logist), precio: usd(e.pen), margen: Math.round(e.margen * 1000) / 10, partida: c.partida.cod, f: entregaRuta(s, L, r) }; });
+        const ops = opcionesEnvio(s, R, tc, {}).filter(o => !['lima', 'preventa'].includes(o.k));
+        return { modelo: s.modelo, montaje: s.montaje, tipo: tipoSku(s), costo: Math.round(s.moneda === 'EUR' ? num(s.costo) * tc.eur / tc.usd : num(s.costo)), rutas, ofrece: ops.map(o => ({ k: o.k, usd: usd(o.p), nb: o.nb || 1, g: !!o.g })) };
+      });
+      res.json({ marca, tc: tc.usd, margen_minimo: num(L.margen_minimo ?? R.margen_minimo), tope_grupo: num(L.tope_grupo ?? R.tope_grupo), filas, sin_skus: !skus.length });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+  });
   app.post('/api/bikes/admin/simular', authAdmin, mBikes, async (req, res) => {
     try {
       const b = req.body || {}; const R = await leerReglas(); const tc = await tcEfectivo(R);
@@ -2164,7 +2362,7 @@ ${num(r.adelanto) ? fila(`Adelanto (${num(R.adelanto)}%) para separar la unidad,
         const conDesc = desc > 0 ? (() => { const pd = p.pen * (1 - desc), fila = (nombre, pct) => ({ nombre, pct: Math.round(pct * 1000) / 10, usd: usd(pd), pen: Math.round(pd), minimo_usd: minimo(pct), ...margenCon(pd, pct) });
           return { pct: desc * 100, filas: [fila('Contado (Yape / transferencia)', 0), ...(num(R.tarjeta_pct) ? [fila('Tarjeta en 1 pago', num(R.tarjeta_pct) / 100)] : []),
             ...Object.entries(R.cuotas || {}).map(([n, pc]) => fila(n + ' cuotas', num(pc) / 100)), ...(num(R.powerpay_pct) ? [fila('Powerpay', num(R.powerpay_pct) / 100)] : [])] }; })() : null;
-        return { envio: o.k, pasos: [['Costo de la bici', p.costoUSD], ['Seguro (' + num(RM.seguro) + '%)', seguro], ['Flete', p.flete], ['Ad valorem (' + p.av + '%, no recuperable)', arancel], [o.k === 'aereo' ? 'Otros gastos' : 'Gastos fijos del envío por bici (pick up, EUR.1, agente, visto bueno, transporte' + (esEbike(sku) ? ', IMO' : '') + ')', p.fijos - p.almacen], ...(p.almacen ? [['Retiro de almacén: ' + p.peso_bruto + ' kg con caja y pallet' + (p.peso_ref ? ' (peso referencial)' : '') + ' × US$ ' + num(RM.mar_almacen_kg ?? 3.85) + '/kg', p.almacen]] : []), ['Armado y ajuste en taller (S/ ' + num(RM.armado_pen ?? 150) + '; en provincia cubre el envío)', p.armado], ['= Costo puesto en Lima (sin IGV)', p.puesto], ['Peor caso (+' + num(RM.variacion_costos ?? 25) + '% logística, +2% TC)', p.cw]].map(([k, v]) => ({ k, v: Math.round(v) })),
+        return { envio: o.k, ...(p.operador ? { operador: p.operador, unidades: p.nb, partida: p.partida } : {}), pasos: p.pasos || [['Costo de la bici', p.costoUSD], ['Seguro (' + num(RM.seguro) + '%)', seguro], ['Flete', p.flete], ['Ad valorem (' + p.av + '%, no recuperable)', arancel], [o.k === 'aereo' ? 'Otros gastos' : 'Gastos fijos del envío por bici (pick up, EUR.1, agente, visto bueno, transporte' + (esEbike(sku) ? ', IMO' : '') + ')', p.fijos - p.almacen], ...(p.almacen ? [['Retiro de almacén: ' + p.peso_bruto + ' kg con caja y pallet' + (p.peso_ref ? ' (peso referencial)' : '') + ' × US$ ' + num(RM.mar_almacen_kg ?? 3.85) + '/kg', p.almacen]] : []), ['Armado y ajuste en taller (S/ ' + num(RM.armado_pen ?? 150) + '; en provincia cubre el envío)', p.armado], ['= Costo puesto en Lima (sin IGV)', p.puesto], ['Peor caso (+' + num(RM.variacion_costos ?? 25) + '% logística, +2% TC)', p.cw]].map(([k, v]) => ({ k, v: Math.round(v) })),
           modo: p.modo, precio_regla: usd(p.pen), lista_pen: p.pen, descuento: conDesc, precio_minimo: o.sub ? usd(o.p) : null, contado: { usd: usd(o.p), pen: o.p, ...margenCon(o.p, 0) },
           cuotas: Object.entries(o.cq || {}).map(([n, v]) => ({ n: +n, pct: num((R.cuotas || {})[n]), usd: usd(v), pen: v, ...margenCon(v, num((R.cuotas || {})[n]) / 100) })),
           tarjeta: o.tj ? { pct: num(R.tarjeta_pct), usd: usd(o.tj), pen: o.tj, ...margenCon(o.tj, num(R.tarjeta_pct) / 100) } : null,
@@ -2215,6 +2413,7 @@ ${num(r.adelanto) ? fila(`Adelanto (${num(R.adelanto)}%) para separar la unidad,
       const mods = await leerModelos();
       const conPrecio = skus.map(s => {
         const ops = opcionesEnvio(s, R, tc, mods[s.marca + '|' + s.modelo] || {}).filter(o => o.k !== 'preventa'); // el catálogo del panel muestra el precio normal
+        if (!ops.length) return { ...s, precio: 0, puesto: 0, ganancia: 0, margen: 0, envios: [], margen_min: 0, margen_max: 0, sin_envio: 1, pvp_pen: s.pvp > 0 ? ceil10(s.pvp * (s.moneda === 'EUR' ? tc.eur : tc.usd)) : null }; // v4: ninguna ruta deja el margen
         const p = calcularPrecio(s, ops[0].k, R, tc);
         const ms = ops.flatMap(o => [o.mb, o.ma]);
         const pf = ops[0].p, gan = pf / (1 + num(R.igv) / 100) / tc.usd - p.puesto;
@@ -2227,7 +2426,7 @@ ${num(r.adelanto) ? fila(`Adelanto (${num(R.adelanto)}%) para separar la unidad,
           estado, nota_interna, venta_erp, UNIX_TIMESTAMP(consulta_marca) consulta_marca, UNIX_TIMESTAMP(valido_hasta) valido_hasta, UNIX_TIMESTAMP(actualizado) actualizado, actualizado_por
         FROM bk_reservas ORDER BY id DESC LIMIT 500`);
       const [imports] = await portalPool.query(`SELECT id, UNIX_TIMESTAMP(creado) creado, usuario, archivo, marcas, modo, nuevas, actualizadas, desactivadas FROM bk_imports ORDER BY id DESC LIMIT 20`);
-      res.json({ reglas: R, preventa_cfg: R._preventa || {}, tc, maestro: !!(req.admin && req.admin.maestro), skus: conPrecio, reservas: reservas.map(r => ({ ...r, total: num(r.total), adelanto: num(r.adelanto),
+      res.json({ reglas: R, partidas: PARTIDAS, preventa_cfg: R._preventa || {}, tc, maestro: !!(req.admin && req.admin.maestro), skus: conPrecio, reservas: reservas.map(r => ({ ...r, total: num(r.total), adelanto: num(r.adelanto),
           creado: horaLima(r.creado), actualizado: horaLima(r.actualizado), valido_hasta: horaLima(r.valido_hasta), vencida: r.estado === 'Nueva' && r.valido_hasta && r.valido_hasta * 1000 < Date.now() })),
         modelos: mods, marcas_info: await leerMarcas(), pagina: await leerPagina(),
         llamadas: (await portalPool.query(`SELECT id, UNIX_TIMESTAMP(creado) creado, nombre, tel, DATE_FORMAT(fecha,'%Y-%m-%d') fecha, franja, tema, ref, estado, nota FROM bk_llamadas ORDER BY (estado='Pendiente') DESC, fecha, id DESC LIMIT 200`))[0].map(l => ({ ...l, creado: horaLima(l.creado) })), grupos: await gruposPorMarca(R),
@@ -2255,6 +2454,8 @@ ${num(r.adelanto) ? fila(`Adelanto (${num(R.adelanto)}%) para separar la unidad,
             for (const c of CLAVES_ORIGEN) if (o && o[c] !== '' && o[c] != null && isFinite(+o[c]) && +o[c] >= 0) nuevo.origenes[nom][c] = +o[c]; } }
         else if (k === 'marca_origen') { nuevo.marca_origen = {}; for (const [m, o] of Object.entries(b.marca_origen || {})) if (o) nuevo.marca_origen[String(m).slice(0, 60)] = String(o).slice(0, 40); }
         else if (k === 'aereo_marcas' || k === 'aereo_ebike_marcas') { nuevo[k] = {}; for (const [m, v] of Object.entries(b[k] || {})) if (typeof v === 'boolean') nuevo[k][String(m).slice(0, 60)] = v; }
+        else if (k === 'operadores') nuevo.operadores = limpiarOperadores(b.operadores);
+        else if (k === 'logistica') nuevo.logistica = limpiarLogistica(b.logistica);
         else if (k === 'moneda_principal') nuevo.moneda_principal = b.moneda_principal === 'PEN' ? 'PEN' : 'USD';
         else if (k === 'cuotas') { nuevo.cuotas = {}; for (const [n, v] of Object.entries(b.cuotas || {})) if (+n >= 2 && +n <= 36 && +v >= 0 && +v < 40) nuevo.cuotas[+n] = +v; }
         else if (isFinite(+b[k]) && +b[k] >= 0) nuevo[k] = +b[k];

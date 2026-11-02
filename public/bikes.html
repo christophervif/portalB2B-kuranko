@@ -134,6 +134,14 @@ nav.km a.on{background:#141414;color:#fff}
 .cuotas{font-size:13.5px;margin-top:8px;color:var(--ink)}.cuotas span{color:var(--muted);font-size:12px}
 .envs{display:flex;gap:4px;flex-wrap:wrap}.envs span{font-size:11px;font-weight:600;border-radius:4px;padding:2px 6px;background:var(--surface-2);color:var(--ink)}.envs .cu{background:var(--amber);color:var(--amber-ink)}
 .agenda{border:1px solid var(--line);border-radius:10px;padding:16px;background:var(--surface);margin:-14px 0 26px;display:grid;gap:10px}
+.td{border:1px solid var(--line);border-radius:10px;padding:16px;background:var(--surface);margin-bottom:26px;display:grid;gap:12px}
+.td h2{margin:0;font-size:22px}.td p{margin:0;color:var(--muted)}
+.tdbikes{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}@media (max-width:480px){.tdbikes{grid-template-columns:1fr 1fr}}
+.tdb{border:1px solid var(--line);border-radius:10px;background:var(--bg);padding:8px;text-align:left;display:grid;gap:6px;cursor:pointer;color:var(--ink);font:inherit}
+.tdb img{width:100%;aspect-ratio:4/3;object-fit:contain;background:#fff;border-radius:6px}
+.tdb b{font-size:14px;line-height:1.25}.tdb small{color:var(--muted);font-size:12px}
+.tdb[aria-pressed="true"]{border-color:var(--ink);box-shadow:0 0 0 2px var(--ink)}
+.td .form{grid-template-columns:repeat(4,minmax(0,1fr))}@media (max-width:760px){.td .form{grid-template-columns:1fr 1fr}}
 .agenda .form{grid-template-columns:repeat(4,minmax(0,1fr))}@media (max-width:760px){.agenda .form{grid-template-columns:1fr 1fr}}
 /* confianza, galería, grupo, logos */
 [data-foto][hidden]{display:none!important}
@@ -436,6 +444,21 @@ a.card{text-decoration:none;cursor:pointer}
     </div>
   </div>
   <div class="trust" id="confianza"><div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg><b>Garantía oficial de la marca</b><span>Bicis nuevas, con factura y garantía del fabricante gestionada por Kuranko.</span></div><div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg><b>Soporte técnico en Lima</b><span>Taller propio en Magdalena: armado, ajuste de suspensión y servicio post venta.</span></div><div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.27 6.96L12 12.01l8.73-5.05M12 22.08V12"/></svg><b>Importación sin sorpresas</b><span>Precio final con envío, aduana e IGV. Te avisamos cada etapa.</span></div><div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg><b>Reservar no cuesta nada</b><span>Pagas el adelanto solo cuando la marca confirma tu unidad. Si luego no puede entregarla, te devolvemos el 100%.</span></div></div>
+  <section class="td" id="td" hidden><div><h2>Agenda un test drive</h2><p>Prueba la bici antes de decidir. Elige cuál quieres probar, déjanos tus datos y te confirmamos el día y la hora por WhatsApp.</p></div>
+    <div class="tdbikes" id="tdBikes" role="group" aria-label="Bicis disponibles para test drive"></div>
+    <form id="tdForm" class="form" novalidate>
+      <label>Nombre<input type="text" id="tdNom" autocomplete="given-name"></label>
+      <label>Apellido<input type="text" id="tdApe" autocomplete="family-name"></label>
+      <label>Correo<input type="email" id="tdMail" autocomplete="email" inputmode="email"></label>
+      <label>Celular<input type="tel" id="tdTel" autocomplete="tel" placeholder="9XX XXX XXX"></label>
+      <label>Talla<select id="tdTalla"></select></label>
+      <label>Día<input type="date" id="tdFecha"></label>
+      <label>Hora<select id="tdFranja"></select></label>
+      <label>Comentario (opcional)<input type="text" id="tdCom" placeholder="Ej. mido 1.78 m, uso enduro"></label>
+      <div class="hp" aria-hidden="true"><input type="text" id="tdWeb" tabindex="-1" autocomplete="off"></div>
+      <div class="full" id="tdMsg"></div>
+      <button class="btn full" type="submit" id="tdEnviar">Agendar test drive</button>
+    </form></section>
   <div class="asesor" id="asesor"><div class="foto" data-foto="asesor"></div><div><b id="asNom">Jean Pierre</b><span id="asCargo">Asesor de bicicletas</span><br><span>Te ayuda a elegir talla y modelo, y te acompaña hasta la entrega.</span></div><div style="display:grid;gap:8px"><a class="btn" id="asWa" href="https://wa.me/51963358335" target="_blank" rel="noopener" data-wa>Hablar con Jean Pierre</a><button class="btn sec" id="agBtn">Agendar una llamada</button></div></div>
   <div class="agenda" id="agenda" hidden><b id="agTit">Agenda una llamada con el asesor</b>
     <form id="agForm" class="form" novalidate>
@@ -829,7 +852,7 @@ function aplicarPagina(){const pg=D.pagina||{},f=pg.fotos||{};
   $('.hero').classList.toggle('sinfoto',!f.hero);$('#asesor').classList.toggle('sinfoto',!f.asesor);
   $('.taller').hidden=!f.taller&&!f.taller2;
   const n=pg.asesor_nombre||'Jean Pierre';$('#asNom').textContent=n;$('#asCargo').textContent=pg.asesor_cargo||'Asesor de bicicletas';
-  $('#asWa').textContent='Hablar con '+n;$('#asWa').href=waAsesor();}
+  $('#asWa').textContent='Hablar con '+n;$('#asWa').href=waAsesor();pintarTD();}
 function totales(){
   const s=skuSel();if(!s)return null;
   const ops=s.op&&s.op.length?s.op:[{k:s.e==='Stock Lima'?'lima':'maritimo',p:s.pm,f:s.fm}];
@@ -881,6 +904,8 @@ function pintarCfg(){
     ${opcVisibles(m).map(o=>{const rec=opcRec(o);return `<div class="opt"><div class="lbl">${esc(o.g)}</div>${cardGrupo(m,o.g)}<div class="opts">${o.v.map(v=>{const ok=opcOk(o,v),sel=S.opc[o.g]===v,nt=(o.txt||{})[v]||notaMo(m,v,true),im=imgMo(m,v,true);return `<button class="o${im?' conimg':''}" aria-pressed="${sel}" data-opcg="${esc(o.g)}" data-opcv="${esc(v)}" ${ok?'':'disabled'}>${im}<b>${esc(v)}</b>${nt?`<small class="nota">${esc(nt)}</small>`:''}<small class="num ${!ok?'nocomp':sel?'ok':''}">${!ok?'no va con '+esc(((o.no||{})[v]||[]).filter(w=>String(S.mo).toLowerCase().includes(w.toLowerCase())).join(' ni con ')):sel?(v===rec&&((o.rec||{})[v]||[]).includes(S.t)?'elegido · recomendado talla '+esc(S.t):v===rec?'elegido · recomendado':'elegido'):v===rec?(((o.rec||{})[v]||[]).includes(S.t)?'recomendado talla '+esc(S.t):'recomendado'):'mismo precio'}</small></button>`}).join('')}</div></div>`}).join('')}
     <div class="opt"><div class="lbl">Talla</div><div class="opts">${m.tallas.map(t=>{const n=m.skus.filter(x=>x.mo===S.mo&&x.t===t).reduce((a,x)=>a+x.d,0),tk=m.skus.filter(x=>x.mo===S.mo&&x.t===t).reduce((a,x)=>a+(x.tk||0),0);return `<button class="o" aria-pressed="${S.t===t}" data-t="${esc(t)}" ${n>0?'':'disabled'}><b>${esc(t)}</b>${tk?`<small class="tk">${tk} en ${esc((m.skus.find(x=>x.mo===S.mo&&x.t===t&&x.tkc)||{}).tkc||'Lima')}</small>`:n>=90?'':`<small>${n>0?n+' en tienda':'agotada'}</small>`}</button>`}).join('')}</div>
       ${m.tt?`<div class="tfind"><label>¿Qué talla soy?<input type="number" id="altura" inputmode="numeric" min="120" max="215" placeholder="Tu altura en cm" value="${esc(S.alt||'')}"></label><span id="tRec">${recTalla(m)}</span></div>`:''}
+      ${m.tag==='usado'?'<div class="note" style="margin-top:6px">Pre-owned: unidad única, revisada y lista en Lima. Se entrega tal como se ve; pregúntanos por su historial.</div>':''}
+      ${m.td?'<button class="btn sec" id="tdDesde" style="margin-top:8px">Agendar test drive de esta bici</button>':''}
       <div class="note" style="margin-top:6px"><a href="#" id="tPrueba">Pruébate la talla en tienda o pide asesoría por videollamada</a></div></div>
     <div class="opt"><div class="lbl">Color</div><div class="opts">${m.colores.map(c=>`<button class="o" aria-pressed="${S.c===c.n}" data-c="${esc(c.n)}" ${disp(x=>x.mo===S.mo&&x.t===S.t&&x.c===c.n)?'':'disabled'}><span>${m.gc&&m.gc.includes(c.n)?`<img class="swf" src="${esc(IMG(m.gal[m.gc.indexOf(c.n)],160))}" alt="">`:c.h?`<span class="sw" style="background:${esc(c.h)}"></span>`:''}${esc(c.n)}</span></button>`).join('')}</div></div>
     <div class="opt"><div class="lbl">Envío a Lima</div>${m.conf&&T.env!=='lima'?'<div class="note" style="margin:-2px 0 8px;color:var(--ok)">✓ La marca confirmó que tiene unidades de este modelo.</div>':''}${ship}</div>
@@ -984,6 +1009,38 @@ async function agendar(){const tel=$('#agTel').value.replace(/\D/g,'');const b={
     if(AVISO){$('#agForm').innerHTML=`<p class="full" style="margin:0;color:var(--ok);font-weight:600">Listo, ${esc(b.nombre.split(' ')[0])}. Te escribiremos al ${esc(tel)} apenas tengamos novedades de ${esc(AVISO)}.</p>`;return}
     $('#agForm').innerHTML=`<p class="full" style="margin:0;color:var(--ok);font-weight:600">Listo. ${esc((D.pagina||{}).asesor_nombre||'Jean Pierre')} te llamará el ${fD(b.fecha)} entre ${esc(b.franja)}.</p>`}
   catch(e){$('#agMsg').innerHTML='<span class="err">No hay conexión. Intenta otra vez.</span>'}}
+
+/* ---- test drive ---- */
+const TD={k:''};
+const tdLista=()=>((D&&D.modelos)||[]).filter(m=>m.td);
+const tdKey=m=>m.marca+'|'+m.modelo;
+function pintarTD(){const L=tdLista(),box=$('#td');if(!box)return;box.hidden=!L.length;if(!L.length)return;
+  if(!L.some(m=>tdKey(m)===TD.k))TD.k=L.length===1?tdKey(L[0]):'';
+  $('#tdBikes').innerHTML=L.map(m=>{const im=(m.gal||[])[0]||m.img;return `<button type="button" class="tdb" data-td="${esc(tdKey(m))}" aria-pressed="${TD.k===tdKey(m)}">${im?`<img src="${esc(IMG(im,400))}" alt="" loading="lazy">`:''}<b>${esc(m.marca)} ${esc(m.modelo)}</b><small>${[m.tag==='usado'?'Pre-owned':'',m.cat,m.tallas&&m.tallas.length?'Talla '+m.tallas.join(', '):''].filter(Boolean).map(esc).join(' · ')}</small></button>`}).join('');
+  if(!$('#tdFecha'))return; // ya se envió (el formulario muestra el «Listo»)
+  tdTallas();
+  const f=$('#tdFecha');const hoy=(D&&D.hoy)||new Date().toISOString().slice(0,10);f.min=hoy;if(!f.value){const d=new Date(hoy+'T12:00:00');d.setDate(d.getDate()+1);f.value=d.toISOString().slice(0,10)}
+  if(!$('#tdFranja').options.length)$('#tdFranja').innerHTML=((D&&D.franjas)||['10:00–12:00','12:00–14:00','14:00–16:00','16:00–19:00']).map(x=>`<option>${x}</option>`).join('');}
+function tdTallas(){const m=tdLista().find(x=>tdKey(x)===TD.k),sel=$('#tdTalla');if(!sel)return;const prev=sel.value,ts=(m&&m.tallas)||[];
+  sel.innerHTML=ts.length>1?'<option value="">La que me recomienden</option>'+ts.map(t=>`<option ${t===prev?'selected':''}>${esc(t)}</option>`).join(''):ts.length?`<option>${esc(ts[0])}</option>`:'<option value="">—</option>';
+  sel.closest('label').hidden=!ts.length}
+function abrirTD(k){TD.k=k||TD.k;pintarTD();const b=$('#td');b.scrollIntoView({behavior:'smooth',block:'start'});setTimeout(()=>$('#tdNom').focus(),400)}
+document.addEventListener('click',e=>{const b=e.target.closest('[data-td]');if(b){TD.k=b.dataset.td;$$('#tdBikes .tdb').forEach(x=>x.setAttribute('aria-pressed',x===b));tdTallas();$('#tdMsg').innerHTML='';return}
+  if(e.target.id==='tdDesde'){e.preventDefault();const k=tdKey(S.m),t=S.t;cerrar();abrirTD(k);setTimeout(()=>{const o=[...$('#tdTalla').options].find(x=>x.value===t);if(o)$('#tdTalla').value=t},50)}});
+async function agendarTD(){const m=tdLista().find(x=>tdKey(x)===TD.k),msg=$('#tdMsg'),err=t=>{msg.innerHTML=`<span class="err">${esc(t)}</span>`};
+  if(!m)return err('Elige la bici que quieres probar.');
+  const tel=$('#tdTel').value.replace(/\D/g,''),b={marca:m.marca,modelo:m.modelo,talla:$('#tdTalla').value,nombre:$('#tdNom').value.trim(),apellido:$('#tdApe').value.trim(),email:$('#tdMail').value.trim(),tel,fecha:$('#tdFecha').value,franja:$('#tdFranja').value,comentario:$('#tdCom').value.trim(),ref:REF,web:$('#tdWeb').value,dt:Date.now()-T0};
+  if(b.nombre.length<2||b.apellido.length<2)return err('Escribe tu nombre y tu apellido.');
+  if(!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(b.email))return err('Escribe un correo válido.');
+  if(!/^(51)?9\d{8}$/.test(tel))return err('Escribe un celular de 9 dígitos que empiece con 9.');
+  if(!b.fecha)return err('Elige el día.');
+  const btn=$('#tdEnviar');btn.disabled=true;msg.innerHTML='<span class="note">Enviando…</span>';b.ts=await tsToken();
+  try{const r=await fetch('/api/bikes/testdrive',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});const j=await r.json().catch(()=>({}));tsReset();btn.disabled=false;
+    if(!r.ok)return err(j.error||'No se pudo agendar');
+    ev('testdrive',{marca:m.marca,modelo:m.modelo});
+    $('#tdForm').innerHTML=`<p class="full" style="margin:0;color:var(--ok);font-weight:600">Listo, ${esc(b.nombre)}. Recibimos tu solicitud para probar la ${esc(m.marca+' '+m.modelo)} el ${fD(b.fecha)} entre ${esc(b.franja)}. Te escribiremos al ${esc(tel)} para confirmar; también te llegó un correo.</p>`}
+  catch(e){btn.disabled=false;err('No hay conexión. Intenta otra vez.')}}
+document.addEventListener('submit',e=>{if(e.target.id==='tdForm'){e.preventDefault();agendarTD()}});
 
 /* ---- seguimiento ---- */
 async function consultar(cod,doc){

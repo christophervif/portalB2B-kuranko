@@ -117,7 +117,7 @@ const REGLAS_BASE = {
       { id: 'kav-mar', modo: 'maritimo', op: 'agente-maritimo', activo: false, flete: { bici: '', cuadro: 0, ebike: '' }, unidades: 15, seguro: 1.75, eur1: 0, libera: {}, costos: [], dias: [45, 60], aduana: [4, 8], nota: 'Mínimo 1 pallet (hasta 15 cuadros). Precio a pedir.' }
     ] },
     Zerode: { pais: 'Nueva Zelanda', prep: [14, 21], rutas: [
-      { id: 'zrd-cou', modo: 'courier', op: 'dhl-express', activo: true, flete: { bici: 616, cuadro: 431, ebike: '' }, unidades: 1, seguro: 1.75, eur1: 0, libera: {}, costos: [], dias: [7, 7], aduana: [2, 2], nota: 'Zerode: NZ$ 900–1,100 bici completa, NZ$ 700 frameset (≈ 0.616 US$/NZ$). Operador a confirmar.' },
+      { id: 'zrd-cou', modo: 'courier', op: 'dhl-express', activo: true, flete: { bici: 568, cuadro: 398, ebike: '' }, unidades: 1, seguro: 1.75, eur1: 0, libera: {}, costos: [], dias: [7, 7], aduana: [2, 2], nota: 'Zerode: NZ$ 900–1,100 bici completa, NZ$ 700 frameset (≈ 0.568 US$/NZ$: 0.56 + 1.5%). Operador a confirmar.' },
       { id: 'zrd-mar', modo: 'maritimo', op: 'agente-maritimo', activo: false, flete: { bici: 0, cuadro: 0, ebike: '' }, unidades: 10, seguro: 1.75, eur1: 0, libera: {}, costos: [], dias: [30, 45], aduana: [4, 8], nota: 'Zerode solo lo usa desde 10 bicis o 20 cuadros. Precio a pedir.' }
     ] }
   },

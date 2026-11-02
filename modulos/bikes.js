@@ -1209,6 +1209,23 @@ function emparejarModelos(modelos, links) {
   return out;
 }
 
+// Tiendas Shopify (ej. Zerode): la galería se carga con JavaScript y en el HTML no salen las fotos del producto.
+// Shopify publica el producto en /products/<handle>.json con todas sus fotos en orden: se usan esas.
+async function fotosShopify(url) {
+  let u; try { u = new URL(url); } catch (e) { return []; }
+  const m = u.pathname.match(/\/products\/([^/?#.]+)/); if (!m || !/^https?:$/.test(u.protocol)) return [];
+  const ips = await dnsP.lookup(u.hostname, { all: true }).catch(() => []);
+  if (!ips.length || ips.some(x => ipPrivada(x.address))) return [];
+  try {
+    const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 10000);
+    const r = await fetch(`${u.origin}${u.pathname.slice(0, u.pathname.indexOf('/products/'))}/products/${m[1]}.json`, { signal: ctrl.signal, headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36', Accept: 'application/json' } });
+    clearTimeout(to);
+    if (!r.ok) return [];
+    const j = await r.json(); const imgs = ((j && j.product && j.product.images) || []).map(x => x && x.src).filter(Boolean)
+      .map(x => String(x).replace(/^\/\//, 'https://')).filter(x => /^https:\/\//i.test(x) && !EXCLUIR_IMG.test(x));
+    return [...new Set(imgs)].slice(0, 16);
+  } catch (e) { return []; }
+}
 async function leerFicha(url, opciones = {}) {
   let u; try { u = new URL(url); } catch (e) { throw new Error('El link no es válido'); }
   if (!/^https?:$/.test(u.protocol)) throw new Error('Solo links http(s)');
@@ -1221,6 +1238,7 @@ async function leerFicha(url, opciones = {}) {
   const html = (await r.text()).slice(0, 4e6);
   if (opciones.soloHtml) return { html, url: r.url || u.href };
   const f = leerFichaHtml(html, r.url || u.href);
+  if (/\/products\//.test(u.pathname) && /cdn\.shopify|\/cdn\/shop\/|Shopify\./.test(html)) { const sh = await fotosShopify(u.href); if (sh.length) f.imagenes = sh; }
   return { ...(await completarFicha(f, htmlATexto(html), opciones)), url: u.href };
 }
 // Ficha leída en el navegador del usuario (lector): fotos y texto ya extraídos allá
@@ -1229,6 +1247,7 @@ async function fichaDesdeNavegador(url, imgs, texto, nombre) {
   const todas = (Array.isArray(imgs) ? imgs : []).map(String).filter(u => /^https?:\/\//i.test(u));
   const lista = [...new Set(todas.filter(u => !EXCLUIR_IMG.test(u)))].slice(0, 400);
   const f = { titulo: nombre, descripcion: '', imagenes: elegirImagenes(lista, url).slice(0, 16), geo: fotoGeometria(todas) };
+  if (/\/products\//.test(String(url)) && todas.some(u => /cdn\.shopify|\/cdn\/shop\//.test(u))) { const sh = await fotosShopify(url); if (sh.length) f.imagenes = sh; }
   return { ...(await completarFicha(f, String(texto || '').slice(0, 200000), { nombre })), url };
 }
 // Tabla de geometría a partir del texto de la ficha (filas A, B, C… con un valor por talla, en mm o grados)

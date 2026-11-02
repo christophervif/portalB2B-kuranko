@@ -1018,7 +1018,7 @@ function specsSimples(texto) {
   const i = inicioSpecs(texto);
   if (i < 0) return [];
   let bloque = texto.slice(i, i + 12000);
-  const fin = bloque.slice(200).search(/\n\s*(Guía de tallas|Geometr[íi]a|Geometry|Size guide|Spare parts|Repuestos)\s*\n/i); // hasta donde empieza la geometría
+  const fin = bloque.slice(200).search(/\n\s*(Guía de tallas|Geometr[íi]a(?:\s*\/\s*\w+)?|Geometry(?:\s*\/\s*\w+)?|Size guide|Spare parts|Repuestos)\s*\n/i); // hasta donde empieza la geometría
   if (fin > 0) bloque = bloque.slice(0, fin + 200);
   const lineas = bloque.split('\n').map(l => l.trim()).filter(Boolean);
   const out = [];
@@ -1260,6 +1260,40 @@ function geometriaDeTexto(texto) {
   for (const f of filas) f.v = f.v.map(v => /mm|°|º/.test(v) ? v : v + (/[áa]ngulo|angle/i.test(f.n) ? '°' : ' mm'));
   return filas.length >= 3 ? { tallas: tallas.slice(0, n), filas } : null;
 }
+// Geometría escrita por talla, en bloques (ej. Zerode): «MEDIUM» y debajo «Reach: 455 mm», «HT Angle: 63,5°»…
+// Las tallas sin datos («Under construction») se omiten. Los nombres comunes en inglés se pasan a español.
+const TALLA_BLOQUE = { SHORT: 'S', LONG: 'L', 'EXTRA LONG': 'XL', 'EXTRA SMALL': 'XS', 'X-SMALL': 'XS', XSMALL: 'XS', SMALL: 'S', MEDIUM: 'M', LARGE: 'L', 'EXTRA LARGE': 'XL', 'X-LARGE': 'XL', XLARGE: 'XL', 'XX-LARGE': 'XXL', 'XXL': 'XXL', XL: 'XL', XS: 'XS', S: 'S', M: 'M', L: 'L' };
+const GEO_ES = [[/^reach$/i, 'Reach'], [/^stack$/i, 'Stack'], [/^(st|seat ?tube) angle$/i, 'Ángulo del tubo de sillín'], [/^(ht|head ?tube) angle$/i, 'Ángulo de dirección'],
+  [/^(st|seat ?tube) length$/i, 'Largo del tubo de sillín'], [/^(ht|head ?tube) length$/i, 'Largo del tubo de dirección'], [/^(top tube effective|effective top tube|ett)$/i, 'Tubo superior efectivo'],
+  [/^front[- ]?cent(er|re)$/i, 'Front center'], [/^(cs|chain ?stay) length$|^chain ?stays?$/i, 'Largo de vainas'], [/^bb height$/i, 'Altura del pedalier'], [/^bb drop$/i, 'Caída del pedalier'],
+  [/^wheel ?base$/i, 'Distancia entre ejes'], [/^stand ?over( height)?$/i, 'Altura libre (standover)'], [/^fork (length|travel)$/i, 'Horquilla'], [/^offset$/i, 'Offset']];
+function geometriaPorBloques(texto) {
+  // Se prueba desde cada mención de «Geometry»/«Sizes» (la palabra puede salir antes en el menú o la descripción)
+  const t = String(texto || '');
+  for (const m of t.matchAll(/GEOMETR(Y|ÍA|IA)\b|\bSIZES\b/gi)) { const g = geoBloquesDesde(t.slice(m.index, m.index + 15000)); if (g) return g; }
+  return null;
+}
+function geoBloquesDesde(trozo) {
+  const L = trozo.split('\n').map(x => x.trim()).filter(Boolean);
+  const talla = x => TALLA_BLOQUE[x.toUpperCase().replace(/\s+/g, ' ').replace(/:$/, '')] || null;
+  const bloques = []; let act = null;
+  for (const l of L.slice(0, 400)) {
+    const tl = talla(l);
+    if (tl) { act = { t: tl, f: {} }; bloques.push(act); continue; }
+    const m = l.match(/^([A-Za-zÁÉÍÓÚáéíóúñ][\w '’\-\/().áéíóúñ]{1,40}?)\s*:\s*(.{1,80})$/);
+    if (act && m && /\d/.test(m[2])) { act.f[m[1].trim()] = m[2].trim(); continue; }
+    act = null; // «Under construction», «Frame specs»…: se cierra la talla
+    if (bloques.some(b => Object.keys(b.f).length >= 3)) break; // y si ya hay tallas con datos, terminó la geometría
+  }
+  const con = bloques.filter(b => Object.keys(b.f).length >= 3);
+  if (!con.length) return null;
+  const nombres = [...new Set(con.flatMap(b => Object.keys(b.f)))].slice(0, 30);
+  const val = v => { if (v == null) return '—'; v = v.replace(/(\d),(\d)/g, '$1.$2').replace(/\.\s+(?=\D)/g, ' · ').replace(/\s+/g, ' ').trim();
+    return /^\d+(\.\d+)?$/.test(v) ? v : v.slice(0, 40); };
+  const filas = nombres.map(n => { const es = (GEO_ES.find(([re]) => re.test(n)) || [])[1] || n;
+    return { l: '', n: es.slice(0, 50), v: con.map(b => val(b.f[n])).map(v => /^\d+(\.\d+)?$/.test(v) ? v + (/[áa]ngulo|angle/i.test(es) ? '°' : ' mm') : v) }; });
+  return filas.length >= 3 ? { tallas: con.map(b => b.t), filas } : null;
+}
 // Dibujo de geometría de la marca (la foto con «geo»/«geometry» en el nombre, la más grande)
 function fotoGeometria(imgs) {
   const g = imgs.filter(u => /[-_]geo[-_.]|geometr/i.test(u) && !/\.svg/i.test(u));
@@ -1272,7 +1306,7 @@ async function completarFicha(f, texto, opciones = {}) {
   else { f.specs = specsSimples(texto); if (ultimoErrorIA) f.ia_error = ultimoErrorIA;
     const peso = (f.specs.find(x => /^peso|weight/i.test(x.k)) || {}).v; if (peso) f.datos = { peso: peso.slice(0, 20) }; }
   if (!f.descripcion && f.specs && f.specs.length) f.descripcion = descDeSpecs(opciones.nombre || f.titulo, f.specs);
-  const geometria = geometriaDeTexto(texto);
+  const geometria = geometriaDeTexto(texto) || geometriaPorBloques(texto);
   f.datos = { ...datosDeSpecs(f.specs || []), ...Object.fromEntries(Object.entries(f.datos || {}).filter(([, x]) => x)), ...(f.geo ? { geo: f.geo } : {}), ...(geometria ? { geometria } : {}) };
   if (!f.imagenes.length && !f.descripcion) throw new Error('No encontré fotos ni descripción en esa página. Si la marca bloquea al servidor, usa el «Lector desde tu navegador».');
   return f;

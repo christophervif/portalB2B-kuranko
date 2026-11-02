@@ -1,6 +1,23 @@
 // Traducción al inglés de la tienda (bikes.kuranko.pe/en), para mostrar la propuesta a las marcas.
 // Pares [texto exacto en bikes.html, inglés]; se aplican de la frase más larga a la más corta.
 module.exports = [
+  ['Pre-owned: unidad única, revisada y lista en Lima. Se entrega tal como se ve; pregúntanos por su historial.', 'Pre-owned: single unit, checked and ready in Lima. Sold as seen; ask us about its history.'],
+  ['Prueba la bici antes de decidir. Elige cuál quieres probar, déjanos tus datos y te confirmamos el día y la hora por WhatsApp.', 'Try the bike before you decide. Pick the one you want to ride, leave your details and we will confirm the day and time on WhatsApp.'],
+  ['Agenda un test drive', 'Book a test ride'],
+  ['Agendar test drive de esta bici', 'Book a test ride on this bike'],
+  ['Agendar test drive', 'Book test ride'],
+  ['Bicis disponibles para test drive', 'Bikes available for test rides'],
+  ['Comentario (opcional)', 'Comment (optional)'],
+  ['Ej. mido 1.78 m, uso enduro', 'E.g. I am 1.78 m tall, I ride enduro'],
+  ['La que me recomienden', 'Whatever you recommend'],
+  ['Elige la bici que quieres probar.', 'Pick the bike you want to try.'],
+  ['Escribe tu nombre y tu apellido.', 'Enter your first and last name.'],
+  ['Escribe un correo válido.', 'Enter a valid email.'],
+  ['<label>Apellido<', '<label>Last name<'],
+  ['<label>Correo<', '<label>Email<'],
+  ['<label>Talla<select id="tdTalla"', '<label>Size<select id="tdTalla"'],
+  ['<label>Día<input type="date" id="tdFecha"', '<label>Day<input type="date" id="tdFecha"'],
+  ['<label>Hora<select id="tdFranja"', '<label>Time<select id="tdFranja"'],
   ['<b>Distribuidor oficial de ${esc(F.marca)} en Perú</b> · garantía oficial y soporte técnico en Lima.', '<b>Official ${esc(F.marca)} distributor in Peru</b> · official warranty and technical support in Lima.'],
   ['<b>Distribuidor oficial:</b> Kuranko es distribuidor oficial de ${esc(m.marca)} en Perú.', '<b>Official distributor:</b> Kuranko is the official ${esc(m.marca)} distributor in Peru.'],
   ["Verifícalo en ${esc(h||'la web de '+b)}", "Check it on ${esc(h||b+' website')}"],

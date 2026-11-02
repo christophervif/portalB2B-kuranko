@@ -67,6 +67,8 @@ tr.off td{opacity:.45}
 .map small{display:block;color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;max-width:120px;white-space:nowrap}
 .map select{max-width:140px;font-size:12px}
 .conf{font-size:10px;padding:1px 6px;border-radius:999px;margin-left:4px;font-weight:700}
+.lruta{border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;margin:10px 0}.lruta.off{opacity:.55}.lruta .rules{margin:6px 0}.lruta textarea,.lop textarea{width:100%;font:12.5px ui-monospace,monospace}.lop{border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;margin:8px 0}
+.ltest td,.ltest th{font-size:12px;white-space:nowrap}.ltest .sola{color:var(--ok,#16794a);font-weight:600}.ltest .grupo{color:#b4532a;font-weight:600}.ltest .nod{color:var(--muted)}
 .rules{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin:10px 0}
 .rules label{display:grid;gap:4px;font-size:12px;color:var(--text2)}
 .bar{height:22px;background:var(--accent);border-radius:4px;min-width:2px}
@@ -101,6 +103,7 @@ tr.off td{opacity:.45}
     <button data-t="pag">Página</button>
     <button data-t="sim">Simulador</button>
     <button data-t="reg">Reglas de precio</button>
+    <button data-t="log">Logística por marca</button>
   </div>
   <div id="msg"></div>
   <div id="pend" class="pend"></div>
@@ -216,6 +219,11 @@ tr.off td{opacity:.45}
   <section data-p="reg" hidden>
     <div class="card" id="regCard"></div>
   </section>
+
+  <section data-p="log" hidden>
+    <div class="card" id="logCard"></div>
+    <div class="card" id="logOpCard"></div>
+  </section>
 </div>
 <div class="toast" id="toast"></div>
 
@@ -263,7 +271,7 @@ function pintarReservas(){
     return `<tr><td><b>${esc(r.codigo)}</b>${r.ref?`<br><span class="muted">vend.: ${esc(r.ref)}</span>`:''}</td><td>${esc(r.creado)}${vencida?'<br><span class="pill p-r">precio vencido</span>':''}</td>
     <td>${esc(r.nombre)}<br><span class="muted">${esc(r.doc)} · <a href="https://wa.me/51${esc(r.tel)}" target="_blank" rel="noopener" style="color:var(--accent)">${esc(r.tel)}</a>${r.email?' · '+esc(r.email):''} · ${esc(r.ciudad||'')}</span></td>
     <td>${esc(r.marca)} ${esc(r.modelo)} ${esc(r.montaje)}<br><span class="muted">Talla ${esc(r.talla)} · ${esc(r.color)}</span></td>
-    <td>${esc({preventa:'Preventa',lima:'Stock Lima',aereo:'Aéreo',maritimo:'Marítimo',unidad:'Marítimo individual',grupo:'Marítimo en grupo'}[r.envio]||r.envio)}<br><span class="muted">${fD(r.fecha_min)} – ${fD(r.fecha_max)}</span></td>
+    <td>${esc({courier:'Courier',preventa:'Preventa',lima:'Stock Lima',aereo:'Aéreo',maritimo:'Marítimo',unidad:'Marítimo individual',grupo:'Marítimo en grupo'}[r.envio]||r.envio)}<br><span class="muted">${fD(r.fecha_min)} – ${fD(r.fecha_max)}</span></td>
     <td class="n">${$R(r,r.total)}${$R(r,1)!==soles(1)?`<br><span class="muted">${soles(r.total)}</span>`:''}</td><td class="n">${$R(r,r.adelanto)}</td>
     <td><a class="btn sec" style="padding:3px 8px;font-size:12px;margin-bottom:4px;display:inline-block" href="https://wa.me/51${esc(r.tel)}?text=${encodeURIComponent(msgCliente(r))}" target="_blank" rel="noopener" title="Abre WhatsApp con el mensaje de esta etapa ya escrito">WhatsApp: ${esc(ETAPA_MSG[r.estado]||'escribir')}</a> <a class="btn sec" style="padding:3px 8px;font-size:12px;margin-bottom:4px;display:inline-block" href="/bikes/proforma/${esc(r.codigo)}?doc=${esc(r.doc)}" target="_blank" rel="noopener">Proforma</a><br><select data-res="${r.id}" data-campo="estado">${E.estados_reserva.map(s=>`<option ${s===r.estado?'selected':''}>${s}</option>`).join('')}</select><br><span class="pill ${PILL[r.estado]||''}" style="margin-top:4px">${esc(r.estado)}</span>${r.actualizado_por?`<br><span class="muted">${esc(r.actualizado_por)} · ${esc(r.actualizado)}</span>`:''}
       ${r.envio!=='lima'?`<br><button class="btn sec" style="padding:3px 8px;font-size:12px;margin-top:4px" data-consultar="${r.id}" title="Correo a la marca pidiendo disponibilidad (talla, color y configuración)">${r.consulta_marca?'Volver a consultar a la marca':'Consultar a la marca'}</button>${r.consulta_marca?`<br><span class="muted">Consultado ${esc(new Date(r.consulta_marca*1000).toLocaleString('es-PE',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}))}</span>`:''}`:''}</td>
@@ -537,7 +545,7 @@ function pintarModelos(){
   const inc=todos.filter(x=>x.falta.length).length;
   $('#modRes').innerHTML=`<b>${todos.length-inc}</b> de ${todos.length} modelos con ficha completa${inc?` · <span style="color:var(--fg-warn)">${inc} incompletos ${E.reglas.solo_completos!==false?'(ocultos en la tienda)':'(se ven igual en la tienda)'}</span>`:''}`;
   const L=todos.filter(x=>(!q||(x.marca+' '+x.modelo).toLowerCase().includes(q))&&(!sin||x.falta.length));
-  const ENV={maritimo:'Marítimo',aereo:'Aéreo',unidad:'Mar. individual',grupo:'Mar. en grupo',lima:'Stock Lima'};
+  const ENV={courier:'Courier',maritimo:'Marítimo',aereo:'Aéreo',unidad:'Mar. individual',grupo:'Mar. en grupo',lima:'Stock Lima'};
   $('#modTbl').innerHTML=`<table><thead><tr><th>Foto</th><th>Modelo</th><th class="n">SKUs</th><th>Ficha</th><th>Envíos</th><th class="n">Margen</th><th>Aéreo</th><th>Vitrina</th><th></th></tr></thead><tbody>${L.slice(0,400).map(x=>{const md=E.modelos[x.marca+'|'+x.modelo]||{};const im=(md.imgs||[])[0];
     const col=x.mmin<E.reglas.margen_minimo?'var(--fg-r)':x.mmin<E.reglas.margen_minimo+10?'var(--fg-warn)':'var(--fg-ok)';
     return `<tr><td>${im?`<img src="${esc(im)}" style="width:56px;height:40px;object-fit:contain;background:#fff;border-radius:4px">`:'<span class="pill p-w">sin foto</span>'}</td><td><b>${esc(x.modelo)}</b><br><span class="muted">${esc(x.marca)} · ${esc(x.cat)}${x.ebike?' · e-bike':''}</span></td><td class="n">${x.n}</td>
@@ -647,7 +655,7 @@ async function calcDto(){const el=$('#medDtoCalc');if(!el||!el.dataset.sku)retur
       (tope?`<br><span style="color:var(--fg-r)">Llega al margen mínimo: el precio no baja de ${u(f.minimo_usd)}, así que en la tienda se verá −${real}% y no −${pct}%. Para bajar más, baja el margen mínimo en Reglas.</span>`:'')+
       (vence?`<br><span style="color:var(--fg-r)">La fecha «hasta» ya pasó: el descuento no se aplica.</span>`:'')+'<br><span class="muted">La tienda se actualiza en máximo 1 minuto después de guardar.</span>';
   }catch(err){el.textContent=err.message}}
-const ENVN0={maritimo:'Marítimo',aereo:'Aéreo',unidad:'Marítimo individual',grupo:'Marítimo en grupo',lima:'En stock'};
+const ENVN0={courier:'Courier',maritimo:'Marítimo',aereo:'Aéreo',unidad:'Marítimo individual',grupo:'Marítimo en grupo',lima:'En stock'};
 document.addEventListener('change',e=>{if(!MOD_ED||!MOD_ED.prec)return;const id=e.target.id,M=MOD_ED.prec;
   if(id==='medCat')M.cat=e.target.value;if(id==='medCosto')M.costo=e.target.value;if(id==='medMon')M.mon=e.target.value;if(id==='medPvp')M.pvp=e.target.value;if(id==='medPuesto'){M.puesto=e.target.checked;MOD_ED.desc=$('#medDesc').value;pintarModelos()}});
 /* ---------- Crear bici nueva desde la página de la marca ---------- */
@@ -709,7 +717,7 @@ document.addEventListener('click',async e=>{if(e.target.id!=='erpSync')return;co
 let SIM_ULT=null;
 async function simPrecio(body){SIM_ULT=body;body={...body,descuento:+(($('#simDesc')||{}).value||0)};const out=$('#simOut');out.innerHTML='<p class="muted">Calculando…</p>';
   try{const j=await api('/api/bikes/admin/simular',{method:'POST',body:JSON.stringify(body)});const u=v=>'US$ '+Math.round(v).toLocaleString('en-US');
-    const ENVN={maritimo:'Marítimo',aereo:'Aéreo',unidad:'Marítimo individual',grupo:'Marítimo en grupo',lima:'En tienda'};
+    const ENVN={courier:'Courier',maritimo:'Marítimo',aereo:'Aéreo',unidad:'Marítimo individual',grupo:'Marítimo en grupo',lima:'En tienda'};
     const mg=(o)=>`<span style="color:${o.peor<j.margen_minimo-0.5?'var(--fg-r)':'var(--fg-ok)'}">${o.real}% (peor caso ${o.peor}%)</span>`;
     out.innerHTML=`<p class="desc">${esc(j.sku.marca)} ${esc(j.sku.modelo)} · costo ${u(j.sku.costo)}${j.pvp?` · PVP ${u(j.pvp)}`:''} · origen ${esc(j.origen)} · cálculo por ${j.modo==='pvp'?'PVP × '+j.factor:'costo + margen de la marca'} · TC ${j.tc.toFixed(3)} · IGV ${j.igv}% · margen mínimo ${j.margen_minimo}% en el peor caso</p>
     <div class="dos">${j.ops.map(o=>`<div class="card" style="background:var(--surface3);margin:0"><h3>${ENVN[o.envio]||o.envio}</h3>
@@ -898,13 +906,102 @@ function pintarPendientes(){const P=[];const nv=E.reservas.filter(r=>r.estado===
   if(!E.skus.length)P.push(['imp','Aún no hay bicis: importa la lista de una marca']);
   $('#pend').innerHTML=P.length?P.map(([t,x])=>`<a data-ir="${t}">${esc(x)} →</a>`).join(''):'<a class="ok">Todo al día</a>'}
 document.addEventListener('click',e=>{const a=e.target.closest('[data-ir]');if(a)tab(a.dataset.ir)});
+/* ---------- Logística por marca (v4) ---------- */
+// Texto ↔ costos: una línea por gasto «origen envío: Flete marítimo = 220» · «lima unidad ebike: Algo = 10» (sin IGV, US$)
+const costoATexto=c=>`${c.donde||'lima'} ${c.por==='unidad'?'unidad':'envío'}${c.solo?' '+c.solo:''}: ${c.c} = ${c.usd}`;
+const textoACostos=(t,conDonde=true)=>String(t||'').split('\n').map(l=>l.trim()).filter(l=>l.includes('=')).map(l=>{const i=l.lastIndexOf('='),usd=+l.slice(i+1).replace(/[^\d.]/g,'')||0;let cab='',nom=l.slice(0,i);const d=nom.indexOf(':');if(d>=0){cab=nom.slice(0,d).toLowerCase();nom=nom.slice(d+1)}
+  const solo=(cab.match(/\b(ebike|e-bike|bici|cuadro)\b/)||[])[1];return {c:nom.trim(),usd,por:/unidad/.test(cab)?'unidad':'envio',...(conDonde?{donde:/lima/.test(cab)?'lima':'origen'}:{}),...(solo?{solo:solo.replace('e-bike','ebike')}:{})}});
+const LOG={marca:null,prueba:null};
+const MODOS_L={courier:'Courier',aereo:'Aéreo carga',maritimo:'Marítimo carga'};
+function logMarcas(){const R=E.reglas;return [...new Set([...Object.keys(R.logistica||{}),...E.skus.map(s=>s.marca)])].sort()}
+function pintarLogistica(){
+  const R=E.reglas,dis=E.maestro?'':'disabled';if(!R)return;R.logistica=R.logistica||{};R.operadores=R.operadores||{};
+  const ms=logMarcas();if(!LOG.marca||!ms.includes(LOG.marca))LOG.marca=ms.find(m=>R.logistica[m])||ms[0];
+  const L=R.logistica[LOG.marca],ops=Object.entries(R.operadores);
+  const P=E.partidas||{};
+  const inp=(id,v,w=80,t='number',x='')=>`<input type="${t}" step="any" data-lg="${id}" value="${esc(v??'')}" style="width:${w}px" ${dis} ${x}>`;
+  $('#logCard').innerHTML=`<h3>Logística por marca</h3>
+  <p class="desc">Cada marca tiene su ficha: país, preparación y <b>rutas</b> (courier, aéreo carga o marítimo carga, cada una con su operador). Todos los montos en <b>US$ sin IGV</b>; el flete es solo hasta Perú (sin impuestos ni gastos locales). Lo único común a todas las marcas son las partidas y el armado.</p>
+  <pre class="desc" style="background:rgba(127,127,127,.12);padding:8px;border-radius:8px;white-space:pre-wrap">Valor en aduana = (precio de la marca + flete + costos de origen) + seguro
+Costo puesto     = valor en aduana × (1 + ad valorem de la partida, menos lo liberado) + gastos en Lima (operador + ruta) + armado
+Precio           = PVP × factor, o costo puesto ÷ (1 − margen) × IGV
+Se ofrece sola si deja el margen mínimo y no sube más del tope frente al envío lleno; si no, en grupo de N; si ni así, no se ofrece.</pre>
+  <div class="tbl" style="max-height:none;margin:8px 0"><table><thead><tr><th>Partida (fija por ley)</th><th>Para</th><th class="n">Ad valorem</th></tr></thead><tbody>${Object.entries(P).map(([k,x])=>`<tr><td>${esc(x.cod)}</td><td>${esc(x.nom)}</td><td class="n">${x.av}%</td></tr>`).join('')}</tbody></table></div>
+  <div class="row" style="gap:10px;align-items:flex-end;flex-wrap:wrap">
+    <label class="muted" style="display:grid;gap:3px">Marca<select id="lgMarca">${ms.map(m=>`<option ${m===LOG.marca?'selected':''}>${esc(m)}</option>`).join('')}</select></label>
+    <label class="muted" style="display:grid;gap:3px">Tope general para envío en grupo (%)${inp('tope_grupo_g',R.tope_grupo??15,90)}</label>
+    <span class="desc" style="margin:0">Si traer una unidad sola sube el precio más de este % frente al envío lleno, solo se ofrece en grupo. Margen mínimo general: ${esc(R.margen_minimo)}% (en Reglas).</span>
+  </div>
+  ${!L?`<p class="desc" style="margin-top:10px">${esc(LOG.marca)} todavía usa las reglas generales anteriores. ${dis?'':`<button class="btn sec" id="lgCrear">Crear su ficha de logística</button>`}</p>`:`
+  <div class="rules" style="margin-top:12px">
+    <label>País de origen${inp('pais',L.pais,160,'text')}</label>
+    <label>Preparación en la marca (días, mín–máx)<span class="row" style="flex-wrap:nowrap">${inp('prep0',(L.prep||[])[0],70)}–${inp('prep1',(L.prep||[])[1],70)}</span></label>
+    <label>Margen mínimo de la marca (% · vacío = general)${inp('margen_minimo',L.margen_minimo,90)}</label>
+    <label>Tope para envío en grupo (% · vacío = general)${inp('tope_grupo',L.tope_grupo,90)}</label>
+  </div>
+  ${(L.rutas||[]).map((r,i)=>`<div class="lruta ${r.activo===false?'off':''}" data-ri="${i}">
+    <div class="row" style="gap:8px;align-items:center;flex-wrap:wrap"><label class="muted"><input type="checkbox" data-lr="activo" ${r.activo!==false?'checked':''} ${dis}> activa</label>
+      <select data-lr="modo" ${dis}>${Object.entries(MODOS_L).map(([k,l])=>`<option value="${k}" ${r.modo===k?'selected':''}>${l}</option>`).join('')}</select>
+      <select data-lr="op" ${dis}>${ops.map(([k,o])=>`<option value="${esc(k)}" ${r.op===k?'selected':''}>${esc(o.nombre)}</option>`).join('')}</select>
+      <span class="muted">id ${esc(r.id||'')}</span>${dis?'':`<button class="btn sec" data-lrdel="${i}" style="padding:2px 10px;margin-left:auto">Quitar ruta</button>`}</div>
+    <div class="rules">
+      <label>Flete bici completa (US$ · vacío = no)<input type="number" step="any" data-lr="flete.bici" value="${esc((r.flete||{}).bici??'')}" ${dis}></label>
+      <label>Flete cuadro / frame kit (US$ · vacío = no)<input type="number" step="any" data-lr="flete.cuadro" value="${esc((r.flete||{}).cuadro??'')}" ${dis}></label>
+      <label>Flete e-bike (US$ · vacío = no)<input type="number" step="any" data-lr="flete.ebike" value="${esc((r.flete||{}).ebike??'')}" ${dis}></label>
+      <label>Unidades por envío (envío lleno)<input type="number" step="1" data-lr="unidades" value="${esc(r.unidades??1)}" ${dis}></label>
+      <label>Seguro (% del precio de la marca)<input type="number" step="any" data-lr="seguro" value="${esc(r.seguro??1.75)}" ${dis}></label>
+      <label>EUR.1 / certificado (US$ por envío)<input type="number" step="any" data-lr="eur1" value="${esc(r.eur1??0)}" ${dis}></label>
+      <label>A/V liberado bici / cuadro / e-bike (%)<span class="row" style="flex-wrap:nowrap"><input type="number" step="any" data-lr="libera.bici" value="${esc((r.libera||{}).bici??0)}" style="width:60px" ${dis}><input type="number" step="any" data-lr="libera.cuadro" value="${esc((r.libera||{}).cuadro??0)}" style="width:60px" ${dis}><input type="number" step="any" data-lr="libera.ebike" value="${esc((r.libera||{}).ebike??0)}" style="width:60px" ${dis}></span></label>
+      <label>Tránsito (días mín–máx)<span class="row" style="flex-wrap:nowrap"><input type="number" data-lr="dias.0" value="${esc((r.dias||[])[0]??'')}" style="width:60px" ${dis}>–<input type="number" data-lr="dias.1" value="${esc((r.dias||[])[1]??'')}" style="width:60px" ${dis}></span></label>
+      <label>Aduana (días mín–máx)<span class="row" style="flex-wrap:nowrap"><input type="number" data-lr="aduana.0" value="${esc((r.aduana||[])[0]??'')}" style="width:60px" ${dis}>–<input type="number" data-lr="aduana.1" value="${esc((r.aduana||[])[1]??'')}" style="width:60px" ${dis}></span></label>
+      <label>No disponible con (palabras del montaje, separadas por coma)<input data-lr="no" value="${esc((r.no||[]).join(', '))}" placeholder="Pinion" ${dis}></label>
+    </div>
+    <label class="muted" style="display:grid;gap:3px">Otros costos de esta ruta · una línea: «origen envío: Flete marítimo = 220» · «origen envío ebike: Recargo IMO = 200» · «lima unidad: … = 10»<textarea data-lr="costos" rows="${Math.max(2,(r.costos||[]).length+1)}" ${dis}>${esc((r.costos||[]).map(costoATexto).join('\n'))}</textarea></label>
+    <label class="muted" style="display:grid;gap:3px;margin-top:6px">Nota<input data-lr="nota" value="${esc(r.nota||'')}" ${dis}></label>
+  </div>`).join('')}
+  ${dis?'':`<div class="row" style="margin-top:8px;gap:8px"><button class="btn sec" id="lgAddRuta">+ Agregar ruta</button><button class="btn sec" id="lgProbar">Probar con los modelos de ${esc(LOG.marca)}</button><button class="btn" id="lgGuardar">Guardar logística</button></div>`}
+  <div id="lgPrueba">${LOG.prueba?pruebaHTML(LOG.prueba):''}</div>`}`;
+  $('#logOpCard').innerHTML=`<h3>Operadores (gastos en Lima)</h3><p class="desc">Lo que cobra cada operador al llegar (desaduanaje, nacionalización, almacén, agente…), en US$ sin IGV. Sirven para todas las marcas: si cambias uno, se recalculan todas las que lo usan. Una línea por gasto: «envío: Nacionalización = 164» o «unidad: … = 10».</p>
+  ${ops.map(([k,o])=>`<div class="lop" data-op="${esc(k)}"><div class="row" style="gap:8px;flex-wrap:wrap;align-items:center"><input data-lo="nombre" value="${esc(o.nombre)}" style="min-width:220px" ${dis}><select data-lo="modo" ${dis}>${Object.entries(MODOS_L).map(([m,l])=>`<option value="${m}" ${o.modo===m?'selected':''}>${l}</option>`).join('')}</select><span class="muted">id ${esc(k)}</span></div>
+    <textarea data-lo="lima" rows="${Math.max(2,(o.lima||[]).length+1)}" style="margin-top:6px" ${dis}>${esc((o.lima||[]).map(c=>`${c.por==='unidad'?'unidad':'envío'}: ${c.c} = ${c.usd}`).join('\n'))}</textarea>
+    <input data-lo="nota" value="${esc(o.nota||'')}" placeholder="Nota" style="width:100%;margin-top:6px" ${dis}></div>`).join('')}
+  ${dis?'':`<div class="row" style="gap:8px"><input id="lgNuevoOp" placeholder="Nombre del operador (ej. FedEx)"><button class="btn sec" id="lgAddOp">+ Agregar operador</button><button class="btn" id="lgGuardar2">Guardar logística</button></div>`}`;
+}
+// Lee lo que está en pantalla y lo deja en E.reglas (sin guardar todavía)
+function leerLogistica(){
+  const R=E.reglas,L=R.logistica[LOG.marca],g=k=>{const el=document.querySelector(`[data-lg="${k}"]`);return el?el.value:''};
+  if(g('tope_grupo_g')!=='')R.tope_grupo=+g('tope_grupo_g');
+  if(L){L.pais=g('pais');L.prep=[+g('prep0')||0,+g('prep1')||+g('prep0')||0];L.margen_minimo=g('margen_minimo')===''?undefined:+g('margen_minimo');L.tope_grupo=g('tope_grupo')===''?undefined:+g('tope_grupo');
+    $$('#logCard .lruta').forEach(box=>{const r=L.rutas[+box.dataset.ri];const v=k=>{const el=box.querySelector(`[data-lr="${k}"]`);return el?el.value:''};
+      r.activo=box.querySelector('[data-lr="activo"]').checked;r.modo=v('modo');r.op=v('op');r.flete={bici:v('flete.bici'),cuadro:v('flete.cuadro'),ebike:v('flete.ebike')};
+      r.unidades=+v('unidades')||1;r.seguro=v('seguro')===''?1.75:+v('seguro');r.eur1=+v('eur1')||0;r.libera={bici:+v('libera.bici')||0,cuadro:+v('libera.cuadro')||0,ebike:+v('libera.ebike')||0};
+      r.dias=[+v('dias.0')||0,+v('dias.1')||+v('dias.0')||0];r.aduana=[+v('aduana.0')||0,+v('aduana.1')||+v('aduana.0')||0];r.no=v('no').split(',').map(x=>x.trim()).filter(Boolean);r.costos=textoACostos(v('costos'));r.nota=v('nota')})}
+  $$('#logOpCard .lop').forEach(box=>{const o=R.operadores[box.dataset.op];const v=k=>box.querySelector(`[data-lo="${k}"]`).value;o.nombre=v('nombre');o.modo=v('modo');o.lima=textoACostos(v('lima'),false);o.nota=v('nota')});
+}
+function pruebaHTML(d){if(d.sin_skus)return `<p class="desc">No hay modelos activos de ${esc(d.marca)} para probar.</p>`;const L=E.reglas.logistica[d.marca]||{rutas:[]};
+  const nomR=id=>{const r=L.rutas.find(x=>x.id===id);return r?`${MODOS_L[r.modo]||r.modo} · ${esc((E.reglas.operadores[r.op]||{}).nombre||r.op)}`:id};
+  return `<h3 style="margin-top:14px">Prueba (sin guardar) · margen mínimo ${d.margen_minimo}% · tope grupo ${d.tope_grupo}%</h3>
+  <div class="tbl ltest"><table><thead><tr><th>Modelo</th><th class="n">Costo marca US$</th>${(d.filas[0]||{rutas:[]}).rutas.map(r=>`<th>${nomR(r.id)}</th>`).join('')}<th>Se ofrece en la tienda</th></tr></thead><tbody>
+  ${d.filas.map(f=>`<tr><td>${esc(f.modelo)}${f.montaje&&f.montaje!=='Base'?`<br><span class="muted">${esc(f.montaje.slice(0,70))}</span>`:''}</td><td class="n">${f.costo}</td>
+    ${f.rutas.map(r=>`<td>${r.estado==='sola'||r.estado==='grupo'?`<span class="${r.estado}">${r.estado==='sola'?'Sola':'Grupo de '+r.n}</span><br>puesto US$ ${r.puesto} · logística ${r.logistica}<br>precio US$ ${r.precio} · margen ${r.margen}%`:r.estado==='no da'?`<span class="nod">No se ofrece</span><br>margen ${r.margen}% con ${r.n}`:`<span class="nod">${esc(r.estado)}</span>`}</td>`).join('')}
+    <td>${f.ofrece.length?f.ofrece.map(o=>`${MODOS_L[o.k]||o.k}${o.g?' (grupo '+o.nb+')':''} US$ ${o.usd}`).join('<br>'):'<b>No se publica</b>'}</td></tr>`).join('')}</tbody></table></div>`}
+document.addEventListener('change',e=>{if(e.target.id==='lgMarca'){leerLogistica();LOG.marca=e.target.value;LOG.prueba=null;pintarLogistica()}});
+document.addEventListener('click',async e=>{const t=e.target;if(!t.closest||!t.closest('#logCard,#logOpCard'))return;const R=E.reglas;
+  if(t.id==='lgCrear'){R.logistica[LOG.marca]={pais:'',prep:[7,7],rutas:[{id:slugL(LOG.marca)+'-1',modo:'aereo',op:Object.keys(R.operadores)[0],activo:true,flete:{bici:'',cuadro:'',ebike:''},unidades:1,seguro:1.75,eur1:0,libera:{},costos:[],dias:[7,12],aduana:[2,4]}]};pintarLogistica();return}
+  if(t.id==='lgAddRuta'){leerLogistica();const L=R.logistica[LOG.marca];L.rutas.push({id:slugL(LOG.marca)+'-'+(L.rutas.length+1)+'-'+Date.now().toString(36).slice(-3),modo:'courier',op:Object.keys(R.operadores)[0],activo:true,flete:{bici:'',cuadro:'',ebike:''},unidades:1,seguro:1.75,eur1:0,libera:{},costos:[],dias:[3,6],aduana:[1,3]});pintarLogistica();return}
+  if(t.dataset.lrdel!==undefined){leerLogistica();R.logistica[LOG.marca].rutas.splice(+t.dataset.lrdel,1);pintarLogistica();return}
+  if(t.id==='lgAddOp'){leerLogistica();const n=$('#lgNuevoOp').value.trim();if(!n)return toast('Escribe el nombre del operador');const id=slugL(n);if(R.operadores[id])return toast('Ya existe');R.operadores[id]={nombre:n,modo:'aereo',lima:[],nota:''};pintarLogistica();return}
+  if(t.id==='lgProbar'){leerLogistica();t.disabled=true;try{LOG.prueba=await api('/api/bikes/admin/logistica/probar',{method:'POST',body:JSON.stringify({marca:LOG.marca,logistica:R.logistica[LOG.marca],operadores:R.operadores,tope_grupo:R.tope_grupo})});$('#lgPrueba').innerHTML=pruebaHTML(LOG.prueba)}catch(err){toast(err.message)}t.disabled=false;return}
+  if(t.id==='lgGuardar'||t.id==='lgGuardar2'){leerLogistica();try{const r=await api('/api/bikes/admin/reglas',{method:'PUT',body:JSON.stringify({logistica:R.logistica,operadores:R.operadores,tope_grupo:R.tope_grupo})});E.reglas=r.reglas;toast('Logística guardada');await cargar()}catch(err){toast(err.message)}}
+});
+const slugL=t=>String(t).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
 function tab(t){$$('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));$$('[data-p]').forEach(s=>s.hidden=s.dataset.p!==t);try{localStorage.setItem('bikes_tab',t)}catch(e){}
   if(t==='met')pintarMetricas()}
 $('#tabs').addEventListener('click',e=>{const b=e.target.closest('button');if(b)tab(b.dataset.t)});
 async function cargar(){
   try{E=await api('/api/bikes/admin/estado');$('#msg').innerHTML='';
     $('#tcInfo').textContent=`TC USD ${E.tc.usd.toFixed(3)} · EUR ${E.tc.eur.toFixed(3)} (${E.tc.fuente})`;
-    pintarReservas();pintarLlamadas();pintarCatalogo();pintarReglas();pintarModelos();pintarPagina();pintarPreventa();
+    pintarReservas();pintarLlamadas();pintarCatalogo();pintarReglas();pintarLogistica();pintarModelos();pintarPagina();pintarPreventa();
     {const dl=$('#crMarcas');if(dl)dl.innerHTML=[...new Set([...(E.marcas_base||[]),...E.skus.map(x=>x.marca)])].sort().map(m=>`<option value="${esc(m)}">`).join('');
      const sb=$('#simBici');if(sb){const g=new Map();E.skus.filter(x=>x.activo).forEach(x=>{const k=x.marca+'|'+x.modelo;if(!g.has(k))g.set(k,x)});const v=sb.value;
        sb.innerHTML='<option value="">— Elige una bici del catálogo —</option>'+[...g.values()].sort((a,b)=>(a.marca+a.modelo).localeCompare(b.marca+b.modelo)).map(x=>`<option value="${x.id}">${esc(x.marca)} · ${esc(x.modelo)}</option>`).join('');sb.value=v}}

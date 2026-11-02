@@ -23,6 +23,10 @@
 const ESTADOS_SKU = ['A pedido', 'Pre-orden', 'Stock Lima'];
 // Sin límite: stock -1, o 0 en una bici a pedido/pre-orden (se pide a la marca). Solo «Stock Lima» o un cupo > 0 limita.
 const sinLimite = s => num(s.stock) < 0 || (num(s.stock) === 0 && s.estado !== 'Stock Lima');
+// Pre-owned: cada SKU es una bici física en Lima (por defecto 1 unidad). Se vende tal cual: sin importación ni envío en grupo,
+// su costo es lo que pagó Kuranko (ya en Perú) y el descuento puede bajar del margen mínimo, incluso a pérdida.
+const esUsado = md => !!md && md.etiqueta === 'usado';
+const unidadesUsado = s => Math.max(1, num(s.stock), num(s.stock_kuranko));
 const CATEGORIAS = ['MTB', 'XC', 'Trail', 'Enduro', 'Downhill', 'Dirt / Pump', 'E-MTB', 'Gravel', 'Ruta', 'Urbana', 'Niños'];
 const ESTADOS_RESERVA = ['Nueva', 'Confirmada con marca', 'Adelanto pagado', 'En tránsito', 'En Lima', 'Entregada', 'Cancelada'];
 const MARCAS_BASE = ['Mondraker', 'Forestal', 'Atherton', 'Thömus', 'Crestline', 'Forbidden', 'Megamo', 'Steppenwolf', 'Revel'];
@@ -200,11 +204,12 @@ function calcularPrecio(sku, envio, R, tc, margenForzado = null) {
   const igv = 1 + num(R.igv) / 100;
   const armado = num(R.armado_pen ?? 150) / igv / tc.usd; // S/ 150 con IGV → US$ sin IGV (así ganancia con IGV = precio − costo con IGV)
   const puesto = (costoUSD * (1 + (yaPuesto ? 0 : num(R.seguro)) / 100) + flete) * (1 + av) + fijos + armado;
-  const modo = (R.modos && R.modos[sku.marca]) || 'costo';
+  const modo = num(sku.pvp) > 0 ? 'pvp' : 'costo'; // con PVP siempre PVP × factor (precio mínimo); sin PVP, costo + margen de la marca
   let pen;
   if (margenForzado != null) {
     pen = fin(puesto / (1 - margenForzado / 100) * igv);
-  } else if (modo === 'pvp' && num(sku.pvp) > 0) {
+  } else if (num(sku.pvp) > 0) {
+    // Con PVP de la marca: precio = PVP × factor (es el precio mínimo; si no deja el margen mínimo neto sobre el costo, sube en opcionesEnvio)
     // PVP de la marca × factor = precio final con IGV (igual para marítimo y aéreo).
     const f = num(R.factores_pvp && R.factores_pvp[sku.marca] != null ? R.factores_pvp[sku.marca] : R.factor_pvp_defecto) || 1;
     const pvpUSD = sku.moneda === 'EUR' ? num(sku.pvp) * tc.eur / tc.usd : num(sku.pvp);
@@ -308,7 +313,7 @@ const finPrecio = (usdx, R, tc) => R.moneda_principal === 'PEN' ? ceil10(usdx * 
 // En e-bikes el recargo IMO (baterías) también se reparte entre las bicis del envío.
 function bicisMinimas(sku, R, tc, precio, p0, envio = 'maritimo') {
   const igv = 1 + num(R.igv) / 100, sinI = precio / igv / tc.usd, L = p0.pen / igv / tc.usd, min = num(R.margen_minimo) / 100;
-  for (let n = 1; n <= 12; n++) { const p = calcularPrecio(sku, envio === 'maritimo' ? 'maritimo' : 'grupo', { ...R, mar_bicis_envio: n, grupo_min: n }, tc); if ((sinI - p.cw) / L >= min) return n; }
+  for (let n = 1; n <= 12; n++) { const p = calcularPrecio(sku, envio === 'maritimo' ? 'maritimo' : 'grupo', { ...R, mar_bicis_envio: n, grupo_min: n }, tc); if ((sinI - p.cw) / sinI >= min) return n; }
   return 13;
 }
 function opcionesEnvio(sku, R, tc, mod = {}, hoy = hoyLima()) {
@@ -318,10 +323,14 @@ function opcionesEnvio(sku, R, tc, mod = {}, hoy = hoyLima()) {
   // El margen siempre se mide contra el precio de lista (PVP × factor, o costo + margen si la marca no tiene PVP):
   // margen = (precio cobrado − comisión − costo) / precio de lista. Ej.: lista 40, costo 20, descuento 10 → (30 − 20) / 40 = 25%.
   // Precio mínimo para que, en el peor caso de costos y pagando la comisión f del medio de pago, quede el margen mínimo sobre la lista
-  const piso = (p, f) => { const L = p.pen / igv / tc.usd; return 1 - f > 0.05 ? finPrecio((p.cw + min * L) / (1 - f) * igv, R, tc) : Infinity; };
+  // Margen neto = (precio sin IGV × (1 − comisión) − costo) / precio sin IGV. Precio mínimo para que, en el peor caso de costos de esa opción
+  // y pagando la comisión f del medio de pago, quede el margen mínimo: costo ÷ (1 − f − mínimo).
+  const piso = (p, f) => 1 - f - min > 0.05 ? finPrecio(p.cw / (1 - f - min) * igv, R, tc) : Infinity;
   // Peso de la ficha (para el almacén del marítimo) y descuento vigente: el del modelo manda sobre el de la marca
-  const skuP = sku._peso_ficha || sku.peso ? sku : { ...sku, _peso_ficha: (mod.datos || {}).peso || datosDeSpecs(mod.specs || []).peso || '' };
-  const vig = (pct, hasta) => num(pct) > 0 && (!hasta || String(hasta) >= hoy) ? Math.min(60, num(pct)) / 100 : 0;
+  const usado = esUsado(mod);
+  let skuP = sku._peso_ficha || sku.peso ? sku : { ...sku, _peso_ficha: (mod.datos || {}).peso || datosDeSpecs(mod.specs || []).peso || '' };
+  if (usado) skuP = { ...skuP, estado: 'Stock Lima', costo_puesto: 1 }; // pre-owned: ya está en Lima y su costo ya es puesto
+  const vig = (pct, hasta) => num(pct) > 0 && (!hasta || String(hasta) >= hoy) ? Math.min(usado ? 90 : 60, num(pct)) / 100 : 0;
   const dm = MARCAS[sku.marca] || {};
   const descM = num(mod.descuento) > 0 ? vig(mod.descuento, mod.descuento_hasta) : vig(dm.descuento, dm.descuento_hasta);
   const op = (k, forzado = null, dx = 0) => {
@@ -329,20 +338,24 @@ function opcionesEnvio(sku, R, tc, mod = {}, hoy = hoyLima()) {
     const p = calcularPrecio(skuP, k, R, tc, forzado);
     const lista = Math.max(p.pen, piso(p, 0));
     // Con descuento: el precio baja ese % de la lista, pero nunca por debajo del mínimo (margen mínimo sobre la lista en el peor caso)
-    const base = desc > 0 && !forzado ? Math.min(lista, Math.max(finPrecio(p.pen / tc.usd * (1 - desc), R, tc), piso(p, 0))) : lista;
+    const base = usado ? (desc > 0 ? finPrecio(p.pen / tc.usd * (1 - desc), R, tc) : p.pen) // pre-owned: el descuento manda, aunque quede a pérdida
+      : desc > 0 && !forzado ? Math.min(lista, Math.max(finPrecio(p.pen / tc.usd * (1 - desc), R, tc), piso(p, 0))) : lista;
+    // Pre-owned: la comisión del banco / Powerpay / tarjeta se traslada tal cual (lo que entra a Kuranko es el precio de contado)
+    const pisoX = usado ? (pp, f) => (1 - f > 0.05 ? finPrecio(base / tc.usd / (1 - f), R, tc) : Infinity) : piso;
     // Precio según cuántas cuotas elija: si la comisión del banco baja el margen del mínimo, el precio sube lo justo
     const cq = {}; let cu = 0;
-    for (const [n, pct] of Object.entries(R.cuotas || {})) { const pn = Math.max(base, piso(p, num(pct) / 100)); if (isFinite(pn)) { cq[n] = pn; if (pn === base && +n > cu) cu = +n; } }
-    const ppPct = num(R.powerpay_pct) / 100, ppP = ppPct > 0 ? Math.max(base, piso(p, ppPct)) : 0;
-    const tjPct = num(R.tarjeta_pct) / 100, tjP = tjPct > 0 ? Math.max(base, piso(p, tjPct)) : 0; // contado con tarjeta
+    for (const [n, pct] of Object.entries(R.cuotas || {})) { const pn = Math.max(base, pisoX(p, num(pct) / 100)); if (isFinite(pn)) { cq[n] = pn; if (pn === base && +n > cu) cu = +n; } }
+    const ppPct = num(R.powerpay_pct) / 100, ppP = ppPct > 0 ? Math.max(base, pisoX(p, ppPct)) : 0;
+    const tjPct = num(R.tarjeta_pct) / 100, tjP = tjPct > 0 ? Math.max(base, pisoX(p, tjPct)) : 0; // contado con tarjeta
     const sinI = base / igv / tc.usd, L = p.pen / igv / tc.usd;
-    return { k, p: base, f: p.f || calcularEntrega(sku, k, R, hoy), margen: L > 0 ? Math.round((sinI - p.puesto) / L * 1000) / 10 : 0, m0: p.margen,
-      mb: L > 0 ? (sinI - p.cw) / L * 100 : 0, ma: p.margen_alto + (base > p.pen ? (base - p.pen) / p.pen * 100 : 0),
+    return { k, p: base, f: p.f || calcularEntrega(sku, k, R, hoy), margen: sinI > 0 ? Math.round((sinI - p.puesto) / sinI * 1000) / 10 : 0, m0: p.margen,
+      mb: sinI > 0 ? (sinI - p.cw) / sinI * 100 : 0, ma: sinI > 0 ? (sinI - (p.pen / igv / tc.usd) * (1 - p.margen_alto / 100)) / sinI * 100 : 0,
       cu, cq, pp: !!ppP, ...(ppP ? { ppp: ppP } : {}), ...(tjP ? { tj: tjP } : {}), ...(base > p.pen ? { sub: 1 } : {}),
+      ...(usado ? { uso: 1 } : {}),
       ...(base < lista ? { pl: lista, dc: Math.round((1 - base / lista) * 100), ...(desc * 100 > Math.round((1 - base / lista) * 100) + 0.5 ? { dtope: 1 } : {}) } : {}),
       ...(p.nb != null ? (p.nb > 1 ? { nb: p.nb, g: 1 } : {}) : ['maritimo', 'unidad', 'grupo'].includes(k) && forzado == null ? { nb: bicisMinimas(skuP, R, tc, base, p, k) } : {}) }; // v4: nb = unidades de la marca que deben ir en el envío
   };
-  if (sku.estado === 'Stock Lima') return [op('lima')];
+  if (sku.estado === 'Stock Lima' || usado) return [op('lima')];
   const out = [];
   if (logDe(R, sku.marca)) { // v4: una opción por modo (courier, aéreo, marítimo) con la mejor ruta de la marca; primero las que viajan solas, luego por precio
     for (const k of Object.keys(MODOS_LOG)) if (!(k === 'aereo' && mod.aereo === 'no') && mejorRuta(skuP, k, R, tc)) out.push(op(k)); // «aéreo: nunca» en el modelo se respeta
@@ -469,15 +482,21 @@ function calcRuta(sku, ruta, R, tc, n = 1) {
   return { ruta, op, n, tipo, costoUSD, flete, origen, seguro, cif, partida, libera, avPct, av, lima, armado, puesto, logist: puesto - costoUSD - armado, detalle };
 }
 // Precio de lista (S/, con IGV) para un costo puesto: PVP × factor (igual para cualquier envío) o costo ÷ (1 − margen)
+// Precio = PVP de la marca × factor (precio mínimo), pero nunca menos de lo que deja el margen mínimo neto sobre el costo puesto de esa
+// opción: (precio sin IGV − costo puesto) / precio sin IGV ≥ margen mínimo. Sin PVP: costo puesto ÷ (1 − margen de la marca), con el mismo piso.
 function precioLista(sku, puesto, R, tc) {
   const fin = usdx => R.moneda_principal === 'PEN' ? ceil10(usdx * tc.usd) : Math.round(Math.ceil(usdx / 5) * 5 * tc.usd);
-  const igv = 1 + num(R.igv) / 100, modo = (R.modos && R.modos[sku.marca]) || 'costo';
-  if (modo === 'pvp' && num(sku.pvp) > 0) {
+  const igv = 1 + num(R.igv) / 100, L = (R.logistica || {})[sku.marca] || {};
+  const min = Math.min(90, num(L.margen_minimo ?? R.margen_minimo)) / 100, piso = fin(puesto / (1 - min) * igv);
+  let base, modo;
+  if (num(sku.pvp) > 0) {
     const f = num(R.factores_pvp && R.factores_pvp[sku.marca] != null ? R.factores_pvp[sku.marca] : R.factor_pvp_defecto) || 1;
-    return { pen: fin((sku.moneda === 'EUR' ? num(sku.pvp) * tc.eur / tc.usd : num(sku.pvp)) * f), modo: 'pvp' };
+    base = fin((sku.moneda === 'EUR' ? num(sku.pvp) * tc.eur / tc.usd : num(sku.pvp)) * f); modo = 'pvp';
+  } else {
+    const m = Math.min(90, num(R.margenes && R.margenes[sku.marca] != null ? R.margenes[sku.marca] : R.margen_defecto)) / 100;
+    base = fin(puesto / (1 - m) * igv); modo = 'costo';
   }
-  const m = Math.min(90, num(R.margenes && R.margenes[sku.marca] != null ? R.margenes[sku.marca] : R.margen_defecto)) / 100;
-  return { pen: fin(puesto / (1 - m) * igv), modo: 'costo' };
+  return piso > base ? { pen: piso, modo: 'minimo', base } : { pen: base, modo };
 }
 // Evalúa una ruta: con cuántas unidades en el envío se puede ofrecer (1 = sola; >1 = en grupo) o null si no se puede
 function evaluarRuta(sku, ruta, R, tc) {
@@ -486,14 +505,18 @@ function evaluarRuta(sku, ruta, R, tc) {
   const nMax = Math.max(1, Math.round(num(ruta.unidades)) || 1);
   const lleno = calcRuta(sku, ruta, R, tc, nMax); if (!lleno) return null;
   const pLleno = precioLista(sku, lleno.puesto, R, tc).pen;
-  let ultimo = null;
+  // 1.º: el menor N con el que el PVP × factor ya deja el margen mínimo (precio sin subir) y no sube más del tope frente al envío lleno.
+  // 2.º: si con ningún N el PVP alcanza, el menor N que no pase el tope, con el precio subido lo justo para dejar el margen mínimo.
+  const evals = [];
   for (let n = 1; n <= nMax; n++) {
     const c = calcRuta(sku, ruta, R, tc, n), pr = precioLista(sku, c.puesto, R, tc), sin = pr.pen / igv / tc.usd;
     const margen = sin > 0 ? (sin - c.puesto) / sin : 0;
-    ultimo = { c, n, pen: pr.pen, modo: pr.modo, margen, sube: pLleno > 0 ? pr.pen / pLleno - 1 : 0 };
-    if (margen + 1e-9 >= min && ultimo.sube <= tope + 1e-9) return { ...ultimo, ok: true, grupo: n > 1 };
+    const e = { c, n, pen: pr.pen, modo: pr.modo, margen, sube: pLleno > 0 ? pr.pen / pLleno - 1 : 0 };
+    if (pr.modo !== 'minimo' && margen + 1e-9 >= min && e.sube <= tope + 1e-9) return { ...e, ok: true, grupo: n > 1 };
+    evals.push(e);
   }
-  return { ...ultimo, ok: false }; // ni con el envío lleno deja el margen mínimo
+  const x = evals.find(e => e.margen + 1e-9 >= min && e.sube <= tope + 1e-9);
+  return x ? { ...x, ok: true, grupo: x.n > 1 } : { ...evals[evals.length - 1], ok: false };
 }
 // Mejor ruta de un modo: primero las que se pueden traer solas (la más barata), luego en grupo (la que pide menos unidades)
 function mejorRuta(sku, modo, R, tc) {
@@ -780,6 +803,7 @@ function armarCatalogo(skus, R, tc, hoy = hoyLima(), mods = {}) {
     if (md.confirmado) m.conf = 1;
     if (md.destacado) m.dest = 1;
     if (md.etiqueta) m.tag = md.etiqueta;
+    if (md.testdrive && md.etiqueta !== 'proximamente') m.td = 1; // se puede agendar un test drive
     if (!m.img && s.url_imagen) m.img = s.url_imagen;
     if (s.url_imagen) { m._ci = m._ci || {}; m._ci[s.url_imagen] = m._ci[s.url_imagen] || s.color; }
     m._md = md;
@@ -795,7 +819,7 @@ function armarCatalogo(skus, R, tc, hoy = hoyLima(), mods = {}) {
       continue;
     }
     const base = ops.reduce((a, o) => o.p < a.p ? o : a, ops[0]);
-    const it = { id: s.id, mo: s.montaje, t: s.talla, c: s.color, d: sinLimite(s) ? 99 : Math.max(0, num(s.stock) - num(s.reservado)) + num(s.preventa), e: s.estado, ...(num(s.stock_kuranko) > 0 ? { tk: num(s.stock_kuranko), ...(s.stock_ciudad && s.stock_ciudad !== 'Lima' ? { tkc: s.stock_ciudad } : {}) } : {}),
+    const it = { id: s.id, mo: s.montaje, t: s.talla, c: s.color, d: esUsado(md) ? Math.max(0, unidadesUsado(s) - num(s.reservado)) : sinLimite(s) ? 99 : Math.max(0, num(s.stock) - num(s.reservado)) + num(s.preventa), e: s.estado, ...(num(s.stock_kuranko) > 0 ? { tk: num(s.stock_kuranko), ...(s.stock_ciudad && s.stock_ciudad !== 'Lima' ? { tkc: s.stock_ciudad } : {}) } : {}),
       ...(s.categoria ? { ct: s.categoria } : {}), pm: base.p, fm: base.f, ...(base.pl ? { pml: base.pl, dc: base.dc } : {}), op: ops.map(o => ({ k: o.k, p: o.p, f: o.f, cu: o.cu, cq: o.cq, ...(o.tj ? { tj: o.tj } : {}), ...(o.pp ? { pp: o.ppp } : {}), ...(o.adicional ? { ad: 1 } : {}), ...(o.pl ? { pl: o.pl, dc: o.dc } : {}), ...(o.nb ? { nb: o.nb } : {}), ...(o.g ? { g: 1 } : {}), ...(o.pv ? { pv: o.pv, ...(o.ppct ? { ppct: o.ppct } : {}) } : {}) })) };
     if (s.pvp > 0) it.ref = Math.ceil(s.pvp * (s.moneda === 'EUR' ? tc.eur : tc.usd) / 10) * 10; // PVP de la marca en soles, referencia
     m.skus.push(it);
@@ -1382,7 +1406,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
           descripcion TEXT NULL, imagenes MEDIUMTEXT NULL, url_ficha VARCHAR(500) NULL, aereo VARCHAR(5) NOT NULL DEFAULT 'auto', unidad VARCHAR(5) NOT NULL DEFAULT 'auto',
           specs MEDIUMTEXT NULL, datos TEXT NULL, manual TINYINT(1) NOT NULL DEFAULT 0,
           actualizado DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY (marca, modelo)) DEFAULT CHARSET=utf8mb4`);
-      for (const col of ['specs MEDIUMTEXT NULL', 'datos TEXT NULL', 'manual TINYINT(1) NOT NULL DEFAULT 0', 'img_colores MEDIUMTEXT NULL', 'confirmado TINYINT(1) NOT NULL DEFAULT 0', 'destacado TINYINT(1) NOT NULL DEFAULT 0', "etiqueta VARCHAR(15) NOT NULL DEFAULT ''"])
+      for (const col of ['specs MEDIUMTEXT NULL', 'datos TEXT NULL', 'manual TINYINT(1) NOT NULL DEFAULT 0', 'img_colores MEDIUMTEXT NULL', 'confirmado TINYINT(1) NOT NULL DEFAULT 0', 'destacado TINYINT(1) NOT NULL DEFAULT 0', "etiqueta VARCHAR(15) NOT NULL DEFAULT ''", 'testdrive TINYINT(1) NOT NULL DEFAULT 0'])
         await portalPool.query(`ALTER TABLE bk_modelos ADD COLUMN ${col}`).catch(colYaExiste);
       await portalPool.query(`ALTER TABLE bk_reservas ADD COLUMN pago VARCHAR(4) NULL`).catch(colYaExiste);
       await portalPool.query(`ALTER TABLE bk_reservas ADD COLUMN consulta_marca DATETIME NULL`).catch(colYaExiste);
@@ -1401,6 +1425,11 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       await portalPool.query(`CREATE TABLE IF NOT EXISTS bk_llamadas (id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY, creado DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
           nombre VARCHAR(120) NOT NULL, tel VARCHAR(15) NOT NULL, fecha DATE NULL, franja VARCHAR(30) NULL, tema VARCHAR(300) NULL, ref VARCHAR(60) NULL,
           estado VARCHAR(20) NOT NULL DEFAULT 'Pendiente', nota TEXT NULL, ip VARCHAR(45) NULL) DEFAULT CHARSET=utf8mb4`);
+      // Test drive: bicis (pre-owned o de exhibición) que se pueden probar en tienda, con cita
+      await portalPool.query(`CREATE TABLE IF NOT EXISTS bk_testdrives (id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY, creado DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          marca VARCHAR(60) NOT NULL, modelo VARCHAR(120) NOT NULL, talla VARCHAR(10) NULL, nombre VARCHAR(80) NOT NULL, apellido VARCHAR(80) NOT NULL,
+          email VARCHAR(120) NOT NULL, tel VARCHAR(15) NOT NULL, fecha DATE NULL, franja VARCHAR(30) NULL, comentario VARCHAR(300) NULL, ref VARCHAR(60) NULL,
+          estado VARCHAR(20) NOT NULL DEFAULT 'Pendiente', nota TEXT NULL, ip VARCHAR(45) NULL, KEY (estado)) DEFAULT CHARSET=utf8mb4`);
       // Métricas propias: clics y embudo (visita → modelo → configura → carrito → reserva)
       await portalPool.query(`CREATE TABLE IF NOT EXISTS bk_eventos (id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
           creado DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, sesion VARCHAR(24) NOT NULL, tipo VARCHAR(16) NOT NULL,
@@ -1431,10 +1460,10 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
 
   async function leerModelos() {
     await prepararTablas();
-    const [rows] = await portalPool.query("SELECT marca, modelo, descripcion, descripcion_en, descuento, DATE_FORMAT(descuento_hasta,'%Y-%m-%d') descuento_hasta, imagenes, img_colores, confirmado, destacado, etiqueta, url_ficha, aereo, unidad, specs, datos, manual FROM bk_modelos");
+    const [rows] = await portalPool.query("SELECT marca, modelo, descripcion, descripcion_en, descuento, DATE_FORMAT(descuento_hasta,'%Y-%m-%d') descuento_hasta, imagenes, img_colores, confirmado, destacado, etiqueta, testdrive, url_ficha, aereo, unidad, specs, datos, manual FROM bk_modelos");
     const out = {}, js = (t, d) => { try { return JSON.parse(t || '') ?? d; } catch (e) { return d; } };
     for (const r of rows) out[r.marca + '|' + r.modelo] = { desc: r.descripcion || '', desc_en: r.descripcion_en || '', descuento: r.descuento != null ? num(r.descuento) : null, descuento_hasta: r.descuento_hasta || null, imgs: js(r.imagenes, []), url_ficha: r.url_ficha || null, aereo: r.aereo, unidad: r.unidad,
-      specs: js(r.specs, []), datos: js(r.datos, {}), manual: !!r.manual, imgc: js(r.img_colores, {}), confirmado: !!r.confirmado, destacado: !!r.destacado, etiqueta: r.etiqueta || '' };
+      specs: js(r.specs, []), datos: js(r.datos, {}), manual: !!r.manual, imgc: js(r.img_colores, {}), confirmado: !!r.confirmado, destacado: !!r.destacado, etiqueta: r.etiqueta || '', testdrive: !!r.testdrive };
     // Framesets: si la marca no publica sus especificaciones o su geometría (ej. Anark XR Frameset), se toman las del
     // cuadro de la bici completa del mismo modelo (cuadro, tallas, amortiguador, dirección…), solo para lo que falte
     try {
@@ -1760,8 +1789,8 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       const [[s]] = await conn.query(`SELECT ${COLS} FROM bk_skus WHERE id=? AND activo=1 FOR UPDATE`, [num(b.sku_id)]);
       if (!s) { await conn.rollback(); return res.status(404).json({ error: 'Esa combinación ya no está disponible. Actualiza la página.' }); }
       s.costo = num(s.costo);
-      if (!sinLimite(s) && num(s.stock) - num(s.reservado) <= 0) { await conn.rollback(); return res.status(409).json({ error: `La talla ${s.talla} en ${s.color} se acaba de agotar. Elige otra o escríbenos por WhatsApp.` }); }
-      const mods = await leerModelos();
+      const mods = await leerModelos(); const usadoR = esUsado(mods[s.marca + '|' + s.modelo]);
+      if (usadoR ? unidadesUsado(s) - num(s.reservado) <= 0 : !sinLimite(s) && num(s.stock) - num(s.reservado) <= 0) { await conn.rollback(); return res.status(409).json({ error: usadoR ? 'Esta bici pre-owned ya fue reservada. Escríbenos por WhatsApp por si se libera.' : `La talla ${s.talla} en ${s.color} se acaba de agotar. Elige otra o escríbenos por WhatsApp.` }); }
       const ops = opcionesEnvio(s, R, tc, mods[s.marca + '|' + s.modelo] || {}).filter(o => !o.bajo);
       if (!ops.length) { await conn.rollback(); return res.status(409).json({ error: 'Esta bici ya no está disponible a pedido. Escríbenos por WhatsApp y te ayudamos.' }); }
       const op = ops.find(o => o.k === String(b.envio || '')) || ops[0];
@@ -1841,6 +1870,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
 
   // Agendar una llamada con el asesor
   const FRANJAS = ['10:00–12:00', '12:00–14:00', '14:00–16:00', '16:00–19:00'];
+  const TD_ESTADOS = ['Pendiente', 'Confirmado', 'Realizado', 'No vino', 'Cancelado'];
   app.post('/api/bikes/llamada', async (req, res) => {
     const b = req.body || {}; const spam = await antiSpam(req, b);
     if (spam === 'bot') return res.json({ ok: true });
@@ -1865,6 +1895,39 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       const txt = `Llamada agendada: ${nombre} · ${tel} · ${fechaCorta(fecha)} ${franja}${tema ? ' · ' + tema : ''}`;
       enviarCorreo((process.env.BIKES_EMAIL || 'info@kuranko.pe,ventas@kuranko.pe').split(',').map(x => x.trim()).filter(Boolean), `Llamada agendada: ${nombre} · ${fechaCorta(fecha)} ${franja}`,
         `<div style="font-family:Arial,sans-serif;font-size:15px"><b>${escH(nombre)}</b> quiere una llamada el <b>${escH(fechaCorta(fecha))}</b> entre <b>${escH(franja)}</b>.<br>Celular: ${escH(tel)}${tema ? '<br>Tema: ' + escH(tema) : ''}${ref ? '<br>Vendedor: ' + escH(ref) : ''}<br><br><a href="https://wa.me/51${escH(tel)}">Escribir por WhatsApp</a></div>`, txt);
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: 'No se pudo agendar. Escríbenos por WhatsApp.' }); }
+  });
+
+  // Test drive: nombre, apellido, correo y celular + bici (solo las marcadas «Test drive» en el panel) + día y hora
+  app.post('/api/bikes/testdrive', async (req, res) => {
+    const b = req.body || {}; const spam = await antiSpam(req, b);
+    if (spam === 'bot') return res.json({ ok: true });
+    if (spam === 'fail') return res.status(400).json({ error: 'No pudimos verificar que no eres un robot. Recarga la página e intenta otra vez.' });
+    const ip = ipDe(req);
+    if (demasiados('td:' + ip, 5)) return res.status(429).json({ error: 'Ya agendaste varios test drives. Escríbenos por WhatsApp.' });
+    const t = (v, n) => String(v || '').replace(/\s+/g, ' ').trim().slice(0, n);
+    const nombre = t(b.nombre, 80), apellido = t(b.apellido, 80), email = t(b.email, 120).toLowerCase();
+    let tel = String(b.tel || '').replace(/\D/g, ''); if (tel.length === 11 && tel.startsWith('51')) tel = tel.slice(2);
+    const fecha = /^\d{4}-\d{2}-\d{2}$/.test(b.fecha || '') && b.fecha >= hoyLima() ? b.fecha : null;
+    const franja = FRANJAS.includes(b.franja) ? b.franja : null;
+    if (nombre.length < 2 || apellido.length < 2) return res.status(400).json({ error: 'Escribe tu nombre y tu apellido.' });
+    if (!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(email)) return res.status(400).json({ error: 'Escribe un correo válido.' });
+    if (!/^9\d{8}$/.test(tel)) return res.status(400).json({ error: 'Escribe un celular de 9 dígitos que empiece con 9.' });
+    if (!fecha || !franja) return res.status(400).json({ error: 'Elige el día y la hora del test drive.' });
+    try {
+      await prepararTablas();
+      const [[md]] = await portalPool.query('SELECT marca, modelo FROM bk_modelos WHERE marca=? AND modelo=? AND testdrive=1', [t(b.marca, 60), t(b.modelo, 120)]);
+      if (!md) return res.status(400).json({ error: 'Esa bici ya no está disponible para test drive. Elige otra.' });
+      const talla = t(b.talla, 10) || null, comentario = t(b.comentario, 300) || null, ref = String(b.ref || '').replace(/[^\w.\-]/g, '').slice(0, 60) || null;
+      await portalPool.query('INSERT INTO bk_testdrives (marca, modelo, talla, nombre, apellido, email, tel, fecha, franja, comentario, ref, ip) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+        [md.marca, md.modelo, talla, nombre, apellido, email, tel, fecha, franja, comentario, ref, ip]);
+      const bici = `${md.marca} ${md.modelo}${talla ? ' talla ' + talla : ''}`, quien = `${nombre} ${apellido}`;
+      enviarCorreo((process.env.BIKES_EMAIL || 'info@kuranko.pe,ventas@kuranko.pe').split(',').map(x => x.trim()).filter(Boolean), `Test drive: ${quien} · ${bici} · ${fechaCorta(fecha)} ${franja}`,
+        `<div style="font-family:Arial,sans-serif;font-size:15px"><b>${escH(quien)}</b> quiere probar la <b>${escH(bici)}</b> el <b>${escH(fechaCorta(fecha))}</b> entre <b>${escH(franja)}</b>.<br>Celular: ${escH(tel)}<br>Correo: ${escH(email)}${comentario ? '<br>Comentario: ' + escH(comentario) : ''}${ref ? '<br>Vendedor: ' + escH(ref) : ''}<br><br><a href="https://wa.me/51${escH(tel)}">Escribir por WhatsApp para confirmar</a></div>`,
+        `Test drive: ${quien} · ${tel} · ${bici} · ${fechaCorta(fecha)} ${franja}`).catch(() => {});
+      enviarCorreo([email], `Recibimos tu solicitud de test drive · ${bici}`,
+        `<div style="font-family:Arial,sans-serif;font-size:15px;color:#141414">Hola ${escH(nombre)}:<br><br>Recibimos tu solicitud para probar la <b>${escH(bici)}</b> el <b>${escH(fechaCorta(fecha))}</b> entre <b>${escH(franja)}</b>.<br>Te escribiremos al ${escH(tel)} para confirmar la hora y el lugar. Trae zapatillas cómodas y, si tienes, tu casco y tus pedales.<br><br>Kuranko Bikes</div>`).catch(() => {});
       res.json({ ok: true });
     } catch (e) { res.status(500).json({ error: 'No se pudo agendar. Escríbenos por WhatsApp.' }); }
   });
@@ -2248,7 +2311,7 @@ ${num(r.adelanto) ? fila(`Adelanto (${num(R.adelanto)}%) para separar la unidad,
   });
 
   // Evento de métricas (lo manda la página con sendBeacon). Sin datos personales.
-  const TIPOS_EV = ['visita', 'modelo', 'config', 'carrito', 'reserva', 'whatsapp', 'filtro'];
+  const TIPOS_EV = ['visita', 'modelo', 'config', 'carrito', 'reserva', 'whatsapp', 'filtro', 'testdrive'];
   app.post('/api/bikes/evento', express_text_o_json, async (req, res) => {
     res.status(204).end();
     try {
@@ -2403,15 +2466,16 @@ ${num(r.adelanto) ? fila(`Adelanto (${num(R.adelanto)}%) para separar la unidad,
       else sku = { marca: String(b.marca || ''), modelo: 'Simulación', categoria: b.ebike ? 'E-MTB' : 'MTB', motor: b.ebike ? 'sí' : '', costo: num(b.costo), pvp: num(b.pvp), moneda: b.moneda === 'EUR' ? 'EUR' : 'USD', estado: 'A pedido' };
       const mods = await leerModelos(); const md = mods[sku.marca + '|' + sku.modelo] || {}; const RM = reglasMarca(R, sku.marca);
       if (!sku.peso) sku._peso_ficha = (md.datos || {}).peso || datosDeSpecs(md.specs || []).peso || '';
+      if (esUsado(md)) sku = { ...sku, estado: 'Stock Lima', costo_puesto: 1 }; // pre-owned: en Lima, costo ya puesto
       const igv = 1 + num(R.igv) / 100, usd = pen => Math.round(pen / tc.usd);
       const ops = opcionesEnvio(sku, R, tc, md).map(o => {
         const p = calcularPrecio(sku, o.k, R, tc, o.adicional ? num(R.margen_minimo) : null);
         const seguro = num(sku.costo_puesto) ? 0 : p.costoUSD * num(RM.seguro) / 100, arancel = (p.costoUSD + seguro + p.flete) * p.av / 100;
         // Margen sobre el precio de lista (PVP × factor): (precio cobrado − comisión − costo) / lista. Ganancia en US$ con IGV (precio con IGV − costo con IGV).
         const L = p.pen / igv / tc.usd, desc = Math.min(90, Math.max(0, num(b.descuento))) / 100;
-        const margenCon = (precio, pct) => { const sin = precio / igv / tc.usd; return { real: Math.round((sin * (1 - pct) - p.puesto) / L * 1000) / 10, peor: Math.round((sin * (1 - pct) - p.cw) / L * 1000) / 10, ganancia: Math.round((sin * (1 - pct) - p.puesto) * igv) }; };
+        const margenCon = (precio, pct) => { const sin = precio / igv / tc.usd; return { real: sin > 0 ? Math.round((sin * (1 - pct) - p.puesto) / sin * 1000) / 10 : 0, peor: sin > 0 ? Math.round((sin * (1 - pct) - p.cw) / sin * 1000) / 10 : 0, ganancia: Math.round((sin * (1 - pct) - p.puesto) * igv) }; };
         // Con descuento: el precio de lista baja ese %; por medio de pago se muestra el margen que queda y el precio mínimo para no bajar del margen mínimo
-        const minimo = pct => { const pm = (p.cw + num(R.margen_minimo) / 100 * L) / (1 - pct) * igv * tc.usd; return Math.round(pm / tc.usd); };
+        const minimo = pct => { if (esUsado(md)) return 0; const pm = p.cw / Math.max(0.05, 1 - pct - num(R.margen_minimo) / 100) * igv * tc.usd; return Math.round(pm / tc.usd); }; // pre-owned: sin piso
         const conDesc = desc > 0 ? (() => { const pd = p.pen * (1 - desc), fila = (nombre, pct) => ({ nombre, pct: Math.round(pct * 1000) / 10, usd: usd(pd), pen: Math.round(pd), minimo_usd: minimo(pct), ...margenCon(pd, pct) });
           return { pct: desc * 100, filas: [fila('Contado (Yape / transferencia)', 0), ...(num(R.tarjeta_pct) ? [fila('Tarjeta en 1 pago', num(R.tarjeta_pct) / 100)] : []),
             ...Object.entries(R.cuotas || {}).map(([n, pc]) => fila(n + ' cuotas', num(pc) / 100)), ...(num(R.powerpay_pct) ? [fila('Powerpay', num(R.powerpay_pct) / 100)] : [])] }; })() : null;
@@ -2427,7 +2491,7 @@ ${num(r.adelanto) ? fila(`Adelanto (${num(R.adelanto)}%) para separar la unidad,
         ['Crafty Carbon XR e-bike · marítimo (IMP-70)', 6594, true, 'maritimo', 7203], ['Arid S · aéreo (IMP-82)', 1250, false, 'aereo', 1870], ['Summum R · aéreo (IMP-73)', 2931, false, 'aereo', 3706]];
       const validacion = REALES.map(([nombre, exw, eb, env, real]) => { const x = calcularPrecio({ marca: 'Mondraker', costo: exw, moneda: 'USD', categoria: eb ? 'E-MTB' : 'MTB', motor: eb ? 'sí' : '', estado: 'A pedido' }, env, R, tc);
         return { nombre, exw, real, modelo: Math.round(x.puesto - x.armado), dif: Math.round((x.puesto - x.armado - real) / real * 1000) / 10 }; });
-      res.json({ armado_pen: num(R.armado_pen ?? 150), validacion, origen: (R.marca_origen || {})[sku.marca] || 'General', tc: tc.usd, igv: num(R.igv), margen_minimo: num(R.margen_minimo), pvp: sku.pvp, factor: (R.factores_pvp || {})[sku.marca] ?? R.factor_pvp_defecto, modo: (R.modos || {})[sku.marca] || 'costo', sku: { marca: sku.marca, modelo: sku.modelo, costo: sku.costo }, ops });
+      res.json({ usado: esUsado(md), armado_pen: num(R.armado_pen ?? 150), validacion, origen: (R.marca_origen || {})[sku.marca] || 'General', tc: tc.usd, igv: num(R.igv), margen_minimo: num(R.margen_minimo), pvp: sku.pvp, factor: (R.factores_pvp || {})[sku.marca] ?? R.factor_pvp_defecto, modo: (R.modos || {})[sku.marca] || 'costo', sku: { marca: sku.marca, modelo: sku.modelo, costo: sku.costo }, ops });
     } catch (e) { res.status(400).json({ error: e.message }); }
   });
   app.post('/api/bikes/admin/metricas/reiniciar', authAdmin, mBikes, async (req, res) => {
@@ -2466,13 +2530,13 @@ ${num(r.adelanto) ? fila(`Adelanto (${num(R.adelanto)}%) para separar la unidad,
       const mods = await leerModelos();
       const conPrecio = skus.map(s => {
         const ops = opcionesEnvio(s, R, tc, mods[s.marca + '|' + s.modelo] || {}).filter(o => o.k !== 'preventa'); // el catálogo del panel muestra el precio normal
-        if (!ops.length) return { ...s, precio: 0, puesto: 0, ganancia: 0, margen: 0, envios: [], margen_min: 0, margen_max: 0, sin_envio: 1, pvp_pen: s.pvp > 0 ? ceil10(s.pvp * (s.moneda === 'EUR' ? tc.eur : tc.usd)) : null }; // v4: ninguna ruta deja el margen
+        if (!ops.length) return { ...s, precio: 0, puesto: 0, ganancia: 0, margen: 0, envios: [], margen_min: 0, margen_max: 0, sin_envio: 1, pvp_pen: s.pvp > 0 ? ceil10(s.pvp * (s.moneda === 'EUR' ? tc.eur : tc.usd)) : null, pvp_usd: s.pvp > 0 ? Math.round(s.pvp * (s.moneda === 'EUR' ? tc.eur / tc.usd : 1) * 100) / 100 : null }; // v4: ninguna ruta deja el margen
         const p = calcularPrecio(s, ops[0].k, R, tc);
         const ms = ops.flatMap(o => [o.mb, o.ma]);
         const pf = ops[0].p, gan = pf / (1 + num(R.igv) / 100) / tc.usd - p.puesto;
         return { ...s, precio: pf, puesto: Math.round(p.puesto), ganancia: Math.round(gan), margen: ops[0].margen,
           envios: ops.map(o => ({ k: o.k, p: o.p, margen: o.margen, mb: Math.floor(o.mb), ma: Math.ceil(o.ma), ...(o.sub ? { sub: 1 } : {}) })), margen_min: Math.min(...ms), margen_max: Math.max(...ms),
-          pvp_pen: s.pvp > 0 ? ceil10(s.pvp * (s.moneda === 'EUR' ? tc.eur : tc.usd)) : null };
+          pvp_pen: s.pvp > 0 ? ceil10(s.pvp * (s.moneda === 'EUR' ? tc.eur : tc.usd)) : null, pvp_usd: s.pvp > 0 ? Math.round(s.pvp * (s.moneda === 'EUR' ? tc.eur / tc.usd : 1) * 100) / 100 : null };
       });
       const [reservas] = await portalPool.query(`SELECT id, codigo, UNIX_TIMESTAMP(creado) creado, sku_id, marca, modelo, montaje, talla, color, envio, extras,
           total, adelanto, tc_usd, DATE_FORMAT(fecha_min,'%Y-%m-%d') fecha_min, DATE_FORMAT(fecha_max,'%Y-%m-%d') fecha_max, nombre, doc, tel, email, ciudad, ref,
@@ -2482,6 +2546,7 @@ ${num(r.adelanto) ? fila(`Adelanto (${num(R.adelanto)}%) para separar la unidad,
       res.json({ reglas: R, partidas: PARTIDAS, preventa_cfg: R._preventa || {}, tc, maestro: !!(req.admin && req.admin.maestro), skus: conPrecio, reservas: reservas.map(r => ({ ...r, total: num(r.total), adelanto: num(r.adelanto),
           creado: horaLima(r.creado), actualizado: horaLima(r.actualizado), valido_hasta: horaLima(r.valido_hasta), vencida: r.estado === 'Nueva' && r.valido_hasta && r.valido_hasta * 1000 < Date.now() })),
         modelos: mods, marcas_info: await leerMarcas(), pagina: await leerPagina(),
+        testdrives: (await portalPool.query(`SELECT id, UNIX_TIMESTAMP(creado) creado, marca, modelo, talla, nombre, apellido, email, tel, DATE_FORMAT(fecha,'%Y-%m-%d') fecha, franja, comentario, ref, estado, nota FROM bk_testdrives ORDER BY (estado IN ('Pendiente','Confirmado')) DESC, fecha, id DESC LIMIT 200`).catch(() => [[]]))[0].map(l => ({ ...l, creado: horaLima(l.creado) })),
         llamadas: (await portalPool.query(`SELECT id, UNIX_TIMESTAMP(creado) creado, nombre, tel, DATE_FORMAT(fecha,'%Y-%m-%d') fecha, franja, tema, ref, estado, nota FROM bk_llamadas ORDER BY (estado='Pendiente') DESC, fecha, id DESC LIMIT 200`))[0].map(l => ({ ...l, creado: horaLima(l.creado) })), grupos: await gruposPorMarca(R),
         imports: imports.map(i => ({ ...i, creado: horaLima(i.creado) })), estados_reserva: ESTADOS_RESERVA, categorias: CATEGORIAS, estados_sku: ESTADOS_SKU, marcas_base: MARCAS_BASE });
     } catch (e) { console.error('[bikes] estado', e.message); res.status(500).json({ error: e.message }); }
@@ -2640,6 +2705,11 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
+  app.post('/api/bikes/admin/testdrive', authAdmin, mBikes, async (req, res) => {
+    const b = req.body || {};
+    try { await portalPool.query('UPDATE bk_testdrives SET estado=?, nota=? WHERE id=?', [TD_ESTADOS.includes(b.estado) ? b.estado : 'Pendiente', String(b.nota || '').slice(0, 1000), num(b.id)]); res.json({ ok: true }); }
+    catch (e) { res.status(500).json({ error: e.message }); }
+  });
   app.post('/api/bikes/admin/llamada', authAdmin, mBikes, async (req, res) => {
     const b = req.body || {};
     try { await portalPool.query('UPDATE bk_llamadas SET estado=?, nota=? WHERE id=?', [['Pendiente', 'Hecha', 'No contestó', 'Cancelada'].includes(b.estado) ? b.estado : 'Pendiente', String(b.nota || '').slice(0, 1000), num(b.id)]); res.json({ ok: true }); }
@@ -2654,7 +2724,7 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
       await prepararTablas();
       conn = await portalPool.getConnection();
       await conn.beginTransaction();
-      const [[r]] = await conn.query('SELECT id, sku_id, estado, envio FROM bk_reservas WHERE id=? FOR UPDATE', [num(b.id)]);
+      const [[r]] = await conn.query('SELECT id, sku_id, estado, envio, marca, modelo FROM bk_reservas WHERE id=? FOR UPDATE', [num(b.id)]);
       if (!r) { await conn.rollback(); return res.status(404).json({ error: 'Reserva no encontrada' }); }
       const sets = ['actualizado=NOW()', 'actualizado_por=?'], vals = [usuarioDe(req)];
       if (b.estado !== undefined) {
@@ -2670,6 +2740,11 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
         // Al entregar, la unidad deja de contar como stock de la marca
         if (b.estado === 'Entregada' && r.estado !== 'Entregada') await conn.query('UPDATE bk_skus SET reservado=GREATEST(reservado-1,0), stock=IF(stock<0, stock, GREATEST(stock-1,0)) WHERE id=?', [r.sku_id]);
         if (r.estado === 'Entregada' && b.estado !== 'Entregada') await conn.query('UPDATE bk_skus SET reservado=reservado+(?), stock=IF(stock<0, stock, stock+1) WHERE id=?', [b.estado === 'Cancelada' ? 0 : 1, r.sku_id]);
+        }
+        // Pre-owned: es una bici física; al entregar la última unidad, el SKU sale de la tienda (y vuelve si se deshace la entrega)
+        if ((b.estado === 'Entregada') !== (r.estado === 'Entregada')) {
+          const [[mu]] = await conn.query("SELECT etiqueta FROM bk_modelos WHERE marca=? AND modelo=?", [r.marca, r.modelo]);
+          if (mu && mu.etiqueta === 'usado') await conn.query(b.estado === 'Entregada' ? 'UPDATE bk_skus SET activo=IF(GREATEST(stock, stock_kuranko) <= 0, 0, activo) WHERE id=?' : 'UPDATE bk_skus SET activo=1 WHERE id=?', [r.sku_id]);
         }
       }
       if (b.nota_interna !== undefined) { sets.push('nota_interna=?'); vals.push(String(b.nota_interna).slice(0, 2000)); }
@@ -2789,7 +2864,7 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
         const [[row]] = await conn.query('SELECT datos FROM bk_modelos WHERE marca=? AND modelo=?', [marca, modelo]); let dat = {}; try { dat = JSON.parse((row && row.datos) || '{}') || {}; } catch (e) {}
         if (notas.length) dat.notas = notas; else delete dat.notas;
         await conn.query('INSERT INTO bk_modelos (marca, modelo, datos) VALUES (?,?,?) ON DUPLICATE KEY UPDATE datos=VALUES(datos)', [marca, modelo, JSON.stringify(dat)]); }
-      if (b.descuento !== undefined) { const d = Math.min(60, Math.max(0, num(b.descuento))) || null, h = /^\d{4}-\d{2}-\d{2}$/.test(b.descuento_hasta || '') ? b.descuento_hasta : null;
+      if (b.descuento !== undefined) { const d = Math.min(90, Math.max(0, num(b.descuento))) || null /* hasta 60%; pre-owned hasta 90% (se aplica según la etiqueta) */, h = /^\d{4}-\d{2}-\d{2}$/.test(b.descuento_hasta || '') ? b.descuento_hasta : null;
         await conn.query(`INSERT INTO bk_modelos (marca, modelo, descuento, descuento_hasta) VALUES (?,?,?,?) ON DUPLICATE KEY UPDATE descuento=VALUES(descuento), descuento_hasta=VALUES(descuento_hasta)`, [marca, modelo, d, h]); }
       if (nuevo !== modelo) {
         await conn.query('UPDATE bk_skus SET modelo=?, actualizado=NOW() WHERE marca=? AND modelo=?', [nuevo, marca, modelo]);
@@ -2809,6 +2884,7 @@ Responde solo JSON: {"map": {"campo": índice|null}, "tallas_cols": [], "moneda"
     const sets = [], vals = [];
     if (b.destacado !== undefined) { sets.push('destacado'); vals.push(b.destacado ? 1 : 0); }
     if (b.confirmado !== undefined) { sets.push('confirmado'); vals.push(b.confirmado ? 1 : 0); }
+    if (b.testdrive !== undefined) { sets.push('testdrive'); vals.push(b.testdrive ? 1 : 0); }
     if (b.etiqueta !== undefined) { sets.push('etiqueta'); vals.push(['novedad', 'lanzamiento', 'proximamente', 'usado'].includes(b.etiqueta) ? b.etiqueta : ''); }
     if (!sets.length) return res.status(400).json({ error: 'Nada que cambiar' });
     try {

@@ -179,6 +179,8 @@ module.exports = [
   ['La recibes armada', 'You receive it assembled'],
   ['Entrega inmediata', 'Immediate delivery'],
   ['Catálogo a pedido', 'Made-to-order catalog'],
+  ['class="on">Catálogo</a>', 'class="on">Catalog</a>'],
+  ['hidden>Test drive</a>', 'hidden>Test ride</a>'],
   ['Ciudad de entrega', 'Delivery city'],
   ['En camino a Lima', 'On its way to Lima'],
   ['entrega estimada', 'estimated delivery'],

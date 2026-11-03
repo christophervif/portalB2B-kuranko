@@ -2,7 +2,10 @@
 // Pares [texto exacto en bikes.html, inglés]; se aplican de la frase más larga a la más corta.
 module.exports = [
   ['Pre-owned: unidad única, revisada y lista en Lima. Se entrega tal como se ve; pregúntanos por su historial.', 'Pre-owned: single unit, checked and ready in Lima. Sold as seen; ask us about its history.'],
-  ['Prueba la bici antes de decidir. Elige cuál quieres probar, déjanos tus datos y te confirmamos el día y la hora por WhatsApp.', 'Try the bike before you decide. Pick the one you want to ride, leave your details and we will confirm the day and time on WhatsApp.'],
+  ['Prueba la bici antes de decidir. Elige cuál quieres probar y déjanos tus datos: te confirmamos la hora por WhatsApp.', 'Try the bike before you decide. Pick the one you want to ride and leave your details: we will confirm the time on WhatsApp.'],
+  ['Prueba la bici antes de decidir', 'Try the bike before you decide'],
+  ['Ej. mido 1.78 m, uso enduro, por la mañana', 'E.g. I am 1.78 m tall, I ride enduro, mornings work best'],
+  ['aria-label="Cerrar">×</button>', 'aria-label="Close">×</button>'],
   ['Agenda un test drive', 'Book a test ride'],
   ['Agendar test drive de esta bici', 'Book a test ride on this bike'],
   ['Agendar test drive', 'Book test ride'],
@@ -17,7 +20,7 @@ module.exports = [
   ['<label>Correo<', '<label>Email<'],
   ['<label>Talla<select id="tdTalla"', '<label>Size<select id="tdTalla"'],
   ['<label>Día<input type="date" id="tdFecha"', '<label>Day<input type="date" id="tdFecha"'],
-  ['<label>Hora<select id="tdFranja"', '<label>Time<select id="tdFranja"'],
+  ['<label class="full">Comentario (opcional)', '<label class="full">Comment (optional)'],
   ['<b>Distribuidor oficial de ${esc(F.marca)} en Perú</b> · garantía oficial y soporte técnico en Lima.', '<b>Official ${esc(F.marca)} distributor in Peru</b> · official warranty and technical support in Lima.'],
   ['<b>Distribuidor oficial:</b> Kuranko es distribuidor oficial de ${esc(m.marca)} en Perú.', '<b>Official distributor:</b> Kuranko is the official ${esc(m.marca)} distributor in Peru.'],
   ["Verifícalo en ${esc(h||'la web de '+b)}", "Check it on ${esc(h||b+' website')}"],

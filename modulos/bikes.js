@@ -1553,6 +1553,12 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
         const infoMarcas = await leerMarcas();
         let skus = (await leerSkus(true)).filter(s => (infoMarcas[s.marca] || {}).visible !== false);
         const mods = await leerModelos();
+        // Test drive: todas las bicis marcadas en el panel, aunque no salgan en la vitrina (sin ficha completa, sin precio, etc.)
+        const testdrive = (() => { const out = new Map();
+          for (const s of skus) { const md = mods[s.marca + '|' + s.modelo]; if (!md || !md.testdrive || md.etiqueta === 'proximamente') continue;
+            const k = s.marca + '|' + s.modelo, x = out.get(k) || { marca: s.marca, modelo: s.modelo, cat: s.categoria || '', tag: md.etiqueta || '', img: (md.imgs || [])[0] || s.url_imagen || null, tallas: [] };
+            if (!x.img && s.url_imagen) x.img = s.url_imagen; if (s.talla && !x.tallas.includes(s.talla)) x.tallas.push(s.talla); out.set(k, x); }
+          return [...out.values()].sort((a, b) => a.marca.localeCompare(b.marca) || a.modelo.localeCompare(b.modelo)); })();
         if (R.solo_completos !== false) {
           const porMod = {}; skus.forEach(s => (porMod[s.marca + '|' + s.modelo] ||= []).push(s));
           skus = skus.filter(s => (mods[s.marca + '|' + s.modelo] || {}).etiqueta === 'proximamente' || !fichaCompleta(mods[s.marca + '|' + s.modelo], porMod[s.marca + '|' + s.modelo]).length); // «próximamente» no necesita ficha
@@ -1562,7 +1568,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
         siluetas.clear();
         for (const m of modelos) if (m.tag === 'proximamente') { if (m.img) { siluetas.set(m.id, m.img); m.img = '/api/bikes/silueta/' + m.id; } else m.img = null; }
         catCache = { t: Date.now(), data: {
-          modelos,
+          modelos, testdrive,
           cuotas: R.cuotas || {}, cuotas_bancos: R.cuotas_bancos || '', franjas: FRANJAS,
           mar: await (async () => { // envío marítimo consolidado: bicis ya reservadas por marítimo + bicis propias del próximo envío
             const out = {}; const [rs] = await portalPool.query(`SELECT marca, COUNT(*) n FROM bk_reservas WHERE envio IN ('maritimo','unidad','grupo') AND estado IN ('Nueva','Confirmada con marca','Adelanto pagado') GROUP BY marca`).catch(() => [[]]);
@@ -1914,7 +1920,7 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
     if (nombre.length < 2 || apellido.length < 2) return res.status(400).json({ error: 'Escribe tu nombre y tu apellido.' });
     if (!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(email)) return res.status(400).json({ error: 'Escribe un correo válido.' });
     if (!/^9\d{8}$/.test(tel)) return res.status(400).json({ error: 'Escribe un celular de 9 dígitos que empiece con 9.' });
-    if (!fecha || !franja) return res.status(400).json({ error: 'Elige el día y la hora del test drive.' });
+    if (!fecha) return res.status(400).json({ error: 'Elige el día del test drive.' }); // la hora se coordina por WhatsApp (va en el comentario si la indica)
     try {
       await prepararTablas();
       const [[md]] = await portalPool.query('SELECT marca, modelo FROM bk_modelos WHERE marca=? AND modelo=? AND testdrive=1', [t(b.marca, 60), t(b.modelo, 120)]);
@@ -1922,12 +1928,12 @@ module.exports = function registrarBikes({ app, authAdmin, requiereModulo, porta
       const talla = t(b.talla, 10) || null, comentario = t(b.comentario, 300) || null, ref = String(b.ref || '').replace(/[^\w.\-]/g, '').slice(0, 60) || null;
       await portalPool.query('INSERT INTO bk_testdrives (marca, modelo, talla, nombre, apellido, email, tel, fecha, franja, comentario, ref, ip) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
         [md.marca, md.modelo, talla, nombre, apellido, email, tel, fecha, franja, comentario, ref, ip]);
-      const bici = `${md.marca} ${md.modelo}${talla ? ' talla ' + talla : ''}`, quien = `${nombre} ${apellido}`;
-      enviarCorreo((process.env.BIKES_EMAIL || 'info@kuranko.pe,ventas@kuranko.pe').split(',').map(x => x.trim()).filter(Boolean), `Test drive: ${quien} · ${bici} · ${fechaCorta(fecha)} ${franja}`,
-        `<div style="font-family:Arial,sans-serif;font-size:15px"><b>${escH(quien)}</b> quiere probar la <b>${escH(bici)}</b> el <b>${escH(fechaCorta(fecha))}</b> entre <b>${escH(franja)}</b>.<br>Celular: ${escH(tel)}<br>Correo: ${escH(email)}${comentario ? '<br>Comentario: ' + escH(comentario) : ''}${ref ? '<br>Vendedor: ' + escH(ref) : ''}<br><br><a href="https://wa.me/51${escH(tel)}">Escribir por WhatsApp para confirmar</a></div>`,
-        `Test drive: ${quien} · ${tel} · ${bici} · ${fechaCorta(fecha)} ${franja}`).catch(() => {});
+      const bici = `${md.marca} ${md.modelo}${talla ? ' talla ' + talla : ''}`, quien = `${nombre} ${apellido}`, cuando = fechaCorta(fecha) + (franja ? ' ' + franja : '');
+      enviarCorreo((process.env.BIKES_EMAIL || 'info@kuranko.pe,ventas@kuranko.pe').split(',').map(x => x.trim()).filter(Boolean), `Test drive: ${quien} · ${bici} · ${cuando}`,
+        `<div style="font-family:Arial,sans-serif;font-size:15px"><b>${escH(quien)}</b> quiere probar la <b>${escH(bici)}</b> el <b>${escH(cuando)}</b>.<br>Celular: ${escH(tel)}<br>Correo: ${escH(email)}${comentario ? '<br>Comentario: ' + escH(comentario) : ''}${ref ? '<br>Vendedor: ' + escH(ref) : ''}<br><br><a href="https://wa.me/51${escH(tel)}">Escribir por WhatsApp para confirmar</a></div>`,
+        `Test drive: ${quien} · ${tel} · ${bici} · ${cuando}`).catch(() => {});
       enviarCorreo([email], `Recibimos tu solicitud de test drive · ${bici}`,
-        `<div style="font-family:Arial,sans-serif;font-size:15px;color:#141414">Hola ${escH(nombre)}:<br><br>Recibimos tu solicitud para probar la <b>${escH(bici)}</b> el <b>${escH(fechaCorta(fecha))}</b> entre <b>${escH(franja)}</b>.<br>Te escribiremos al ${escH(tel)} para confirmar la hora y el lugar. Trae zapatillas cómodas y, si tienes, tu casco y tus pedales.<br><br>Kuranko Bikes</div>`).catch(() => {});
+        `<div style="font-family:Arial,sans-serif;font-size:15px;color:#141414">Hola ${escH(nombre)}:<br><br>Recibimos tu solicitud para probar la <b>${escH(bici)}</b> el <b>${escH(fechaCorta(fecha))}</b>.<br>Te escribiremos al ${escH(tel)} para confirmar la hora y el lugar. Trae zapatillas cómodas y, si tienes, tu casco y tus pedales.<br><br>Kuranko Bikes</div>`).catch(() => {});
       res.json({ ok: true });
     } catch (e) { res.status(500).json({ error: 'No se pudo agendar. Escríbenos por WhatsApp.' }); }
   });

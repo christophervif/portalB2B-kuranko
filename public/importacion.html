@@ -1940,8 +1940,10 @@ function _erpMarcador(){(async()=>{
   set['data.currency_id']=pick('data.currency_id',l=>/^(USD|DOLAR)/.test(mon)?/DOLAR/.test(l):/^(EUR)/.test(mon)?/EURO/.test(l):esPen?/SOL/.test(l):false);
   set['data.exchange_rate']=d.tc||null;
   const c=d.costos||{};
-  set['data.logistics_cost']=c.logistico||0;
-  set['data.origin_shipping']=c.envioOrigen||0;
+  // Por la ETIQUETA del formulario (los nombres internos de la ERP están cruzados):
+  // «Costo en Origen» (origin_shipping) = costo_logistico · «Envío en Origen» (logistics_cost) = costo_envio_origen
+  set['data.origin_shipping']=c.logistico||0;
+  set['data.logistics_cost']=c.envioOrigen||0;
   set['data.deductible_tax']=c.impDeducible||0;
   set['data.non_deductible_tax']=c.impNoDeducible||0;
   if(!w.get('data.notes'))set['data.notes']='Llenado desde el portal (importación '+(d.codigo||d.nombre||'')+')';

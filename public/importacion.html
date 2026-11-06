@@ -1936,7 +1936,7 @@ function _erpMarcador(){(async()=>{
   set['data.supplier_id']=prov?pick('data.supplier_id',l=>l.split(/\s+/).includes(prov)||l.includes(prov)):null;
   set['data.reference_number']=d.factura||null;
   set['data.importacion_ref']=d.codigo||null;
-  set['data.document_type_id']=pick('data.document_type_id',l=>l==='FACTURA');
+  set['data.document_type_id']=pick('data.document_type_id',l=>l==='OTROS'); // como el Excel «Ingreso» (tipo_documento 00 = Otros)
   set['data.currency_id']=pick('data.currency_id',l=>/^(USD|DOLAR)/.test(mon)?/DOLAR/.test(l):/^(EUR)/.test(mon)?/EURO/.test(l):esPen?/SOL/.test(l):false);
   set['data.exchange_rate']=d.tc||null;
   const c=d.costos||{};

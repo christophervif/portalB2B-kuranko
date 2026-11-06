@@ -1441,7 +1441,7 @@ function renderSavedList(){
       const fleteKg=(kg>0)?((+tt.costoFleteSoles||0)/kg):null;
       return `<tr><td>${r.n}</td><td>${esc(r.tipo)}${r.tipo==='Compra'?' <span class="badge b-exact">real</span>':' <span class="badge b-rev">teórico</span>'}</td><td>${esc(r.nombre)}</td><td>${esc((r.meta.proveedorNombre||r.meta.proveedor||'').split('(')[0])}</td><td>${esc(r.meta.numImp||'')}</td><td class="n">${n2(costoTotal)}</td><td class="n">${n2(tt.costoFleteSoles)}</td><td class="n">${n2(tt.costoLogisticoTotal)}</td><td class="n" title="${kg>0?('flete '+n2(tt.costoFleteSoles)+' S/ ÷ '+n2(kg)+' kg (bruto)'):'sin peso registrado'}">${fleteKg==null?'—':n2(fleteKg)}</td><td class="nm">${esc(r.savedAt)}</td>
       <td class="nm"><span class="erp-chk" data-id="${esc(r.id)}" data-refs="${esc(_refCands(r).join('|'))}"><span class="hint">…</span></span></td>
-      <td style="white-space:nowrap"><button class="btn-sm" onclick="cargarImportacion('${r.id}')">Cargar</button> <button class="btn-sm" onclick="exportImportExcel('${r.id}')">Excel</button> <button class="btn-sm" onclick="exportIngresoSaved('${r.id}')">Ingreso</button> ${(r.state&&r.state.dua&&((r.state.dua.series&&r.state.dua.series.length)||r.state.dua.header))?`<button class="btn-sm" onclick="exportDuaSaved('${r.id}')">DUA</button> `:''}<button class="btn-sm" onclick="exportImportPDF('${r.id}')">PDF</button> <span class="btn-del" onclick="eliminarImportacion('${r.id}')">✕</span></td></tr>`;}).join('')+'</tbody></table></div>'
+      <td style="white-space:nowrap"><button class="btn-sm" onclick="cargarImportacion('${r.id}')">Cargar</button> <button class="btn-sm" onclick="exportImportExcel('${r.id}')">Excel</button> <button class="btn-sm" onclick="exportIngresoSaved('${r.id}')">Ingreso</button> <button class="btn-sm" style="background:#2563eb;color:#fff" title="Copia los datos del ingreso para llenar la Entrada de Stock en la ERP con el marcador «Llenar en ERP»" onclick="copiarParaErp('${r.id}')">📋 Para ERP</button> ${(r.state&&r.state.dua&&((r.state.dua.series&&r.state.dua.series.length)||r.state.dua.header))?`<button class="btn-sm" onclick="exportDuaSaved('${r.id}')">DUA</button> `:''}<button class="btn-sm" onclick="exportImportPDF('${r.id}')">PDF</button> <span class="btn-del" onclick="eliminarImportacion('${r.id}')">✕</span></td></tr>`;}).join('')+'</tbody></table></div>'
       +'<div class="actions" style="margin-top:8px"><button class="btn-sm" onclick="exportResumenGeneral()">⬇ Exportar tabla general (resumen + detalle)</button></div>';
   marcarSubidasERP();
 }
@@ -1882,6 +1882,119 @@ function exportIngresoSaved(id){const rec=saved.find(x=>x.id===id);if(!rec)retur
     destino:rp.destino||'',almacenNombre:rp.almacenNombre||'',recibidas:rp.recibidas||null};
   const aoa=[_ingresoHead()].concat(_ingresoRows(r,ctx).map(row=>row.map(_num)));
   _descargarIngreso(aoa,_fname('IngresoStock-'+(m.codigo||rec.n))+'.xlsx');}
+
+/* ---------- LLENAR EN ERP (botón «📋 Para ERP» + marcador «Llenar en ERP») ----------
+   1) En Guardadas, «📋 Para ERP» copia al portapapeles los datos de la importación
+      (los MISMOS del Excel «Ingreso»: SKU, cantidad, EXW, costo sin/con IGV + cabecera).
+   2) En la ERP (Entradas de stock → Nueva) se pulsa el marcador «Llenar en ERP»:
+      llena la cabecera, marca los pedidos de clientes que coinciden y agrega el resto
+      como stock general. NO guarda: la persona revisa y pulsa «Crear». */
+function _payloadErp(rec){
+  const r=computeImport(rec.state),m=rec.meta||{},rp=(rec.state&&rec.state.recep)||{};
+  const ctx={fecha:'',tc:rec.state.tc.fact,impCode:m.codigo||'',numDoc:m.invoice||'',prov:m.proveedor||'',empresa:m.empresa||'',N:m.numImp||'',
+    destino:rp.destino||'',almacenNombre:rp.almacenNombre||'',recibidas:rp.recibidas||null};
+  const H=_ingresoHead(),ix=k=>H.indexOf(k),num=v=>Number(String(v==null?'':v).replace(/,/g,''))||0;
+  const rows=_ingresoRows(r,ctx), f=rows[0]||[];
+  const lineas=rows.map(row=>({sku:String(row[ix('Código')]||'').trim(),cant:num(row[ix('Cantidad')]),exw:num(row[ix('Precio EXW')]),
+    sin:num(row[ix('Costo real sin impuesto deducible soles UNITARIO')]),con:num(row[ix('Costo real soles UNITARIO')])})).filter(l=>l.sku&&l.cant>0);
+  return {kuranko_erp:1,nombre:rec.nombre||'',codigo:m.codigo||'',factura:m.invoice||'',proveedor:m.proveedor||'',empresaRuc:m.empresa||'',
+    moneda:(r.totals&&r.totals.J1)||'',tc:num(ctx.tc),almacen:{codigo:ctx.destino||'',nombre:ctx.almacenNombre||''},
+    costos:{logistico:num(f[ix('costo_logistico')]),envioOrigen:num(f[ix('costo_envio_origen')]),impDeducible:num(f[ix('impuesto_deducible')]),impNoDeducible:num(f[ix('impuesto_no_deducible1')])},
+    lineas};
+}
+// Código del marcador: se ejecuta DENTRO de la página de la ERP (Filament/Livewire).
+// Debe ser autocontenido (se serializa con toString).
+function _erpMarcador(){(async()=>{
+  const W=window,Lw=W.Livewire,Al=W.Alpine;
+  const comp=Lw&&Lw.all?Lw.all().find(x=>/create-stock-entry/.test(x.name||'')):null;
+  if(!comp){alert('Abre en la ERP: Entradas de stock → «Realizar Entrada de Stock» (nueva) y vuelve a pulsar «Llenar en ERP».');return;}
+  const parse=t=>{try{const o=JSON.parse(String(t||'').trim());return o&&o.kuranko_erp?o:null;}catch(e){return null;}};
+  let d=null;try{d=parse(await navigator.clipboard.readText());}catch(e){}
+  if(!d){const t=prompt('Pega aquí los datos copiados con «📋 Para ERP» en el portal (Ctrl+V):');if(!t)return;d=parse(t);if(!d){alert('Eso no son datos del portal (copia de nuevo con «📋 Para ERP»).');return;}}
+  const w=comp.$wire,avisos=[];
+  const norm=s=>String(s==null?'':s).normalize('NFD').replace(/[̀-ͯ]/g,'').trim().toUpperCase();
+  const selects=()=>{const o={};document.querySelectorAll('[x-data*="selectFormComponent"]').forEach(el=>{const m=(el.getAttribute('x-data')||'').match(/statePath:\s*'([^']+)'/);if(!m)return;try{o[m[1]]=(Al.$data(el).select.options)||[];}catch(e){}});return o;};
+  let S=selects();
+  const pick=(path,fn)=>{const o=(S[path]||[]).find(x=>fn(norm(x.label)));return o?String(o.value):null;};
+  const yaHay=w.get('data.items')||{},pend0=(w.get('data.pending_items')||[]);
+  if((Object.keys(yaHay).length||pend0.some(p=>p.include)||w.get('data.reference_number'))&&!confirm('El formulario ya tiene datos. ¿Reemplazar con «'+(d.nombre||d.codigo)+'»?'))return;
+  // Opciones de productos: el selector solo existe con una fila de producto; si no hay, se crea una temporal.
+  const pvOpts=()=>{const k=Object.keys(S).find(p=>/^data\.items\..+\.product_variation_id$/.test(p));return k?S[k]:null;};
+  if(!pvOpts()){w.set('data.items',{tmp:{product_variation_id:null,quantity:null}},false);await w.$commit();await new Promise(r=>setTimeout(r,400));S=selects();}
+  const pv={};(pvOpts()||[]).forEach(o=>{const sku=norm(String(o.label).split(' — ')[0]);if(sku&&!(sku in pv))pv[sku]=String(o.value);});
+  pend0.forEach(p=>{const m=String(p.product_label||'').split(' — ');const sku=norm(m[m.length-1]);if(sku&&!(sku in pv))pv[sku]=String(p.product_variation_id);});
+  // Cabecera
+  const mon=norm(d.moneda),esPen=/^(PEN|SOL|S\/)/.test(mon);
+  const set={};
+  set['data.type']='purchase';
+  set['data.operation_type_code']=pick('data.operation_type_code',l=>esPen?/NACIONAL/.test(l):/IMPORTACION/.test(l));
+  const ruc=String(d.empresaRuc||'');
+  set['data.company_id']=pick('data.company_id',l=>ruc.startsWith('205')?/DISENOS/.test(l):ruc.startsWith('10')?/VILLASANTE/.test(l):false);
+  const alm=norm(d.almacen&&d.almacen.nombre);
+  set['data.location_id']=alm?pick('data.location_id',l=>l===alm):null;
+  const prov=norm(d.proveedor).split(/[\s(]/)[0];
+  set['data.supplier_id']=prov?pick('data.supplier_id',l=>l.split(/\s+/).includes(prov)||l.includes(prov)):null;
+  set['data.reference_number']=d.factura||null;
+  set['data.importacion_ref']=d.codigo||null;
+  set['data.document_type_id']=pick('data.document_type_id',l=>l==='FACTURA');
+  set['data.currency_id']=pick('data.currency_id',l=>/^(USD|DOLAR)/.test(mon)?/DOLAR/.test(l):/^(EUR)/.test(mon)?/EURO/.test(l):esPen?/SOL/.test(l):false);
+  set['data.exchange_rate']=d.tc||null;
+  const c=d.costos||{};
+  set['data.logistics_cost']=c.logistico||0;
+  set['data.origin_shipping']=c.envioOrigen||0;
+  set['data.deductible_tax']=c.impDeducible||0;
+  set['data.non_deductible_tax']=c.impNoDeducible||0;
+  if(!w.get('data.notes'))set['data.notes']='Llenado desde el portal (importación '+(d.codigo||d.nombre||'')+')';
+  if(!set['data.company_id'])avisos.push('Empresa: no se reconoció el RUC '+ruc+' — elígela a mano.');
+  if(!set['data.location_id'])avisos.push('Almacén destino: '+(alm?'«'+alm+'» no está en la lista':'la importación no tiene almacén (recepción)')+' — elígelo a mano.');
+  if(!set['data.supplier_id'])avisos.push('Proveedor: '+(prov?'«'+prov+'» no está en la lista':'sin código')+' — elígelo a mano.');
+  if(!set['data.currency_id'])avisos.push('Moneda «'+d.moneda+'» no reconocida — elígela a mano.');
+  // Productos: primero cubren pedidos de clientes (a pedido); lo que sobra va a stock general.
+  const pend=pend0.map(p=>Object.assign({},p,{include:false}));
+  const items={},faltan=[];let nPed=0,nItems=0,uds=0;
+  const uid=()=>(W.crypto&&crypto.randomUUID)?crypto.randomUUID():('k'+Date.now().toString(36)+Math.random().toString(36).slice(2));
+  (d.lineas||[]).forEach(l=>{
+    const id=pv[norm(l.sku)];if(!id){faltan.push(l.sku+' ×'+l.cant);return;}
+    let rem=+l.cant||0;uds+=rem;
+    pend.forEach(p=>{const mn=+p.min_quantity||+p.quantity||1;if(p.include||String(p.product_variation_id)!==id||rem<mn)return;
+      p.include=true;p.quantity=mn;p.unit_price_foreign=l.exw;p.cost_price_without_refund=l.sin;p.cost_price=l.con;rem-=mn;nPed++;});
+    if(rem>0){items[uid()]={product_variation_id:id,quantity:rem,unit_price_foreign:l.exw,cost_price_without_refund:l.sin,cost_price:l.con};nItems++;}
+  });
+  Object.keys(set).forEach(k=>{if(set[k]!==null&&set[k]!==undefined)w.set(k,set[k],false);});
+  w.set('data.pending_items',pend,false);
+  w.set('data.items',items,false);
+  await w.$commit();
+  let msg='✓ Formulario llenado con «'+(d.nombre||d.codigo)+'»\n\n'+(d.lineas||[]).length+' línea(s) · '+uds+' unidades\n· '+nPed+' pedido(s) de clientes marcados\n· '+nItems+' producto(s) en stock general';
+  if(faltan.length)msg+='\n\n⚠ No existen en la ERP ('+faltan.length+'), agrégalos a mano:\n'+faltan.slice(0,25).join('\n')+(faltan.length>25?'\n…':'');
+  if(avisos.length)msg+='\n\n⚠ '+avisos.join('\n⚠ ');
+  msg+='\n\nRevisa y pulsa «Crear». No se ha guardado nada.';
+  alert(msg);
+})();}
+function _erpMarcadorHref(){return 'javascript:'+encodeURIComponent(_erpMarcador.toString().replace(/^function _erpMarcador\(\)\{/,'').replace(/\}$/,''));}
+async function copiarParaErp(id){
+  const rec=saved.find(x=>x.id===id);if(!rec)return;
+  let d;try{d=_payloadErp(rec);}catch(e){alert('No se pudo calcular: '+e.message);return;}
+  if(!d.lineas.length){alert('Esta importación no tiene productos para ingresar.');return;}
+  const txt=JSON.stringify(d);
+  let ok=false;try{await navigator.clipboard.writeText(txt);ok=true;}catch(e){}
+  let box=$('erpLlenar');
+  if(!box){box=document.createElement('div');box.id='erpLlenar';box.style.marginTop='12px';$('savedList').after(box);}
+  const falta=[];if(!d.almacen.nombre)falta.push('almacén (no tiene recepción)');if(!d.codigo)falta.push('código de importación');if(!d.factura)falta.push('N° de factura');
+  box.innerHTML=`<div class="card" style="border:2px solid #2563eb">
+    <div style="display:flex;justify-content:space-between;gap:8px;align-items:center"><b>📋 Para ERP — ${esc(rec.nombre||'')} <span class="hint">${esc(d.codigo)}</span></b><span class="btn-del" onclick="this.closest('#erpLlenar').remove()">✕</span></div>
+    <div style="margin-top:6px">${ok?'<b style="color:#166534">✓ Datos copiados</b>':'<b style="color:#92400e">Copia el texto de abajo (Ctrl+C)</b>'} · ${d.lineas.length} línea(s), ${d.lineas.reduce((a,l)=>a+l.cant,0)} uds · ${esc(d.moneda)} · TC ${d.tc} · almacén ${esc(d.almacen.nombre||'—')}</div>
+    ${falta.length?`<div style="margin-top:4px;color:#92400e">⚠ Falta: ${esc(falta.join(', '))} — tendrás que completarlo en la ERP.</div>`:''}
+    <ol style="margin:8px 0 0 18px;padding:0;line-height:1.6">
+      <li>Abre la ERP → <b>Entradas de stock → Nueva</b> (Realizar Entrada de Stock).</li>
+      <li>Pulsa el marcador <b>Llenar en ERP</b> en tu barra de marcadores (si pide permiso para leer el portapapeles, acepta; si no, pega con Ctrl+V).</li>
+      <li>Revisa y pulsa <b>Crear</b>. El marcador no guarda nada solo.</li>
+    </ol>
+    <div style="margin-top:8px;padding:8px 10px;background:#eff6ff;border-radius:8px">¿Aún no tienes el marcador? <b>Arrastra</b> este botón a tu barra de marcadores (una sola vez):
+      <a href="${_erpMarcadorHref()}" onclick="alert('Arrástralo a la barra de marcadores; luego púlsalo dentro de la ERP.');return false;" style="display:inline-block;margin-left:6px;background:#2563eb;color:#fff;border-radius:8px;padding:4px 12px;font-weight:800;text-decoration:none">Llenar en ERP</a></div>
+    <textarea readonly style="width:100%;height:60px;margin-top:8px;font-size:11px" onclick="this.select()">${esc(txt)}</textarea>
+  </div>`;
+  box.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
 
 /* ---------- DUA ---------- */
 function procesarDua(){

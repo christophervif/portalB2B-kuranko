@@ -339,6 +339,15 @@ module.exports = function registrarImportacion({
     catch (e) { _colsMov = new Set(); }
     return _colsMov;
   }
+  // Columnas de stock_batches: el formulario del ERP guarda cost_price = costo CON IGV
+  // y cost_price_without_refund = costo SIN IGV (si la columna existe).
+  let _colsLot = null;
+  async function colsLotes() {
+    if (_colsLot) return _colsLot;
+    try { const [c] = await prodPool.query('SHOW COLUMNS FROM stock_batches'); _colsLot = new Set(c.map(x => x.Field)); }
+    catch (e) { _colsLot = new Set(); }
+    return _colsLot;
+  }
   async function colCodigoLocation() {
     if (_colLocCod !== null) return _colLocCod;
     try {
@@ -374,12 +383,14 @@ module.exports = function registrarImportacion({
 
       // 2) Líneas de esas entradas: SKU, cantidad, costo del lote y almacén (si el movimiento lo guarda)
       const cm = await colsMovimientos();
+      const cb = await colsLotes();
       const colLoc = ['location_id', 'to_location_id', 'destination_location_id', 'warehouse_id'].find(c => cm.has(c));
       const colCod = colLoc ? await colCodigoLocation() : '';
       const ids = entradas.map(e => e.id);
       const [lin] = await prodPool.query(`
         SELECT sm.reference_id AS entrada, pv.sku, SUM(ABS(sm.quantity)) AS cantidad,
           (SELECT b.cost_price FROM stock_batches b WHERE b.stock_entry_id = sm.reference_id AND b.product_variation_id = sm.product_variation_id ORDER BY b.id LIMIT 1) AS costo,
+          ${cb.has('cost_price_without_refund') ? '(SELECT b.cost_price_without_refund FROM stock_batches b WHERE b.stock_entry_id = sm.reference_id AND b.product_variation_id = sm.product_variation_id ORDER BY b.id LIMIT 1)' : 'NULL'} AS costo_sin,
           (SELECT b.company_id FROM stock_batches b WHERE b.stock_entry_id = sm.reference_id AND b.product_variation_id = sm.product_variation_id ORDER BY b.id LIMIT 1) AS empresa
           ${colLoc ? `, MAX(l.name) AS almacen${colCod ? ', MAX(l.`' + colCod + '`) AS almacen_cod' : ''}` : ''}
         FROM stock_movements sm
@@ -397,8 +408,9 @@ module.exports = function registrarImportacion({
         if (f.almacen) x.almacen = String(f.almacen).trim();
       });
       lin.forEach(l => {
-        const k = normSku(l.sku), c = Number(l.cantidad) || 0, e = erp[k] = erp[k] || { cant: 0, val: 0, sinCosto: 0, almacenes: new Set(), entradas: new Set() };
+        const k = normSku(l.sku), c = Number(l.cantidad) || 0, e = erp[k] = erp[k] || { cant: 0, val: 0, valSin: 0, cantSin: 0, sinCosto: 0, almacenes: new Set(), entradas: new Set() };
         e.cant += c; if (l.costo == null || +l.costo === 0) e.sinCosto += c; else e.val += c * Number(l.costo);
+        if (l.costo_sin != null && +l.costo_sin !== 0) { e.valSin += c * Number(l.costo_sin); e.cantSin += c; }
         if (l.almacen_cod || l.almacen) e.almacenes.add(String(l.almacen_cod || l.almacen).trim());
         e.entradas.add(l.entrada);
       });
@@ -417,10 +429,17 @@ module.exports = function registrarImportacion({
         const conCosto = e.cant - e.sinCosto;
         if (e.sinCosto > 0) prob.push({ tipo: 'sin_costo', texto: `${e.sinCosto} unidad(es) sin costo en el ERP` });
         if (conCosto > 0) {
+          // ERP: cost_price = costo CON IGV («Costo real soles UNITARIO») y, si existe,
+          // cost_price_without_refund = costo SIN IGV («Costo real sin impuesto deducible»).
+          // Entradas antiguas (CSV) pueden tener en cost_price el costo SIN: también vale.
           const cErp = e.val / conCosto;
-          if (!tolCosto(cErp, cSin)) {
-            if (cCon && tolCosto(cErp, cCon)) prob.push({ tipo: 'costo_con_igv', texto: `Costo: el ERP tiene S/ ${r2(cErp)} = el costo CON impuesto deducible; el Excel indica S/ ${r2(cSin)} sin deducible` });
-            else prob.push({ tipo: 'costo', texto: `Costo unitario: Excel S/ ${r2(cSin)} · ERP S/ ${r2(cErp)} (${cSin ? ((cErp / cSin - 1) * 100).toFixed(1) : '—'}%)` });
+          const cErpSin = e.cantSin ? e.valSin / e.cantSin : null;
+          const pct = (a, bb) => bb ? ((a / bb - 1) * 100).toFixed(1) + '%' : '—';
+          if (cErpSin != null) {
+            if (!tolCosto(cErpSin, cSin)) prob.push({ tipo: 'costo', texto: `Costo sin IGV: Excel S/ ${r2(cSin)} · ERP S/ ${r2(cErpSin)} (${pct(cErpSin, cSin)})` });
+            if (cCon && !tolCosto(cErp, cCon) && !tolCosto(cErp, cSin)) prob.push({ tipo: 'costo', texto: `Costo con IGV: Excel S/ ${r2(cCon)} · ERP S/ ${r2(cErp)} (${pct(cErp, cCon)})` });
+          } else if (!tolCosto(cErp, cSin) && !(cCon && tolCosto(cErp, cCon))) {
+            prob.push({ tipo: 'costo', texto: `Costo unitario: Excel S/ ${r2(cSin)} sin IGV / S/ ${r2(cCon)} con IGV · ERP S/ ${r2(cErp)}` });
           }
         }
         if (x.almacen && e.almacenes.size && ![...e.almacenes].some(a => a.toUpperCase() === x.almacen.toUpperCase()))

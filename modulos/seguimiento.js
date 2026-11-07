@@ -132,6 +132,7 @@ module.exports = function registrarSeguimiento({
     try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN api_at DATETIME NULL`); } catch (e) {}                        // última lectura por API
     try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN api_eventos JSON NULL`); } catch (e) {}                      // historial completo de eventos del courier (traducido)
     try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN api_entrega DATE NULL`); } catch (e) {}                       // fecha de entrega real según el courier
+    try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN api_paises VARCHAR(12) NOT NULL DEFAULT ''`); } catch (e) {}     // país de origen>destino según el courier ("IT>US")
     try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN importacion_id VARCHAR(80) NOT NULL DEFAULT ''`); } catch (e) {} // enlace con Importaciones (envío creado desde la factura)
     try { await portalPool.query(`ALTER TABLE seg_envios ADD INDEX (importacion_id)`); } catch (e) {}
     // Traducciones al español de las frases del courier hechas por la IA (se reusan siempre).
@@ -303,13 +304,18 @@ module.exports = function registrarSeguimiento({
   // Historial listo para la pantalla: estado en español + ciudad y país de cada evento,
   // la ubicación actual (último evento con lugar) y la ruta (ciudades por las que pasó, en orden).
   const HUB_ISO = { miami: 'US', madrid: 'ES', espana: 'ES' };
-  function historialES(eventosRaw, hub) {
+  function historialES(eventosRaw, hub, apiPaises) {
     const evs = Array.isArray(eventosRaw) ? eventosRaw : [];
+    const origenIso = String(apiPaises || '').split('>')[0] || '';
     const paises = cES.paisesDelEnvio(evs, HUB_ISO[hub] || '');
+    if (origenIso) paises.add(origenIso);
     const eventos = evs.map(ev => {
       const i = cES.eventoInfo(ev, TRAD, paises);
       return { fecha: ev.fecha || '', hora: ev.hora || '', desc: i.desc, ciudad: i.ciudad, region: i.region, iso: i.iso, pais: i.pais, lugar: i.lugar };
     });
+    // Siempre ciudad Y país: a los lugares que solo traen ciudad se les pone el país del evento más cercano.
+    cES.completarPaises(eventos, origenIso);
+    eventos.forEach(e => { if (e.ciudad || e.pais) e.lugar = cES.lugarTexto(e); });
     const conLugar = eventos.filter(e => e.ciudad || e.pais);
     const ub = conLugar[0] || null;                                      // los eventos vienen del más reciente al más antiguo
     const ruta = [];
@@ -347,7 +353,8 @@ module.exports = function registrarSeguimiento({
         const evEntrega = evsRaw.find(e => s(e.statusMilestone || '') === 'delivered') || (delivered ? ev0 : null);
         const entrega = evEntrega ? fechaCorta(evEntrega.occurrenceDatetime || '') : '';
         const destPais = s(sh.destinationCountryCode || (sh.recipient && sh.recipient.countryCode) || '').toUpperCase().slice(0, 2);
-        out[String(n)] = { estado: mile, resumen, delivered, destPais, eventos, entrega };
+        const origPais = s(sh.originCountryCode || (sh.shipper && sh.shipper.countryCode) || '').toUpperCase().slice(0, 2);
+        out[String(n)] = { estado: mile, resumen, delivered, destPais, origPais, eventos, entrega };
       } catch (e) { /* una falla no corta las demás */ }
     }
     return out;
@@ -381,7 +388,10 @@ module.exports = function registrarSeguimiento({
         const evEntrega = evsRaw.find(e => /deliver/i.test(s(e.stage || e.sub_status || e.description || ''))) || (delivered ? evsRaw[0] : null);
         const entrega = evEntrega ? fechaCorta(evEntrega.time_iso || evEntrega.time_utc || '') : '';
         const destPais = s((ti.misc_info && (ti.misc_info.destination_country || ti.misc_info.destination_country_iso2)) || '').toUpperCase().slice(0, 2);
-        if (num) out[num] = { estado, resumen, delivered, destPais, eventos, entrega };
+        const si = ti.shipping_info || {};
+        const origPais = s((si.shipper_address && si.shipper_address.country) || (ti.misc_info && ti.misc_info.origin_country) || '').toUpperCase().slice(0, 2);
+        const destPais2 = destPais || s((si.recipient_address && si.recipient_address.country) || '').toUpperCase().slice(0, 2);
+        if (num) out[num] = { estado, resumen, delivered, destPais: destPais2, origPais, eventos, entrega };
       });
     } catch (e) { console.error('[seguimiento] 17track', e.message); }
     return out;
@@ -621,7 +631,7 @@ module.exports = function registrarSeguimiento({
         eta: isoDate(r.eta),
         api_resumen: r.api_resumen ? cES.textoResumen(r.api_estado, r.api_resumen, TRAD) : '', api_estado: r.api_estado || '',
         api_at: r.api_at || null,
-        ...(h => ({ api_eventos: h.eventos, api_ubicacion: h.ubicacion, api_ruta: h.ruta }))(historialES(asJson(r.api_eventos, []), r.hub)),
+        ...(h => ({ api_eventos: h.eventos, api_ubicacion: h.ubicacion, api_ruta: h.ruta }))(historialES(asJson(r.api_eventos, []), r.hub, r.api_paises)),
         api_entrega: isoDate(r.api_entrega),
         nota: r.nota || '', items: asJson(r.items, []) || [],
         creado_por: r.creado_por, creado_en: r.creado_en, actualizado_en: r.actualizado_en
@@ -1144,6 +1154,8 @@ module.exports = function registrarSeguimiento({
         if (!hub && d.destPais) hub = paisAHub(d.destPais);        // autodetectar hub por país destino
         const evJSON = JSON.stringify(Array.isArray(d.eventos) ? d.eventos : []);
         const entrega = d.entrega || null;
+        const apiPaises = ((d.origPais || '') + '>' + (d.destPais || '')).replace(/^>$/, '');
+        await portalPool.query(`UPDATE seg_envios SET api_paises=? WHERE id=?`, [apiPaises, r.id]);
         if (d.delivered && hub) {                                   // llegó al hub → marcar en almacén + ETA
           const fhub = d.entrega || hoyISO();                       // usar la fecha real de entrega del courier si existe
           const eta = etaPeruDesdeHub(hub, fhub);

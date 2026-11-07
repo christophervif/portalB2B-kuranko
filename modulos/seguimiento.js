@@ -142,6 +142,16 @@ module.exports = function registrarSeguimiento({
         es        VARCHAR(255) NOT NULL,
         creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       ) DEFAULT CHARSET=utf8mb4`);
+    // Ubicaciones del courier identificadas por la IA (ciudad, provincia/estado y país), para las dudosas
+    // como "BRESCIA, BS" (¿Italia o Bahamas?). Se consultan una sola vez y se reusan siempre.
+    await portalPool.query(`
+      CREATE TABLE IF NOT EXISTS seg_lugares (
+        lugar     VARCHAR(255) PRIMARY KEY,
+        ciudad    VARCHAR(80)  NOT NULL DEFAULT '',
+        region    VARCHAR(10)  NOT NULL DEFAULT '',
+        iso       CHAR(2)      NOT NULL DEFAULT '',
+        creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      ) DEFAULT CHARSET=utf8mb4`);
     await cargarTraducciones();
 
     // Token de seguimiento público por CLIENTE (link que se comparte al cliente).
@@ -232,9 +242,84 @@ module.exports = function registrarSeguimiento({
   //    seg_traducciones; las siguientes veces sale de ahí, sin volver a llamar a la IA.
   const TRAD = new Map();                 // clave(en) → es
   const TRAD_FALLO = new Map();           // clave → hora del último intento fallido (reintento en 6 h)
+  const LUGARES = new Map();              // clave(lugar del courier) → { ciudad, region, iso } (identificado por la IA)
   async function cargarTraducciones() {
     try { const [r] = await portalPool.query(`SELECT en, es FROM seg_traducciones`); r.forEach(x => TRAD.set(x.en, x.es)); }
     catch (e) { console.warn('[seguimiento] traducciones:', e.message); }
+    try { const [r] = await portalPool.query(`SELECT lugar, ciudad, region, iso FROM seg_lugares`); r.forEach(x => LUGARES.set(x.lugar, { ciudad: x.ciudad, region: x.region, iso: x.iso })); }
+    catch (e) { console.warn('[seguimiento] lugares:', e.message); }
+  }
+  // Contexto para leer las ubicaciones de UN envío: país de salida + países que aparecen.
+  function contextoEnvio(r, evs) {
+    const paises = cES.paisesDelEnvio(evs, HUB_ISO[r.hub] || '');
+    const origenIso = String(r.api_paises || '').split('>')[0] || '';
+    if (origenIso) paises.add(origenIso);
+    const base = cES.baseDelEnvio({ tracking: r.tracking, courier: r.courier, apiPaises: r.api_paises, eventos: evs });
+    if (base) paises.add(base);
+    return { paises, base, origenIso: origenIso || base };
+  }
+  // Ubicaciones dudosas aún no identificadas (con el resto de lugares del envío como contexto).
+  function lugaresPendientes(envios) {
+    const out = new Map();
+    envios.forEach(r => {
+      const evs = asJson(r.api_eventos, []) || [];
+      if (!evs.length) return;
+      const ctx = contextoEnvio(r, evs);
+      const todos = [...new Set(evs.map(ev => cES.partesEvento(ev).lugar).filter(Boolean))].slice(0, 15);
+      evs.forEach(ev => {
+        const i = cES.eventoInfo(ev, null, ctx, LUGARES);
+        const k = cES.clave(i.lugar_raw);
+        if (!i.dudoso || !k || out.has(k) || (Date.now() - (TRAD_FALLO.get('lugar:' + k) || 0) < 6 * 3600e3)) return;
+        out.set(k, { lugar: i.lugar_raw, otros: todos.filter(t => t !== i.lugar_raw), courier: s(r.courier) });
+      });
+    });
+    return [...out.values()].slice(0, 120);
+  }
+  // Llama a Gemini y devuelve el JSON de la respuesta (prueba los modelos en orden).
+  async function geminiJSON(prompt, validar) {
+    const key = process.env.GEMINI_API_KEY;
+    if (!key) return null;
+    for (const mdl of MODELOS_TRAD) {
+      const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 25000);
+      try {
+        const g = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${mdl}:generateContent?key=${encodeURIComponent(key)}`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ctrl.signal,
+          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0, responseMimeType: 'application/json' } }) });
+        const d = await g.json().catch(() => null);
+        if (!g.ok) throw new Error((d && d.error && d.error.message) || ('HTTP ' + g.status));
+        const txt = (((((d && d.candidates) || [])[0] || {}).content || {}).parts || []).map(p => p.text || '').join('');
+        const j = JSON.parse(txt.replace(/^```(?:json)?|```$/g, '').trim());
+        if (!validar || validar(j)) return j;
+        throw new Error('respuesta con otro formato');
+      } catch (e) { console.warn('[seguimiento] IA (' + mdl + '):', e.message); }
+      finally { clearTimeout(to); }
+    }
+    return null;
+  }
+  async function identificarLugaresConIA(items) {
+    let hechas = 0;
+    for (let i = 0; i < items.length; i += 40) {
+      const lote = items.slice(i, i + 40);
+      const prompt = 'Estas son ubicaciones que informa un courier en el seguimiento de paquetes (FedEx, UPS, DHL, correos…). ' +
+        'Para cada una indica la ciudad real, la provincia/estado (sigla si existe) y el país (código ISO 3166-1 alfa-2). ' +
+        'Ojo: la sigla final suele ser una provincia o estado, no un país (ej.: "BRESCIA, BS" → Brescia, BS, IT; "SAN PIETRO MOSEZZO, NO" → San Pietro Mosezzo, NO, IT; ' +
+        '"MEMPHIS, TN" → Memphis, TN, US; "MALPENSA APT" → Malpensa, VA, IT). Usa las otras ubicaciones del mismo envío como pista. ' +
+        'Nombre de ciudad en su forma habitual (sin "HUB", "APT", "FACILITY"). Si no es posible saber la ciudad, deja ciudad vacía pero indica el país si se puede. ' +
+        'Responde SOLO con un arreglo JSON, en el mismo orden y con la misma cantidad de elementos: [{"ciudad":"","region":"","pais":""}]\n' +
+        JSON.stringify(lote.map(x => ({ lugar: x.lugar, otras_ubicaciones_del_envio: x.otros, courier: x.courier })));
+      const lista = await geminiJSON(prompt, j => Array.isArray(j) && j.length === lote.length);
+      if (!lista) { lote.forEach(x => TRAD_FALLO.set('lugar:' + cES.clave(x.lugar), Date.now())); continue; }
+      for (let j = 0; j < lote.length; j++) {
+        const o = lista[j] || {};
+        const iso = String(o.pais || '').toUpperCase().trim();
+        if (!cES.ISO2_SET.has(iso)) { TRAD_FALLO.set('lugar:' + cES.clave(lote[j].lugar), Date.now()); continue; }
+        const v = { ciudad: cES.norm(o.ciudad).slice(0, 80), region: String(o.region || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10), iso };
+        const k = cES.clave(lote[j].lugar);
+        LUGARES.set(k, v); hechas++;
+        try { await portalPool.query(`INSERT INTO seg_lugares (lugar, ciudad, region, iso) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE ciudad = VALUES(ciudad), region = VALUES(region), iso = VALUES(iso)`, [k, v.ciudad, v.region, v.iso]); } catch (e) {}
+      }
+    }
+    return hechas;
   }
   // Frases del courier que el diccionario no traduce completas y aún no están traducidas.
   function frasesPendientes(envios) {
@@ -250,8 +335,7 @@ module.exports = function registrarSeguimiento({
     .map(m => String(m || '').replace(/^models\//, '').replace(/[^a-zA-Z0-9.\-]/g, '')).filter(Boolean))];
   let _tradEnCurso = null;
   async function traducirConIA(frases) {
-    const key = process.env.GEMINI_API_KEY;
-    if (!key || !frases.length) return 0;
+    if (!process.env.GEMINI_API_KEY || !frases.length) return 0;
     let hechas = 0;
     for (let i = 0; i < frases.length; i += 60) {
       const lote = frases.slice(i, i + 60);
@@ -260,22 +344,7 @@ module.exports = function registrarSeguimiento({
         '"On FedEx vehicle for delivery" → "En reparto"; "Clearance delay" → "Demora en aduana"). Si una frase ya está en parte en español, complétala. ' +
         'Conserva tal cual nombres propios, ciudades, códigos y números. Responde SOLO con un arreglo JSON de strings, en el mismo orden y con la misma cantidad de elementos.\n' +
         JSON.stringify(lote);
-      let lista = null;
-      for (const mdl of MODELOS_TRAD) {
-        const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 25000);
-        try {
-          const g = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${mdl}:generateContent?key=${encodeURIComponent(key)}`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ctrl.signal,
-            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0, responseMimeType: 'application/json' } }) });
-          const d = await g.json().catch(() => null);
-          if (!g.ok) throw new Error((d && d.error && d.error.message) || ('HTTP ' + g.status));
-          const txt = (((((d && d.candidates) || [])[0] || {}).content || {}).parts || []).map(p => p.text || '').join('');
-          const arr = JSON.parse(txt.replace(/^```(?:json)?|```$/g, '').trim());
-          if (Array.isArray(arr) && arr.length === lote.length) { lista = arr; break; }
-          throw new Error('respuesta con otra cantidad de frases');
-        } catch (e) { console.warn('[seguimiento] traducir con IA (' + mdl + '):', e.message); }
-        finally { clearTimeout(to); }
-      }
+      const lista = await geminiJSON(prompt, j => Array.isArray(j) && j.length === lote.length);
       if (!lista) { lote.forEach(f => TRAD_FALLO.set(cES.clave(f), Date.now())); continue; }
       for (let j = 0; j < lote.length; j++) {
         const es = cES.norm(lista[j]).slice(0, 255);
@@ -290,8 +359,11 @@ module.exports = function registrarSeguimiento({
   // Traduce lo pendiente (una sola tanda a la vez). `esperarMs` = cuánto esperar como máximo.
   function traducirPendientes(envios, esperarMs) {
     const frases = frasesPendientes(envios);
-    if (!frases.length) return Promise.resolve(0);
-    if (!_tradEnCurso) _tradEnCurso = traducirConIA(frases).catch(() => 0).finally(() => { _tradEnCurso = null; });
+    const lugares = lugaresPendientes(envios);
+    if (!frases.length && !lugares.length) return Promise.resolve(0);
+    if (!process.env.GEMINI_API_KEY) return Promise.resolve(0);
+    if (!_tradEnCurso) _tradEnCurso = Promise.all([traducirConIA(frases).catch(() => 0), identificarLugaresConIA(lugares).catch(() => 0)])
+      .then(([a, b]) => a + b).finally(() => { _tradEnCurso = null; });
     return Promise.race([_tradEnCurso, new Promise(r => setTimeout(() => r(0), esperarMs || 0))]);
   }
   // Evento tal como lo entrega el courier (texto original; se traduce al mostrarlo).
@@ -304,13 +376,12 @@ module.exports = function registrarSeguimiento({
   // Historial listo para la pantalla: estado en español + ciudad y país de cada evento,
   // la ubicación actual (último evento con lugar) y la ruta (ciudades por las que pasó, en orden).
   const HUB_ISO = { miami: 'US', madrid: 'ES', espana: 'ES' };
-  function historialES(eventosRaw, hub, apiPaises) {
-    const evs = Array.isArray(eventosRaw) ? eventosRaw : [];
-    const origenIso = String(apiPaises || '').split('>')[0] || '';
-    const paises = cES.paisesDelEnvio(evs, HUB_ISO[hub] || '');
-    if (origenIso) paises.add(origenIso);
+  function historialES(r) {
+    const evs = asJson(r.api_eventos, []) || [];
+    const ctx = contextoEnvio(r, evs);
+    const origenIso = ctx.origenIso;
     const eventos = evs.map(ev => {
-      const i = cES.eventoInfo(ev, TRAD, paises);
+      const i = cES.eventoInfo(ev, TRAD, ctx, LUGARES);
       return { fecha: ev.fecha || '', hora: ev.hora || '', desc: i.desc, ciudad: i.ciudad, region: i.region, iso: i.iso, pais: i.pais, lugar: i.lugar };
     });
     // Siempre ciudad Y país: a los lugares que solo traen ciudad se les pone el país del evento más cercano.
@@ -631,7 +702,7 @@ module.exports = function registrarSeguimiento({
         eta: isoDate(r.eta),
         api_resumen: r.api_resumen ? cES.textoResumen(r.api_estado, r.api_resumen, TRAD) : '', api_estado: r.api_estado || '',
         api_at: r.api_at || null,
-        ...(h => ({ api_eventos: h.eventos, api_ubicacion: h.ubicacion, api_ruta: h.ruta }))(historialES(asJson(r.api_eventos, []), r.hub, r.api_paises)),
+        ...(h => ({ api_eventos: h.eventos, api_ubicacion: h.ubicacion, api_ruta: h.ruta }))(historialES(r)),
         api_entrega: isoDate(r.api_entrega),
         nota: r.nota || '', items: asJson(r.items, []) || [],
         creado_por: r.creado_por, creado_en: r.creado_en, actualizado_en: r.actualizado_en
@@ -1173,7 +1244,7 @@ module.exports = function registrarSeguimiento({
       _lastTrack = Date.now();
       // Traducir de una vez las frases nuevas del courier (máx. 20 s).
       try {
-        const [act] = await portalPool.query(`SELECT api_eventos, api_resumen FROM seg_envios WHERE archivado = 0 AND api_at IS NOT NULL`);
+        const [act] = await portalPool.query(`SELECT tracking, courier, hub, api_paises, api_eventos, api_resumen FROM seg_envios WHERE archivado = 0 AND api_at IS NOT NULL`);
         await traducirPendientes(act, 20000);
       } catch (e) { /* la traducción no debe romper la actualización */ }
       res.json({ ok: true, api: true, actualizados: n, total: nums.length, a_almacen: avanzados });

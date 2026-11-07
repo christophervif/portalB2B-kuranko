@@ -300,7 +300,27 @@ module.exports = function registrarSeguimiento({
     raw: s(texto).slice(0, 255), lugar: s(lugar).slice(0, 120), codigo: s(codigo).slice(0, 60),
   });
   // Evento listo para la pantalla (en español).
-  const eventoES = (ev) => ({ fecha: ev.fecha || '', hora: ev.hora || '', desc: cES.textoEvento(ev, TRAD) });
+  // Historial listo para la pantalla: estado en español + ciudad y país de cada evento,
+  // la ubicación actual (último evento con lugar) y la ruta (ciudades por las que pasó, en orden).
+  const HUB_ISO = { miami: 'US', madrid: 'ES', espana: 'ES' };
+  function historialES(eventosRaw, hub) {
+    const evs = Array.isArray(eventosRaw) ? eventosRaw : [];
+    const paises = cES.paisesDelEnvio(evs, HUB_ISO[hub] || '');
+    const eventos = evs.map(ev => {
+      const i = cES.eventoInfo(ev, TRAD, paises);
+      return { fecha: ev.fecha || '', hora: ev.hora || '', desc: i.desc, ciudad: i.ciudad, region: i.region, iso: i.iso, pais: i.pais, lugar: i.lugar };
+    });
+    const conLugar = eventos.filter(e => e.ciudad || e.pais);
+    const ub = conLugar[0] || null;                                      // los eventos vienen del más reciente al más antiguo
+    const ruta = [];
+    conLugar.slice().reverse().forEach(e => {
+      const ult = ruta[ruta.length - 1];
+      if (ult && ult.ciudad === e.ciudad && ult.iso === e.iso) return;
+      if (ult && !e.ciudad && ult.iso === e.iso) return;                  // mismo país sin ciudad: no repetir
+      ruta.push({ ciudad: e.ciudad, region: e.region, iso: e.iso, pais: e.pais, fecha: e.fecha });
+    });
+    return { eventos, ubicacion: ub ? { ciudad: ub.ciudad, region: ub.region, iso: ub.iso, pais: ub.pais, fecha: ub.fecha, hora: ub.hora } : null, ruta: ruta.slice(-12) };
+  }
   const fechaCorta = (v) => { const m=String(v||'').match(/\d{4}-\d{2}-\d{2}/); return m?m[0]:''; };
 
   async function ship24Consultar(numeros) {
@@ -354,7 +374,8 @@ module.exports = function registrarSeguimiento({
         prov.forEach(p => { if (Array.isArray(p.events)) evsRaw = evsRaw.concat(p.events); });
         if (!evsRaw.length && le && (le.description || le.time_iso)) evsRaw = [le];
         evsRaw.sort((a, b) => String(b.time_iso || b.time_utc || '').localeCompare(String(a.time_iso || a.time_utc || '')));
-        const eventos = evsRaw.map(ev => eventoCrudo(ev.time_iso || ev.time_utc || ev.time_raw || '', ev.description, ev.location, ev.sub_status))
+        const eventos = evsRaw.map(ev => eventoCrudo(ev.time_iso || ev.time_utc || ev.time_raw || '', ev.description,
+            ev.location || (ev.address ? [ev.address.city, ev.address.state, ev.address.country].filter(Boolean).join(', ') : ''), ev.sub_status))
           .filter(e => e.fecha || e.raw || e.codigo).slice(0, 60);
         const resumen = s(le.description || ls.sub_status || estado).slice(0, 255);   // original; se traduce al mostrar
         const evEntrega = evsRaw.find(e => /deliver/i.test(s(e.stage || e.sub_status || e.description || ''))) || (delivered ? evsRaw[0] : null);
@@ -600,7 +621,7 @@ module.exports = function registrarSeguimiento({
         eta: isoDate(r.eta),
         api_resumen: r.api_resumen ? cES.textoResumen(r.api_estado, r.api_resumen, TRAD) : '', api_estado: r.api_estado || '',
         api_at: r.api_at || null,
-        api_eventos: (asJson(r.api_eventos, []) || []).map(eventoES),
+        ...(h => ({ api_eventos: h.eventos, api_ubicacion: h.ubicacion, api_ruta: h.ruta }))(historialES(asJson(r.api_eventos, []), r.hub)),
         api_entrega: isoDate(r.api_entrega),
         nota: r.nota || '', items: asJson(r.items, []) || [],
         creado_por: r.creado_por, creado_en: r.creado_en, actualizado_en: r.actualizado_en

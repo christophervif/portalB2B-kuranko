@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="es">
 <head>
+<script src="/tema.js"></script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Seguimiento — Trackings y Backorders</title>
@@ -111,7 +112,7 @@ td.n,th.n{text-align:right}
     </div>
 
     <div id="editor" class="hide" style="margin-top:12px">
-      <div id="skuNota" class="hint hide" style="background:#2a2140;border-color:#47406a">Modo almacén: asigna o corrige los SKU y guarda. Puedes avanzar parcialmente; cuando un SKU coincide con un producto en backorder se marca y se actualiza la cobertura.</div>
+      <div id="skuNota" class="hint hide" style="background:rgba(168,85,247,.12);border-color:rgba(168,85,247,.4)">Modo almacén: asigna o corrige los SKU y guarda. Puedes avanzar parcialmente; cuando un SKU coincide con un producto en backorder se marca y se actualiza la cobertura.</div>
       <div id="editMeta">
       <div class="row">
         <div class="f"><label>N° de tracking *</label><input id="e_tracking" placeholder="Ej: 1Z999AA..." style="min-width:200px"></div>
@@ -147,14 +148,13 @@ td.n,th.n{text-align:right}
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
       <h3 style="margin:0">Envíos</h3>
       <div class="row" style="align-items:center">
-        <button id="btnTrack" class="ghost sm" onclick="actualizarTracking()" title="Lee el estado del courier (tramo origen→almacén). Se actualiza cada 3 días.">🚚 Actualizar tracking</button>
         <select id="filtroEnv" onchange="pintarEnvios()">
           <option value="">Activos</option>
           <option value="en_transito">En tránsito</option>
           <option value="recibido">Recibidos</option>
           <option value="archivados">🗄️ Archivados</option>
         </select>
-        <button class="ghost sm" onclick="cargarEnvios()" title="Recargar la lista (sin consultar al courier)">↻</button>
+        <button id="btnTrack" class="ghost sm" onclick="actualizarTracking()" title="Consulta al courier el estado de los envíos en camino y recarga la lista">🔄 Actualizar</button>
       </div>
     </div>
     <div id="envList" style="margin-top:10px"><div class="muted sm">Cargando…</div></div>
@@ -215,8 +215,7 @@ async function api(path,method='GET',body){
 let TOAST_T=null;
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(TOAST_T);TOAST_T=setTimeout(()=>t.classList.remove('show'),2200);}
 
-/* tema heredado del panel admin (mismo origen) */
-(function(){try{const g=localStorage.getItem('tema_admin');if(g)document.documentElement.setAttribute('data-theme',g);}catch(e){}})();
+/* tema: lo aplica /tema.js (en el <head>) y lo cambia en vivo cuando el panel cambia de tema */
 
 /* rol: leído del JWT (solo para la UI; el servidor es quien manda de verdad) */
 let ES_MAESTRO=false, USUARIO='';
@@ -454,13 +453,13 @@ function fFecha(d){if(!d)return '';const p=String(d).slice(0,10).split('-');retu
 // Historial del courier: última novedad visible + desplegable con todo, en español, con fecha de llegada si la hay.
 function histCourier(e){
   const evs=Array.isArray(e.api_eventos)?e.api_eventos:[];
-  const leido=e.api_at?(' · leído '+esc(String(e.api_at).slice(0,10))):'';
+  const leido=e.api_at?(' · leído '+esc(fFecha(String(e.api_at).slice(0,10)))):'';
   const entrega=e.api_entrega?`<div class="muted sm" style="margin-top:3px">🇵🇪 Fecha de llegada: <b>${esc(fFecha(e.api_entrega))}</b></div>`:'';
   if(!evs.length){
     if(!e.api_resumen)return entrega;
     return `<div class="muted sm" style="margin-top:5px">🚚 ${esc(e.api_resumen)}${leido}</div>${entrega}`;
   }
-  const uno=(ev)=>`<div style="display:flex;gap:8px;font-size:12.5px;padding:2px 0"><span class="muted" style="min-width:74px;flex:none">${ev.fecha?esc(fFecha(ev.fecha)):'—'}</span><span>${esc(ev.desc||'')}</span></div>`;
+  const uno=(ev)=>`<div style="display:flex;gap:8px;font-size:12.5px;padding:2px 0"><span class="muted" style="min-width:${ev.hora?112:74}px;flex:none">${ev.fecha?esc(fFecha(ev.fecha)):'—'}${ev.hora?(' '+esc(ev.hora)):''}</span><span>${esc(ev.desc||'')}</span></div>`;
   const ultimo=evs[0];
   const resto=evs.slice(1);
   const detalle=resto.length?`<details style="margin-top:4px"><summary style="cursor:pointer;color:var(--amber);font-size:12.5px">Ver historial completo (${evs.length})</summary><div style="margin-top:4px;border-left:2px solid var(--border);padding-left:8px">${evs.map(uno).join('')}</div></details>`:'';
@@ -482,7 +481,7 @@ async function pedirEmbarque(id){
     const r=await api('/envio/'+encodeURIComponent(id)+'/embarque-opciones');
     const ops=(r&&r.opciones)||[];
     if(!ops.length){ setFase(id,'embarcado'); box.innerHTML=''; return; }
-    box.innerHTML='<div style="margin-top:8px;background:#20283f;border:1px solid var(--border);border-radius:10px;padding:10px">'+
+    box.innerHTML='<div style="margin-top:8px;background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:10px">'+
       '<div class="muted sm" style="margin-bottom:6px">¿Cuándo se embarcó a Perú? Elige la salida para fijar la llegada:</div>'+
       '<div class="row">'+ops.map(o=>
         `<button class="sm ok" onclick="confirmarEmbarque('${id}','${o.llega}')">🚢 Salió ${diaNom(o.salida)} ${esc(fFecha(o.salida))} → llega <b>${diaNom(o.llega)} ${esc(fFecha(o.llega))}</b></button>`
@@ -495,14 +494,18 @@ function confirmarEmbarque(id,etaISO){
   const e=ENVIOS.find(x=>x.id===id)||{};
   putLog(id,{hub:e.hub||'',fase:'embarcado',fecha_hub:e.fecha_hub,eta:etaISO});
 }
+// Un solo botón: consulta al courier (los envíos aún en camino al almacén) y recarga la lista.
+// Si el courier falla, igual se recarga la lista.
 async function actualizarTracking(){
   const b=$('btnTrack'); if(b){b.disabled=true;b.textContent='Actualizando…';}
+  let msg='';
   try{const r=await api('/track-refresh','POST',{force:true});
-    if(r.api===false)toast('Tracking en modo manual (sin API configurada).');
-    else toast('Tracking actualizado'+(r.actualizados!=null?(': '+r.actualizados+'/'+r.total):'')+(r.a_almacen?(' · '+r.a_almacen+' llegaron al almacén'):''));
-    await cargarEnvios();
-  }catch(e){toast(e.message);}
-  finally{if(b){b.disabled=false;b.textContent='🚚 Actualizar tracking';}}
+    if(r.api===false)msg='Lista actualizada (tracking en modo manual: sin API del courier).';
+    else msg='Actualizado'+(r.total?(': '+r.actualizados+' de '+r.total+' envíos leídos del courier'):'')+(r.a_almacen?(' · '+r.a_almacen+' llegaron al almacén'):'');
+  }catch(e){msg='No se pudo leer el courier ('+e.message+'). Lista recargada.';}
+  try{await cargarEnvios();}catch(e){}
+  if(b){b.disabled=false;b.textContent='🔄 Actualizar';}
+  toast(msg);
 }
 
 /* leer factura con IA */

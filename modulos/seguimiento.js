@@ -32,6 +32,8 @@
 //   · La factura NO se guarda (ni el PDF): solo la tabla de líneas ya leída.
 // ═══════════════════════════════════════════════════════════════════════════
 
+const cES = require('./courier-es');   // traducción al español de los estados del courier
+
 module.exports = function registrarSeguimiento({
   app, authAdmin, requiereModulo, prodPool, portalPool, recepciones
 }) {
@@ -132,6 +134,14 @@ module.exports = function registrarSeguimiento({
     try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN api_entrega DATE NULL`); } catch (e) {}                       // fecha de entrega real según el courier
     try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN importacion_id VARCHAR(80) NOT NULL DEFAULT ''`); } catch (e) {} // enlace con Importaciones (envío creado desde la factura)
     try { await portalPool.query(`ALTER TABLE seg_envios ADD INDEX (importacion_id)`); } catch (e) {}
+    // Traducciones al español de las frases del courier hechas por la IA (se reusan siempre).
+    await portalPool.query(`
+      CREATE TABLE IF NOT EXISTS seg_traducciones (
+        en        VARCHAR(255) PRIMARY KEY,
+        es        VARCHAR(255) NOT NULL,
+        creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      ) DEFAULT CHARSET=utf8mb4`);
+    await cargarTraducciones();
 
     // Token de seguimiento público por CLIENTE (link que se comparte al cliente).
     await portalPool.query(`
@@ -215,21 +225,82 @@ module.exports = function registrarSeguimiento({
   const trackDisponible = () => !!(SHIP24_KEY || TRACK17_KEY);
 
   // Traducción al español de los estados/eventos del courier (vienen en inglés).
-  const MILE_ES = { pending:'Pendiente', info_received:'Información recibida', in_transit:'En tránsito', out_for_delivery:'En reparto', failed_attempt:'Intento de entrega fallido', available_for_pickup:'Disponible para recojo', delivered:'Entregado', exception:'Incidencia', expired:'Vencido' };
-  const COURIER_ES = [
-    [/out for delivery/ig,'en reparto'], [/delivered/ig,'entregado'], [/in transit/ig,'en tránsito'],
-    [/arrived at/ig,'llegó a'], [/departed from/ig,'salió de'], [/departed/ig,'salió de'],
-    [/picked up/ig,'recogido'], [/customs clearance/ig,'despacho aduanero'], [/clearance/ig,'despacho aduanero'],
-    [/customs/ig,'aduana'], [/processed/ig,'procesado'], [/processing/ig,'en proceso'],
-    [/shipment information received|information received|info received|label created|shipping label created/ig,'información recibida'],
-    [/available for pickup/ig,'disponible para recojo'], [/on hold|held/ig,'retenido'],
-    [/exception|failed attempt/ig,'incidencia'], [/sort facility|sorting center|sorting|facility/ig,'centro de distribución'],
-    [/warehouse/ig,'almacén'], [/origin/ig,'origen'], [/destination/ig,'destino'],
-    [/your (item|package|parcel|shipment)/ig,'tu envío'], [/the (item|package|parcel|shipment)/ig,'el envío'],
-    [/delivery/ig,'entrega'], [/returned/ig,'devuelto'], [/accepted/ig,'aceptado'], [/received/ig,'recibido'],
-  ];
-  function traducirCourier(t){ let x=String(t||''); COURIER_ES.forEach(p=>{ x=x.replace(p[0],p[1]); }); return x.slice(0,255); }
-  function labelEstado(mile, resumen){ return MILE_ES[String(mile||'').toLowerCase()] || traducirCourier(resumen) || ''; }
+  //    Se guarda el texto ORIGINAL del courier y se traduce AL MOSTRAR, así también
+  //    se corrigen los eventos guardados antes. Ver modulos/courier-es.js.
+  //    Lo que el diccionario no cubre lo traduce la IA (Gemini) UNA vez y queda en
+  //    seg_traducciones; las siguientes veces sale de ahí, sin volver a llamar a la IA.
+  const TRAD = new Map();                 // clave(en) → es
+  const TRAD_FALLO = new Map();           // clave → hora del último intento fallido (reintento en 6 h)
+  async function cargarTraducciones() {
+    try { const [r] = await portalPool.query(`SELECT en, es FROM seg_traducciones`); r.forEach(x => TRAD.set(x.en, x.es)); }
+    catch (e) { console.warn('[seguimiento] traducciones:', e.message); }
+  }
+  // Frases del courier que el diccionario no traduce completas y aún no están traducidas.
+  function frasesPendientes(envios) {
+    const set = new Set();
+    const ver = (t) => { const k = cES.clave(t); if (k && !TRAD.has(k) && cES.quedaIngles(t) && !(Date.now() - (TRAD_FALLO.get(k) || 0) < 6 * 3600e3)) set.add(cES.norm(t).slice(0, 255)); };
+    envios.forEach(e => {
+      (asJson(e.api_eventos, []) || []).forEach(ev => ver(cES.fraseEvento(ev)));
+      if (e.api_resumen) ver(e.api_resumen);
+    });
+    return [...set];
+  }
+  const MODELOS_TRAD = [...new Set([process.env.SEGUIMIENTO_MODELO_IA, process.env.COTIZADOR_MODELO_IA, 'gemini-3.6-flash', 'gemini-3.8-flash', 'gemini-3.7-flash']
+    .map(m => String(m || '').replace(/^models\//, '').replace(/[^a-zA-Z0-9.\-]/g, '')).filter(Boolean))];
+  let _tradEnCurso = null;
+  async function traducirConIA(frases) {
+    const key = process.env.GEMINI_API_KEY;
+    if (!key || !frases.length) return 0;
+    let hechas = 0;
+    for (let i = 0; i < frases.length; i += 60) {
+      const lote = frases.slice(i, i + 60);
+      const prompt = 'Traduce al español de Perú estos estados de seguimiento de un courier (FedEx, UPS, DHL, USPS, etc.). ' +
+        'Frases cortas y naturales, como las leería un cliente (ej.: "Arrived at FedEx location" → "Llegó al centro de distribución de FedEx"; ' +
+        '"On FedEx vehicle for delivery" → "En reparto"; "Clearance delay" → "Demora en aduana"). Si una frase ya está en parte en español, complétala. ' +
+        'Conserva tal cual nombres propios, ciudades, códigos y números. Responde SOLO con un arreglo JSON de strings, en el mismo orden y con la misma cantidad de elementos.\n' +
+        JSON.stringify(lote);
+      let lista = null;
+      for (const mdl of MODELOS_TRAD) {
+        const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 25000);
+        try {
+          const g = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${mdl}:generateContent?key=${encodeURIComponent(key)}`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: ctrl.signal,
+            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0, responseMimeType: 'application/json' } }) });
+          const d = await g.json().catch(() => null);
+          if (!g.ok) throw new Error((d && d.error && d.error.message) || ('HTTP ' + g.status));
+          const txt = (((((d && d.candidates) || [])[0] || {}).content || {}).parts || []).map(p => p.text || '').join('');
+          const arr = JSON.parse(txt.replace(/^```(?:json)?|```$/g, '').trim());
+          if (Array.isArray(arr) && arr.length === lote.length) { lista = arr; break; }
+          throw new Error('respuesta con otra cantidad de frases');
+        } catch (e) { console.warn('[seguimiento] traducir con IA (' + mdl + '):', e.message); }
+        finally { clearTimeout(to); }
+      }
+      if (!lista) { lote.forEach(f => TRAD_FALLO.set(cES.clave(f), Date.now())); continue; }
+      for (let j = 0; j < lote.length; j++) {
+        const es = cES.norm(lista[j]).slice(0, 255);
+        if (!es) continue;
+        const k = cES.clave(lote[j]);
+        TRAD.set(k, es); hechas++;
+        try { await portalPool.query(`INSERT INTO seg_traducciones (en, es) VALUES (?, ?) ON DUPLICATE KEY UPDATE es = VALUES(es)`, [k, es]); } catch (e) {}
+      }
+    }
+    return hechas;
+  }
+  // Traduce lo pendiente (una sola tanda a la vez). `esperarMs` = cuánto esperar como máximo.
+  function traducirPendientes(envios, esperarMs) {
+    const frases = frasesPendientes(envios);
+    if (!frases.length) return Promise.resolve(0);
+    if (!_tradEnCurso) _tradEnCurso = traducirConIA(frases).catch(() => 0).finally(() => { _tradEnCurso = null; });
+    return Promise.race([_tradEnCurso, new Promise(r => setTimeout(() => r(0), esperarMs || 0))]);
+  }
+  // Evento tal como lo entrega el courier (texto original; se traduce al mostrarlo).
+  const horaCorta = (v) => { const m = String(v || '').match(/T(\d{2}:\d{2})/); return m ? m[1] : ''; };
+  const eventoCrudo = (fechaRaw, texto, lugar, codigo) => ({
+    fecha: fechaCorta(fechaRaw), hora: horaCorta(fechaRaw),
+    raw: s(texto).slice(0, 255), lugar: s(lugar).slice(0, 120), codigo: s(codigo).slice(0, 60),
+  });
+  // Evento listo para la pantalla (en español).
+  const eventoES = (ev) => ({ fecha: ev.fecha || '', hora: ev.hora || '', desc: cES.textoEvento(ev, TRAD) });
   const fechaCorta = (v) => { const m=String(v||'').match(/\d{4}-\d{2}-\d{2}/); return m?m[0]:''; };
 
   async function ship24Consultar(numeros) {
@@ -247,12 +318,10 @@ module.exports = function registrarSeguimiento({
         // Eventos completos ordenados por fecha (más reciente primero), traducidos al español.
         const evsRaw = Array.isArray(tr.events) ? tr.events.slice() : [];
         evsRaw.sort((a, b) => String(b.occurrenceDatetime || '').localeCompare(String(a.occurrenceDatetime || '')));
-        const eventos = evsRaw.map(ev => ({
-          fecha: fechaCorta(ev.occurrenceDatetime || ev.datetime || ''),
-          desc: traducirCourier([s(ev.status || ''), s(ev.location || '')].filter(Boolean).join(' · ')),
-        })).filter(e => e.fecha || e.desc).slice(0, 60);
+        const eventos = evsRaw.map(ev => eventoCrudo(ev.occurrenceDatetime || ev.datetime || '', ev.status, ev.location, ev.statusCode))
+          .filter(e => e.fecha || e.raw || e.codigo).slice(0, 60);
         const ev0 = evsRaw[0] || {};
-        const resumen = (labelEstado(mile, ev0.status) || s(ev0.status || mile)).slice(0, 255);
+        const resumen = s(ev0.status || mile).slice(0, 255);          // original; se traduce al mostrar
         const delivered = mile === 'delivered';
         // Fecha de entrega real = fecha del evento "delivered" si existe.
         const evEntrega = evsRaw.find(e => s(e.statusMilestone || '') === 'delivered') || (delivered ? ev0 : null);
@@ -285,11 +354,9 @@ module.exports = function registrarSeguimiento({
         prov.forEach(p => { if (Array.isArray(p.events)) evsRaw = evsRaw.concat(p.events); });
         if (!evsRaw.length && le && (le.description || le.time_iso)) evsRaw = [le];
         evsRaw.sort((a, b) => String(b.time_iso || b.time_utc || '').localeCompare(String(a.time_iso || a.time_utc || '')));
-        const eventos = evsRaw.map(ev => ({
-          fecha: fechaCorta(ev.time_iso || ev.time_utc || ev.time_raw || ''),
-          desc: traducirCourier([s(ev.description || ''), s(ev.location || '')].filter(Boolean).join(' · ')),
-        })).filter(e => e.fecha || e.desc).slice(0, 60);
-        const resumen = (traducirCourier(le.description || ls.sub_status) || estado).slice(0, 255);
+        const eventos = evsRaw.map(ev => eventoCrudo(ev.time_iso || ev.time_utc || ev.time_raw || '', ev.description, ev.location, ev.sub_status))
+          .filter(e => e.fecha || e.raw || e.codigo).slice(0, 60);
+        const resumen = s(le.description || ls.sub_status || estado).slice(0, 255);   // original; se traduce al mostrar
         const evEntrega = evsRaw.find(e => /deliver/i.test(s(e.stage || e.sub_status || e.description || ''))) || (delivered ? evsRaw[0] : null);
         const entrega = evEntrega ? fechaCorta(evEntrega.time_iso || evEntrega.time_utc || '') : '';
         const destPais = s((ti.misc_info && (ti.misc_info.destination_country || ti.misc_info.destination_country_iso2)) || '').toUpperCase().slice(0, 2);
@@ -341,7 +408,7 @@ module.exports = function registrarSeguimiento({
     if (e.estado === 'recibido' || e.fase === 'recibido') return { clave: 'recibido', texto: 'Recibido en Perú', eta };
     if (e.fase === 'embarcado') return { clave: 'embarcado', texto: 'En camino a Perú', eta };
     if (e.fase === 'en_hub') return { clave: 'en_hub', texto: 'En nuestro almacén, preparando el envío a Perú', eta };
-    const ap = s(e.api_resumen);
+    const ap = e.api_resumen ? cES.textoResumen(e.api_estado, e.api_resumen, TRAD) : '';
     const dest = e.hub ? 'a nuestro almacén' : 'a Perú';
     return { clave: 'transito', texto: 'En camino ' + dest + (ap ? (' · ' + ap) : ''), eta: null };
   }
@@ -519,6 +586,9 @@ module.exports = function registrarSeguimiento({
       // El proveedor y el N° de factura SOLO los ve el maestro. Al supervisor ni
       // siquiera se le envían desde el servidor (no basta con ocultarlos en la UI).
       const esMaestro = !!(req.admin && req.admin.maestro);
+      // Frases del courier aún sin traducir: la IA las traduce (máx. 4 s de espera; si tarda
+      // más, sigue en segundo plano y salen traducidas en la siguiente carga).
+      await traducirPendientes(rows.filter(r => !r.archivado), 4000);
       res.json(rows.map(r => ({
         id: r.id, tracking: r.tracking, courier: r.courier,
         proveedor: esMaestro ? r.proveedor : '', n_factura: r.n_factura,
@@ -528,9 +598,9 @@ module.exports = function registrarSeguimiento({
         fecha_salida: isoDate(r.fecha_salida),
         fecha_hub: isoDate(r.fecha_hub),
         eta: isoDate(r.eta),
-        api_resumen: r.api_resumen || '', api_estado: r.api_estado || '',
+        api_resumen: r.api_resumen ? cES.textoResumen(r.api_estado, r.api_resumen, TRAD) : '', api_estado: r.api_estado || '',
         api_at: r.api_at || null,
-        api_eventos: asJson(r.api_eventos, []) || [],
+        api_eventos: (asJson(r.api_eventos, []) || []).map(eventoES),
         api_entrega: isoDate(r.api_entrega),
         nota: r.nota || '', items: asJson(r.items, []) || [],
         creado_por: r.creado_por, creado_en: r.creado_en, actualizado_en: r.actualizado_en
@@ -1068,6 +1138,11 @@ module.exports = function registrarSeguimiento({
         n++;
       }
       _lastTrack = Date.now();
+      // Traducir de una vez las frases nuevas del courier (máx. 20 s).
+      try {
+        const [act] = await portalPool.query(`SELECT api_eventos, api_resumen FROM seg_envios WHERE archivado = 0 AND api_at IS NOT NULL`);
+        await traducirPendientes(act, 20000);
+      } catch (e) { /* la traducción no debe romper la actualización */ }
       res.json({ ok: true, api: true, actualizados: n, total: nums.length, a_almacen: avanzados });
     } catch (e) {
       console.error('[seguimiento] track-refresh', e.message);
@@ -1105,7 +1180,7 @@ module.exports = function registrarSeguimiento({
       const envMap = {};
       if (envioIds.size) {
         const [envs] = await portalPool.query(
-          `SELECT id, hub, fase, estado, eta, api_resumen, api_at, actualizado_en FROM seg_envios WHERE id IN (?)`, [[...envioIds]]);
+          `SELECT id, hub, fase, estado, eta, api_resumen, api_estado, api_at, actualizado_en FROM seg_envios WHERE id IN (?)`, [[...envioIds]]);
         envs.forEach(e => { envMap[e.id] = e; });
       }
       let ultima = null;

@@ -25,6 +25,10 @@ const periodoSQL = (campo, agrupar) =>
 // 02 = compra nacional, 18 = entrada por importación. Saldos iniciales (16),
 // devoluciones, transferencias, etc. NO son compras y se reportan aparte.
 const CODIGOS_COMPRA = ['02', '18'];
+// MARCA de un producto: todo lo que está antes del primer "-" del nombre
+// ("Magura - MT7 Pro" → "Magura"). Si el nombre no tiene "-", la primera palabra.
+const MARCA_SQL = `TRIM(CASE WHEN LOCATE('-', p.name) > 0 THEN SUBSTRING_INDEX(p.name, '-', 1) ELSE SUBSTRING_INDEX(TRIM(p.name), ' ', 1) END)`;
+const marcaValida = v => { const m = String(v == null ? '' : v).trim(); return m && m.length <= 80 ? m : null; };
 const REF_ENTRADA = 'App\\Models\\StockEntry';
 
 // Período (misma regla que periodoSQL) para una fecha 'YYYY-MM-DD' en JS,
@@ -118,6 +122,29 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, m
   // Cobros que cuentan: no anulados y de ventas que no estén canceladas ni eliminadas
   // (un cobro sin venta asociada también cuenta).
   const COBRO_VALIDO = `sp.voided_at IS NULL AND (s.id IS NULL OR (s.deleted_at IS NULL AND s.status <> 'cancelled'))`;
+
+  // ══ FILTRO POR MARCA ══
+  // Sobre líneas de venta (si) o movimientos de stock (sm): agrega el JOIN al producto
+  // y la condición. Sobre la cabecera de la venta se usa "bt": lo que la venta tiene
+  // de esa marca (suma de sus líneas). Los cobros se reparten en proporción:
+  // cobro × (líneas de la marca ÷ total de la venta).
+  const fMarca = m => m ? `AND ${MARCA_SQL} = ${prodPool.escape(m)}` : '';
+  const joinProd = (m, col = 'si.product_variation_id') => m
+    ? `JOIN product_variations pvm ON pvm.id = ${col} JOIN products p ON p.id = pvm.product_id` : '';
+  const ventasDeMarca = m => `(SELECT si.sale_id, SUM(si.total) AS t FROM sale_items si
+      JOIN product_variations pvm ON pvm.id = si.product_variation_id JOIN products p ON p.id = pvm.product_id
+      WHERE ${MARCA_SQL} = ${prodPool.escape(m)} GROUP BY si.sale_id)`;
+  const PROP_MARCA = `LEAST(1, bt.t / NULLIF(s.total, 0))`;   // parte de la venta que es de la marca
+
+  // Lista de marcas (para el filtro)
+  app.get('/api/marcas-bi', authAdmin, mResumen, async (req, res) => {
+    try {
+      const [rows] = await prodPool.query(`
+        SELECT ${MARCA_SQL} AS marca, COUNT(*) AS productos FROM products p
+        WHERE p.name IS NOT NULL AND TRIM(p.name) <> '' GROUP BY marca HAVING marca <> '' ORDER BY marca`);
+      res.json(rows.map(r => ({ marca: r.marca, productos: +r.productos })));
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
 
   // ══ HISTÓRICO DEL EXCEL (antes de que existiera el sistema) ══
   // Se guarda en la base del PORTAL (no en el ERP ni en el repositorio): una sola
@@ -239,7 +266,9 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, m
     res.json(Object.entries(EMPRESAS_BI).map(([id, nombre]) => ({ id: +id, nombre }))));
 
   app.get('/api/kpis', authAdmin, mResumen, async (req, res) => {
-    const { desde, hasta, empresa } = req.query;
+    const { desde, hasta, empresa } = req.query; const marca = marcaValida(req.query.marca);
+    const BT = marca ? `JOIN ${ventasDeMarca(marca)} bt ON bt.sale_id = s.id` : '';
+    const TOT = marca ? 'bt.t' : 's.total';
     try {
       // Con histórico: estos KPIs (por cobrar, clientes, canceladas) son solo del
       // sistema y arrancan en la fecha de corte, para no mezclar ventas migradas.
@@ -248,19 +277,19 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, m
       const dSis = corte && esFecha(desde) && corte > desde ? corte : desde;
       const f = (dSis && hasta && dSis > hasta ? 'AND 1 = 0' : rango(dSis, hasta)) + ' ' + fEmp(empresa);
       const [[ventas]] = await prodPool.query(`
-        SELECT COUNT(*) AS num_ventas, COALESCE(SUM(total),0) AS valor_ventas,
-               COALESCE(AVG(total),0) AS ticket_promedio, COUNT(DISTINCT customer_id) AS clientes_unicos
-        FROM sales s WHERE s.deleted_at IS NULL AND s.status IN ${VV} ${f}`);
+        SELECT COUNT(*) AS num_ventas, COALESCE(SUM(${TOT}),0) AS valor_ventas,
+               COALESCE(AVG(${TOT}),0) AS ticket_promedio, COUNT(DISTINCT s.customer_id) AS clientes_unicos
+        FROM sales s ${BT} WHERE s.deleted_at IS NULL AND s.status IN ${VV} ${f}`);
       // Por cobrar = deuda de CADA venta (total − cobros vigentes, sin negativos), solo
       // ventas confirmadas o con pago pendiente: la misma regla de Cuentas por cobrar.
       // Antes se restaba todo en bloque y un sobrepago escondía la deuda de otra venta.
       const [[deuda]] = await prodPool.query(`
-        SELECT COALESCE(SUM(GREATEST(s.total - COALESCE(p.pagado, 0), 0)), 0) AS por_cobrar,
-               COALESCE(SUM(CASE WHEN s.status = 'pending_payment' THEN s.total ELSE 0 END), 0) AS pago_pendiente
-        FROM sales s LEFT JOIN (SELECT sale_id, SUM(amount) AS pagado FROM sale_payments WHERE voided_at IS NULL GROUP BY sale_id) p ON p.sale_id = s.id
+        SELECT COALESCE(SUM(GREATEST(s.total - COALESCE(p.pagado, 0), 0)${marca ? ' * ' + PROP_MARCA : ''}), 0) AS por_cobrar,
+               COALESCE(SUM(CASE WHEN s.status = 'pending_payment' THEN ${TOT} ELSE 0 END), 0) AS pago_pendiente
+        FROM sales s ${BT} LEFT JOIN (SELECT sale_id, SUM(amount) AS pagado FROM sale_payments WHERE voided_at IS NULL GROUP BY sale_id) p ON p.sale_id = s.id
         WHERE s.deleted_at IS NULL AND s.status IN ('confirmed','pending_payment') ${f}`);
       const [[canc]] = await prodPool.query(`
-        SELECT COUNT(*) AS canceladas FROM sales s WHERE s.deleted_at IS NULL AND s.status='cancelled' ${f}`);
+        SELECT COUNT(*) AS canceladas FROM sales s ${BT} WHERE s.deleted_at IS NULL AND s.status='cancelled' ${f}`);
       res.json({ ...ventas, ...canc, por_cobrar: Math.round(+deuda.por_cobrar * 100) / 100,
         pago_pendiente: +deuda.pago_pendiente, solo_sistema_desde: dSis !== desde ? dSis : null });
     } catch (e) { res.status(500).json({ error: e.message }); }
@@ -268,7 +297,8 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, m
 
   // ── RENTABILIDAD FIFO ──
   app.get('/api/rentabilidad', authAdmin, mRent, async (req, res) => {
-    const { desde, hasta, empresa } = req.query; const f = rango(desde, hasta) + ' ' + fEmp(empresa);
+    const { desde, hasta, empresa } = req.query; const marca = marcaValida(req.query.marca);
+    const f = rango(desde, hasta) + ' ' + fEmp(empresa) + ' ' + fMarca(marca);
     try {
       const N = sqlNeto(await leerConfig());
       const [[r]] = await prodPool.query(`
@@ -283,7 +313,7 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, m
           COALESCE(SUM(CASE WHEN ${ES_PEDIDO} THEN si.total ELSE 0 END),0) AS ingreso_pendiente,
           COUNT(CASE WHEN ${ES_PEDIDO} THEN 1 END) AS lineas_pedido,
           COUNT(CASE WHEN ${ES_FALLA} THEN 1 END) AS lineas_falla
-        FROM sale_items si JOIN sales s ON s.id = si.sale_id
+        FROM sale_items si JOIN sales s ON s.id = si.sale_id ${joinProd(marca)}
         LEFT JOIN stock_batches sb ON si.stock_batch_id = sb.id
         WHERE s.deleted_at IS NULL AND s.status IN ${VV} ${f}`);
       const ing = parseFloat(r.ingreso_confiable), tot = parseFloat(r.ingreso_total);
@@ -295,7 +325,8 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, m
   });
 
   app.get('/api/top-productos', authAdmin, mRent, async (req, res) => {
-    const { desde, hasta, empresa } = req.query; const f = rango(desde, hasta) + ' ' + fEmp(empresa);
+    const { desde, hasta, empresa } = req.query;
+    const f = rango(desde, hasta) + ' ' + fEmp(empresa) + ' ' + fMarca(marcaValida(req.query.marca));
     try {
       const N = sqlNeto(await leerConfig());
       const [rows] = await prodPool.query(`
@@ -319,16 +350,33 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, m
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
+  // ── RENTABILIDAD POR MARCA ──
+  // Por marca (texto antes del primer "-" del nombre del producto):
+  //   ingreso        lo vendido, con IGV (todas las líneas)
+  //   costo_lineas   costo de lo vendido tal como se compró (costo del lote, con
+  //                  impuestos), solo de las líneas con lote
+  //   ingreso_conf   lo vendido de esas mismas líneas (con IGV), para comparar
+  //   ganancia       margen bruto SIN IGV = venta sin IGV − costo sin impuesto
+  //                  deducible (FIFO, líneas con lote). NO es "vendido − comprado
+  //                  en el período": es lo vendido menos lo que costaron ESAS unidades.
+  //   comprado       mercadería de la marca ingresada en el período (entradas de
+  //                  compra/importación al costo del lote, con impuestos)
+  //   cobrado        cuánto de lo vendido ya se cobró: cobros vigentes de cada venta
+  //                  (hasta su total) repartidos según el peso de la marca en la venta
   app.get('/api/marcas', authAdmin, mRent, async (req, res) => {
-    const { desde, hasta, empresa } = req.query; const f = rango(desde, hasta) + ' ' + fEmp(empresa);
+    const { desde, hasta, empresa } = req.query; const marca = marcaValida(req.query.marca);
+    const f = rango(desde, hasta) + ' ' + fEmp(empresa) + ' ' + fMarca(marca);
     try {
       const N = sqlNeto(await leerConfig());
-      const [rows] = await prodPool.query(`
-        SELECT CASE WHEN LOCATE(' - ', p.name) > 0 THEN TRIM(SUBSTRING_INDEX(p.name, ' - ', 1))
-                    ELSE SUBSTRING_INDEX(p.name, ' ', 1) END AS marca,
+      const [[rows], [compras]] = await Promise.all([
+        prodPool.query(`
+        SELECT ${MARCA_SQL} AS marca,
           COUNT(DISTINCT s.id) AS ventas, SUM(si.quantity) AS unidades, COALESCE(SUM(si.total),0) AS ingreso,
           COALESCE(SUM(${N.GANANCIA}),0) AS ganancia,
           COALESCE(SUM(${N.BASE}),0) AS ingreso_neto_conf,
+          COALESCE(SUM(CASE WHEN ${ES_NORMAL} THEN si.total ELSE 0 END),0) AS ingreso_conf,
+          COALESCE(SUM(CASE WHEN ${ES_NORMAL} THEN si.quantity * sb.cost_price ELSE 0 END),0) AS costo_lineas,
+          COALESCE(SUM(si.total * LEAST(1, COALESCE(pg.pagado, 0) / NULLIF(s.total, 0))),0) AS cobrado,
           COALESCE(SUM(CASE WHEN ${ES_PEDIDO} THEN si.total ELSE 0 END),0) AS ingreso_pendiente,
           COUNT(CASE WHEN ${ES_PEDIDO} THEN 1 END) AS lineas_pedido,
           COUNT(CASE WHEN ${ES_FALLA} THEN 1 END) AS lineas_falla
@@ -336,25 +384,60 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, m
         JOIN product_variations pv ON pv.id = si.product_variation_id
         JOIN products p ON p.id = pv.product_id
         LEFT JOIN stock_batches sb ON si.stock_batch_id = sb.id
+        LEFT JOIN (SELECT sale_id, GREATEST(SUM(amount), 0) AS pagado FROM sale_payments WHERE voided_at IS NULL GROUP BY sale_id) pg ON pg.sale_id = s.id
         WHERE s.deleted_at IS NULL AND s.status IN ${VV} ${f}
-        GROUP BY marca HAVING ingreso > 0 ORDER BY ganancia DESC`);
+        GROUP BY marca HAVING ingreso > 0 ORDER BY ganancia DESC`),
+        prodPool.query(`
+        SELECT ${MARCA_SQL} AS marca, COALESCE(SUM(ABS(sm.quantity) * sb.cost_price),0) AS comprado
+        FROM stock_movements sm
+        JOIN stock_entries se ON se.id = sm.reference_id
+        JOIN product_variations pv ON pv.id = sm.product_variation_id
+        JOIN products p ON p.id = pv.product_id
+        LEFT JOIN stock_batches sb ON sb.id = (
+          SELECT b.id FROM stock_batches b
+          WHERE b.stock_entry_id = se.id AND b.product_variation_id = sm.product_variation_id
+          ORDER BY b.id LIMIT 1)
+        WHERE sm.reference_type = ? AND se.operation_type_code IN (?)
+          ${rango(desde, hasta, 'sm.movement_date')} ${fEmp(empresa, 'sb.company_id')} ${fMarca(marca)}
+        GROUP BY marca`, [REF_ENTRADA, CODIGOS_COMPRA])
+      ]);
+      const comp = Object.fromEntries(compras.map(c => [String(c.marca).toUpperCase(), +c.comprado]));
+      const r2 = n => Math.round((+n || 0) * 100) / 100;
       res.json(rows.map(r => {
-        const ingN = parseFloat(r.ingreso_neto_conf), gan = parseFloat(r.ganancia);
-        // Sin costo conocido no hay margen: null (se muestra "—", no "0 %")
-        return { ...r, margen: ingN > 0 ? ((gan / ingN) * 100).toFixed(1) : null };
+        const ingN = +r.ingreso_neto_conf, gan = +r.ganancia, ing = +r.ingreso, cob = Math.min(+r.cobrado, ing);
+        return { ...r, ingreso: r2(ing), ganancia: r2(gan), ingreso_conf: r2(r.ingreso_conf), costo_lineas: r2(r.costo_lineas),
+          // Sin costo conocido no hay margen: null (se muestra "—", no "0 %")
+          margen: ingN > 0 ? ((gan / ingN) * 100).toFixed(1) : null,
+          cobertura: ing > 0 ? Math.round(+r.ingreso_conf / ing * 100) : null,
+          comprado: r2(comp[String(r.marca).toUpperCase()] || 0),
+          cobrado: r2(cob), por_cobrar: r2(ing - cob),
+          solvencia: ing > 0 ? Math.round(cob / ing * 1000) / 10 : null };
       }));
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
+  // B2B vs B2C con filtro de marca (sin marca, el panel usa /api/tipo-cliente)
+  app.get('/api/tipo-cliente-bi', authAdmin, mResumen, async (req, res) => {
+    const { desde, hasta, empresa } = req.query; const marca = marcaValida(req.query.marca);
+    const f = (esFecha(desde) && esFecha(hasta) ? rango(desde, hasta) : '') + ' ' + fEmp(empresa);
+    try {
+      const [rows] = await prodPool.query(`
+        SELECT pa.is_company, COUNT(DISTINCT pa.id) AS clientes, COUNT(s.id) AS ventas, COALESCE(SUM(${marca ? 'bt.t' : 's.total'}),0) AS total
+        FROM sales s JOIN parties pa ON pa.id = s.customer_id ${marca ? `JOIN ${ventasDeMarca(marca)} bt ON bt.sale_id = s.id` : ''}
+        WHERE s.deleted_at IS NULL AND s.status IN ${VV} ${f} GROUP BY pa.is_company`);
+      res.json(rows.map(r => ({ ...r, tipo: r.is_company ? 'Empresa (B2B)' : 'Persona (B2C)' })));
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
 
   app.get('/api/metodos-pago-bi', authAdmin, mCaja, async (req, res) => {
     const { desde, hasta, empresa } = req.query; const fe = fEmp(empresa, EMP_INGRESO);
+    const marca = marcaValida(req.query.marca);
     const f = rango(desde, hasta, 'sp.paid_at') || `AND sp.paid_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)`;
     try {
       const [rows] = await prodPool.query(`
-        SELECT ci.name AS metodo, COUNT(*) AS cantidad, COALESCE(SUM(sp.amount),0) AS total
+        SELECT ci.name AS metodo, COUNT(*) AS cantidad, COALESCE(SUM(sp.amount${marca ? ' * ' + PROP_MARCA : ''}),0) AS total
         FROM sale_payments sp LEFT JOIN catalog_items ci ON ci.id = sp.payment_method_id
-        LEFT JOIN sales s ON s.id = sp.sale_id
+        LEFT JOIN sales s ON s.id = sp.sale_id ${marca ? `JOIN ${ventasDeMarca(marca)} bt ON bt.sale_id = s.id` : ''}
         LEFT JOIN bank_accounts ba ON ba.id = sp.bank_account_id
         WHERE ${COBRO_VALIDO} ${f} ${fe} GROUP BY sp.payment_method_id, ci.name ORDER BY total DESC`);
       res.json(rows);
@@ -371,7 +454,9 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, m
   //                          al costo del lote, por la empresa dueña del lote.
   // La lógica vive en serieAgrupada() para que Rendimiento la reutilice
   // (mismos números en las dos pestañas, una sola fuente).
-  async function serieAgrupada({ desde, hasta, empresa, agrupar }) {
+  async function serieAgrupada({ desde, hasta, empresa, agrupar, marca }) {
+      marca = marcaValida(marca);
+      const BT = marca ? `JOIN ${ventasDeMarca(marca)} bt ON bt.sale_id = s.id` : '';
       agrupar = ['dia', 'semana', 'mes'].includes(agrupar) ? agrupar : 'dia';
       if (!esFecha(desde) || !esFecha(hasta)) { const e = new Error('Rango de fechas inválido'); e.status = 400; throw e; }
       // Con histórico cargado: antes del corte manda el Excel, desde el corte el sistema
@@ -383,15 +468,15 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, m
       const cfg = await leerConfig(), N = sqlNeto(cfg);
       const [[ventas], [ingresos], [margen], [compras], [otrasEntradas]] = await Promise.all([
         prodPool.query(`
-          SELECT ${pV} AS periodo, s.company_id, COUNT(*) AS num_ventas, COALESCE(SUM(s.total),0) AS ventas,
-            COALESCE(SUM(${N.VENTA_CAB}),0) AS ventas_netas
-          FROM sales s WHERE s.deleted_at IS NULL AND s.status IN ${VV} AND ${entre('s.created_at')} ${fEmp(empresa)}
+          SELECT ${pV} AS periodo, s.company_id, COUNT(*) AS num_ventas, COALESCE(SUM(${marca ? 'bt.t' : 's.total'}),0) AS ventas,
+            COALESCE(SUM(${marca ? `(bt.t / ${N.FV})` : N.VENTA_CAB}),0) AS ventas_netas
+          FROM sales s ${BT} WHERE s.deleted_at IS NULL AND s.status IN ${VV} AND ${entre('s.created_at')} ${fEmp(empresa)}
           GROUP BY periodo, s.company_id`),
         prodPool.query(`
           SELECT ${periodoSQL('sp.paid_at', agrupar)} AS periodo, ${EMP_INGRESO} AS company_id,
-            COALESCE(SUM(sp.amount),0) AS ingresos
+            COALESCE(SUM(sp.amount${marca ? ' * ' + PROP_MARCA : ''}),0) AS ingresos
           FROM sale_payments sp
-          LEFT JOIN sales s ON s.id = sp.sale_id
+          LEFT JOIN sales s ON s.id = sp.sale_id ${BT}
           LEFT JOIN bank_accounts ba ON ba.id = sp.bank_account_id
           WHERE ${COBRO_VALIDO} AND ${entre('sp.paid_at')} ${fEmp(empresa, EMP_INGRESO)}
           GROUP BY periodo, ${EMP_INGRESO}`),
@@ -402,34 +487,34 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, m
             COALESCE(SUM(si.total),0) AS ingreso_items,
             COALESCE(SUM(${N.GANANCIA}),0) AS margen_neto,
             COALESCE(SUM(${N.BASE}),0) AS base_neta
-          FROM sale_items si JOIN sales s ON s.id = si.sale_id
+          FROM sale_items si JOIN sales s ON s.id = si.sale_id ${joinProd(marca)}
           LEFT JOIN stock_batches sb ON sb.id = si.stock_batch_id
-          WHERE s.deleted_at IS NULL AND s.status IN ${VV} AND ${entre('s.created_at')} ${fEmp(empresa)}
+          WHERE s.deleted_at IS NULL AND s.status IN ${VV} AND ${entre('s.created_at')} ${fEmp(empresa)} ${fMarca(marca)}
           GROUP BY periodo, s.company_id`),
         prodPool.query(`
           SELECT ${periodoSQL('sm.movement_date', agrupar)} AS periodo, sb.company_id,
             COALESCE(SUM(ABS(sm.quantity) * sb.cost_price),0) AS compras
           FROM stock_movements sm
-          JOIN stock_entries se ON se.id = sm.reference_id
+          JOIN stock_entries se ON se.id = sm.reference_id ${joinProd(marca, 'sm.product_variation_id')}
           LEFT JOIN stock_batches sb ON sb.id = (
             SELECT b.id FROM stock_batches b
             WHERE b.stock_entry_id = se.id AND b.product_variation_id = sm.product_variation_id
             ORDER BY b.id LIMIT 1)
           WHERE sm.reference_type = ? AND se.operation_type_code IN (?)
-            AND ${entre('sm.movement_date')} ${fEmp(empresa, 'sb.company_id')}
+            AND ${entre('sm.movement_date')} ${fEmp(empresa, 'sb.company_id')} ${fMarca(marca)}
           GROUP BY periodo, sb.company_id`, [REF_ENTRADA, CODIGOS_COMPRA]),
         // Entradas que NO se cuentan como compra (para mostrarlas como nota y validar)
         prodPool.query(`
           SELECT COALESCE(se.operation_type_code,'(sin código)') AS codigo,
             COALESCE(SUM(ABS(sm.quantity) * sb.cost_price),0) AS total
           FROM stock_movements sm
-          JOIN stock_entries se ON se.id = sm.reference_id
+          JOIN stock_entries se ON se.id = sm.reference_id ${joinProd(marca, 'sm.product_variation_id')}
           LEFT JOIN stock_batches sb ON sb.id = (
             SELECT b.id FROM stock_batches b
             WHERE b.stock_entry_id = se.id AND b.product_variation_id = sm.product_variation_id
             ORDER BY b.id LIMIT 1)
           WHERE sm.reference_type = ? AND (se.operation_type_code IS NULL OR se.operation_type_code NOT IN (?))
-            AND ${entre('sm.movement_date')} ${fEmp(empresa, 'sb.company_id')}
+            AND ${entre('sm.movement_date')} ${fEmp(empresa, 'sb.company_id')} ${fMarca(marca)}
           GROUP BY codigo HAVING total > 0 ORDER BY total DESC`, [REF_ENTRADA, CODIGOS_COMPRA]),
       ]);
       // Unir todo por (período, empresa). Empresa vacía → 0 ("sin empresa").
@@ -447,7 +532,8 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, m
       compras.forEach(r => { fila(r.periodo, r.company_id).compras += +r.compras; });
       // Histórico del Excel (solo días anteriores al corte y dentro del rango)
       let usaExcel = false;
-      if (hist && corte && desde < corte) {
+      // El Excel no tiene el detalle por marca: con filtro de marca no se usa
+      if (hist && corte && desde < corte && !marca) {
         const emp = empresaId(empresa);
         const CAMPOS = ['ventas', 'num_ventas', 'ingresos', 'margen', 'base_margen', 'ingreso_items', 'compras'];
         hist.filas.forEach(h => {
@@ -464,33 +550,35 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, m
       const filas = [...mapa.values()].sort((a, b) => a.periodo.localeCompare(b.periodo) || a.company_id - b.company_id);
       return { agrupar, filas, codigos_compra: CODIGOS_COMPRA,
         config_igv: { costo: cfg.costo, empresas_igv: cfg.empresas_igv, columna_disponible: cfg.columna_disponible },
-        historico: hist ? { corte, usado: usaExcel, desde: hist.desde } : null,
+        historico: hist ? { corte, usado: usaExcel, desde: hist.desde, omitido_por_marca: !!(marca && corte && desde < corte) } : null,
+        marca: marca || null,
         otras_entradas: otrasEntradas.map(r => ({ codigo: r.codigo, total: +r.total })) };
   }
 
   app.get('/api/bi-serie', authAdmin, mResumen, async (req, res) => {
     try {
-      const { desde, hasta, empresa, agrupar } = req.query;
-      res.json(await serieAgrupada({ desde, hasta, empresa, agrupar }));
+      const { desde, hasta, empresa, agrupar, marca } = req.query;
+      res.json(await serieAgrupada({ desde, hasta, empresa, agrupar, marca }));
     } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
   });
 
   // ── RENTABILIDAD POR CANAL (B2B vs B2C) ──
   app.get('/api/rentabilidad-canal', authAdmin, mRent, async (req, res) => {
-    const { desde, hasta, empresa } = req.query; const f = rango(desde, hasta) + ' ' + fEmp(empresa);
+    const { desde, hasta, empresa } = req.query; const marca = marcaValida(req.query.marca);
+    const f = rango(desde, hasta) + ' ' + fEmp(empresa) + ' ' + fMarca(marca);
     try {
       const N = sqlNeto(await leerConfig());
       const [rows] = await prodPool.query(`
-        SELECT p.is_company, COUNT(DISTINCT s.id) AS ventas,
+        SELECT pa.is_company, COUNT(DISTINCT s.id) AS ventas,
           COALESCE(SUM(si.total),0) AS ingreso,
           COALESCE(SUM(CASE WHEN ${ES_NORMAL} THEN si.total ELSE 0 END),0) AS ingreso_confiable,
           COALESCE(SUM(${N.BASE}),0) AS ingreso_neto_conf,
           COALESCE(SUM(${N.GANANCIA}),0) AS ganancia
         FROM sale_items si JOIN sales s ON s.id = si.sale_id
-        JOIN parties p ON p.id = s.customer_id
+        JOIN parties pa ON pa.id = s.customer_id ${joinProd(marca)}
         LEFT JOIN stock_batches sb ON sb.id = si.stock_batch_id
         WHERE s.deleted_at IS NULL AND s.status IN ${VV} ${f}
-        GROUP BY p.is_company ORDER BY p.is_company DESC`);
+        GROUP BY pa.is_company ORDER BY pa.is_company DESC`);
       res.json(rows.map(r => {
         const conf = +r.ingreso_confiable, gan = +r.ganancia, ing = +r.ingreso, n = +r.ventas, confN = +r.ingreso_neto_conf;
         return { tipo: r.is_company ? 'Empresa (B2B)' : 'Persona (B2C)', ventas: n, ingreso: ing, ganancia: gan,
@@ -505,7 +593,8 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, m
   // Solo productos con costo conocido y al menos S/100 vendidos en el período,
   // para no llenar la lista con ventas sueltas. Ordenados del peor margen al mejor.
   app.get('/api/margen-bajo', authAdmin, mRent, async (req, res) => {
-    const { desde, hasta, empresa } = req.query; const f = rango(desde, hasta) + ' ' + fEmp(empresa);
+    const { desde, hasta, empresa } = req.query;
+    const f = rango(desde, hasta) + ' ' + fEmp(empresa) + ' ' + fMarca(marcaValida(req.query.marca));
     try {
       const N = sqlNeto(await leerConfig());
       const [rows] = await prodPool.query(`

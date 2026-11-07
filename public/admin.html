@@ -171,6 +171,9 @@ tr:hover td{background:var(--hover)}
 .seg button:hover{color:var(--text)}
 .seg button.on{background:var(--accent);color:var(--accent-text)}
 .seg.sm button{font-size:12px;padding:5px 10px}
+.vi-marca{display:inline-flex;align-items:center;gap:8px}
+.vi-marca input{min-width:190px;max-width:240px;padding:6px 10px;font-size:13px}
+.vi-marca .x{background:none;border:0;color:var(--muted);cursor:pointer;font-size:15px;padding:0 4px}
 .vi-emp-lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:600}
 .vi-ctrl{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin-bottom:10px}
 .vi-ctrl span{font-size:12px;color:var(--muted)}
@@ -317,7 +320,12 @@ tr:hover td{background:var(--hover)}
         <div class="vi-barra">
           <span class="vi-emp-lbl">Empresa</span>
           <div class="seg" id="vi-empresas"><button class="on" data-emp="" onclick="viSetEmpresa('',this)">Todas</button></div>
+          <span class="vi-marca"><span class="vi-emp-lbl">Marca</span>
+            <input id="vi-marca" list="vi-marcas-lista" placeholder="Todas las marcas" autocomplete="off" onchange="viSetMarca(this.value)" onkeydown="if(event.key==='Enter')viSetMarca(this.value)">
+            <datalist id="vi-marcas-lista"></datalist>
+            <button class="x" id="vi-marca-x" title="Quitar filtro de marca" style="display:none" onclick="viSetMarca('')">✕</button></span>
         </div>
+        <div id="vi-marca-nota" class="card-note" style="display:none;margin:-6px 0 12px"></div>
         <div class="filtros-fila" style="align-items:center">
           <label style="font-size:13px">Mes: <input type="month" class="db-mes" onchange="dbAplicarMes(this)"></label>
           <label style="font-size:13px">Desde: <input type="date" class="db-desde"></label>
@@ -407,6 +415,7 @@ tr:hover td{background:var(--hover)}
           <p class="card-note">Productos con al menos S/100 vendidos y costo conocido, del peor margen al mejor. En rojo, los que se vendieron por debajo del costo.</p>
           <div style="overflow-x:auto"><table class="dtable" id="tbl-margen-bajo"></table></div></div>
         <div class="dbcard"><h4>Rentabilidad por marca</h4>
+          <p class="card-note" id="marcas-nota"></p>
           <div style="overflow-x:auto"><table class="dtable" id="tbl-marcas"></table></div></div>
       </div>
       </div>
@@ -1659,6 +1668,7 @@ function dbCargarActual(){
 }
 
 // ══════════ VENTAS E INGRESOS: filtro por empresa, gráfico agrupado y mes a mes ══════════
+let viMarca='', viMarcas=[];
 let viEmpresa='', viAgrupar='dia', viMetrica='ventas', viEmpresas=[], viSerie=null, viSerieAnt=null, viMmComp='anterior';
 // Colores fijos por empresa (legibles en tema claro y oscuro); 0 = total
 const VI_COL={1:'#6C63D9',2:'#14A37F',0:'#8b93b8'}, VI_COL_T='#FFB30D', VI_COL_ANT='#8b93b8';
@@ -1694,13 +1704,37 @@ function viQS(extra){
   const q=new URLSearchParams(); const {desde,hasta}=viRango();
   if(desde&&hasta){q.set('desde',desde);q.set('hasta',hasta);}
   if(viEmpresa)q.set('empresa',viEmpresa);
+  if(viMarca)q.set('marca',viMarca);
   Object.entries(extra||{}).forEach(([k,v])=>q.set(k,v));
   return '?'+q.toString();
 }
 const viApi=(ep,extra)=>apiCall(ep+viQS(extra),'GET');
 
 // Botones de empresa (se arman una vez con la lista del servidor)
+// Marcas: lo que está antes del primer "-" del nombre del producto
+async function viInitMarcas(){
+  if(viMarcas.length)return;
+  try{viMarcas=await apiCall('/api/marcas-bi','GET');}catch(e){viMarcas=[];return;}
+  const dl=document.getElementById('vi-marcas-lista');
+  if(dl)dl.innerHTML=viMarcas.map(m=>`<option value="${String(m.marca).replace(/"/g,'&quot;')}">`).join('');
+}
+function viSetMarca(v){
+  v=String(v||'').trim();
+  // Acepta la marca escrita en otra combinación de mayúsculas
+  const m=viMarcas.find(x=>x.marca.toLowerCase()===v.toLowerCase());
+  if(v&&viMarcas.length&&!m){showToast('No hay ninguna marca "'+v+'"',true);return;}
+  v=m?m.marca:v;
+  if(v===viMarca)return;
+  viMarca=v;
+  document.getElementById('vi-marca').value=v;
+  document.getElementById('vi-marca-x').style.display=v?'':'none';
+  const nota=document.getElementById('vi-marca-nota');
+  nota.style.display=v?'':'none';
+  nota.innerHTML=v?`Filtrando por la marca <b>${v.replace(/</g,'&lt;')}</b>: ventas, margen y unidades son solo de sus productos; <b>cobrado</b>, por cobrar y métodos de pago se reparten según el peso de la marca en cada venta; la <b>mercadería ingresada</b> es solo la de esa marca. El histórico del Excel no tiene detalle por marca y no se incluye.`:'';
+  dbCargarActual();
+}
 async function viInitEmpresas(){
+  viInitMarcas();
   if(viEmpresas.length)return;
   try{viEmpresas=await apiCall('/api/empresas-bi','GET');}catch(e){viEmpresas=[{id:1,nombre:'Diseños Corporativos SAC'},{id:2,nombre:'Christopher Villasante F.'}];}
   const box=document.getElementById('vi-empresas'); if(!box)return;
@@ -1812,7 +1846,8 @@ function viDibujar(){
     (esDia?' Las líneas son el promedio de los últimos 7 días; las barras claras, cada día.':'')+
     (ag==='mes'&&viSerieAnt&&m!=='vc'?' La línea punteada gris es el mismo mes del año anterior.':'')+
     (iAct>=0&&!esDia?' La última barra (más clara) está en curso.':'')+
-    (hi&&hi.usado?` Antes del ${viFechaTxt(hi.corte)} los datos vienen del Excel histórico.`:'');
+    (hi&&hi.usado?` Antes del ${viFechaTxt(hi.corte)} los datos vienen del Excel histórico.`:'')+
+    (hi&&hi.omitido_por_marca?` Con filtro de marca solo se muestran datos del sistema (desde el ${viFechaTxt(hi.corte)}).`:'');
   document.getElementById('vi-zoom-hint').style.display=esDia?'':'none';
   // La barra del período en curso va más clara: aún no está completa
   const colores=col=>per.map((p,i)=>i===iAct&&!esDia?col+'66':col);
@@ -2049,7 +2084,7 @@ async function dbResumen(){
         <div class="estat"><div class="estat-label">Mercadería ingresada</div><div class="estat-val">${dbFmt(t.compras)}</div></div>
       </div></div>`;}).join('');
   }
-  const [tipo]=await Promise.all([viApi('/api/tipo-cliente'),viMesAMes()]);
+  const [tipo]=await Promise.all([viApi(viMarca?'/api/tipo-cliente-bi':'/api/tipo-cliente'),viMesAMes()]);
   // B2B vs B2C: barras horizontales con monto y % (una dona no deja comparar)
   const totTipo=tipo.reduce((a,t)=>a+(+t.total||0),0)||1;
   const tipoOrd=[...tipo].sort((a,b)=>+b.total-+a.total);
@@ -2118,14 +2153,19 @@ async function dbRentabilidad(){
     plugins:[cuadrantes]});
   document.getElementById('prod-nota').textContent=`Los ${prod.length} productos con más venta. Tamaño del punto = unidades; rojo = margen negativo; ámbar = tiene líneas a pedido. Línea vertical: venta mediana (${dbFmt(medV)}); horizontal: margen promedio (${promM.toFixed(1)}%).`+(sinM?` ${sinM} sin costo conocido no aparecen.`:'');
   const marcas=await viApi('/api/marcas');
+  const mu=t=>`<span style="color:var(--muted);font-size:11px">${t}</span>`;
   dbSortTable('tbl-marcas',marcas,[
-    {k:'marca',t:'Marca',fmt:v=>v},
+    {k:'marca',t:'Marca',fmt:v=>`<a href="#" onclick="viSetMarca(this.textContent);window.scrollTo({top:0,behavior:'smooth'});return false" title="Filtrar todo el panel por esta marca" style="color:inherit">${v}</a>`},
     {k:'ventas',t:'Ventas',fmt:dbFmtN,num:1},
     {k:'unidades',t:'Unid.',fmt:dbFmtN,num:1},
-    {k:'ingreso',t:'Vendido',fmt:dbFmt,num:1},
+    {k:'ingreso',t:'Vendido (con IGV)',fmt:dbFmt,num:1},
+    {k:'costo_lineas',t:'Costo (con imp.)',fmt:(v,r)=>`${dbFmt(v)}${r.cobertura!=null&&r.cobertura<100?'<br>'+mu(`de ${dbFmt(r.ingreso_conf)} vendido con costo (${r.cobertura}%)`):''}`,num:1},
     {k:'ganancia',t:'Margen bruto (sin IGV)',fmt:dbFmt,num:1},
-    {k:'margen',t:'Margen %',fmt:v=>v==null?'<span style="color:var(--muted)">—</span>':v+'%',num:1}
+    {k:'margen',t:'Margen %',fmt:v=>v==null?'<span style="color:var(--muted)">—</span>':v+'%',num:1},
+    {k:'comprado',t:'Comprado (con imp.)',fmt:v=>+v?dbFmt(v):'<span style="color:var(--muted)">—</span>',num:1},
+    {k:'solvencia',t:'Cobrado',fmt:(v,r)=>v==null?'—':`<span class="${v>=95?'cob-ok':v>=70?'cob-warn':'cob-bad'}" style="font-weight:700">${v}%</span><br>${mu(dbFmt(r.cobrado)+(r.por_cobrar>0.5?' · falta '+dbFmt(r.por_cobrar):''))}`,num:1}
   ],'ganancia');
+  document.getElementById('marcas-nota').innerHTML='<b>Margen bruto</b> = lo vendido sin IGV − lo que costaron <b>esas mismas unidades</b> (costo del lote sin impuesto, FIFO). No es "vendido − comprado en el período": lo que compraste y aún no vendes está en el inventario. <b>Costo</b> es el costo de lo vendido tal como se compró (con impuestos), solo de las líneas con lote. <b>Comprado</b>: mercadería de la marca ingresada al almacén en estas fechas (compras e importaciones, al costo del lote). <b>Cobrado</b>: qué parte de lo vendido ya está pagado (los cobros de cada venta se reparten según el peso de la marca en ella).';
 }
 
 // Clientes BI → public/clientes-bi.html (iframe)

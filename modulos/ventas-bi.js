@@ -28,6 +28,8 @@ const CODIGOS_COMPRA = ['02', '18'];
 // MARCA de un producto: todo lo que está antes del primer "-" del nombre
 // ("Magura - MT7 Pro" → "Magura"). Si el nombre no tiene "-", la primera palabra.
 const MARCA_SQL = `TRIM(CASE WHEN LOCATE('-', p.name) > 0 THEN SUBSTRING_INDEX(p.name, '-', 1) ELSE SUBSTRING_INDEX(TRIM(p.name), ' ', 1) END)`;
+// Clave para comparar marcas entre el sistema y el Excel ("Oak Components" = "OakComponents")
+const claveMarca = v => String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 const marcaValida = v => { const m = String(v == null ? '' : v).trim(); return m && m.length <= 80 ? m : null; };
 const REF_ENTRADA = 'App\\Models\\StockEntry';
 
@@ -142,7 +144,16 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, m
       const [rows] = await prodPool.query(`
         SELECT ${MARCA_SQL} AS marca, COUNT(*) AS productos FROM products p
         WHERE p.name IS NOT NULL AND TRIM(p.name) <> '' GROUP BY marca HAVING marca <> '' ORDER BY marca`);
-      res.json(rows.map(r => ({ marca: r.marca, productos: +r.productos })));
+      const lista = rows.map(r => ({ marca: r.marca, productos: +r.productos }));
+      // Marcas que solo están en el Excel histórico
+      const h = await leerHist().catch(() => null);
+      if (h && h.lineas) {
+        const ya = new Set(lista.map(m => claveMarca(m.marca))), extra = {};
+        h.lineas.forEach(l => { if (l.marca && !ya.has(l.km)) extra[l.km] = extra[l.km] || l.marca; });
+        Object.values(extra).forEach(m => lista.push({ marca: m, productos: 0, solo_excel: true }));
+        lista.sort((a, b) => a.marca.localeCompare(b.marca));
+      }
+      res.json(lista);
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
@@ -171,7 +182,10 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, m
     const corte = r.corte ? (r.corte instanceof Date ? r.corte.toISOString().slice(0, 10) : String(r.corte).slice(0, 10)) : null;
     const cols = d.columnas;
     const filas = d.filas.map(a => Object.fromEntries(cols.map((c, i) => [c, a[i]])));
-    _hist = { origen: d.origen, generado: d.generado, desde: d.desde, hasta: d.hasta, corte, filas, actualizado: r.updated_at };
+    // Detalle (si el JSON lo trae): cada línea de venta y de compra, con su marca
+    const objs = t => t && Array.isArray(t.filas) ? t.filas.map(a => { const o = Object.fromEntries(t.columnas.map((c, i) => [c, a[i]])); o.km = claveMarca(o.marca); return o; }) : null;
+    _hist = { origen: d.origen, generado: d.generado, desde: d.desde, hasta: d.hasta, corte, filas, actualizado: r.updated_at,
+      lineas: objs(d.lineas), compras: objs(d.compras) };
     _histAt = Date.now();
     return _hist;
   }
@@ -183,6 +197,7 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, m
       const h = await leerHist(true);
       if (!h) return res.json({ cargado: false });
       res.json({ cargado: true, origen: h.origen, generado: h.generado, desde: h.desde, hasta: h.hasta,
+        con_detalle: !!h.lineas, lineas: h.lineas ? h.lineas.length : 0, compras_det: h.compras ? h.compras.length : 0,
         corte: h.corte, dias: new Set(h.filas.map(f => f.fecha)).size, actualizado: h.actualizado });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
@@ -199,6 +214,17 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, m
       const limpio = { origen: String(d.origen || '').slice(0, 120), generado: String(d.generado || '').slice(0, 40),
         desde: d.filas[0][0], hasta: d.filas[d.filas.length - 1][0], columnas: cols,
         filas: d.filas.map(f => [f[0], +f[1], ...f.slice(2).map(Number)]) };
+      // Detalle opcional: líneas de venta y de compra (para productos, marcas, métodos de pago…)
+      const COLS_LIN = ['fecha', 'company_id', 'codigo', 'producto', 'marca', 'cantidad', 'venta', 'venta_neta', 'costo', 'costo_neto', 'pago', 'emp_cobro', 'b2b', 'cliente'];
+      const COLS_COM = ['fecha', 'company_id', 'codigo', 'producto', 'marca', 'cantidad', 'costo'];
+      const det = (t, cs, nums) => {
+        if (!t) return undefined;
+        if (!Array.isArray(t.columnas) || cs.some((c, i) => t.columnas[i] !== c) || !Array.isArray(t.filas)) throw Object.assign(new Error('El detalle del archivo no tiene el formato esperado'), { status: 400 });
+        return { columnas: cs, filas: t.filas.filter(f => Array.isArray(f) && esFecha(f[0]) && [1, 2].includes(+f[1]))
+          .map(f => cs.map((c, i) => nums.includes(c) ? (+f[i] || 0) : String(f[i] == null ? '' : f[i]).slice(0, 150))) };
+      };
+      limpio.lineas = det(d.lineas, COLS_LIN, ['company_id', 'cantidad', 'venta', 'venta_neta', 'costo', 'costo_neto', 'emp_cobro', 'b2b']);
+      limpio.compras = det(d.compras, COLS_COM, ['company_id', 'cantidad', 'costo']);
       await tablaHist();
       // Corte por defecto: el día siguiente al último registro del Excel
       const corteDef = sumarDia(limpio.hasta, 1);
@@ -207,8 +233,8 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, m
         ON DUPLICATE KEY UPDATE data = VALUES(data), corte = COALESCE(corte, VALUES(corte))`,
         [JSON.stringify(limpio), corteDef]);
       const h = await leerHist(true);
-      res.json({ ok: true, desde: h.desde, hasta: h.hasta, corte: h.corte, filas: h.filas.length });
-    } catch (e) { res.status(500).json({ error: e.message }); }
+      res.json({ ok: true, desde: h.desde, hasta: h.hasta, corte: h.corte, filas: h.filas.length, lineas: h.lineas ? h.lineas.length : 0 });
+    } catch (e) { res.status(e.status || 500).json({ error: e.message }); }
   });
 
   app.put('/api/historico/corte', authAdmin, soloMaestro, async (req, res) => {
@@ -257,10 +283,23 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, m
       }
       if (sugerido > sumarDia(h.hasta, 1)) sugerido = sumarDia(h.hasta, 1);
       const primeraSis = sis.length ? sis[0].primera : null;
-      res.json({ cargado: true, corte: h.corte, sugerido, excel_desde: h.desde, excel_hasta: h.hasta, primera_venta_sistema: primeraSis, filas });
+      res.json({ cargado: true, corte: h.corte, sugerido, con_detalle: !!h.lineas, excel_desde: h.desde, excel_hasta: h.hasta, primera_venta_sistema: primeraSis, filas });
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
+
+  // ── Detalle del Excel para las tablas (productos, marcas, métodos de pago, canal) ──
+  // Devuelve las líneas de venta y compra del Excel dentro del rango, ANTES del corte,
+  // con los filtros de empresa y marca. Sin detalle cargado → listas vacías.
+  async function histDetalle({ desde, hasta, empresa, marca }) {
+    const h = await leerHist().catch(() => null);
+    const vacio = { lineas: [], compras: [], corte: h && h.corte, hay: !!(h && h.lineas) };
+    if (!h || !h.corte || !h.lineas || !esFecha(desde) || !esFecha(hasta) || desde >= h.corte) return vacio;
+    const emp = empresaId(empresa), km = marca ? claveMarca(marca) : null;
+    const ok = x => x.fecha >= desde && x.fecha <= hasta && x.fecha < h.corte && (!emp || +x.company_id === emp) && (!km || x.km === km);
+    return { lineas: h.lineas.filter(ok), compras: (h.compras || []).filter(ok), corte: h.corte, hay: true };
+  }
+  const nomProdHist = l => l.producto || l.codigo || '(sin nombre)';
 
   app.get('/api/empresas-bi', authAdmin, (req, res) =>
     res.json(Object.entries(EMPRESAS_BI).map(([id, nombre]) => ({ id: +id, nombre }))));
@@ -316,6 +355,15 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, m
         FROM sale_items si JOIN sales s ON s.id = si.sale_id ${joinProd(marca)}
         LEFT JOIN stock_batches sb ON si.stock_batch_id = sb.id
         WHERE s.deleted_at IS NULL AND s.status IN ${VV} ${f}`);
+      // Excel (antes del corte): una línea "tiene costo" si su costo es > 0
+      const hd = await histDetalle({ desde, hasta, empresa, marca });
+      hd.lineas.forEach(l => {
+        const c = l.costo > 0;
+        r.ingreso_total = +r.ingreso_total + l.venta;
+        if (c) { r.ingreso_neto = +r.ingreso_neto + l.venta_neta; r.costo_neto = +r.costo_neto + l.costo_neto; r.ganancia_neta = +r.ganancia_neta + l.venta_neta - l.costo_neto;
+          r.ingreso_confiable = +r.ingreso_confiable + l.venta; r.costo = +r.costo + l.costo; r.ganancia = +r.ganancia + l.venta - l.costo; }
+      });
+      r.incluye_excel = hd.lineas.length > 0;
       const ing = parseFloat(r.ingreso_confiable), tot = parseFloat(r.ingreso_total);
       const ingN = +r.ingreso_neto, ganN = +r.ganancia_neta;
       res.json({ ...r, margen_promedio: ingN > 0 ? ((ganN / ingN) * 100).toFixed(1) : null,
@@ -343,6 +391,11 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, m
         LEFT JOIN stock_batches sb ON si.stock_batch_id = sb.id
         WHERE s.deleted_at IS NULL AND s.status IN ${VV} ${f}
         GROUP BY pv.id, p.name, pv.name, pv.sku ORDER BY ingreso DESC LIMIT 60`);
+      const hd = await histDetalle({ desde, hasta, empresa, marca: marcaValida(req.query.marca) });
+      const hp = {};
+      hd.lineas.forEach(l => { const k = l.codigo || l.producto; const x = hp[k] = hp[k] || { producto: nomProdHist(l), variacion: '', sku: l.codigo, unidades: 0, ingreso: 0, ganancia: 0, ingreso_neto_conf: 0, ingreso_confiable: 0, lineas_pedido: 0, lineas_falla: 0, excel: true };
+        x.unidades += l.cantidad; x.ingreso += l.venta; if (l.costo > 0) { x.ganancia += l.venta_neta - l.costo_neto; x.ingreso_neto_conf += l.venta_neta; x.ingreso_confiable += l.venta; } });
+      rows.push(...Object.values(hp)); rows.sort((a, b) => +b.ingreso - +a.ingreso); rows.splice(60);
       res.json(rows.map(r => ({ ...r,
         margen: +r.ingreso_neto_conf > 0 ? Math.round(+r.ganancia / +r.ingreso_neto_conf * 1000) / 10 : null,
         cobertura: +r.ingreso > 0 ? Math.round(+r.ingreso_confiable / +r.ingreso * 100) : null,
@@ -401,15 +454,33 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, m
           ${rango(desde, hasta, 'sm.movement_date')} ${fEmp(empresa, 'sb.company_id')} ${fMarca(marca)}
         GROUP BY marca`, [REF_ENTRADA, CODIGOS_COMPRA])
       ]);
-      const comp = Object.fromEntries(compras.map(c => [String(c.marca).toUpperCase(), +c.comprado]));
+      // Excel (antes del corte): ventas, costo y compras por marca. Lo cobrado en el Excel
+      // se toma como 100 % (ventas cerradas; antes de 2023 no se anotaba la forma de pago).
+      const hd = await histDetalle({ desde, hasta, empresa, marca });
+      const porK = {}; rows.forEach(r => { porK[claveMarca(r.marca)] = r; });
+      const ventasExcel = {};
+      hd.lineas.forEach(l => {
+        let r = porK[l.km];
+        if (!r) r = porK[l.km] = { marca: l.marca, ventas: 0, unidades: 0, ingreso: 0, ganancia: 0, ingreso_neto_conf: 0, ingreso_conf: 0, costo_lineas: 0, cobrado: 0, ingreso_pendiente: 0, lineas_pedido: 0, lineas_falla: 0 };
+        (ventasExcel[l.km] = ventasExcel[l.km] || new Set()).add(l.fecha + '|' + (l.cliente || '').toUpperCase());
+        r.unidades = +r.unidades + l.cantidad; r.ingreso = +r.ingreso + l.venta; r.cobrado = +r.cobrado + l.venta;
+        if (l.costo > 0) { r.ganancia = +r.ganancia + l.venta_neta - l.costo_neto; r.ingreso_neto_conf = +r.ingreso_neto_conf + l.venta_neta;
+          r.ingreso_conf = +r.ingreso_conf + l.venta; r.costo_lineas = +r.costo_lineas + l.costo; }
+        r.excel = true;
+      });
+      Object.entries(ventasExcel).forEach(([k, s]) => { porK[k].ventas = +porK[k].ventas + s.size; });
+      rows.length = 0; rows.push(...Object.values(porK).filter(r => +r.ingreso > 0));
+      const comp = {};
+      compras.forEach(c => { const k = claveMarca(c.marca); comp[k] = (comp[k] || 0) + +c.comprado; });
+      hd.compras.forEach(c => { comp[c.km] = (comp[c.km] || 0) + c.costo; });
       const r2 = n => Math.round((+n || 0) * 100) / 100;
-      res.json(rows.map(r => {
+      res.json(rows.sort((a, b) => +b.ganancia - +a.ganancia).map(r => {
         const ingN = +r.ingreso_neto_conf, gan = +r.ganancia, ing = +r.ingreso, cob = Math.min(+r.cobrado, ing);
         return { ...r, ingreso: r2(ing), ganancia: r2(gan), ingreso_conf: r2(r.ingreso_conf), costo_lineas: r2(r.costo_lineas),
           // Sin costo conocido no hay margen: null (se muestra "—", no "0 %")
           margen: ingN > 0 ? ((gan / ingN) * 100).toFixed(1) : null,
           cobertura: ing > 0 ? Math.round(+r.ingreso_conf / ing * 100) : null,
-          comprado: r2(comp[String(r.marca).toUpperCase()] || 0),
+          comprado: r2(comp[claveMarca(r.marca)] || 0),
           cobrado: r2(cob), por_cobrar: r2(ing - cob),
           solvencia: ing > 0 ? Math.round(cob / ing * 1000) / 10 : null };
       }));
@@ -425,6 +496,15 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, m
         SELECT pa.is_company, COUNT(DISTINCT pa.id) AS clientes, COUNT(s.id) AS ventas, COALESCE(SUM(${marca ? 'bt.t' : 's.total'}),0) AS total
         FROM sales s JOIN parties pa ON pa.id = s.customer_id ${marca ? `JOIN ${ventasDeMarca(marca)} bt ON bt.sale_id = s.id` : ''}
         WHERE s.deleted_at IS NULL AND s.status IN ${VV} ${f} GROUP BY pa.is_company`);
+      // Excel: empresa = cliente con RUC (11 dígitos)
+      const hd = await histDetalle({ desde, hasta, empresa, marca });
+      [0, 1].forEach(b => {
+        const ls = hd.lineas.filter(l => +l.b2b === b); if (!ls.length) return;
+        let r = rows.find(x => +x.is_company === b); if (!r) rows.push(r = { is_company: b, clientes: 0, ventas: 0, total: 0 });
+        r.total = +r.total + ls.reduce((a, l) => a + l.venta, 0);
+        r.ventas = +r.ventas + new Set(ls.map(l => l.fecha + '|' + (l.cliente || '').toUpperCase())).size;
+        r.clientes = +r.clientes + new Set(ls.map(l => (l.cliente || '').toUpperCase()).filter(Boolean)).size;
+      });
       res.json(rows.map(r => ({ ...r, tipo: r.is_company ? 'Empresa (B2B)' : 'Persona (B2C)' })));
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
@@ -440,6 +520,14 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, m
         LEFT JOIN sales s ON s.id = sp.sale_id ${marca ? `JOIN ${ventasDeMarca(marca)} bt ON bt.sale_id = s.id` : ''}
         LEFT JOIN bank_accounts ba ON ba.id = sp.bank_account_id
         WHERE ${COBRO_VALIDO} ${f} ${fe} GROUP BY sp.payment_method_id, ci.name ORDER BY total DESC`);
+      // Excel: forma de pago de cada línea (cuenta); la empresa es la dueña de la cuenta
+      if (esFecha(desde) && esFecha(hasta)) {
+        const hd = await histDetalle({ desde, hasta, empresa: null, marca });
+        const emp = empresaId(empresa), acc = {};
+        hd.lineas.filter(l => l.pago && +l.emp_cobro && (!emp || +l.emp_cobro === emp)).forEach(l => {
+          const k = l.pago + ' (Excel)'; const x = acc[k] = acc[k] || { metodo: k, cantidad: 0, total: 0, excel: true }; x.cantidad++; x.total += l.venta; });
+        rows.push(...Object.values(acc)); rows.sort((a, b) => +b.total - +a.total);
+      }
       res.json(rows);
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
@@ -532,7 +620,26 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, m
       compras.forEach(r => { fila(r.periodo, r.company_id).compras += +r.compras; });
       // Histórico del Excel (solo días anteriores al corte y dentro del rango)
       let usaExcel = false;
-      // El Excel no tiene el detalle por marca: con filtro de marca no se usa
+      // Con filtro de marca se usan las LÍNEAS del Excel (si el archivo trae detalle)
+      if (marca && hist && hist.lineas && corte && desde < corte) {
+        const emp = empresaId(empresa), km = claveMarca(marca), cuentas = {};
+        hist.lineas.forEach(l => {
+          if (l.km !== km || l.fecha < desde || l.fecha > hasta || l.fecha >= corte) return;
+          if (!emp || +l.company_id === emp) {
+            usaExcel = true;
+            const f = fila(periodoJS(l.fecha, agrupar), +l.company_id);
+            f.ventas += l.venta; f.ventas_netas += l.venta_neta; f.ingreso_items += l.venta;
+            if (l.costo > 0) { f.base_margen += l.venta; f.margen += l.venta - l.costo; f.base_neta += l.venta_neta; f.margen_neto += l.venta_neta - l.costo_neto; }
+            const kv = periodoJS(l.fecha, agrupar) + '|' + l.company_id; (cuentas[kv] = cuentas[kv] || new Set()).add(l.fecha + '|' + (l.cliente || '').toUpperCase());
+          }
+          if (+l.emp_cobro && (!emp || +l.emp_cobro === emp)) { usaExcel = true; fila(periodoJS(l.fecha, agrupar), +l.emp_cobro).ingresos += l.venta; }
+        });
+        Object.entries(cuentas).forEach(([k, st]) => { const [pe, c] = k.split('|'); fila(pe, +c).num_ventas += st.size; });
+        (hist.compras || []).forEach(c => {
+          if (c.km !== km || c.fecha < desde || c.fecha > hasta || c.fecha >= corte || (emp && +c.company_id !== emp)) return;
+          usaExcel = true; fila(periodoJS(c.fecha, agrupar), +c.company_id).compras += c.costo;
+        });
+      }
       if (hist && corte && desde < corte && !marca) {
         const emp = empresaId(empresa);
         const CAMPOS = ['ventas', 'num_ventas', 'ingresos', 'margen', 'base_margen', 'ingreso_items', 'compras'];
@@ -550,7 +657,7 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, m
       const filas = [...mapa.values()].sort((a, b) => a.periodo.localeCompare(b.periodo) || a.company_id - b.company_id);
       return { agrupar, filas, codigos_compra: CODIGOS_COMPRA,
         config_igv: { costo: cfg.costo, empresas_igv: cfg.empresas_igv, columna_disponible: cfg.columna_disponible },
-        historico: hist ? { corte, usado: usaExcel, desde: hist.desde, omitido_por_marca: !!(marca && corte && desde < corte) } : null,
+        historico: hist ? { corte, usado: usaExcel, desde: hist.desde, omitido_por_marca: !!(marca && corte && desde < corte && !hist.lineas) } : null,
         marca: marca || null,
         otras_entradas: otrasEntradas.map(r => ({ codigo: r.codigo, total: +r.total })) };
   }
@@ -579,6 +686,15 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, m
         LEFT JOIN stock_batches sb ON sb.id = si.stock_batch_id
         WHERE s.deleted_at IS NULL AND s.status IN ${VV} ${f}
         GROUP BY pa.is_company ORDER BY pa.is_company DESC`);
+      const hd = await histDetalle({ desde, hasta, empresa, marca });
+      [1, 0].forEach(b => {
+        const ls = hd.lineas.filter(l => +l.b2b === b); if (!ls.length) return;
+        let r = rows.find(x => +x.is_company === b); if (!r) rows.push(r = { is_company: b, ventas: 0, ingreso: 0, ingreso_confiable: 0, ingreso_neto_conf: 0, ganancia: 0 });
+        r.ventas = +r.ventas + new Set(ls.map(l => l.fecha + '|' + (l.cliente || '').toUpperCase())).size;
+        ls.forEach(l => { r.ingreso = +r.ingreso + l.venta;
+          if (l.costo > 0) { r.ingreso_confiable = +r.ingreso_confiable + l.venta; r.ingreso_neto_conf = +r.ingreso_neto_conf + l.venta_neta; r.ganancia = +r.ganancia + l.venta_neta - l.costo_neto; } });
+      });
+      rows.sort((a, b) => +b.is_company - +a.is_company);
       res.json(rows.map(r => {
         const conf = +r.ingreso_confiable, gan = +r.ganancia, ing = +r.ingreso, n = +r.ventas, confN = +r.ingreso_neto_conf;
         return { tipo: r.is_company ? 'Empresa (B2B)' : 'Persona (B2C)', ventas: n, ingreso: ing, ganancia: gan,
@@ -612,6 +728,12 @@ module.exports = function registrarVentasBI({ app, authAdmin, mResumen, mRent, m
         GROUP BY pv.id, p.name, pv.name, pv.sku
         HAVING ingreso >= 100
         ORDER BY SUM(${N.GANANCIA}) / SUM(${N.BASE}) ASC LIMIT 15`);
+      const hd = await histDetalle({ desde, hasta, empresa, marca: marcaValida(req.query.marca) });
+      const hp = {};
+      hd.lineas.filter(l => l.costo > 0).forEach(l => { const k = l.codigo || l.producto; const x = hp[k] = hp[k] || { producto: nomProdHist(l), variacion: '', sku: l.codigo, unidades: 0, ingreso: 0, ingreso_neto: 0, costo: 0, ganancia: 0, excel: true };
+        x.unidades += l.cantidad; x.ingreso += l.venta; x.ingreso_neto += l.venta_neta; x.costo += l.costo_neto; x.ganancia += l.venta_neta - l.costo_neto; });
+      rows.push(...Object.values(hp).filter(x => x.ingreso >= 100));
+      rows.sort((a, b) => (+a.ganancia / (+a.ingreso_neto || 1)) - (+b.ganancia / (+b.ingreso_neto || 1))); rows.splice(15);
       res.json(rows.map(r => ({ ...r, margen: +r.ingreso_neto > 0 ? ((+r.ganancia / +r.ingreso_neto) * 100).toFixed(1) : '0.0' })));
     } catch (e) { res.status(500).json({ error: e.message }); }
   });

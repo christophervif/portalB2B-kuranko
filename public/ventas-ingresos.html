@@ -531,7 +531,7 @@ function viSetMarca(v){
   document.getElementById('vi-marca-x').style.display=v?'':'none';
   const nota=document.getElementById('vi-marca-nota');
   nota.style.display=v?'':'none';
-  nota.innerHTML=v?`Filtrando por la marca <b>${v.replace(/</g,'&lt;')}</b>: ventas, margen y unidades son solo de sus productos; <b>cobrado</b>, por cobrar y métodos de pago se reparten según el peso de la marca en cada venta; la <b>mercadería ingresada</b> es solo la de esa marca. El histórico del Excel no tiene detalle por marca y no se incluye.`:'';
+  nota.innerHTML=v?`Filtrando por la marca <b>${v.replace(/</g,'&lt;')}</b>: ventas, margen y unidades son solo de sus productos; <b>cobrado</b>, por cobrar y métodos de pago se reparten según el peso de la marca en cada venta; la <b>mercadería ingresada</b> es solo la de esa marca. Antes del corte se usan las líneas del Excel de esa marca (si el histórico se cargó con detalle).`:'';
   dbCargarActual();
 }
 async function viInitEmpresas(){
@@ -788,7 +788,8 @@ async function histCargar(){
     document.getElementById('hist-usar-sug').style.display=(c.sugerido&&c.sugerido!==c.corte)?'':'none';
     est.innerHTML=`Excel cargado: <b>${viFechaTxt(c.excel_desde)}</b> a <b>${viFechaTxt(c.excel_hasta)}</b>. `+
       `Primera venta registrada en el sistema: <b>${c.primera_venta_sistema?viFechaTxt(c.primera_venta_sistema):'—'}</b>. `+
-      `Corte actual: <b>${viFechaTxt(c.corte)}</b>`+(c.sugerido&&c.sugerido!==c.corte?` · corte sugerido según la comparación: <b>${viFechaTxt(c.sugerido)}</b>`:' (coincide con el sugerido)')+'.';
+      `Corte actual: <b>${viFechaTxt(c.corte)}</b>`+(c.sugerido&&c.sugerido!==c.corte?` · corte sugerido según la comparación: <b>${viFechaTxt(c.sugerido)}</b>`:' (coincide con el sugerido)')+'. '+
+      (c.con_detalle?'Incluye el <b>detalle por producto</b>: rentabilidad, productos, marcas, métodos de pago y B2B/B2C también usan el Excel antes del corte.':'<span class="cob-warn">Este archivo solo trae totales por día: las tablas de rentabilidad, productos, marcas y métodos de pago no incluyen el Excel. Vuelve a generarlo con <b>scripts/excel-a-historico.py</b> y cárgalo de nuevo.</span>');
     const filas=c.filas||[];
     if(!filas.length){document.getElementById('hist-comp').innerHTML='';return;}
     document.getElementById('hist-comp').innerHTML=
@@ -885,7 +886,7 @@ async function dbResumen(){
         <div class="estat"><div class="estat-label">Mercadería ingresada</div><div class="estat-val">${dbFmt(t.compras)}</div></div>
       </div></div>`;}).join('');
   }
-  const [tipo]=await Promise.all([viApi(viMarca?'/api/tipo-cliente-bi':'/api/tipo-cliente'),viMesAMes()]);
+  const [tipo]=await Promise.all([viApi('/api/tipo-cliente-bi'),viMesAMes()]);
   // B2B vs B2C: barras horizontales con monto y % (una dona no deja comparar)
   const totTipo=tipo.reduce((a,t)=>a+(+t.total||0),0)||1;
   const tipoOrd=[...tipo].sort((a,b)=>+b.total-+a.total);
@@ -972,7 +973,7 @@ async function dbRentabilidad(){
     {k:'margen_pct',t:'Margen %',fmt:(v,r)=>v==null?'<span style="color:var(--muted)">—</span>':`<b class="${v<0?'cob-bad':''}">${v}%</b><span class="sub">markup ${r.markup}%</span>`,num:1},
     {k:'solvencia',t:'Cobrado',fmt:(v,r)=>v==null?'—':`<span class="${v>=95?'cob-ok':v>=70?'cob-warn':'cob-bad'}" style="font-weight:700">${v}%</span>${r.por_cobrar>0.5?`<span class="sub">falta ${dbFmt(r.por_cobrar)}</span>`:''}`,num:1}
   ],'margen_igv');
-  document.getElementById('marcas-nota').innerHTML='Montos <b>con IGV</b>, según las fechas elegidas arriba (Últimos 30 días, 90 días, Este año…). <b>Comprado</b>: mercadería de la marca que entró al almacén en esas fechas. <b>Margen bruto</b> = vendido − costo de venta, ambos con IGV y solo de lo vendido con costo conocido. <b>Margen %</b> sobre el precio de venta (de cada S/ 100 vendidos, cuánto te queda): sirve para comparar marcas; el <b>markup</b> es la misma ganancia sobre el costo. <b>Cobrado</b>: % de lo vendido ya pagado; en rojo (menos de 70 %) estás vendiendo mucho a crédito.';
+  document.getElementById('marcas-nota').innerHTML='Montos <b>con IGV</b>, según las fechas elegidas arriba (Últimos 30 días, 90 días, Este año…). <b>Comprado</b>: mercadería de la marca que entró al almacén en esas fechas. <b>Margen bruto</b> = vendido − costo de venta, ambos con IGV y solo de lo vendido con costo conocido. <b>Margen %</b> sobre el precio de venta (de cada S/ 100 vendidos, cuánto te queda): sirve para comparar marcas; el <b>markup</b> es la misma ganancia sobre el costo. <b>Cobrado</b>: % de lo vendido ya pagado; en rojo (menos de 70 %) estás vendiendo mucho a crédito. Las ventas del Excel histórico cuentan como cobradas.'+(marcas.some(m=>m.excel)?' <b>Incluye el Excel</b> antes del corte (marcas unidas por nombre: "Oak Components" = "OakComponents").':'')+'';
 }
 
 async function dbCaja(){

@@ -42,6 +42,24 @@ td.n,th.n{text-align:right}
 .b-tra{background:rgba(56,189,248,.16);color:var(--acc)}
 .b-rec{background:rgba(34,197,94,.16);color:var(--ok)}
 .chip{background:var(--chip);border:1px solid var(--border);border-radius:8px;padding:2px 8px;font-size:12px;display:inline-block}
+/* Ubicación del courier: dónde está ahora, ruta y lugar de cada evento */
+.chip.loc{border-color:var(--acc);color:var(--txt)}
+.ubic{margin-top:8px;background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:10px 12px}
+.ubic-now{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.ubic-now .lbl{font-size:12px;color:var(--muted)}
+.ubic-now .ciu{font-size:16px;font-weight:700}
+.ubic-now .pai{font-size:14px;font-weight:600;color:var(--acc)}
+.ruta{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin-top:8px}
+.ruta .flecha{color:var(--muted);font-size:13px}
+.rp{border:1px solid var(--border);background:var(--card);border-radius:8px;padding:3px 9px;font-size:12px;line-height:1.25}
+.rp b{display:block;font-weight:600}.rp span{color:var(--muted);font-size:11px}
+.rp.now{border-color:var(--acc);box-shadow:inset 0 0 0 1px var(--acc)}
+.evs{margin-top:4px}
+.ev{display:grid;grid-template-columns:118px minmax(0,1fr) minmax(170px,300px);gap:10px;font-size:12.5px;padding:4px 0;border-bottom:1px dashed var(--border)}
+.ev:last-child{border-bottom:0}
+.ev .cuando{color:var(--muted)}
+.ev .lug b{font-weight:600}.ev .lug span{color:var(--muted)}
+@media (max-width:640px){.ev{grid-template-columns:96px minmax(0,1fr)}.ev .lug{grid-column:2}}
 .env{border:1px solid var(--border);border-radius:10px;margin-bottom:10px;overflow:hidden}
 .env-h{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 12px;background:var(--card2);cursor:pointer}
 .env-h b{font-size:14px}
@@ -364,6 +382,7 @@ function pintarEnvios(){
       <b>📦 ${esc(e.tracking||'(sin tracking)')}</b>
       ${badgeEstado(e.estado)}
       ${(e.fase&&e.fase!=='transito'&&e.fase!=='recibido')?`<span class="chip">${FASE_LBL[e.fase]||''}</span>`:''}
+      ${e.api_ubicacion&&e.fase==='transito'?`<span class="chip loc" title="Último lugar informado por el courier">📍 ${esc(e.api_ubicacion.ciudad||e.api_ubicacion.pais||'')}${e.api_ubicacion.ciudad&&e.api_ubicacion.pais?(', '+esc(e.api_ubicacion.pais)):''}</span>`:''}
       ${e.eta&&e.fase!=='recibido'?`<span class="chip">🇵🇪 ~${esc(String(e.eta).slice(0,10))}</span>`:''}
       ${e.archivado?'<span class="chip">🗄️ archivado</span>':''}
       ${e.courier?`<span class="chip">${esc(e.courier)}</span>`:''}
@@ -454,16 +473,29 @@ function fFecha(d){if(!d)return '';const p=String(d).slice(0,10).split('-');retu
 function histCourier(e){
   const evs=Array.isArray(e.api_eventos)?e.api_eventos:[];
   const leido=e.api_at?(' · leído '+esc(fFecha(String(e.api_at).slice(0,10)))):'';
-  const entrega=e.api_entrega?`<div class="muted sm" style="margin-top:3px">🇵🇪 Fecha de llegada: <b>${esc(fFecha(e.api_entrega))}</b></div>`:'';
+  const entrega=e.api_entrega?`<div class="muted sm" style="margin-top:6px">🇵🇪 Fecha de llegada: <b>${esc(fFecha(e.api_entrega))}</b></div>`:'';
   if(!evs.length){
     if(!e.api_resumen)return entrega;
     return `<div class="muted sm" style="margin-top:5px">🚚 ${esc(e.api_resumen)}${leido}</div>${entrega}`;
   }
-  const uno=(ev)=>`<div style="display:flex;gap:8px;font-size:12.5px;padding:2px 0"><span class="muted" style="min-width:${ev.hora?112:74}px;flex:none">${ev.fecha?esc(fFecha(ev.fecha)):'—'}${ev.hora?(' '+esc(ev.hora)):''}</span><span>${esc(ev.desc||'')}</span></div>`;
+  // Lugar de un evento: ciudad (estado) en negrita + país.
+  const lugar=(ev)=>{
+    if(ev.ciudad||ev.pais)return `<b>${esc(ev.ciudad||ev.pais)}${ev.ciudad&&ev.region?(' ('+esc(ev.region)+')'):''}</b>${ev.ciudad&&ev.pais?('<span>, '+esc(ev.pais)+'</span>'):''}`;
+    return ev.lugar?`<span>${esc(ev.lugar)}</span>`:'';
+  };
+  const uno=(ev)=>{const l=lugar(ev);return `<div class="ev"><div class="cuando">${ev.fecha?esc(fFecha(ev.fecha)):'—'}${ev.hora?(' '+esc(ev.hora)):''}</div><div>${esc(ev.desc||'')}</div><div class="lug">${l?('📍 '+l):''}</div></div>`;};
+  // Dónde está ahora + ruta (ciudades por las que pasó, de la primera a la última).
+  const ub=e.api_ubicacion, ruta=Array.isArray(e.api_ruta)?e.api_ruta:[];
+  let ubic='';
+  if(ub){
+    const ahora=e.fase==='recibido'?'Último lugar del courier':(e.fase==='transito'?'Ahora en':'Último lugar del courier');
+    const rutaHtml=ruta.length>1?`<div class="ruta">${ruta.map((r,i)=>(i?'<span class="flecha">→</span>':'')+`<div class="rp${i===ruta.length-1?' now':''}"><b>${esc(r.ciudad||r.pais||'?')}</b><span>${r.ciudad?esc(r.pais||''):''}${r.fecha?((r.ciudad&&r.pais?' · ':'')+esc(fFecha(r.fecha).slice(0,5))):''}</span></div>`).join('')}</div>`:'';
+    ubic=`<div class="ubic"><div class="ubic-now"><span class="lbl">📍 ${ahora}:</span><span class="ciu">${esc(ub.ciudad||ub.pais||'')}${ub.ciudad&&ub.region?(' ('+esc(ub.region)+')'):''}</span>${ub.ciudad&&ub.pais?`<span class="pai">${esc(ub.pais)}</span>`:''}<span class="lbl">${ub.fecha?esc(fFecha(ub.fecha)):''}${ub.hora?(' '+esc(ub.hora)):''}</span></div>${rutaHtml}</div>`;
+  }
   const ultimo=evs[0];
   const resto=evs.slice(1);
-  const detalle=resto.length?`<details style="margin-top:4px"><summary style="cursor:pointer;color:var(--amber);font-size:12.5px">Ver historial completo (${evs.length})</summary><div style="margin-top:4px;border-left:2px solid var(--border);padding-left:8px">${evs.map(uno).join('')}</div></details>`:'';
-  return `<div style="margin-top:6px"><div class="muted sm" style="margin-bottom:2px">🚚 Última novedad${leido}</div>${uno(ultimo)}${detalle}${entrega}</div>`;
+  const detalle=resto.length?`<details style="margin-top:6px"><summary style="cursor:pointer;color:var(--acc);font-size:12.5px">Ver historial completo (${evs.length})</summary><div class="evs">${evs.map(uno).join('')}</div></details>`:'';
+  return `<div style="margin-top:6px">${ubic}<div class="muted sm" style="margin:8px 0 2px">🚚 Última novedad${leido}</div><div class="evs">${uno(ultimo)}</div>${detalle}${entrega}</div>`;
 }
 async function putLog(id,payload){try{await api('/envio/'+encodeURIComponent(id)+'/logistica','PUT',payload);await cargarEnvios();}catch(e){toast(e.message);}}
 function setHub(id,hub){const e=ENVIOS.find(x=>x.id===id)||{};let fase=e.fase||'transito';if(!hub&&(fase==='en_hub'||fase==='embarcado'))fase='transito';putLog(id,{hub,fase,fecha_hub:e.fecha_hub});}

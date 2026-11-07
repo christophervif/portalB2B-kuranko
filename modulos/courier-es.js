@@ -126,7 +126,7 @@ const PALABRAS = {
   your: 'tu', our: 'nuestro', has: '', have: '', been: '', is: 'está', are: 'están', was: 'fue', were: 'fueron', not: 'no', will: '', be: '',
   it: '', its: 'su', this: 'este', that: 'que', please: 'por favor', contact: 'contactar', may: 'puede', due: 'debido', missing: 'falta',
   documents: 'documentos', document: 'documento', payment: 'pago', duties: 'aranceles', taxes: 'impuestos', paid: 'pagado', required: 'requerido',
-  arrival: 'llegada', departure: 'salida', attempt: 'intento', attempted: 'intentado', failed: 'fallido', signed: 'firmado', door: 'puerta',
+  accepted: 'aceptado', arrival: 'llegada', departure: 'salida', attempt: 'intento', attempted: 'intentado', failed: 'fallido', signed: 'firmado', door: 'puerta',
   ramp: 'rampa', gateway: 'centro de conexión', office: 'oficina', post: 'correo', mail: 'correo', center: 'centro', centre: 'centro',
   plant: 'planta', port: 'puerto', vessel: 'buque', cargo: 'carga', tracking: 'seguimiento', number: 'número', signature: 'firma',
   front: 'frontal', business: 'negocio', closed: 'cerrado', weather: 'clima', operational: 'operativo', reasons: 'razones', unable: 'no se pudo',
@@ -159,6 +159,9 @@ function soloFrases(t) {
 }
 // ¿Sigue habiendo palabras en inglés después del diccionario de frases?
 function quedaIngles(t) {
+  // Frases de 1–2 palabras conocidas ("Departed", "Accepted", "Processed") las resuelve el diccionario.
+  const pal = norm(t).toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/).filter(Boolean);
+  if (pal.length && pal.length <= 2 && pal.every(w => Object.prototype.hasOwnProperty.call(PALABRAS, w) && PALABRAS[w])) return false;
   const ws = soloFrases(t).toLowerCase().replace(/[^a-záéíóúñü\s]/g, ' ').split(/\s+/).filter(Boolean);
   return ws.filter(w => INGLES.has(w)).length > 0;
 }
@@ -236,30 +239,53 @@ const titulo = (t) => {
   if (!x || x !== x.toUpperCase()) return x;
   return x.toLowerCase().replace(/(^|[\s(/'’-])([a-záéíóúñü])/g, (m, a, c) => a + c.toUpperCase());
 };
-const SUFIJOS_LUGAR = /\s+(?:HUB|GATEWAY|FACILITY|SERVICE CENTER|SORT(?:ING)? CENTER|DISTRIBUTION CENTER|PROCESSING CENTER|INTERNATIONAL SERVICE CENTER|ISC|NDC|P&DC|RAMP|STATION)$/i;
+// Palabras de instalaciones (no son ciudades): se quitan del nombre del lugar.
+// "UFFICIO POSTALE ITALIA ITALIA" → (sin ciudad) Italia · "MALPENSA APT" → Malpensa · "FEDEX MEMPHIS HUB" → Memphis
+const INSTALACION = new RegExp('\\b(?:' + [
+  'INTERNATIONAL SERVICE CENTER', 'INTERNATIONAL AIRPORT', 'INTL AIRPORT', 'SERVICE CENTER', 'SORT(?:ING)? (?:CENTER|CENTRE|FACILITY)', 'DISTRIBUTION (?:CENTER|CENTRE)', 'PROCESSING (?:CENTER|CENTRE)',
+  'LOGISTICS (?:CENTER|CENTRE)', 'DELIVERY (?:STATION|CENTER|UNIT)', 'POST OFFICE', 'POSTAL OFFICE', 'MAIL CENTER', 'FACILITY', 'GATEWAY', 'HUB', 'DEPOT', 'RAMP', 'STATION', 'WAREHOUSE',
+  'AIRPORT', 'ARPT', 'APT', 'TERMINAL', 'ISC', 'NDC', 'P&DC', 'PDC', 'LON',
+  'UFFICIO POSTALE', 'CENTRO (?:DI )?SMISTAMENTO', 'CENTRO OPERATIVO', 'CENTRO MECCANIZZATO POSTALE', 'CENTRO POSTALE', 'CMP', 'CPO', 'CTD', 'CDM', 'AEROPORTO',
+  'OFICINA (?:DE )?CORREOS', 'CENTRO (?:DE )?(?:TRATAMIENTO|DISTRIBUCION|DISTRIBUCIÓN|CLASIFICACION|CLASIFICACIÓN)', 'AEROPUERTO', 'SUCURSAL', 'DELEGACION', 'DELEGACIÓN',
+  'PAKETZENTRUM', 'BRIEFZENTRUM', 'ZUSTELLBASIS', 'CENTRE DE TRI', 'PLATEFORME', 'AGENCE',
+].join('|') + ')\\b', 'ig');
+const SIN_LUGAR = { ciudad: '', region: '', iso: '', pais: '' };
 
 /**
  * Separa una ubicación del courier.
- * @param texto  "MEMPHIS, TN, US" | "LEIPZIG - GERMANY" | …
+ * @param texto  "MEMPHIS, TN, US" | "LEIPZIG - GERMANY" | "Brescia (BS)" | "UFFICIO POSTALE ITALIA" …
  * @param paisesEnvio  Set de códigos de país que ya aparecen en el envío (desempata "LEIPZIG, DE": ¿Alemania o Delaware?)
  * @returns { ciudad, region, iso, pais }  (vacío si no se pudo leer)
  */
 function leerLugar(texto, paisesEnvio) {
   let x = norm(texto).replace(/\b\d{4,6}(?:-\d{3,4})?\b/g, ' ').replace(/\s+,/g, ',');   // códigos postales fuera
-  if (!x) return { ciudad: '', region: '', iso: '', pais: '' };
-  let partes = x.split(/\s*,\s*|\s+-\s+|\s*\/\s*/).map(norm).filter(Boolean);
-  // "MIAMI FL US" (sin comas): separar las últimas palabras si son estado/país.
+  if (!/[A-Za-zÀ-ÿ]{2,}/.test(x)) return { ...SIN_LUGAR };                                // "19", "—": no es un lugar
+  let region = '';
+  // Provincia entre paréntesis: "Brescia (BS)".
+  x = x.replace(/\s*\(([A-Za-z]{2,3})\)/, (m, r) => { region = r.toUpperCase(); return ''; });
+  let partes = x.split(/\s*,\s*|\s+-\s+|\s*\/\s*/).map(norm).filter(p => /[A-Za-zÀ-ÿ]{2,}/.test(p));
+  if (!partes.length) return { ...SIN_LUGAR };
+  // Sin comas: separar al final las palabras que sean estado/país ("MIAMI FL US", "UFFICIO POSTALE ITALIA ITALIA").
   if (partes.length === 1) {
     const w = partes[0].split(' ');
     const fin = [];
-    while (w.length > 1 && fin.length < 2) {
+    while (w.length > 1 && fin.length < 3) {
       const ult = w[w.length - 1];
-      if ((ult.length === 2 && (US_EST.has(ult.toUpperCase()) || ISO2_SET.has(ult.toUpperCase())) && ult === ult.toUpperCase()) || (ult.length === 3 && ISO3[ult.toUpperCase()] && ult === ult.toUpperCase())) fin.unshift(w.pop());
+      const UP = ult.toUpperCase();
+      const codigo = ult === UP && ((ult.length === 2 && (US_EST.has(UP) || ISO2_SET.has(UP))) || (ult.length === 3 && ISO3[UP]));
+      let nombre = 0;                                                     // nombre de país de 1 a 3 palabras ("ITALIA", "UNITED STATES")
+      for (let k = Math.min(3, w.length - 1); k >= 1 && !nombre; k--) { const t = w.slice(-k).join(' '); if (t.length > 3 && NOMBRE_ISO.has(U(t))) nombre = k; }
+      if (nombre) fin.unshift(w.splice(-nombre).join(' '));
+      else if (codigo) fin.unshift(w.pop());
       else break;
     }
-    if (fin.length) partes = [w.join(' '), ...fin];
+    if (fin.length) {
+      // "ITALIA ITALIA": el país repetido cuenta una sola vez.
+      const sinRep = fin.filter((f, i) => i === 0 || aIso(f) !== aIso(fin[i - 1]) || !aIso(f));
+      partes = [w.join(' '), ...sinRep];
+    }
   }
-  let iso = '', region = '';
+  let iso = '';
   const ultima = partes[partes.length - 1];
   const u = U(ultima);
   if (partes.length >= 2) {
@@ -278,11 +304,34 @@ function leerLugar(texto, paisesEnvio) {
     else if ((iso === 'CA' || !iso) && CA_PROV.has(r)) { region = r; iso = iso || 'CA'; partes.pop(); }
     else if (r.length === 2 && iso && iso !== 'US' && iso !== 'CA') { region = r; partes.pop(); }
   }
-  let ciudad = titulo(norm(partes[0] || '').replace(SUFIJOS_LUGAR, ''));
-  if (ciudad && new RegExp('^' + RX_CARR + '$', 'i').test(ciudad)) ciudad = '';                      // "FEDEX HUB" no es una ciudad
+  // Ciudad: la primera parte sin palabras de instalación ni nombres de courier.
+  let ciudad = norm(String(partes[0] || '').replace(INSTALACION, ' ').replace(new RegExp('\\b' + RX_CARR + '\\b', 'ig'), ' '));
+  ciudad = titulo(ciudad.replace(/^[\s.,;:-]+|[\s.,;:-]+$/g, ''));
+  if (!/[A-Za-zÀ-ÿ]{2,}/.test(ciudad)) ciudad = '';
+  if (ciudad && aIso(ciudad) && (!iso || aIso(ciudad) === iso) && U(ciudad).length > 3) { iso = iso || aIso(ciudad); ciudad = ''; }   // "Italia" sola = país
   if (ciudad && iso && (U(ciudad) === U(paisES(iso)) || NOMBRE_ISO.get(U(ciudad)) === iso)) ciudad = '';   // "Hong Kong, HK"
-  if (!iso && !ciudad) return { ciudad: '', region: '', iso: '', pais: '' };
-  return { ciudad: ciudad.slice(0, 60), region, iso, pais: paisES(iso) };
+  if (!iso && !ciudad) return { ...SIN_LUGAR };
+  return { ciudad: ciudad.slice(0, 60), region: ciudad ? region : '', iso, pais: paisES(iso) };
+}
+/**
+ * Completa el país de los lugares que solo traen ciudad ("Brescia (BS)", "MALPENSA APT"):
+ * usa el país del evento más cercano en el tiempo que sí lo tenga; si ningún evento
+ * trae país, el país de origen que informa el courier.
+ * @param infos  eventos ya leídos, del más reciente al más antiguo ({ ciudad, iso, pais, … })
+ */
+function completarPaises(infos, origenIso) {
+  const conPais = infos.map((x, i) => (x.iso ? i : -1)).filter(i => i >= 0);
+  infos.forEach((x, i) => {
+    if (x.iso || !x.ciudad) return;
+    let iso = '';
+    if (conPais.length) {
+      let mejor = conPais[0];
+      conPais.forEach(j => { if (Math.abs(j - i) < Math.abs(mejor - i)) mejor = j; });
+      iso = infos[mejor].iso;
+    } else if (origenIso) iso = origenIso;
+    if (iso) { x.iso = iso; x.pais = paisES(iso); x.pais_deducido = true; }
+  });
+  return infos;
 }
 function lugarTexto(L) {
   if (!L || (!L.ciudad && !L.pais)) return '';
@@ -341,7 +390,7 @@ function estadoES(frase, codigo, cache) {
 function eventoInfo(ev, cache, paisesEnvio) {
   const { frase, lugar } = partesEvento(ev);
   const L = leerLugar(lugar, paisesEnvio);
-  const txt = lugarTexto(L) || traducirLugar(lugar);
+  const txt = lugarTexto(L) || (/[A-Za-zÀ-ÿ]{2,}/.test(lugar) ? traducirLugar(lugar) : '');
   return { desc: estadoES(frase, ev && ev.codigo, cache).slice(0, 255), ciudad: L.ciudad, region: L.region, iso: L.iso, pais: L.pais, lugar: txt };
 }
 // Compatibilidad: estado + lugar en un solo texto.
@@ -356,4 +405,4 @@ function textoResumen(mile, resumen, cache) {
   return c ? capitalizar(c) : traducirDic(resumen);
 }
 
-module.exports = { eventoInfo, leerLugar, lugarTexto, paisesDelEnvio, paisES, partesEvento, textoEvento, textoResumen, traducirDic, traducirLugar, quedaIngles, fraseEvento, clave, norm, CODIGO_ES, MILE_ES };
+module.exports = { completarPaises, eventoInfo, leerLugar, lugarTexto, paisesDelEnvio, paisES, partesEvento, textoEvento, textoResumen, traducirDic, traducirLugar, quedaIngles, fraseEvento, clave, norm, CODIGO_ES, MILE_ES };

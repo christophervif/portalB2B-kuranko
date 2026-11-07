@@ -208,7 +208,7 @@ tbody tr.clickable:hover td{background:var(--hover)}
             <button class="btn btn-green btn-sm" onclick="abrirReporte()">Reportar venta</button>
           </div>
         </div>
-        <p class="muted" style="font-size:11px;margin-bottom:10px">Columna <b>Mov.</b>: cambios de los últimos 60 días — <span style="color:#4ade80">●</span> entrada · <span style="color:#60a5fa">●</span> devolución · <span style="color:#fbbf24">●</span> venta. Toca los puntos para ver las fechas.</p>
+        <p class="muted" style="font-size:11px;margin-bottom:10px">Columna <b>Mov.</b>: cambios de los últimos 60 días — <span style="color:#4ade80">●</span> entrada · <span style="color:#60a5fa">●</span> devolución · <span style="color:#fbbf24">●</span> venta. Toca los puntos para ver las fechas. <b>Sin vender</b>: tiempo desde la última venta (o desde que llegó, si nunca se vendió). Toca cualquier encabezado para ordenar.</p>
         <div id="stock-tabla"><div class="loading">Cargando...</div></div>
       </div>
     </div>
@@ -503,17 +503,37 @@ function renderPagos(){
 async function cargarStock(){
   try{
     stockCache=await apiCall('/portal/consignacion');
-    // Si tiene varias consignaciones (ej. una por RUC), se agrupan; el orden importa
-    // porque el reporte de venta usa el índice de cada fila.
-    stockCache.sort((a,b)=>String(a.consignacion||'').localeCompare(String(b.consignacion||''))||String(a.producto||'').localeCompare(String(b.producto||'')));
+    pintarStock();
+  }catch(e){showToast(e.message,true);}
+}
+// Orden de la tabla de consignación (clic en el encabezado). 'mov' = antigüedad: días sin vender.
+let stockOrden={k:'producto',dir:1};
+function ordenarStock(k){stockOrden=stockOrden.k===k?{k,dir:-stockOrden.dir}:{k,dir:(k==='mov'||k==='sinvender')?-1:1};pintarStock();}
+const valStock={producto:r=>String(r.variacion||r.producto||''),sku:r=>String(r.sku||''),mov:r=>r.dias_sin_vender==null?-1:r.dias_sin_vender,
+  sinvender:r=>r.dias_sin_vender==null?-1:r.dias_sin_vender,disponible:r=>+r.disponible||0,vendido:r=>+r.vendido_hist||0,precio:r=>+r.precio||0};
+function antiguedadTxt(r){
+  if(r.dias_sin_vender==null)return '<span class="muted">—</span>';
+  const d=r.dias_sin_vender,t=d<60?d+' d':d<730?Math.round(d/30)+' m':(d/365).toFixed(1)+' a';
+  const col=d>=180?'color:var(--fg-r,#f87171);font-weight:700':d>=90?'color:var(--fg-warn,#fbbf24);font-weight:600':'';
+  const tip=(r.nunca_vendido?'Nunca se vendió aquí · llegó el ':'Última venta: ')+fmtFecha(r.nunca_vendido?r.primera_entrada:r.ultima_venta_hist)+(r.ultima_entrada_hist?' · última entrada: '+fmtFecha(r.ultima_entrada_hist):'');
+  return `<span style="${col}" title="${escP(tip)}">${t}</span>${r.nunca_vendido?'<div class="muted" style="font-size:10.5px">nunca vendido</div>':''}`;
+}
+function pintarStock(){
+  try{
+    // Si tiene varias consignaciones (ej. una por RUC), se agrupan; dentro de cada una se ordena por la
+    // columna elegida. El orden importa porque el reporte de venta usa el índice de cada fila.
+    const f=valStock[stockOrden.k]||valStock.producto,d=stockOrden.dir;
+    stockCache.sort((a,b)=>{const g=String(a.consignacion||'').localeCompare(String(b.consignacion||''));if(g)return g;const x=f(a),y=f(b);return (typeof x==='number'?x-y:x.localeCompare(y))*d||valStock.producto(a).localeCompare(valStock.producto(b));});
     const c=document.getElementById('stock-tabla');
     if(!stockCache.length){c.innerHTML='<div class="muted">No tienes productos en consignación asignados, o aún no se ha vinculado tu punto. Consulta con Kuranko.</div>';return;}
     const varias=new Set(stockCache.map(r=>r.location_id)).size>1;
     const unica=varias?'':`<div class="muted" style="margin-bottom:10px;font-size:13px">${textoFactura(stockCache[0])}</div>`;
-    c.innerHTML=unica+`<table class="responsive"><thead><tr><th>Producto</th><th>SKU</th><th>Mov.</th><th class="num">Disponible</th><th class="num">Vendido hist.</th><th class="num">Precio</th></tr></thead><tbody>`+
-      stockCache.map((r,i)=>(varias&&(i===0||stockCache[i-1].location_id!==r.location_id)?cabeceraConsig(r,6):'')+`<tr><td data-label="Producto">${r.variacion||r.producto}</td>
+    const th=(k,t,cls,tit)=>`<th class="${cls||''}" style="cursor:pointer;user-select:none"${tit?` title="${tit}"`:''} onclick="ordenarStock('${k}')">${t}${stockOrden.k===k?(stockOrden.dir>0?' ↑':' ↓'):''}</th>`;
+    c.innerHTML=unica+`<table class="responsive"><thead><tr>${th('producto','Producto')}${th('sku','SKU')}${th('mov','Mov.','','Ordena por antigüedad (días sin vender)')}${th('sinvender','Sin vender','num','Días desde la última venta en tu tienda; si nunca se vendió, desde que llegó')}${th('disponible','Disponible','num')}${th('vendido','Vendido hist.','num')}${th('precio','Precio','num')}</tr></thead><tbody>`+
+      stockCache.map((r,i)=>(varias&&(i===0||stockCache[i-1].location_id!==r.location_id)?cabeceraConsig(r,7):'')+`<tr><td data-label="Producto">${r.variacion||r.producto}</td>
         <td class="muted" data-label="SKU">${r.sku||'-'}</td>
         <td data-label="Movimientos">${indicadores(r,i)}</td>
+        <td class="num" data-label="Sin vender">${antiguedadTxt(r)}</td>
         <td class="num" data-label="Disponible">${r.disponible}</td><td class="num" data-label="Vendido hist.">${r.vendido_hist}</td><td class="num" data-label="Precio">${r.precio?fmt(r.precio):'-'}</td></tr>`).join('')+`</tbody></table>`;
   }catch(e){showToast(e.message,true);}
 }
@@ -838,7 +858,7 @@ function exportarPDF(){
 function exportarConsignacion(tipo){
   if(!stockCache.length){showToast('Nada que exportar',true);return;}
   if(tipo==='excel'){
-    const datos=stockCache.map(r=>({Producto:r.variacion||r.producto,SKU:r.sku,Disponible:r.disponible,'Vendido histórico':r.vendido_hist,'Precio regular':+r.precio||0}));
+    const datos=stockCache.map(r=>({Producto:r.variacion||r.producto,SKU:r.sku,'Días sin vender':r.dias_sin_vender,'Nunca vendido':r.nunca_vendido?'Sí':'','Última venta':r.ultima_venta_hist?fmtFecha(r.ultima_venta_hist):'','Primera entrada':r.primera_entrada?fmtFecha(r.primera_entrada):'',Disponible:r.disponible,'Vendido histórico':r.vendido_hist,'Precio regular':+r.precio||0}));
     const ws=XLSX.utils.json_to_sheet(datos);
     XLSX.utils.sheet_add_aoa(ws,[['Exportado: '+ahoraStr()]],{origin:-1});
     const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Consignación');

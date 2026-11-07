@@ -308,14 +308,37 @@ module.exports = function registrarPortalCliente({
          FROM stock_movements
          WHERE movement_date >= DATE_SUB(NOW(), INTERVAL 60 DAY) AND type IN ('transfer','sale') AND location_from_id IN (?)
          GROUP BY product_variation_id, location_from_id`, [locs]);
+      // Historial completo (sin límite de fecha) para la antigüedad: primera y última entrada
+      // a la consignación y última venta desde ella. Solo de los productos que hoy tienen stock ahí.
+      const pvids = [...new Set(rows.map(r => r.pvid))];
+      let hEnt = [], hVen = [];
+      if (pvids.length) {
+        [[hEnt], [hVen]] = await Promise.all([
+          prodPool.query(`SELECT product_variation_id AS pvid, location_to_id AS loc, MIN(movement_date) AS primera, MAX(movement_date) AS ultima
+            FROM stock_movements WHERE type='transfer' AND location_to_id IN (?) AND product_variation_id IN (?)
+            GROUP BY product_variation_id, location_to_id`, [locs, pvids]),
+          prodPool.query(`SELECT product_variation_id AS pvid, location_from_id AS loc, MAX(movement_date) AS ultima
+            FROM stock_movements WHERE type='sale' AND location_from_id IN (?) AND product_variation_id IN (?)
+            GROUP BY product_variation_id, location_from_id`, [locs, pvids])
+        ]);
+      }
       const movMap = {};
       const k = (pvid, loc) => pvid + '|' + loc;
+      const hist = {};
+      hEnt.forEach(m => { hist[k(m.pvid, m.loc)] = { primera_entrada: m.primera, ultima_entrada_hist: m.ultima }; });
+      hVen.forEach(m => { (hist[k(m.pvid, m.loc)] = hist[k(m.pvid, m.loc)] || {}).ultima_venta_hist = m.ultima; });
+      const dias = f => f ? Math.max(0, Math.floor((Date.now() - new Date(f).getTime()) / 864e5)) : null;
       entradas.forEach(m => { (movMap[k(m.pvid, m.loc)] = movMap[k(m.pvid, m.loc)] || {}).ult_entrada = m.ult_entrada; });
       salidas.forEach(m => { Object.assign(movMap[k(m.pvid, m.loc)] = movMap[k(m.pvid, m.loc)] || {}, { ult_salida_transf: m.ult_salida_transf, ult_venta: m.ult_venta }); });
       const info = await infoConsignaciones(locs);
       res.json(rows.map(r => {
         const m = movMap[k(r.pvid, r.location_id)] || {};
+        const h = hist[k(r.pvid, r.location_id)] || {};
+        // Días sin vender: desde la última venta; si nunca se vendió ahí, desde que llegó por primera vez
+        const sinVender = h.ultima_venta_hist ? dias(h.ultima_venta_hist) : dias(h.primera_entrada);
         return { ...r, ...(info[r.location_id] || {}),
+          primera_entrada: h.primera_entrada || null, ultima_entrada_hist: h.ultima_entrada_hist || null,
+          ultima_venta_hist: h.ultima_venta_hist || null, dias_sin_vender: sinVender, nunca_vendido: !h.ultima_venta_hist,
           ult_entrada: m.ult_entrada || null,
           ult_salida_transf: m.ult_salida_transf || null,
           ult_venta: m.ult_venta || null

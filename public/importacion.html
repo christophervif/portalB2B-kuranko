@@ -1919,9 +1919,8 @@ function _erpMarcador(){(async()=>{
   const yaHay=w.get('data.items')||{},pend0=(w.get('data.pending_items')||[]);
   if((Object.keys(yaHay).length||pend0.some(p=>p.include)||w.get('data.reference_number'))&&!confirm('El formulario ya tiene datos. ¿Reemplazar con «'+(d.nombre||d.codigo)+'»?'))return;
   // Opciones de productos: el selector solo existe con una fila de producto; si no hay, se crea una temporal.
-  const pvOpts=()=>{const k=Object.keys(S).find(p=>/^data\.items\..+\.product_variation_id$/.test(p));return k?S[k]:null;};
-  if(!pvOpts()){w.set('data.items',{tmp:{product_variation_id:null,quantity:null}},false);await w.$commit();await new Promise(r=>setTimeout(r,400));S=selects();}
-  const pv={};(pvOpts()||[]).forEach(o=>{const sku=norm(String(o.label).split(' — ')[0]);if(sku&&!(sku in pv))pv[sku]=String(o.value);});
+  // IDs de producto: vienen resueltos desde el portal (d.pvIds); respaldo: pedidos pendientes.
+  const pv={};Object.keys(d.pvIds||{}).forEach(k=>{pv[norm(k)]=String(d.pvIds[k]);});
   pend0.forEach(p=>{const m=String(p.product_label||'').split(' — ');const sku=norm(m[m.length-1]);if(sku&&!(sku in pv))pv[sku]=String(p.product_variation_id);});
   // Cabecera
   const mon=norm(d.moneda),esPen=/^(PEN|SOL|S\/)/.test(mon);
@@ -1977,6 +1976,10 @@ async function copiarParaErp(id){
   const rec=saved.find(x=>x.id===id);if(!rec)return;
   let d;try{d=_payloadErp(rec);}catch(e){alert('No se pudo calcular: '+e.message);return;}
   if(!d.lineas.length){alert('Esta importación no tiene productos para ingresar.');return;}
+  try{const r=await fetch(API+'/erp-ids',{method:'POST',headers:_authHeaders(true),body:JSON.stringify({skus:d.lineas.map(l=>l.sku)})});
+    const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||('API '+r.status));d.pvIds=j;}
+  catch(e){alert('No se pudo leer los productos del ERP: '+e.message);return;}
+  const noErp=[...new Set(d.lineas.map(l=>l.sku).filter(s=>!d.pvIds[String(s).trim().toUpperCase()]))];
   const txt=JSON.stringify(d);
   let ok=false;try{await navigator.clipboard.writeText(txt);ok=true;}catch(e){}
   let box=$('erpLlenar');
@@ -1985,6 +1988,7 @@ async function copiarParaErp(id){
   box.innerHTML=`<div class="card" style="border:2px solid #2563eb">
     <div style="display:flex;justify-content:space-between;gap:8px;align-items:center"><b>📋 Para ERP — ${esc(rec.nombre||'')} <span class="hint">${esc(d.codigo)}</span></b><span class="btn-del" onclick="this.closest('#erpLlenar').remove()">✕</span></div>
     <div style="margin-top:6px">${ok?'<b style="color:#166534">✓ Datos copiados</b>':'<b style="color:#92400e">Copia el texto de abajo (Ctrl+C)</b>'} · ${d.lineas.length} línea(s), ${d.lineas.reduce((a,l)=>a+l.cant,0)} uds · ${esc(d.moneda)} · TC ${d.tc} · almacén ${esc(d.almacen.nombre||'—')}</div>
+    ${noErp.length?`<div style="margin-top:4px;color:#991b1b">⚠ ${noErp.length} SKU no existen en la ERP (créalos antes o agrégalos a mano): ${esc(noErp.slice(0,15).join(', '))}${noErp.length>15?'…':''}</div>`:''}
     ${falta.length?`<div style="margin-top:4px;color:#92400e">⚠ Falta: ${esc(falta.join(', '))} — tendrás que completarlo en la ERP.</div>`:''}
     <ol style="margin:8px 0 0 18px;padding:0;line-height:1.6">
       <li>Abre la ERP → <b>Entradas de stock → Nueva</b> (Realizar Entrada de Stock).</li>

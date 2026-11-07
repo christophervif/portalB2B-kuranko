@@ -359,6 +359,28 @@ module.exports = function registrarImportacion({
   }
   const normSku = v => String(v == null ? '' : v).trim().toUpperCase();
   const r2 = n => Math.round((Number(n) || 0) * 100) / 100;
+  // ── SKU → product_variation_id del ERP (para el marcador «Llenar en ERP»).
+  //    El selector de productos de la ERP ahora busca en el servidor y ya no trae
+  //    la lista completa, así que los IDs se resuelven aquí. SOLO LECTURA.
+  let _colsPv = null;
+  app.post('/api/importacion/erp-ids', authAdmin, mImp, async (req, res) => {
+    try {
+      const skus = Array.isArray(req.body && req.body.skus)
+        ? [...new Set(req.body.skus.map(s => String(s || '').trim()).filter(Boolean))].slice(0, 3000) : [];
+      if (!skus.length) return res.json({});
+      if (!_colsPv) { try { const [c] = await prodPool.query('SHOW COLUMNS FROM product_variations'); _colsPv = new Set(c.map(x => x.Field)); } catch (e) { _colsPv = new Set(); } }
+      const sinBorr = _colsPv.has('deleted_at') ? ' AND deleted_at IS NULL' : '';
+      const [rows] = await prodPool.query(
+        'SELECT id, TRIM(sku) AS sku FROM product_variations WHERE TRIM(sku) IN (?)' + sinBorr + ' ORDER BY id', [skus]);
+      const out = {};
+      rows.forEach(r => { const k = normSku(r.sku); if (k && !(k in out)) out[k] = String(r.id); });
+      res.json(out);
+    } catch (e) {
+      console.error('[importacion] erp-ids', e.message);
+      res.status(500).json({ error: 'No se pudo leer los productos del ERP: ' + e.message });
+    }
+  });
+
   app.post('/api/importacion/erp-verificar', authAdmin, mImp, async (req, res) => {
     try {
       const b = req.body || {};

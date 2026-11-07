@@ -217,6 +217,10 @@ const ISO3 = { USA: 'US', ESP: 'ES', DEU: 'DE', GBR: 'GB', CHN: 'CN', TWN: 'TW',
   POL: 'PL', CZE: 'CZ', DNK: 'DK', SWE: 'SE', HKG: 'HK', KOR: 'KR', AUT: 'AT', PRT: 'PT', ARE: 'AE', SGP: 'SG', THA: 'TH', VNM: 'VN', IND: 'IN', BRA: 'BR', CHL: 'CL', COL: 'CO',
   ECU: 'EC', ARG: 'AR', TUR: 'TR', AUS: 'AU', NZL: 'NZ', SVN: 'SI', SVK: 'SK', HUN: 'HU', ROU: 'RO', LUX: 'LU', IRL: 'IE', NOR: 'NO', FIN: 'FI', MYS: 'MY', IDN: 'ID', PHL: 'PH' };
 const US_EST = new Set('AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY PR VI GU'.split(' '));
+// Provincias de Italia (sigla de 2 letras): "BRESCIA, BS", "SAN PIETRO MOSEZZO, NO" (Novara), no Bahamas ni Noruega.
+const IT_PROV = new Set('AG AL AN AO AP AQ AR AT AV BA BG BI BL BN BO BR BS BT BZ CA CB CE CH CI CL CN CO CR CS CT CZ EN FC FE FG FI FM FR GE GO GR IM IS KR LC LE LI LO LT LU MB MC ME MI MN MO MS MT NA NO NU OR PA PC PD PE PG PI PN PO PR PT PU PV PZ RA RC RE RG RI RM RN RO SA SI SO SP SR SS SU SV TA TE TN TO TP TR TS TV UD VA VB VC VE VI VR VT VV'.split(' '));
+// Países con los que se trabaja seguido: su sigla NO cuenta como pista de "provincia italiana".
+const PAISES_COMUNES = new Set('US ES PE CN TW HK DE NL GB FR IT CH AT BE JP KR CA MX PA PT CZ PL DK SE'.split(' '));
 const CA_PROV = new Set('ON QC BC AB MB SK NS NB NL PE YT NT NU'.split(' '));
 const EST_NOMBRE = { FLORIDA: 'FL', TENNESSEE: 'TN', KENTUCKY: 'KY', CALIFORNIA: 'CA', TEXAS: 'TX', OHIO: 'OH', 'NEW YORK': 'NY', 'NEW JERSEY': 'NJ', ILLINOIS: 'IL', GEORGIA: 'GA', ALASKA: 'AK', INDIANA: 'IN', 'NORTH CAROLINA': 'NC', PENNSYLVANIA: 'PA', UTAH: 'UT', COLORADO: 'CO', ARIZONA: 'AZ', WASHINGTON: 'WA' };
 
@@ -257,7 +261,12 @@ const SIN_LUGAR = { ciudad: '', region: '', iso: '', pais: '' };
  * @param paisesEnvio  Set de códigos de país que ya aparecen en el envío (desempata "LEIPZIG, DE": ¿Alemania o Delaware?)
  * @returns { ciudad, region, iso, pais }  (vacío si no se pudo leer)
  */
-function leerLugar(texto, paisesEnvio) {
+function leerLugar(texto, ctx) {
+  // ctx: Set de países del envío (antiguo) o { paises: Set, base: 'IT' } (base = país del que sale el envío).
+  const paisesEnvio = ctx instanceof Set ? ctx : ((ctx && ctx.paises) || null);
+  const base = (ctx && !(ctx instanceof Set) && ctx.base) || '';
+  const PROV_BASE = base === 'US' ? US_EST : base === 'CA' ? CA_PROV : base === 'IT' ? IT_PROV : null;
+  let dudoso = false;
   let x = norm(texto).replace(/\b\d{4,6}(?:-\d{3,4})?\b/g, ' ').replace(/\s+,/g, ',');   // códigos postales fuera
   if (!/[A-Za-zÀ-ÿ]{2,}/.test(x)) return { ...SIN_LUGAR };                                // "19", "—": no es un lugar
   let region = '';
@@ -289,8 +298,22 @@ function leerLugar(texto, paisesEnvio) {
   const ultima = partes[partes.length - 1];
   const u = U(ultima);
   if (partes.length >= 2) {
-    if (u.length === 2 && US_EST.has(u) && partes.length === 2 && !(paisesEnvio && paisesEnvio.has(u) && !paisesEnvio.has('US'))) { iso = 'US'; region = u; partes.pop(); }
-    else if (u.length === 2 && CA_PROV.has(u) && partes.length === 2 && !ISO2_SET.has(u)) { iso = 'CA'; region = u; partes.pop(); }
+    const usCtx = !!(paisesEnvio && paisesEnvio.has('US')) || base === 'US';
+    if (u.length === 2 && partes.length === 2) {
+      // "CIUDAD, XX": XX puede ser provincia/estado o país (BS = Brescia o Bahamas; CA = California o Canadá…).
+      const provBase = !!(PROV_BASE && PROV_BASE.has(u));
+      const pais = aIso(u);
+      if (provBase && base !== 'US' && !US_EST.has(u) && !PAISES_COMUNES.has(u)) { iso = base; region = u; }
+      else if (US_EST.has(u)) {                                             // los envíos van a Miami: ante la duda, estado de EE. UU.
+        iso = 'US'; region = u;
+        if (!usCtx && (pais || IT_PROV.has(u)) && !(paisesEnvio && pais && paisesEnvio.has(pais) && !paisesEnvio.has('US'))) dudoso = true;
+        if (paisesEnvio && pais && paisesEnvio.has(pais) && !paisesEnvio.has('US')) { iso = pais; region = ''; }   // "LEIPZIG, DE" en un envío desde Alemania
+      }
+      else if (CA_PROV.has(u) && !pais) { iso = 'CA'; region = u; }
+      else if (pais) { iso = pais; if ((IT_PROV.has(u) || CA_PROV.has(u)) && !PAISES_COMUNES.has(pais) && !(paisesEnvio && paisesEnvio.has(pais))) dudoso = true; }
+      else if (provBase) { iso = base; region = u; }
+      if (iso) partes.pop();
+    }
     else if (EST_NOMBRE[u] && partes.length === 2) { iso = 'US'; region = EST_NOMBRE[u]; partes.pop(); }
     else { const c = aIso(ultima); if (c) { iso = c; partes.pop(); } }
   } else {
@@ -310,8 +333,39 @@ function leerLugar(texto, paisesEnvio) {
   if (!/[A-Za-zÀ-ÿ]{2,}/.test(ciudad)) ciudad = '';
   if (ciudad && aIso(ciudad) && (!iso || aIso(ciudad) === iso) && U(ciudad).length > 3) { iso = iso || aIso(ciudad); ciudad = ''; }   // "Italia" sola = país
   if (ciudad && iso && (U(ciudad) === U(paisES(iso)) || NOMBRE_ISO.get(U(ciudad)) === iso)) ciudad = '';   // "Hong Kong, HK"
+  if (!iso && region && PROV_BASE && PROV_BASE.has(region)) iso = base;      // "Brescia (BS)" en un envío desde Italia
   if (!iso && !ciudad) return { ...SIN_LUGAR };
-  return { ciudad: ciudad.slice(0, 60), region: ciudad ? region : '', iso, pais: paisES(iso) };
+  if (!iso) dudoso = true;                                                 // solo ciudad: la IA dice el país
+  return { ciudad: ciudad.slice(0, 60), region: ciudad ? region : '', iso, pais: paisES(iso), dudoso };
+}
+// Courier → país del que suelen salir sus envíos.
+const COURIER_PAIS = [[/poste ?italiane|\bbrt\b|bartolini|\bsda\b|nexive|gls ?it/i, 'IT'], [/correos|seur|mrw|nacex|zeleris|ctt express|paack|envialia|tipsa/i, 'ES'],
+  [/usps|ontrac|lasership/i, 'US'], [/royal ?mail|parcelforce|evri|yodel/i, 'GB'], [/deutsche ?post|dhl ?paket|hermes ?de/i, 'DE'], [/postnl/i, 'NL'],
+  [/chronopost|colissimo|la ?poste/i, 'FR'], [/canada ?post|purolator/i, 'CA'], [/chunghwa|taiwan ?post/i, 'TW'], [/china ?post|ems china|yanwen|cainiao/i, 'CN']];
+/**
+ * País del que sale el envío (para leer bien "BRESCIA, BS"). Pistas, en orden:
+ *  1) N° de tracking postal internacional (UPU S10: "RR123456789IT" → IT).
+ *  2) País de origen que informa el courier (api_paises "IT>US").
+ *  3) El courier (Poste Italiane, BRT → IT; Correos, SEUR → ES…).
+ *  4) Las siglas de las ubicaciones: si son provincias italianas que no son
+ *     estados de EE. UU. ni países con los que se trabaja (BS, NO, MI…) → IT.
+ */
+function baseDelEnvio({ tracking, courier, apiPaises, eventos } = {}) {
+  const t = String(tracking || '').toUpperCase().replace(/\s+/g, '');
+  const s10 = t.match(/^[A-Z]{2}\d{9}([A-Z]{2})$/);
+  if (s10 && ISO2_SET.has(s10[1])) return s10[1];
+  const orig = String(apiPaises || '').split('>')[0];
+  if (orig && ISO2_SET.has(orig)) return orig;
+  for (const [rx, iso] of COURIER_PAIS) if (rx.test(String(courier || ''))) return iso;
+  const codigos = [];
+  (eventos || []).forEach(ev => {
+    const l = partesEvento(ev).lugar;
+    const m = l.match(/(?:,|\s)\s*\(?([A-Za-z]{2})\)?\s*$/);
+    const pts = l.split(/\s*,\s*|\s+-\s+/).filter(Boolean);
+    if (m && pts.length <= 2) codigos.push(m[1].toUpperCase());
+  });
+  if (codigos.length && codigos.every(c => IT_PROV.has(c)) && codigos.some(c => !US_EST.has(c) && !PAISES_COMUNES.has(c))) return 'IT';
+  return '';
 }
 /**
  * Completa el país de los lugares que solo traen ciudad ("Brescia (BS)", "MALPENSA APT"):
@@ -387,15 +441,17 @@ function estadoES(frase, codigo, cache) {
  * Evento listo para mostrar.
  * @returns { desc (estado en español), ciudad, region, iso, pais, lugar (texto "Memphis (TN), Estados Unidos") }
  */
-function eventoInfo(ev, cache, paisesEnvio) {
+function eventoInfo(ev, cache, ctx, lugares) {
   const { frase, lugar } = partesEvento(ev);
-  const L = leerLugar(lugar, paisesEnvio);
+  // Lugar ya identificado por la IA (cache seg_lugares) → manda sobre la lectura automática.
+  const fijo = lugares && lugar && lugares.get(clave(lugar));
+  const L = fijo ? { ciudad: fijo.ciudad || '', region: fijo.region || '', iso: fijo.iso || '', pais: paisES(fijo.iso || '') } : leerLugar(lugar, ctx);
   const txt = lugarTexto(L) || (/[A-Za-zÀ-ÿ]{2,}/.test(lugar) ? traducirLugar(lugar) : '');
-  return { desc: estadoES(frase, ev && ev.codigo, cache).slice(0, 255), ciudad: L.ciudad, region: L.region, iso: L.iso, pais: L.pais, lugar: txt };
+  return { desc: estadoES(frase, ev && ev.codigo, cache).slice(0, 255), ciudad: L.ciudad, region: L.region, iso: L.iso, pais: L.pais, lugar: txt, lugar_raw: lugar, dudoso: !fijo && !!L.dudoso };
 }
 // Compatibilidad: estado + lugar en un solo texto.
-function textoEvento(ev, cache, paisesEnvio) {
-  const i = eventoInfo(ev, cache, paisesEnvio);
+function textoEvento(ev, cache, ctx) {
+  const i = eventoInfo(ev, cache, ctx);
   return [i.desc, i.lugar].filter(Boolean).join(' · ').slice(0, 300);
 }
 function textoResumen(mile, resumen, cache) {
@@ -405,4 +461,4 @@ function textoResumen(mile, resumen, cache) {
   return c ? capitalizar(c) : traducirDic(resumen);
 }
 
-module.exports = { completarPaises, eventoInfo, leerLugar, lugarTexto, paisesDelEnvio, paisES, partesEvento, textoEvento, textoResumen, traducirDic, traducirLugar, quedaIngles, fraseEvento, clave, norm, CODIGO_ES, MILE_ES };
+module.exports = { baseDelEnvio, IT_PROV, ISO2_SET, completarPaises, eventoInfo, leerLugar, lugarTexto, paisesDelEnvio, paisES, partesEvento, textoEvento, textoResumen, traducirDic, traducirLugar, quedaIngles, fraseEvento, clave, norm, CODIGO_ES, MILE_ES };

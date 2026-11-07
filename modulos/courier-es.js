@@ -183,37 +183,171 @@ function traducirLugar(l) {
   PAISES.forEach(([rx, es]) => { x = x.replace(rx, es); });
   return x.slice(0, 120);
 }
+// ── Ciudad y país de cada evento ──────────────────────────────────────────
+//    El courier manda la ubicación como texto libre: "MEMPHIS, TN, US",
+//    "Miami, FL 33166, United States", "LEIPZIG - GERMANY", "TAIPEI, TW",
+//    "CINCINNATI HUB - USA"… (DHL a veces la pone dentro del estado:
+//    "Processed at LEIPZIG - GERMANY"). Se separa en ciudad, estado y país.
+const sinTildes = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+const U = (t) => sinTildes(t).toUpperCase().replace(/[.’']/g, '').replace(/\s+/g, ' ').trim();
+let REG_ES = null, REG_EN = null;
+try { REG_ES = new Intl.DisplayNames(['es'], { type: 'region' }); REG_EN = new Intl.DisplayNames(['en'], { type: 'region' }); } catch (e) { /* sin ICU */ }
+const PAIS_CORTO = { HK: 'Hong Kong', MO: 'Macao', US: 'Estados Unidos', GB: 'Reino Unido', KR: 'Corea del Sur', TW: 'Taiwán', CN: 'China', CZ: 'República Checa', NL: 'Países Bajos', AE: 'Emiratos Árabes Unidos', PE: 'Perú' };
+const ISO2 = [];
+const NOMBRE_ISO = new Map();
+if (REG_EN) {
+  const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  for (const a of A) for (const b of A) {
+    const c = a + b; let en = '';
+    try { en = REG_EN.of(c); } catch (e) { continue; }
+    if (!en || en === c || /unknown/i.test(en) || ['EU', 'EZ', 'UN', 'UK', 'QO', 'XA', 'XB', 'ZZ'].includes(c)) continue;
+    ISO2.push(c); NOMBRE_ISO.set(U(en), c);
+    try { NOMBRE_ISO.set(U(REG_ES.of(c)), c); } catch (e) {}
+  }
+}
+const ISO2_SET = new Set(ISO2.length ? ISO2 : ['US', 'ES', 'PE', 'CN', 'TW', 'DE', 'GB', 'NL', 'FR', 'IT', 'HK', 'JP', 'MX', 'PA', 'CA']);
+Object.entries({ 'USA': 'US', 'U S A': 'US', 'US': 'US', 'UNITED STATES OF AMERICA': 'US', 'UNITED STATES': 'US', 'EEUU': 'US', 'EE UU': 'US', 'UK': 'GB', 'GREAT BRITAIN': 'GB', 'ENGLAND': 'GB',
+  'KOREA': 'KR', 'REPUBLIC OF KOREA': 'KR', 'SOUTH KOREA': 'KR', 'CZECH REPUBLIC': 'CZ', 'HOLLAND': 'NL', 'THE NETHERLANDS': 'NL', 'CHINA MAINLAND': 'CN', 'MAINLAND CHINA': 'CN',
+  'PEOPLES REPUBLIC OF CHINA': 'CN', 'HONG KONG SAR': 'HK', 'HONG KONG SAR CHINA': 'HK', 'HONG KONG': 'HK', 'TAIWAN': 'TW', 'TAIWAN CHINA': 'TW', 'CHINESE TAIPEI': 'TW', 'RUSSIA': 'RU',
+  'VIETNAM': 'VN', 'TURKEY': 'TR', 'UAE': 'AE', 'PERU': 'PE', 'ESPANA': 'ES', 'DEUTSCHLAND': 'DE', 'MACAU': 'MO' }).forEach(([k, v]) => NOMBRE_ISO.set(k, v));
+const ISO3 = { USA: 'US', ESP: 'ES', DEU: 'DE', GBR: 'GB', CHN: 'CN', TWN: 'TW', NLD: 'NL', PER: 'PE', FRA: 'FR', ITA: 'IT', BEL: 'BE', CHE: 'CH', JPN: 'JP', MEX: 'MX', PAN: 'PA', CAN: 'CA',
+  POL: 'PL', CZE: 'CZ', DNK: 'DK', SWE: 'SE', HKG: 'HK', KOR: 'KR', AUT: 'AT', PRT: 'PT', ARE: 'AE', SGP: 'SG', THA: 'TH', VNM: 'VN', IND: 'IN', BRA: 'BR', CHL: 'CL', COL: 'CO',
+  ECU: 'EC', ARG: 'AR', TUR: 'TR', AUS: 'AU', NZL: 'NZ', SVN: 'SI', SVK: 'SK', HUN: 'HU', ROU: 'RO', LUX: 'LU', IRL: 'IE', NOR: 'NO', FIN: 'FI', MYS: 'MY', IDN: 'ID', PHL: 'PH' };
+const US_EST = new Set('AL AK AZ AR CA CO CT DE DC FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY PR VI GU'.split(' '));
+const CA_PROV = new Set('ON QC BC AB MB SK NS NB NL PE YT NT NU'.split(' '));
+const EST_NOMBRE = { FLORIDA: 'FL', TENNESSEE: 'TN', KENTUCKY: 'KY', CALIFORNIA: 'CA', TEXAS: 'TX', OHIO: 'OH', 'NEW YORK': 'NY', 'NEW JERSEY': 'NJ', ILLINOIS: 'IL', GEORGIA: 'GA', ALASKA: 'AK', INDIANA: 'IN', 'NORTH CAROLINA': 'NC', PENNSYLVANIA: 'PA', UTAH: 'UT', COLORADO: 'CO', ARIZONA: 'AZ', WASHINGTON: 'WA' };
+
+function paisES(iso) {
+  if (!iso) return '';
+  if (PAIS_CORTO[iso]) return PAIS_CORTO[iso];
+  try { const n = REG_ES && REG_ES.of(iso); if (n && n !== iso) return n; } catch (e) {}
+  return iso;
+}
+// Texto → código de país (o '' si no es un país).
+function aIso(t) {
+  const u = U(t);
+  if (!u) return '';
+  if (u.length === 2 && ISO2_SET.has(u)) return u;
+  if (u.length === 3 && ISO3[u]) return ISO3[u];
+  return NOMBRE_ISO.get(u) || '';
+}
+const titulo = (t) => {
+  const x = norm(t);
+  if (!x || x !== x.toUpperCase()) return x;
+  return x.toLowerCase().replace(/(^|[\s(/'’-])([a-záéíóúñü])/g, (m, a, c) => a + c.toUpperCase());
+};
+const SUFIJOS_LUGAR = /\s+(?:HUB|GATEWAY|FACILITY|SERVICE CENTER|SORT(?:ING)? CENTER|DISTRIBUTION CENTER|PROCESSING CENTER|INTERNATIONAL SERVICE CENTER|ISC|NDC|P&DC|RAMP|STATION)$/i;
+
+/**
+ * Separa una ubicación del courier.
+ * @param texto  "MEMPHIS, TN, US" | "LEIPZIG - GERMANY" | …
+ * @param paisesEnvio  Set de códigos de país que ya aparecen en el envío (desempata "LEIPZIG, DE": ¿Alemania o Delaware?)
+ * @returns { ciudad, region, iso, pais }  (vacío si no se pudo leer)
+ */
+function leerLugar(texto, paisesEnvio) {
+  let x = norm(texto).replace(/\b\d{4,6}(?:-\d{3,4})?\b/g, ' ').replace(/\s+,/g, ',');   // códigos postales fuera
+  if (!x) return { ciudad: '', region: '', iso: '', pais: '' };
+  let partes = x.split(/\s*,\s*|\s+-\s+|\s*\/\s*/).map(norm).filter(Boolean);
+  // "MIAMI FL US" (sin comas): separar las últimas palabras si son estado/país.
+  if (partes.length === 1) {
+    const w = partes[0].split(' ');
+    const fin = [];
+    while (w.length > 1 && fin.length < 2) {
+      const ult = w[w.length - 1];
+      if ((ult.length === 2 && (US_EST.has(ult.toUpperCase()) || ISO2_SET.has(ult.toUpperCase())) && ult === ult.toUpperCase()) || (ult.length === 3 && ISO3[ult.toUpperCase()] && ult === ult.toUpperCase())) fin.unshift(w.pop());
+      else break;
+    }
+    if (fin.length) partes = [w.join(' '), ...fin];
+  }
+  let iso = '', region = '';
+  const ultima = partes[partes.length - 1];
+  const u = U(ultima);
+  if (partes.length >= 2) {
+    if (u.length === 2 && US_EST.has(u) && partes.length === 2 && !(paisesEnvio && paisesEnvio.has(u) && !paisesEnvio.has('US'))) { iso = 'US'; region = u; partes.pop(); }
+    else if (u.length === 2 && CA_PROV.has(u) && partes.length === 2 && !ISO2_SET.has(u)) { iso = 'CA'; region = u; partes.pop(); }
+    else if (EST_NOMBRE[u] && partes.length === 2) { iso = 'US'; region = EST_NOMBRE[u]; partes.pop(); }
+    else { const c = aIso(ultima); if (c) { iso = c; partes.pop(); } }
+  } else {
+    const c = aIso(ultima);
+    if (c) { iso = c; partes.pop(); }
+  }
+  // Estado / provincia antes del país ("MEMPHIS, TN, US").
+  if (partes.length >= 2 && !region) {
+    const r = U(partes[partes.length - 1]);
+    if ((iso === 'US' || !iso) && (US_EST.has(r) || EST_NOMBRE[r])) { region = US_EST.has(r) ? r : EST_NOMBRE[r]; iso = iso || 'US'; partes.pop(); }
+    else if ((iso === 'CA' || !iso) && CA_PROV.has(r)) { region = r; iso = iso || 'CA'; partes.pop(); }
+    else if (r.length === 2 && iso && iso !== 'US' && iso !== 'CA') { region = r; partes.pop(); }
+  }
+  let ciudad = titulo(norm(partes[0] || '').replace(SUFIJOS_LUGAR, ''));
+  if (ciudad && new RegExp('^' + RX_CARR + '$', 'i').test(ciudad)) ciudad = '';                      // "FEDEX HUB" no es una ciudad
+  if (ciudad && iso && (U(ciudad) === U(paisES(iso)) || NOMBRE_ISO.get(U(ciudad)) === iso)) ciudad = '';   // "Hong Kong, HK"
+  if (!iso && !ciudad) return { ciudad: '', region: '', iso: '', pais: '' };
+  return { ciudad: ciudad.slice(0, 60), region, iso, pais: paisES(iso) };
+}
+function lugarTexto(L) {
+  if (!L || (!L.ciudad && !L.pais)) return '';
+  return [L.ciudad ? (L.ciudad + (L.region ? ' (' + L.region + ')' : '')) : '', L.pais].filter(Boolean).join(', ');
+}
+// DHL y otros meten la ubicación al final del estado: "Processed at LEIPZIG - GERMANY".
+function lugarDentroDelEstado(raw) {
+  const m = String(raw || '').match(/^(.*?)\s*\b((?:[A-Z][A-Z.'’]*)(?:\s+[A-Z][A-Z.'’]*)*)\s+-\s+([A-Z][A-Za-z .]+)$/);
+  if (!m || !aIso(m[3])) return null;
+  const estado = norm(m[1]).replace(/\s+(?:at|in|from|to|en|de)$/i, '');
+  return { estado, lugar: m[2] + ' - ' + m[3] };
+}
+// Partes de un evento: frase del estado (para traducir) + ubicación cruda.
+function partesEvento(ev) {
+  let frase, lugar;
+  if (ev && ev.raw != null) { frase = norm(ev.raw); lugar = norm(ev.lugar); }
+  else { const p = separar(ev && ev.desc); frase = p.texto; lugar = p.lugar; }
+  if (!lugar) { const d = lugarDentroDelEstado(frase); if (d) { frase = d.estado; lugar = d.lugar; } }
+  return { frase, lugar };
+}
+// Países que aparecen sin ambigüedad en los eventos de un envío (+ el del almacén).
+function paisesDelEnvio(eventos, hubIso) {
+  const set = new Set();
+  if (hubIso) set.add(hubIso);
+  (eventos || []).forEach(ev => {
+    const l = partesEvento(ev).lugar;
+    const pts = l.split(/\s*,\s*|\s+-\s+/).filter(Boolean);
+    if (pts.length >= 3 || (pts.length === 2 && U(pts[1]).length > 2)) { const c = aIso(pts[pts.length - 1]); if (c) set.add(c); }
+  });
+  return set;
+}
+
 // Separa un desc antiguo "estado · lugar" (guardado antes de esta versión).
 function separar(desc) {
   const p = String(desc || '').split(' · ');
   return { texto: norm(p[0]), lugar: norm(p.slice(1).join(' · ')) };
 }
 // Frase a traducir de un evento (nuevo: ev.raw; antiguo: la primera parte de ev.desc).
-function fraseEvento(ev) { return ev && ev.raw != null ? norm(ev.raw) : separar(ev && ev.desc).texto; }
+function fraseEvento(ev) { return partesEvento(ev).frase; }
 
 /**
  * Texto final en español de un evento.
  * @param ev     { raw?, lugar?, codigo?, desc? }
  * @param cache  Map clave(en) → es (traducciones de la IA)
  */
-function textoEvento(ev, cache) {
-  const frase = fraseEvento(ev);
-  const lugar = ev && ev.raw != null ? norm(ev.lugar) : separar(ev && ev.desc).lugar;
-  let es = '';
-  if (frase) {
-    const c = cache && cache.get(clave(frase));
-    if (c) es = c;
-    else if (!quedaIngles(frase)) es = traducirDic(frase);
-    else {
-      const cod = String((ev && ev.codigo) || '').toLowerCase();
-      // El diccionario no alcanza: si hay código del courier, usar su etiqueta + la traducción aproximada entre paréntesis no aporta; se usa la aproximada.
-      es = traducirDic(frase) || CODIGO_ES[cod] || '';
-    }
-  } else {
-    es = CODIGO_ES[String((ev && ev.codigo) || '').toLowerCase()] || '';
-  }
-  const lug = traducirLugar(lugar);
-  return [capitalizar(es), lug].filter(Boolean).join(' · ').slice(0, 300);
+function estadoES(frase, codigo, cache) {
+  if (!frase) return CODIGO_ES[String(codigo || '').toLowerCase()] || '';
+  const c = cache && cache.get(clave(frase));
+  if (c) return capitalizar(c);
+  return traducirDic(frase) || CODIGO_ES[String(codigo || '').toLowerCase()] || '';
+}
+/**
+ * Evento listo para mostrar.
+ * @returns { desc (estado en español), ciudad, region, iso, pais, lugar (texto "Memphis (TN), Estados Unidos") }
+ */
+function eventoInfo(ev, cache, paisesEnvio) {
+  const { frase, lugar } = partesEvento(ev);
+  const L = leerLugar(lugar, paisesEnvio);
+  const txt = lugarTexto(L) || traducirLugar(lugar);
+  return { desc: estadoES(frase, ev && ev.codigo, cache).slice(0, 255), ciudad: L.ciudad, region: L.region, iso: L.iso, pais: L.pais, lugar: txt };
+}
+// Compatibilidad: estado + lugar en un solo texto.
+function textoEvento(ev, cache, paisesEnvio) {
+  const i = eventoInfo(ev, cache, paisesEnvio);
+  return [i.desc, i.lugar].filter(Boolean).join(' · ').slice(0, 300);
 }
 function textoResumen(mile, resumen, cache) {
   const m = MILE_ES[String(mile || '').toLowerCase()];
@@ -222,4 +356,4 @@ function textoResumen(mile, resumen, cache) {
   return c ? capitalizar(c) : traducirDic(resumen);
 }
 
-module.exports = { textoEvento, textoResumen, traducirDic, traducirLugar, quedaIngles, fraseEvento, clave, norm, CODIGO_ES, MILE_ES };
+module.exports = { eventoInfo, leerLugar, lugarTexto, paisesDelEnvio, paisES, partesEvento, textoEvento, textoResumen, traducirDic, traducirLugar, quedaIngles, fraseEvento, clave, norm, CODIGO_ES, MILE_ES };

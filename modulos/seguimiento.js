@@ -132,6 +132,7 @@ module.exports = function registrarSeguimiento({
     try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN api_at DATETIME NULL`); } catch (e) {}                        // última lectura por API
     try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN api_eventos JSON NULL`); } catch (e) {}                      // historial completo de eventos del courier (traducido)
     try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN api_entrega DATE NULL`); } catch (e) {}                       // fecha de entrega real según el courier
+    try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN trackings_extra JSON NULL`); } catch (e) {}                   // otros N° de tracking del mismo envío (cuando cambia de courier): [{tn, courier, fuente, desde}]
     try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN api_eta DATE NULL`); } catch (e) {}                          // fecha estimada de entrega que da el courier
     try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN fecha_llegada DATE NULL`); } catch (e) {}                    // día en que se marcó "Llegó a Perú" (base de las estimaciones)
     try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN api_paises VARCHAR(12) NOT NULL DEFAULT ''`); } catch (e) {}     // país de origen>destino según el courier ("IT>US")
@@ -231,6 +232,17 @@ module.exports = function registrarSeguimiento({
   //    2) Si el courier no da fecha: los envíos ANTERIORES que ya llegaron, del mismo
   //       proveedor y courier (o el mismo tipo de tracking): mediana de días de viaje.
   const normK = (v) => String(v || '').trim().toUpperCase();
+  // Courier con nombre único (el del primer tramo: con el que SALE el envío).
+  const courierDe = (r) => cES.normalizarCourier(r.courier) || cES.courierDeTracking(r.tracking);
+  // Cadena de couriers del envío ("Poste Italiane → Serpost"): por los eventos, o por los trackings.
+  function cadenaCouriers(r, evs) {
+    const out = [];
+    const push = (c) => { c = cES.normalizarCourier(c); if (c && out[out.length - 1] !== c && !out.includes(c)) out.push(c); };
+    (evs || []).slice().reverse().forEach(ev => push(ev && ev.courier));     // si la API dice qué courier hizo cada evento, manda eso
+    if (!out.length) push(courierDe(r));
+    (asJson(r.trackings_extra, []) || []).forEach(x => push(x && x.courier));
+    return out;
+  }
   const diasEntre = (a, b) => Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 864e5);
   function salidaEnvio(r) {
     const evs = asJson(r.api_eventos, []) || [];
@@ -249,7 +261,7 @@ module.exports = function registrarSeguimiento({
   let _hist = { t: 0, grupos: null };
   async function historialTransito() {
     if (_hist.grupos && Date.now() - _hist.t < 10 * 60e3) return _hist.grupos;
-    const [rows] = await portalPool.query(`SELECT proveedor, courier, tracking, hub, api_paises, api_eventos, api_entrega, fecha_llegada, creado_en, actualizado_en
+    const [rows] = await portalPool.query(`SELECT proveedor, courier, tracking, hub, api_paises, api_eventos, api_entrega, fecha_llegada, creado_en, actualizado_en, trackings_extra
       FROM seg_envios WHERE estado = 'recibido' ORDER BY actualizado_en DESC LIMIT 400`);
     const grupos = new Map();
     const add = (k, d) => { if (!k) return; if (!grupos.has(k)) grupos.set(k, []); grupos.get(k).push(d); };
@@ -258,7 +270,7 @@ module.exports = function registrarSeguimiento({
       if (!isISO(sal) || !isISO(lle)) return;
       const d = diasEntre(sal, lle);
       if (d < 1 || d > 120) return;                                              // datos raros fuera
-      const pv = normK(r.proveedor), co = normK(r.courier), tt = tipoTracking(r);
+      const pv = cES.claveProveedor(r.proveedor), co = normK(courierDe(r)), tt = tipoTracking(r);
       add('pc|' + pv + '|' + co, d); add('ct|' + co + '|' + tt, d); add('p|' + pv, d); add('c|' + co, d);
     });
     _hist = { t: Date.now(), grupos };
@@ -276,7 +288,7 @@ module.exports = function registrarSeguimiento({
     }
     const sal = salidaEnvio(r);
     if (!grupos || !isISO(sal)) return null;
-    const pv = normK(r.proveedor), co = normK(r.courier), tt = tipoTracking(r);
+    const pv = cES.claveProveedor(r.proveedor), co = normK(courierDe(r)), tt = tipoTracking(r);
     const opciones = [
       ['pc|' + pv + '|' + co, 'mismo proveedor y courier', 1], ['ct|' + co + '|' + tt, 'mismo courier y tipo de tracking', 1],
       ['p|' + pv, 'mismo proveedor', 2], ['c|' + co, 'mismo courier', 3]];
@@ -439,9 +451,10 @@ module.exports = function registrarSeguimiento({
   }
   // Evento tal como lo entrega el courier (texto original; se traduce al mostrarlo).
   const horaCorta = (v) => { const m = String(v || '').match(/T(\d{2}:\d{2})/); return m ? m[1] : ''; };
-  const eventoCrudo = (fechaRaw, texto, lugar, codigo) => ({
+  const eventoCrudo = (fechaRaw, texto, lugar, codigo, courier) => ({
     fecha: fechaCorta(fechaRaw), hora: horaCorta(fechaRaw),
     raw: s(texto).slice(0, 255), lugar: s(lugar).slice(0, 120), codigo: s(codigo).slice(0, 60),
+    courier: cES.normalizarCourier(courier || ''),
   });
   // Evento listo para la pantalla (en español).
   // Historial listo para la pantalla: estado en español + ciudad y país de cada evento,
@@ -486,7 +499,7 @@ module.exports = function registrarSeguimiento({
         // Eventos completos ordenados por fecha (más reciente primero), traducidos al español.
         const evsRaw = Array.isArray(tr.events) ? tr.events.slice() : [];
         evsRaw.sort((a, b) => String(b.occurrenceDatetime || '').localeCompare(String(a.occurrenceDatetime || '')));
-        const eventos = evsRaw.map(ev => eventoCrudo(ev.occurrenceDatetime || ev.datetime || '', ev.status, ev.location, ev.statusCode))
+        const eventos = evsRaw.map(ev => eventoCrudo(ev.occurrenceDatetime || ev.datetime || '', ev.status, ev.location, ev.statusCode, ev.courierCode))
           .filter(e => e.fecha || e.raw || e.codigo).slice(0, 60);
         const ev0 = evsRaw[0] || {};
         const resumen = s(ev0.status || mile).slice(0, 255);          // original; se traduce al mostrar
@@ -497,7 +510,10 @@ module.exports = function registrarSeguimiento({
         const destPais = s(sh.destinationCountryCode || (sh.recipient && sh.recipient.countryCode) || '').toUpperCase().slice(0, 2);
         const origPais = s(sh.originCountryCode || (sh.shipper && sh.shipper.countryCode) || '').toUpperCase().slice(0, 2);
         const etaCourier = fechaCorta((sh.delivery && (sh.delivery.estimatedDeliveryDate || sh.delivery.estimatedDeliveryDateTo)) || '');
-        out[String(n)] = { estado: mile, resumen, delivered, destPais, origPais, eventos, entrega, etaCourier };
+        // Otros N° de tracking que el courier asocia a este envío (p. ej. el nuevo número del siguiente courier).
+        const otros = [...new Set([].concat(Array.isArray(sh.trackingNumbers) ? sh.trackingNumbers.map(x => s(x && (x.tn || x.trackingNumber))) : []))]
+          .map(x => x.trim()).filter(x => x && x.toUpperCase() !== String(n).toUpperCase()).slice(0, 4);
+        out[String(n)] = { estado: mile, resumen, delivered, destPais, origPais, eventos, entrega, etaCourier, otros };
       } catch (e) { /* una falla no corta las demás */ }
     }
     return out;
@@ -521,11 +537,11 @@ module.exports = function registrarSeguimiento({
         // Eventos: en v2.2 vienen en tracking.providers[].events; fallback al último evento.
         let evsRaw = [];
         const prov = (ti.tracking && Array.isArray(ti.tracking.providers)) ? ti.tracking.providers : [];
-        prov.forEach(p => { if (Array.isArray(p.events)) evsRaw = evsRaw.concat(p.events); });
+        prov.forEach(p => { if (Array.isArray(p.events)) evsRaw = evsRaw.concat(p.events.map(ev => ({ ...ev, _courier: (p.provider && (p.provider.name || p.provider.alias)) || '' }))); });
         if (!evsRaw.length && le && (le.description || le.time_iso)) evsRaw = [le];
         evsRaw.sort((a, b) => String(b.time_iso || b.time_utc || '').localeCompare(String(a.time_iso || a.time_utc || '')));
         const eventos = evsRaw.map(ev => eventoCrudo(ev.time_iso || ev.time_utc || ev.time_raw || '', ev.description,
-            ev.location || (ev.address ? [ev.address.city, ev.address.state, ev.address.country].filter(Boolean).join(', ') : ''), ev.sub_status))
+            ev.location || (ev.address ? [ev.address.city, ev.address.state, ev.address.country].filter(Boolean).join(', ') : ''), ev.sub_status, ev._courier))
           .filter(e => e.fecha || e.raw || e.codigo).slice(0, 60);
         const resumen = s(le.description || ls.sub_status || estado).slice(0, 255);   // original; se traduce al mostrar
         const evEntrega = evsRaw.find(e => /deliver/i.test(s(e.stage || e.sub_status || e.description || ''))) || (delivered ? evsRaw[0] : null);
@@ -768,7 +784,9 @@ module.exports = function registrarSeguimiento({
       const grupos = await historialTransito().catch(() => null);
       res.json(rows.map(r => ({
         eta_estimada: etaEstimada(r, grupos),
-        id: r.id, tracking: r.tracking, courier: r.courier,
+        id: r.id, tracking: r.tracking, courier: courierDe(r),
+        trackings_extra: asJson(r.trackings_extra, []) || [],
+        cadena: cadenaCouriers(r, asJson(r.api_eventos, []) || []),
         proveedor: esMaestro ? r.proveedor : '', n_factura: r.n_factura,
         estado: r.estado, fecha_estimada: isoDate(r.fecha_estimada), archivado: r.archivado ? 1 : 0,
         importacion_id: r.importacion_id || '',
@@ -1101,7 +1119,7 @@ module.exports = function registrarSeguimiento({
          ON DUPLICATE KEY UPDATE tracking=VALUES(tracking), courier=VALUES(courier), proveedor=VALUES(proveedor),
            n_factura=VALUES(n_factura), estado=VALUES(estado), fecha_estimada=VALUES(fecha_estimada),
            nota=VALUES(nota), items=VALUES(items)`,
-        [id, tracking, s(b.courier).slice(0,80), s(b.proveedor).slice(0,255),
+        [id, tracking, (cES.normalizarCourier(b.courier) || cES.courierDeTracking(tracking)).slice(0,80), s(b.proveedor).slice(0,255),
          s(b.n_factura).slice(0,160), (b.estado === 'recibido' ? 'recibido' : 'en_transito'),
          (b.fecha_estimada && /^\d{4}-\d{2}-\d{2}/.test(String(b.fecha_estimada))) ? String(b.fecha_estimada).slice(0,10) : null,
          s(b.nota).slice(0, 2000), JSON.stringify(items), creadoPor]);
@@ -1192,6 +1210,44 @@ module.exports = function registrarSeguimiento({
       return { ok: false, motivo: e.message };
     }
   }
+
+  // ── Otro N° de tracking del mismo envío (cuando cambia de courier) ─────────
+  //    Lo agrega a mano el maestro o el almacenero; también se agrega solo cuando el courier lo informa.
+  app.post('/api/seguimiento/envio/:id/tracking-extra', authAdmin, mSeg, async (req, res) => {
+    try {
+      const tn = s(req.body && req.body.tn).trim().replace(/\s+/g, '').slice(0, 60);
+      if (!tn) return res.status(400).json({ error: 'Falta el N° de tracking' });
+      const [rows] = await portalPool.query(`SELECT tracking, trackings_extra FROM seg_envios WHERE id = ?`, [req.params.id]);
+      if (!rows.length) return res.status(404).json({ error: 'Envío no encontrado' });
+      const extras = asJson(rows[0].trackings_extra, []) || [];
+      if (s(rows[0].tracking).toUpperCase() === tn.toUpperCase() || extras.some(x => s(x.tn).toUpperCase() === tn.toUpperCase()))
+        return res.status(409).json({ error: 'Ese tracking ya está en el envío' });
+      const courier = cES.normalizarCourier(req.body && req.body.courier) || cES.courierDeTracking(tn);
+      extras.push({ tn, courier, fuente: 'manual', desde: hoyISO() });
+      await portalPool.query(`UPDATE seg_envios SET trackings_extra = ? WHERE id = ?`, [JSON.stringify(extras), req.params.id]);
+      res.json({ ok: true, trackings_extra: extras });
+    } catch (e) {
+      console.error('[seguimiento] tracking-extra', e.message);
+      res.status(500).json({ error: 'No se pudo agregar el tracking' });
+    }
+  });
+  app.delete('/api/seguimiento/envio/:id/tracking-extra/:tn', authAdmin, mSeg, async (req, res) => {
+    try {
+      const [rows] = await portalPool.query(`SELECT trackings_extra FROM seg_envios WHERE id = ?`, [req.params.id]);
+      if (!rows.length) return res.status(404).json({ error: 'Envío no encontrado' });
+      const tn = s(req.params.tn).toUpperCase();
+      const extras = (asJson(rows[0].trackings_extra, []) || []).filter(x => s(x.tn).toUpperCase() !== tn);
+      await portalPool.query(`UPDATE seg_envios SET trackings_extra = ? WHERE id = ?`, [JSON.stringify(extras), req.params.id]);
+      res.json({ ok: true, trackings_extra: extras });
+    } catch (e) {
+      console.error('[seguimiento] tracking-extra del', e.message);
+      res.status(500).json({ error: 'No se pudo quitar el tracking' });
+    }
+  });
+  // Lista de couriers para elegir + detección por el N° de tracking (la usa el editor).
+  app.get('/api/seguimiento/couriers', authAdmin, mSeg, (req, res) => {
+    res.json({ couriers: cES.COURIERS.map(c => c.nombre), detectado: cES.courierDeTracking(req.query.tn || '') });
+  });
 
   // ── Cambiar estado del envío (en_transito ↔ recibido). Lo puede marcar el
   //    maestro Y el supervisor/almacenero. Al marcar RECIBIDO (llegó a Perú) el
@@ -1290,13 +1346,43 @@ module.exports = function registrarSeguimiento({
       if (!forzar && (Date.now() - _lastTrack) < TRACK_TTL) return res.json({ ok: true, api: true, throttled: true });
       // Envíos aún en tramo 1 (en tránsito al hub) con número de tracking.
       const [rows] = await portalPool.query(
-        `SELECT id, tracking, hub, fase FROM seg_envios WHERE archivado = 0 AND fase = 'transito' AND tracking <> ''`);
-      const nums = [...new Set(rows.map(r => s(r.tracking)).filter(Boolean))];
+        `SELECT id, tracking, courier, hub, fase, trackings_extra FROM seg_envios WHERE archivado = 0 AND fase = 'transito' AND tracking <> ''`);
+      // Cada envío puede tener varios N° de tracking (cuando pasa de un courier a otro): se consultan todos.
+      const numerosDe = (r) => [s(r.tracking), ...(asJson(r.trackings_extra, []) || []).map(x => s(x && x.tn))].map(x => x.trim()).filter(Boolean);
+      const nums = [...new Set(rows.flatMap(numerosDe))];
       const info = await trackConsultar(nums);
-      let n = 0, avanzados = 0;
+      let n = 0, avanzados = 0, nuevosTn = 0;
+      // Números nuevos que informa el courier (p. ej. el tracking del siguiente courier) → se agregan
+      // solos al envío y se consultan en esta misma actualización.
+      const nuevos = [];
       for (const r of rows) {
-        const d = info[s(r.tracking)];
-        if (!d) continue;
+        const tns = numerosDe(r);
+        const extras = asJson(r.trackings_extra, []) || [];
+        const antes = extras.length;
+        tns.forEach(tn => { const d = info[tn]; (d && d.otros || []).forEach(o => {
+          if (tns.some(x => x.toUpperCase() === o.toUpperCase()) || extras.some(x => s(x.tn).toUpperCase() === o.toUpperCase())) return;
+          extras.push({ tn: o, courier: cES.courierDeTracking(o), fuente: 'courier', desde: hoyISO() }); nuevosTn++; nuevos.push(o);
+        }); });
+        if (extras.length !== antes) {
+          r.trackings_extra = JSON.stringify(extras);
+          await portalPool.query(`UPDATE seg_envios SET trackings_extra=? WHERE id=?`, [r.trackings_extra, r.id]);
+        }
+      }
+      if (nuevos.length) Object.assign(info, await trackConsultar([...new Set(nuevos)]));
+      for (const r of rows) {
+        const tns = numerosDe(r);
+        const tramos = tns.map(tn => info[tn]).filter(Boolean);           // en orden: el primero es con el que salió
+        if (!tramos.length) continue;
+        const ult = tramos[tramos.length - 1], pri = tramos[0];
+        // Historial unido de todos los trackings (sin repetidos), del más reciente al más antiguo.
+        const vistos = new Set(), eventos = [];
+        tramos.forEach(t => (t.eventos || []).forEach(ev => {
+          const k = [ev.fecha, ev.hora, cES.clave(ev.raw), cES.clave(ev.lugar)].join('|');
+          if (!vistos.has(k)) { vistos.add(k); eventos.push(ev); }
+        }));
+        eventos.sort((a, b) => (String(b.fecha) + String(b.hora)).localeCompare(String(a.fecha) + String(a.hora)));
+        // El estado actual lo da el ÚLTIMO tramo (el courier que lo tiene ahora).
+        const d = { ...ult, eventos: eventos.slice(0, 80), destPais: ult.destPais || pri.destPais, origPais: pri.origPais || ult.origPais };
         let hub = s(r.hub);
         if (!hub && d.destPais) hub = paisAHub(d.destPais);        // autodetectar hub por país destino
         const evJSON = JSON.stringify(Array.isArray(d.eventos) ? d.eventos : []);
@@ -1323,7 +1409,7 @@ module.exports = function registrarSeguimiento({
         const [act] = await portalPool.query(`SELECT tracking, courier, hub, api_paises, api_eventos, api_resumen FROM seg_envios WHERE archivado = 0 AND api_at IS NOT NULL`);
         await traducirPendientes(act, 20000);
       } catch (e) { /* la traducción no debe romper la actualización */ }
-      res.json({ ok: true, api: true, actualizados: n, total: nums.length, a_almacen: avanzados });
+      res.json({ ok: true, api: true, actualizados: n, total: rows.length, a_almacen: avanzados, nuevos_tracking: nuevosTn });
     } catch (e) {
       console.error('[seguimiento] track-refresh', e.message);
       res.status(500).json({ error: 'No se pudo actualizar el tracking' });

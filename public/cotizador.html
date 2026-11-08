@@ -469,7 +469,14 @@ function chipEdad(x,largo){
     t+=' · ingresó '+fecha(x.lote_mas_antiguo);
     if(x.lote_mas_nuevo&&x.lote_mas_nuevo!==x.lote_mas_antiguo)t+=' · último ingreso '+fecha(x.lote_mas_nuevo)+' ('+textoEdad(diasDesde(x.lote_mas_nuevo))+')';
   }
-  return '<span class="chip '+cls+(largo?' largo':'')+'" title="Antigüedad del stock (lote más antiguo)">'+t+'</span>';
+  if(x.solo_consignacion)t+=' · solo en consignación';
+  let out='<span class="chip '+cls+(largo?' largo':'')+'" title="Antigüedad del stock en almacenes propios (lote más antiguo)'+(x.solo_consignacion?'. No hay stock propio: es la antigüedad de lo que está en consignación':'')+'">'+t+'</span>';
+  // Lo que está en consignación se muestra aparte (no envejece el stock propio)
+  if(largo&&x.consig_mas_antiguo&&!x.solo_consignacion){
+    const dc=diasDesde(x.consig_mas_antiguo);
+    out+=' <span class="chip emp largo" title="Unidades en tiendas de clientes (consignación). No cuentan para la antigüedad ni el precio mínimo.">🏪 '+(x.consig_unidades||'')+' en consignación desde '+fecha(x.consig_mas_antiguo)+(dc!=null?' ('+textoEdad(dc)+')':'')+'</span>';
+  }
+  return out;
 }
 // Miniatura del producto (si la URL falla, se muestra un ícono en su lugar)
 function thumb(x,clase){
@@ -617,8 +624,14 @@ function pintarComparacion(){
   const items=[];
   // 1) Lo vendido
   const v=p.vendido;
-  items.push('<div class="it">Vendido 24 m: '+(v?'<b>'+S(v.precio_prom)+'</b> '+(normal?chipComp(c.vs_vendido,'ven'):'')+
-    '<small>'+v.ventas+' venta'+(v.ventas===1?'':'s')+' · '+v.unidades+' u.'+(v.ultimo_precio?' · última '+S(v.ultimo_precio)+' el '+fecha(v.ultima):'')+'</small>':'<b>—</b><small>sin ventas registradas</small>')+'</div>');
+  // Texto claro: qué es el promedio y QUÉ está más alto/bajo (tu precio actual vs lo vendido)
+  let vsTxt='';
+  if(v&&normal&&c.vs_vendido){const d=c.vs_vendido;
+    vsTxt=d.nivel==='similar'?'<small>Tu precio actual ('+S(normal)+') es similar a lo vendido ('+(d.dif_pct>0?'+':'')+d.dif_pct+'%)</small>'
+      :'<small>Tu precio actual ('+S(normal)+') está <b style="color:'+(d.nivel==='bajo'?'#b45309':'#b91c1c')+'">'+Math.abs(d.dif_pct)+'% '+(d.nivel==='bajo'?'por debajo':'por encima')+'</b> de lo vendido</small>';}
+  items.push('<div class="it">Vendido (últimos 24 meses): '+(v?'promedio <b>'+S(v.precio_prom)+'</b>'+
+    '<small>'+v.ventas+' venta'+(v.ventas===1?'':'s')+' · '+v.unidades+' u.'+(v.ultimo_precio?' · última: '+S(v.ultimo_precio)+' el '+fecha(v.ultima):'')+'</small>'+vsTxt
+    :'<b>—</b><small>sin ventas en los últimos 24 meses</small>')+'</div>');
   // 2) Internet
   let det='';
   if(in_.cargando)det='<small>buscando en tiendas online…</small>';

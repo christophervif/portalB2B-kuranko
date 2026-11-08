@@ -303,6 +303,19 @@ module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, p
 
   const mCot = requiereModulo('cotizador');
 
+  // ¿En qué columna guarda stock_batches el almacén del lote? (cada lote vive en un almacén:
+  // al mandar a consignación el lote antiguo se traslada con su fecha y costo). Se detecta sola.
+  let _colLocLote = null;
+  async function colLocLote() {
+    if (_colLocLote !== null) return _colLocLote;
+    try {
+      const [c] = await prodPool.query('SHOW COLUMNS FROM stock_batches');
+      const n = c.map(x => x.Field);
+      _colLocLote = ['location_id', 'warehouse_id', 'current_location_id'].find(x => n.includes(x)) || '';
+    } catch (e) { _colLocLote = ''; }
+    return _colLocLote;
+  }
+
   // ── Catálogo en caché: variantes vendibles + stock por almacén + empresa ──
   let _cat = null, _catAt = 0, _cargando = null, _arbol = [];
   async function catalogo(forzar) {
@@ -340,19 +353,31 @@ module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, p
       });
 
       // Empresa dueña y antigüedad: según lotes con existencia (stock_batches)
-      const [emp] = await prodPool.query(`
+      // La antigüedad se calcula SOLO con lotes de almacenes propios; la de consignación va aparte.
+      const cLoc = await colLocLote();
+      const [emp] = await prodPool.query(cLoc ? `
+        SELECT b.product_variation_id AS vid, b.company_id, SUM(b.quantity) AS unidades,
+          MIN(b.entry_date) AS mas_antiguo, MAX(b.entry_date) AS mas_nuevo,
+          (COALESCE(l.type,'') = 'consignment') AS consig
+        FROM stock_batches b LEFT JOIN locations l ON l.id = b.\`${cLoc}\`
+        WHERE b.quantity > 0 GROUP BY b.product_variation_id, b.company_id, consig` : `
         SELECT product_variation_id AS vid, company_id, SUM(quantity) AS unidades,
-          MIN(entry_date) AS mas_antiguo, MAX(entry_date) AS mas_nuevo
+          MIN(entry_date) AS mas_antiguo, MAX(entry_date) AS mas_nuevo, 0 AS consig
         FROM stock_batches WHERE quantity > 0 GROUP BY product_variation_id, company_id`);
       const empMap = {}, antMap = {};
       const f10 = d => d ? (d instanceof Date ? d.toISOString() : String(d)).slice(0, 10) : null;
       emp.forEach(r => {
-        (empMap[r.vid] = empMap[r.vid] || []).push({
-          empresa: EMPRESAS_BI[r.company_id] || (r.company_id ? `Empresa ${r.company_id}` : 'Sin empresa'),
-          unidades: Number(r.unidades)
-        });
-        const a = antMap[r.vid] = antMap[r.vid] || { antiguo: null, nuevo: null };
+        const nomEmp = EMPRESAS_BI[r.company_id] || (r.company_id ? `Empresa ${r.company_id}` : 'Sin empresa');
+        const le = empMap[r.vid] = empMap[r.vid] || [];
+        const ex = le.find(x => x.empresa === nomEmp);
+        if (ex) ex.unidades += Number(r.unidades); else le.push({ empresa: nomEmp, unidades: Number(r.unidades) });
+        const a = antMap[r.vid] = antMap[r.vid] || { antiguo: null, nuevo: null, cAntiguo: null, cUnid: 0 };
         const ant = f10(r.mas_antiguo), nue = f10(r.mas_nuevo);
+        if (Number(r.consig)) {
+          if (ant && (!a.cAntiguo || ant < a.cAntiguo)) a.cAntiguo = ant;
+          a.cUnid += Number(r.unidades);
+          return;
+        }
         if (ant && (!a.antiguo || ant < a.antiguo)) a.antiguo = ant;
         if (nue && (!a.nuevo || nue > a.nuevo)) a.nuevo = nue;
       });
@@ -459,8 +484,12 @@ module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, p
           almacenes: st.almacenes,
           empresas: (empMap[p.vid] || []).sort((a, b) => b.unidades - a.unidades),
           // antigüedad del stock: fecha de ingreso del lote más antiguo y del más reciente con existencia
-          lote_mas_antiguo: (antMap[p.vid] || {}).antiguo || null,
+          // (solo almacenes propios; si solo queda stock en consignación, se usa esa fecha)
+          lote_mas_antiguo: (antMap[p.vid] || {}).antiguo || (antMap[p.vid] || {}).cAntiguo || null,
           lote_mas_nuevo: (antMap[p.vid] || {}).nuevo || null,
+          consig_mas_antiguo: (antMap[p.vid] || {}).cAntiguo || null,
+          consig_unidades: (antMap[p.vid] || {}).cUnid || 0,
+          solo_consignacion: !!((antMap[p.vid] || {}).cAntiguo && !(antMap[p.vid] || {}).antiguo),
           _sku: compacto(p.sku), _pal: tokens(nombre + ' ' + (p.producto || '')), _comp: compacto(nombre),
           _cats: new Set([...(catTodas[p.pid] || [])].map(normalizar)),
           _catIds: catIds[p.pid] || new Set(),
@@ -479,8 +508,15 @@ module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, p
 
   // ── Costo FIFO de las N unidades más antiguas ─────────────────────────────
   async function precioMinimo(vid, cantidad) {
-    const [lotes] = await prodPool.query(`
-      SELECT id, quantity, cost_price, entry_date, company_id
+    // Se vende desde almacenes propios: primero sus lotes (FIFO); los de consignación solo si no alcanza.
+    const cLoc = await colLocLote();
+    const [lotes] = await prodPool.query(cLoc ? `
+      SELECT b.id, b.quantity, b.cost_price, b.entry_date, b.company_id,
+        (COALESCE(l.type,'') = 'consignment') AS consig
+      FROM stock_batches b LEFT JOIN locations l ON l.id = b.\`${cLoc}\`
+      WHERE b.product_variation_id = ? AND b.quantity > 0
+      ORDER BY consig ASC, b.entry_date ASC, b.id ASC` : `
+      SELECT id, quantity, cost_price, entry_date, company_id, 0 AS consig
       FROM stock_batches WHERE product_variation_id = ? AND quantity > 0
       ORDER BY entry_date ASC, id ASC`, [vid]);
     let faltan = cantidad, costoTotal = 0, tomadas = 0, sinCosto = false, diasTotal = 0;
@@ -493,7 +529,7 @@ module.exports = function registrarCotizador({ app, authAdmin, requiereModulo, p
       if (!(c > 0)) sinCosto = true;
       costoTotal += q * c; tomadas += q; faltan -= q;
       if (l.entry_date) diasTotal += q * Math.max(0, Math.floor((hoy - new Date(l.entry_date).getTime()) / 864e5));
-      usados.push({ lote: l.id, fecha: l.entry_date, unidades: q, costo: c,
+      usados.push({ lote: l.id, fecha: l.entry_date, unidades: q, costo: c, consignacion: !!Number(l.consig),
         empresa: EMPRESAS_BI[l.company_id] || (l.company_id ? `Empresa ${l.company_id}` : '—') });
     }
     const costoProm = tomadas > 0 ? costoTotal / tomadas : 0;

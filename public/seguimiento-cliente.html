@@ -101,7 +101,7 @@ async function cargar(){
     $('cont').innerHTML=items.map(function(it){
       var k=it.fase||faseKey(it.estado);
       var eta='';
-      if(it.eta){ eta='<div class="eta">📦 <span class="big">Llegada estimada a Perú: '+fISO(it.eta)+'</span>'+(diaNombre(it.eta)?(' <span style="font-weight:600">('+diaNombre(it.eta)+')</span>'):'')+'</div>'; }
+      if(it.eta){ eta='<div class="eta">📦 <span class="big">'+(it.eta_aprox?'Llegada aproximada a Perú: ':'Llegada estimada a Perú: ')+fISO(it.eta)+'</span>'+(diaNombre(it.eta)?(' <span style="font-weight:600">('+diaNombre(it.eta)+')</span>'):'')+'</div>'; }
       return '<div class="card">'+
           '<div class="item">'+
             fotoHtml(it)+

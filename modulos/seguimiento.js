@@ -132,6 +132,8 @@ module.exports = function registrarSeguimiento({
     try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN api_at DATETIME NULL`); } catch (e) {}                        // última lectura por API
     try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN api_eventos JSON NULL`); } catch (e) {}                      // historial completo de eventos del courier (traducido)
     try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN api_entrega DATE NULL`); } catch (e) {}                       // fecha de entrega real según el courier
+    try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN api_eta DATE NULL`); } catch (e) {}                          // fecha estimada de entrega que da el courier
+    try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN fecha_llegada DATE NULL`); } catch (e) {}                    // día en que se marcó "Llegó a Perú" (base de las estimaciones)
     try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN api_paises VARCHAR(12) NOT NULL DEFAULT ''`); } catch (e) {}     // país de origen>destino según el courier ("IT>US")
     try { await portalPool.query(`ALTER TABLE seg_envios ADD COLUMN importacion_id VARCHAR(80) NOT NULL DEFAULT ''`); } catch (e) {} // enlace con Importaciones (envío creado desde la factura)
     try { await portalPool.query(`ALTER TABLE seg_envios ADD INDEX (importacion_id)`); } catch (e) {}
@@ -223,6 +225,75 @@ module.exports = function registrarSeguimiento({
     const llegadas = [2, 4].map(dw => addDays(proxDow(fechaHubISO, dw, false), arriboOffset(hub, dw))).filter(Boolean).sort();
     return llegadas[0] || null;
   }
+  // ── Llegada estimada a Perú cuando aún no hay fecha de embarque ─────────────
+  //    1) La fecha estimada que da el courier (envío directo: es la llegada a Perú;
+  //       con almacén: es la llegada al almacén → + el embarque más próximo).
+  //    2) Si el courier no da fecha: los envíos ANTERIORES que ya llegaron, del mismo
+  //       proveedor y courier (o el mismo tipo de tracking): mediana de días de viaje.
+  const normK = (v) => String(v || '').trim().toUpperCase();
+  const diasEntre = (a, b) => Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 864e5);
+  function salidaEnvio(r) {
+    const evs = asJson(r.api_eventos, []) || [];
+    const fechas = evs.map(e => e && e.fecha).filter(isISO).sort();
+    return fechas[0] || isoDate(r.creado_en) || '';
+  }
+  function llegadaEnvio(r) {
+    if (isISO(isoDate(r.fecha_llegada))) return isoDate(r.fecha_llegada);
+    if (!r.hub && isISO(isoDate(r.api_entrega))) return isoDate(r.api_entrega);   // directo: entrega del courier = llegada a Perú
+    return isoDate(r.actualizado_en) || '';                                      // envíos antiguos: aproximado
+  }
+  const tipoTracking = (r) => {
+    const s10 = normK(r.tracking).replace(/\s+/g, '').match(/^[A-Z]{2}\d{9}([A-Z]{2})$/);
+    return s10 ? 'S10-' + s10[1] : (cES.baseDelEnvio({ tracking: r.tracking, courier: r.courier, apiPaises: r.api_paises }) || '');
+  };
+  let _hist = { t: 0, grupos: null };
+  async function historialTransito() {
+    if (_hist.grupos && Date.now() - _hist.t < 10 * 60e3) return _hist.grupos;
+    const [rows] = await portalPool.query(`SELECT proveedor, courier, tracking, hub, api_paises, api_eventos, api_entrega, fecha_llegada, creado_en, actualizado_en
+      FROM seg_envios WHERE estado = 'recibido' ORDER BY actualizado_en DESC LIMIT 400`);
+    const grupos = new Map();
+    const add = (k, d) => { if (!k) return; if (!grupos.has(k)) grupos.set(k, []); grupos.get(k).push(d); };
+    rows.forEach(r => {
+      const sal = salidaEnvio(r), lle = llegadaEnvio(r);
+      if (!isISO(sal) || !isISO(lle)) return;
+      const d = diasEntre(sal, lle);
+      if (d < 1 || d > 120) return;                                              // datos raros fuera
+      const pv = normK(r.proveedor), co = normK(r.courier), tt = tipoTracking(r);
+      add('pc|' + pv + '|' + co, d); add('ct|' + co + '|' + tt, d); add('p|' + pv, d); add('c|' + co, d);
+    });
+    _hist = { t: Date.now(), grupos };
+    return grupos;
+  }
+  const mediana = (a) => { const x = a.slice().sort((p, q) => p - q); const m = Math.floor(x.length / 2); return x.length % 2 ? x[m] : Math.round((x[m - 1] + x[m]) / 2); };
+  function etaEstimada(r, grupos) {
+    if (r.estado === 'recibido' || r.fase === 'recibido') return null;
+    if (r.fase === 'embarcado' || r.fase === 'en_hub') return null;              // ya tiene su ETA por embarque/almacén
+    const apiEta = isoDate(r.api_eta);
+    if (isISO(apiEta)) {
+      if (!r.hub) return { fecha: apiEta, fuente: 'courier', detalle: 'Fecha estimada del courier' };
+      const f = etaTentativo(r.hub, apiEta);
+      if (f) return { fecha: f, fuente: 'courier', detalle: 'Courier: llega al almacén el ' + apiEta + ' + próximo embarque' };
+    }
+    const sal = salidaEnvio(r);
+    if (!grupos || !isISO(sal)) return null;
+    const pv = normK(r.proveedor), co = normK(r.courier), tt = tipoTracking(r);
+    const opciones = [
+      ['pc|' + pv + '|' + co, 'mismo proveedor y courier', 1], ['ct|' + co + '|' + tt, 'mismo courier y tipo de tracking', 1],
+      ['p|' + pv, 'mismo proveedor', 2], ['c|' + co, 'mismo courier', 3]];
+    for (const [k, txt, min] of opciones) {
+      if (k.includes('||') || /\|$/.test(k)) continue;                           // proveedor o courier vacío
+      const ds = grupos.get(k);
+      if (!ds || ds.length < min) continue;
+      const dias = mediana(ds);
+      let fecha = addDays(sal, dias);
+      const atrasado = fecha < hoyISO();
+      if (atrasado) fecha = addDays(hoyISO(), 1);
+      return { fecha, fuente: 'historial', dias, n: ds.length, atrasado,
+        detalle: `Aproximado: ${dias} días de viaje (${txt}, ${ds.length} envío${ds.length > 1 ? 's' : ''} anterior${ds.length > 1 ? 'es' : ''})` + (atrasado ? ' · ya pasó ese plazo' : '') };
+    }
+    return null;
+  }
+
   // Compat: ETA desde el hub = tentativo (el embarque con fecha elegida usa su propia llegada).
   const etaPeruDesdeHub = (hub, fechaHubISO) => etaTentativo(hub, fechaHubISO);
   const tokenRnd = () => (Date.now().toString(36) + Math.random().toString(36).slice(2, 12)).slice(0, 32);
@@ -425,7 +496,8 @@ module.exports = function registrarSeguimiento({
         const entrega = evEntrega ? fechaCorta(evEntrega.occurrenceDatetime || '') : '';
         const destPais = s(sh.destinationCountryCode || (sh.recipient && sh.recipient.countryCode) || '').toUpperCase().slice(0, 2);
         const origPais = s(sh.originCountryCode || (sh.shipper && sh.shipper.countryCode) || '').toUpperCase().slice(0, 2);
-        out[String(n)] = { estado: mile, resumen, delivered, destPais, origPais, eventos, entrega };
+        const etaCourier = fechaCorta((sh.delivery && (sh.delivery.estimatedDeliveryDate || sh.delivery.estimatedDeliveryDateTo)) || '');
+        out[String(n)] = { estado: mile, resumen, delivered, destPais, origPais, eventos, entrega, etaCourier };
       } catch (e) { /* una falla no corta las demás */ }
     }
     return out;
@@ -462,7 +534,9 @@ module.exports = function registrarSeguimiento({
         const si = ti.shipping_info || {};
         const origPais = s((si.shipper_address && si.shipper_address.country) || (ti.misc_info && ti.misc_info.origin_country) || '').toUpperCase().slice(0, 2);
         const destPais2 = destPais || s((si.recipient_address && si.recipient_address.country) || '').toUpperCase().slice(0, 2);
-        if (num) out[num] = { estado, resumen, delivered, destPais: destPais2, origPais, eventos, entrega };
+        const edd = (ti.time_metrics && ti.time_metrics.estimated_delivery_date) || {};
+        const etaCourier = fechaCorta(edd.to || edd.from || '');
+        if (num) out[num] = { estado, resumen, delivered, destPais: destPais2, origPais, eventos, entrega, etaCourier };
       });
     } catch (e) { console.error('[seguimiento] 17track', e.message); }
     return out;
@@ -691,7 +765,9 @@ module.exports = function registrarSeguimiento({
       // Frases del courier aún sin traducir: la IA las traduce (máx. 4 s de espera; si tarda
       // más, sigue en segundo plano y salen traducidas en la siguiente carga).
       await traducirPendientes(rows.filter(r => !r.archivado), 4000);
+      const grupos = await historialTransito().catch(() => null);
       res.json(rows.map(r => ({
+        eta_estimada: etaEstimada(r, grupos),
         id: r.id, tracking: r.tracking, courier: r.courier,
         proveedor: esMaestro ? r.proveedor : '', n_factura: r.n_factura,
         estado: r.estado, fecha_estimada: isoDate(r.fecha_estimada), archivado: r.archivado ? 1 : 0,
@@ -1123,7 +1199,7 @@ module.exports = function registrarSeguimiento({
   app.put('/api/seguimiento/envio/:id/estado', authAdmin, mSeg, async (req, res) => {
     try {
       const estado = (req.body && req.body.estado === 'recibido') ? 'recibido' : 'en_transito';
-      await portalPool.query(`UPDATE seg_envios SET estado = ? WHERE id = ?`, [estado, req.params.id]);
+      await portalPool.query(`UPDATE seg_envios SET estado = ?, fecha_llegada = IF(? = 'recibido', COALESCE(fecha_llegada, CURDATE()), NULL) WHERE id = ?`, [estado, estado, req.params.id]);
       let recepcion = null;
       if (estado === 'recibido') {
         const [rows] = await portalPool.query(`SELECT * FROM seg_envios WHERE id = ?`, [req.params.id]);
@@ -1226,7 +1302,7 @@ module.exports = function registrarSeguimiento({
         const evJSON = JSON.stringify(Array.isArray(d.eventos) ? d.eventos : []);
         const entrega = d.entrega || null;
         const apiPaises = ((d.origPais || '') + '>' + (d.destPais || '')).replace(/^>$/, '');
-        await portalPool.query(`UPDATE seg_envios SET api_paises=? WHERE id=?`, [apiPaises, r.id]);
+        await portalPool.query(`UPDATE seg_envios SET api_paises=?, api_eta=? WHERE id=?`, [apiPaises, d.etaCourier || null, r.id]);
         if (d.delivered && hub) {                                   // llegó al hub → marcar en almacén + ETA
           const fhub = d.entrega || hoyISO();                       // usar la fecha real de entrega del courier si existe
           const eta = etaPeruDesdeHub(hub, fhub);
@@ -1284,23 +1360,31 @@ module.exports = function registrarSeguimiento({
       const envMap = {};
       if (envioIds.size) {
         const [envs] = await portalPool.query(
-          `SELECT id, hub, fase, estado, eta, api_resumen, api_estado, api_at, actualizado_en FROM seg_envios WHERE id IN (?)`, [[...envioIds]]);
+          `SELECT id, hub, fase, estado, eta, api_resumen, api_estado, api_at, actualizado_en, proveedor, courier, tracking, api_paises, api_eta, api_eventos, creado_en
+             FROM seg_envios WHERE id IN (?)`, [[...envioIds]]);
         envs.forEach(e => { envMap[e.id] = e; });
       }
+      const grupos = envioIds.size ? await historialTransito().catch(() => null) : null;
       let ultima = null;
       const items = bo.map(b => {
         const cob = asJson(b.coberturas, []) || [];
         const prim = cob.find(c => c && c.envio_id && envMap[c.envio_id]);
-        let estado = 'En proceso de compra', eta = null;
+        let estado = 'En proceso de compra', eta = null, eta_aprox = false;
         if (prim) {
           const e = envMap[prim.envio_id];
           const info = estadoClienteEnvio(e);
           estado = info.texto; eta = info.eta;
+          // Sin fecha de embarque: la del courier o una aproximada por envíos anteriores
+          // (a la aproximada se le suman 2 días de margen para no prometer de menos).
+          if (!eta) {
+            const est = etaEstimada(e, grupos);
+            if (est) { eta = est.fuente === 'historial' ? addDays(est.fecha, 2) : est.fecha; eta_aprox = est.fuente === 'historial'; }
+          }
           const at = e.api_at || e.actualizado_en;
           if (at && (!ultima || at > ultima)) ultima = at;
         }
         const imagen = imgMap[s(b.sku).trim()] || '';
-        return { producto: b.producto || '', cantidad: b.cantidad, estado, eta, imagen };
+        return { producto: b.producto || '', cantidad: b.cantidad, estado, eta, eta_aprox, imagen };
       });
       res.json({ ok: true, cliente, items, actualizado: ultima, nota: 'Este seguimiento se actualiza cada 3 días.' });
     } catch (e) {

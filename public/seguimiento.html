@@ -44,6 +44,7 @@ td.n,th.n{text-align:right}
 .chip{background:var(--chip);border:1px solid var(--border);border-radius:8px;padding:2px 8px;font-size:12px;display:inline-block}
 /* Ubicación del courier: dónde está ahora, ruta y lugar de cada evento */
 .chip.loc{border-color:var(--acc);color:var(--txt)}
+.chip.aprox{border-style:dashed}
 .ubic{margin-top:8px;background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:10px 12px}
 .ubic-now{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
 .ubic-now .lbl{font-size:12px;color:var(--muted)}
@@ -384,6 +385,7 @@ function pintarEnvios(){
       ${(e.fase&&e.fase!=='transito'&&e.fase!=='recibido')?`<span class="chip">${FASE_LBL[e.fase]||''}</span>`:''}
       ${e.api_ubicacion&&e.fase==='transito'?`<span class="chip loc" title="Último lugar informado por el courier">📍 ${esc(e.api_ubicacion.ciudad||e.api_ubicacion.pais||'')}${e.api_ubicacion.ciudad&&e.api_ubicacion.pais?(', '+esc(e.api_ubicacion.pais)):''}</span>`:''}
       ${e.eta&&e.fase!=='recibido'?`<span class="chip">🇵🇪 ~${esc(String(e.eta).slice(0,10))}</span>`:''}
+      ${!e.eta&&e.eta_estimada?`<span class="chip${e.eta_estimada.fuente==='historial'?' aprox':''}" title="${esc(e.eta_estimada.detalle||'')}">🇵🇪 ~${esc(fFecha(e.eta_estimada.fecha))} ${e.eta_estimada.fuente==='courier'?'(courier)':'(aprox.)'}</span>`:''}
       ${e.archivado?'<span class="chip">🗄️ archivado</span>':''}
       ${e.courier?`<span class="chip">${esc(e.courier)}</span>`:''}
       <span class="muted sm">${ES_MAESTRO&&e.proveedor?esc(e.proveedor):''}${e.n_factura?((ES_MAESTRO&&e.proveedor?' · ':'')+'Fact. '+esc(e.n_factura)):''}</span>
@@ -473,7 +475,8 @@ function fFecha(d){if(!d)return '';const p=String(d).slice(0,10).split('-');retu
 function histCourier(e){
   const evs=Array.isArray(e.api_eventos)?e.api_eventos:[];
   const leido=e.api_at?(' · leído '+esc(fFecha(String(e.api_at).slice(0,10)))):'';
-  const entrega=e.api_entrega?`<div class="muted sm" style="margin-top:6px">🇵🇪 Fecha de llegada: <b>${esc(fFecha(e.api_entrega))}</b></div>`:'';
+  const est=(!e.eta&&e.eta_estimada)?`<div class="muted sm" style="margin-top:6px">🇵🇪 Llegada estimada a Perú: <b>${esc(fFecha(e.eta_estimada.fecha))}</b> · ${esc(e.eta_estimada.detalle||'')}</div>`:'';
+  const entrega=(e.api_entrega?`<div class="muted sm" style="margin-top:6px">🇵🇪 Fecha de llegada: <b>${esc(fFecha(e.api_entrega))}</b></div>`:'')+est;
   if(!evs.length){
     if(!e.api_resumen)return entrega;
     return `<div class="muted sm" style="margin-top:5px">🚚 ${esc(e.api_resumen)}${leido}</div>${entrega}`;

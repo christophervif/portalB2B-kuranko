@@ -461,4 +461,45 @@ function textoResumen(mile, resumen, cache) {
   return c ? capitalizar(c) : traducirDic(resumen);
 }
 
-module.exports = { baseDelEnvio, IT_PROV, ISO2_SET, completarPaises, eventoInfo, leerLugar, lugarTexto, paisesDelEnvio, paisES, partesEvento, textoEvento, textoResumen, traducirDic, traducirLugar, quedaIngles, fraseEvento, clave, norm, CODIGO_ES, MILE_ES };
+// ═══ Couriers y proveedores con un solo nombre ═══════════════════════════════
+// Lista de couriers para elegir en el portal (nombre único). `rx` reconoce cómo
+// se escribe a mano o el código que manda la API (Ship24 courierCode / 17track).
+const COURIERS = [
+  { nombre: 'FedEx', rx: /fed ?ex/i }, { nombre: 'UPS', rx: /\bups\b|^ups/i }, { nombre: 'DHL', rx: /dhl/i },
+  { nombre: 'Serpost', rx: /serpost|peru[- ]?post|correo.*peru/i }, { nombre: 'Poste Italiane', rx: /poste[- ]?italiane|italy[- ]?post|^poste$/i },
+  { nombre: 'Correos', rx: /^correos|correos[- ]?(espa|es\b)|spain[- ]?post/i }, { nombre: 'La Poste / Colissimo', rx: /colissimo|la[- ]?poste|france[- ]?post|chronopost/i },
+  { nombre: 'USPS', rx: /usps|united states postal/i }, { nombre: 'Deutsche Post', rx: /deutsche[- ]?post/i }, { nombre: 'Royal Mail', rx: /royal[- ]?mail/i },
+  { nombre: 'PostNL', rx: /postnl/i }, { nombre: 'GLS', rx: /\bgls\b/i }, { nombre: 'BRT', rx: /\bbrt\b|bartolini/i }, { nombre: 'SDA', rx: /\bsda\b/i },
+  { nombre: 'TNT', rx: /\btnt\b/i }, { nombre: 'DPD', rx: /\bdpd\b/i }, { nombre: 'Aramex', rx: /aramex/i }, { nombre: 'Olva', rx: /olva/i },
+  { nombre: 'China Post', rx: /china[- ]?post|china[- ]?ems/i },
+];
+/** Nombre único de un courier ("FEDEX", "Fedex Intl", "fedex" → "FedEx"). Si no se reconoce, se deja como vino. */
+function normalizarCourier(t) {
+  const x = norm(t);
+  if (!x) return '';
+  const c = COURIERS.find(c => c.rx.test(x));
+  return c ? c.nombre : x.slice(0, 60);
+}
+/**
+ * Courier probable según el formato del N° de tracking.
+ *  1Z… → UPS · 12/15/20/22 dígitos → FedEx · 10 dígitos / JJD… → DHL
+ *  Internacional postal (EB123456789IT, EW…FR): llega a Perú por Serpost.
+ */
+function courierDeTracking(tn) {
+  const t = String(tn || '').toUpperCase().replace(/[\s-]+/g, '');
+  if (!t) return '';
+  if (/^1Z[0-9A-Z]{16}$/.test(t)) return 'UPS';
+  if (/^[A-Z]{2}\d{9}[A-Z]{2}$/.test(t)) return 'Serpost';
+  if (/^(JJD|JVGL|JD)\d{8,}/.test(t) || /^\d{10}$/.test(t)) return 'DHL';
+  if (/^(\d{12}|\d{15}|\d{20}|\d{22}|96\d{20})$/.test(t)) return 'FedEx';
+  return '';
+}
+/** Clave de proveedor para agrupar: sin forma legal, puntos ni espacios ("Lordgun S.R.L." = "LORDGUN"). */
+function claveProveedor(t) {
+  return sinTildes(t).toUpperCase()
+    .replace(/[.,]/g, ' ')
+    .replace(/\b(S\s?R\s?L|S\s?P\s?A|S\s?A\s?S|S\s?L\s?U?|S\s?A\s?C?|S\s?A\s?U|G\s?M\s?B\s?H|A\s?G|L\s?T\s?D|L\s?L\s?C|I\s?N\s?C|B\s?V|N\s?V|C\s?O|C\s?O\s?R\s?P|LIMITED|COMPANY|SARL|EIRL|S\s?N\s?C|K\s?G|OY|AB|APS|SP\s?Z\s?O\s?O)\b/g, ' ')
+    .replace(/[^A-Z0-9]/g, '');
+}
+
+module.exports = { COURIERS, normalizarCourier, courierDeTracking, claveProveedor, baseDelEnvio, IT_PROV, ISO2_SET, completarPaises, eventoInfo, leerLugar, lugarTexto, paisesDelEnvio, paisES, partesEvento, textoEvento, textoResumen, traducirDic, traducirLugar, quedaIngles, fraseEvento, clave, norm, CODIGO_ES, MILE_ES };

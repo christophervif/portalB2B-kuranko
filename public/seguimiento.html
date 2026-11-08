@@ -45,6 +45,12 @@ td.n,th.n{text-align:right}
 /* Ubicación del courier: dónde está ahora, ruta y lugar de cada evento */
 .chip.loc{border-color:var(--acc);color:var(--txt)}
 .chip.aprox{border-style:dashed}
+/* Tarjeta "Nuevo envío": oculta por defecto, se despliega al pulsar el título */
+#nuevoEnvio h3.plegable{cursor:pointer;margin:0;user-select:none}
+#nuevoEnvio:not(.colapsado) h3.plegable{margin-bottom:8px}
+#nuevoEnvio.colapsado > :not(h3){display:none}
+#nuevoEnvio .flecha-pl{display:inline-block;transition:transform .15s;color:var(--muted)}
+#nuevoEnvio:not(.colapsado) .flecha-pl{transform:rotate(90deg)}
 .ubic{margin-top:8px;background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:10px 12px}
 .ubic-now{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
 .ubic-now .lbl{font-size:12px;color:var(--muted)}
@@ -118,8 +124,8 @@ td.n,th.n{text-align:right}
 <div id="tab-env">
 
   <!-- (maestro) Nuevo envío desde factura -->
-  <div id="nuevoEnvio" class="card hide">
-    <h3 id="envEditorTitle">Nuevo envío — leer factura con IA</h3>
+  <div id="nuevoEnvio" class="card hide colapsado">
+    <h3 class="plegable" onclick="plegarNuevo()"><span class="flecha-pl">▸</span> <span id="envEditorTitle">Nuevo envío — leer factura con IA</span></h3>
     <div id="iaUpload">
     <div class="hint">Sube la factura del proveedor (PDF). La IA la lee y traduce las descripciones al español; a cada línea le sugiere el SKU del sistema con un indicador de confianza. La factura no se modifica: solo asignas el N° de tracking y marcas qué ítems cubren backorders.</div>
     <div class="row">
@@ -134,8 +140,8 @@ td.n,th.n{text-align:right}
       <div id="skuNota" class="hint hide" style="background:rgba(168,85,247,.12);border-color:rgba(168,85,247,.4)">Modo almacén: asigna o corrige los SKU y guarda. Puedes avanzar parcialmente; cuando un SKU coincide con un producto en backorder se marca y se actualiza la cobertura.</div>
       <div id="editMeta">
       <div class="row">
-        <div class="f"><label>N° de tracking *</label><input id="e_tracking" placeholder="Ej: 1Z999AA..." style="min-width:200px"></div>
-        <div class="f"><label>Courier</label><input id="e_courier" placeholder="DHL, FedEx, UPS…" style="width:140px"></div>
+        <div class="f"><label>N° de tracking *</label><input id="e_tracking" placeholder="Ej: 1Z999AA..." style="min-width:200px" oninput="courierAuto()"></div>
+        <div class="f"><label>Courier</label><div class="row" style="gap:4px;align-items:center"><select id="e_courier_sel" onchange="courierSel()" style="width:150px"></select><input id="e_courier" class="hide" placeholder="Nombre del courier" style="width:130px"></div><span id="e_courier_hint" class="muted sm"></span></div>
         <div class="f"><label>Proveedor</label><input id="e_prov" style="min-width:170px"></div>
         <div class="f"><label>N° factura</label><input id="e_fact" style="width:150px"></div>
         <div class="f"><label>Llegada estimada</label><input id="e_eta" type="date"></div>
@@ -325,6 +331,7 @@ async function init(){
   // El supervisor/almacenero TAMBIÉN puede actualizar el tracking del courier.
   // Solo la sincronización de backorders desde el ERP queda para el maestro.
   if(!ES_MAESTRO){const b=$('btnSync');if(b)b.style.display='none';}
+  setCourierUI('');
   try{CATALOG=await api('/catalogo');initCat();}catch(e){CATALOG=[];}
   // 1) Pinta de inmediato lo YA guardado en el portal (rápido, pocas consultas).
   //    El mapa pieza→kit se carga en paralelo para mostrar el kit en los canibalizados.
@@ -387,7 +394,7 @@ function pintarEnvios(){
       ${e.eta&&e.fase!=='recibido'?`<span class="chip">🇵🇪 ~${esc(String(e.eta).slice(0,10))}</span>`:''}
       ${!e.eta&&e.eta_estimada?`<span class="chip${e.eta_estimada.fuente==='historial'?' aprox':''}" title="${esc(e.eta_estimada.detalle||'')}">🇵🇪 ~${esc(fFecha(e.eta_estimada.fecha))} ${e.eta_estimada.fuente==='courier'?'(courier)':'(aprox.)'}</span>`:''}
       ${e.archivado?'<span class="chip">🗄️ archivado</span>':''}
-      ${e.courier?`<span class="chip">${esc(e.courier)}</span>`:''}
+      ${(e.cadena&&e.cadena.length>1)?`<span class="chip" title="El envío pasó de un courier a otro">${e.cadena.map(esc).join(' → ')}</span>`:(e.courier?`<span class="chip">${esc(e.courier)}</span>`:'')}
       <span class="muted sm">${ES_MAESTRO&&e.proveedor?esc(e.proveedor):''}${e.n_factura?((ES_MAESTRO&&e.proveedor?' · ':'')+'Fact. '+esc(e.n_factura)):''}</span>
       <span class="muted sm">· ${(e.items||[]).length} ítems</span>
       ${nbo?`<span class="badge b-bo">${nbo} backorder</span>`:''}
@@ -467,10 +474,23 @@ function panelLogistica(e){
       ${eta}
     </div>
     <div id="emb-${e.id}"></div>
-    ${fhub}${courier}
+    ${fhub}${courier}${trackingsHtml(e)}
   </div>`;
 }
 function fFecha(d){if(!d)return '';const p=String(d).slice(0,10).split('-');return p.length===3?(p[2]+'/'+p[1]+'/'+p[0]):String(d);}
+// Otros N° de tracking del envío (cuando pasa a otro courier): se consultan todos y el historial se une.
+function trackingsHtml(e){
+  const ex=Array.isArray(e.trackings_extra)?e.trackings_extra:[];
+  const lista=[`<span class="chip">${esc(e.tracking||'—')}${e.courier?(' · '+esc(e.courier)):''}</span>`].concat(ex.map(x=>
+    `<span class="chip">${esc(x.tn)}${x.courier?(' · '+esc(x.courier)):''}${x.fuente==='courier'?' <span class="muted sm">(lo informó el courier)</span>':''} <a href="#" onclick="quitarTracking('${esc(e.id)}','${esc(x.tn)}');return false" title="Quitar" style="color:var(--bad);text-decoration:none">×</a></span>`));
+  return `<div class="muted sm" style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">🔗 Trackings: ${lista.join(ex.length?' → ':'')}
+    <span id="tx-${esc(e.id)}"><button class="ghost sm" onclick="formTracking('${esc(e.id)}')">+ Agregar tracking</button></span></div>`;
+}
+function formTracking(id){$('tx-'+id).innerHTML=`<input id="txin-${esc(id)}" placeholder="Nuevo N° de tracking" style="width:190px;padding:5px 8px"> <button class="sm" onclick="agregarTracking('${esc(id)}')">Agregar</button> <button class="ghost sm" onclick="cargarEnvios()">Cancelar</button>`;$('txin-'+id).focus();}
+async function agregarTracking(id){const tn=$('txin-'+id).value.trim();if(!tn)return;
+  try{await api('/envio/'+encodeURIComponent(id)+'/tracking-extra','POST',{tn});toast('Tracking agregado. Pulsa 🔄 Actualizar para leerlo.');await cargarEnvios();}catch(e){toast(e.message);}}
+async function quitarTracking(id,tn){if(!confirm('¿Quitar el tracking '+tn+' de este envío?'))return;
+  try{await api('/envio/'+encodeURIComponent(id)+'/tracking-extra/'+encodeURIComponent(tn),'DELETE');await cargarEnvios();}catch(e){toast(e.message);}}
 // Historial del courier: última novedad visible + desplegable con todo, en español, con fecha de llegada si la hay.
 function histCourier(e){
   const evs=Array.isArray(e.api_eventos)?e.api_eventos:[];
@@ -536,7 +556,7 @@ async function actualizarTracking(){
   let msg='';
   try{const r=await api('/track-refresh','POST',{force:true});
     if(r.api===false)msg='Lista actualizada (tracking en modo manual: sin API del courier).';
-    else msg='Actualizado'+(r.total?(': '+r.actualizados+' de '+r.total+' envíos leídos del courier'):'')+(r.a_almacen?(' · '+r.a_almacen+' llegaron al almacén'):'');
+    else msg='Actualizado'+(r.total?(': '+r.actualizados+' de '+r.total+' envíos leídos del courier'):'')+(r.a_almacen?(' · '+r.a_almacen+' llegaron al almacén'):'')+(r.nuevos_tracking?(' · '+r.nuevos_tracking+' tracking nuevo(s) del siguiente courier'):'');
   }catch(e){msg='No se pudo leer el courier ('+e.message+'). Lista recargada.';}
   try{await cargarEnvios();}catch(e){}
   if(b){b.disabled=false;b.textContent='🔄 Actualizar';}
@@ -664,7 +684,21 @@ function cancelarEditor(){
   $('envEditorTitle').textContent='Nuevo envío — leer factura con IA';$('btnGuardarEnv').textContent='Guardar envío';
   if(!ES_MAESTRO)$('nuevoEnvio').classList.add('hide'); // el supervisor no crea envíos: ocultar de nuevo
 }
-function limpiaEditor(){$('e_tracking').value='';$('e_courier').value='';$('e_prov').value='';$('e_fact').value='';$('e_eta').value='';$('e_nota').value='';}
+// ── Courier: lista única + detección por el N° de tracking ─────────────────
+const COURIERS=['FedEx','UPS','DHL','Serpost','Poste Italiane','Correos','La Poste / Colissimo','USPS','Deutsche Post','Royal Mail','PostNL','GLS','BRT','SDA','TNT','DPD','Aramex','Olva','China Post'];
+function courierDeTracking(tn){const t=String(tn||'').toUpperCase().replace(/[\s-]+/g,'');if(!t)return '';
+  if(/^1Z[0-9A-Z]{16}$/.test(t))return 'UPS';if(/^[A-Z]{2}\d{9}[A-Z]{2}$/.test(t))return 'Serpost';
+  if(/^(JJD|JVGL|JD)\d{8,}/.test(t)||/^\d{10}$/.test(t))return 'DHL';if(/^(\d{12}|\d{15}|\d{20}|\d{22})$/.test(t))return 'FedEx';return '';}
+function setCourierUI(v){const sel=$('e_courier_sel');if(!sel)return;
+  sel.innerHTML='<option value="">— elegir —</option>'+COURIERS.map(c=>`<option>${esc(c)}</option>`).join('')+'<option value="__otro">Otro…</option>';
+  v=String(v||'').trim();const hit=COURIERS.find(c=>c.toLowerCase()===v.toLowerCase());
+  if(!v||hit){sel.value=hit||'';$('e_courier').value=hit||'';$('e_courier').classList.add('hide');}
+  else{sel.value='__otro';$('e_courier').value=v;$('e_courier').classList.remove('hide');}
+  $('e_courier_hint').textContent='';}
+function courierSel(){const v=$('e_courier_sel').value;if(v==='__otro'){$('e_courier').value='';$('e_courier').classList.remove('hide');$('e_courier').focus();}else{$('e_courier').value=v;$('e_courier').classList.add('hide');}$('e_courier_hint').textContent='';}
+function courierAuto(){const sel=$('e_courier_sel');if(!sel||sel.value)return;const c=courierDeTracking($('e_tracking').value);if(c){setCourierUI(c);$('e_courier_hint').textContent='detectado por el N° de tracking';}}
+function plegarNuevo(){$('nuevoEnvio').classList.toggle('colapsado');}
+function limpiaEditor(){$('e_tracking').value='';setCourierUI('');$('e_prov').value='';$('e_fact').value='';$('e_eta').value='';$('e_nota').value='';}
 async function guardarEnvio(){
   // Modo almacén: solo guarda los SKU asignados (maestro o supervisor).
   if(MODO_SKU){
@@ -704,10 +738,10 @@ function editarEnvio(id){
   $('iaUpload').classList.add('hide');$('editMeta').classList.remove('hide');$('skuNota').classList.add('hide');
   $('btnAddLinea').classList.remove('hide');
   $('envEditorTitle').textContent='Editar envío';$('btnGuardarEnv').textContent='Guardar envío';
-  $('e_tracking').value=e.tracking||'';$('e_courier').value=e.courier||'';$('e_prov').value=e.proveedor||'';
+  $('e_tracking').value=e.tracking||'';setCourierUI(e.courier||'');$('e_prov').value=e.proveedor||'';
   $('e_fact').value=e.n_factura||'';$('e_eta').value=e.fecha_estimada?String(e.fecha_estimada).slice(0,10):'';$('e_nota').value=e.nota||'';
   editItems=(e.items||[]).map(i=>({...i,cand:matchLinea(i).cand}));
-  $('nuevoEnvio').classList.remove('hide');$('editor').classList.remove('hide');
+  $('nuevoEnvio').classList.remove('hide','colapsado');$('editor').classList.remove('hide');
   $('leerMsg').textContent='Editando envío existente.';
   renderItems();window.scrollTo({top:0,behavior:'smooth'});
 }
@@ -719,7 +753,7 @@ function editarSkus(id){
   $('btnAddLinea').classList.add('hide'); // en modo SKU no se agregan/quitan líneas (rompería los índices)
   $('envEditorTitle').textContent='Asignar SKU — 📦 '+(e.tracking||'');$('btnGuardarEnv').textContent='Guardar SKUs';
   editItems=(e.items||[]).map(i=>({...i,cand:matchLinea(i).cand}));
-  $('nuevoEnvio').classList.remove('hide');$('editor').classList.remove('hide');
+  $('nuevoEnvio').classList.remove('hide','colapsado');$('editor').classList.remove('hide');
   $('leerMsg').textContent='';
   renderItems();window.scrollTo({top:0,behavior:'smooth'});
 }

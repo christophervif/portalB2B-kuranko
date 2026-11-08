@@ -278,13 +278,36 @@ module.exports = function registrarCampanas({ app, authAdmin, mInv, prodPool, po
     return leerReglas(v);
   }
 
+  // ¿Qué columna de stock_batches dice en qué almacén está el lote? (se detecta sola)
+  let _colLocLote = null;
+  async function colLocLote() {
+    if (_colLocLote !== null) return _colLocLote;
+    try {
+      const [c] = await prodPool.query('SHOW COLUMNS FROM stock_batches');
+      const n = c.map(x => x.Field);
+      _colLocLote = ['location_id', 'warehouse_id', 'current_location_id'].find(x => n.includes(x)) || '';
+    } catch (e) { _colLocLote = ''; }
+    return _colLocLote;
+  }
+
   // Lotes vivos de cada SKU con el costo depurado (ver depurarLotes). listaPor: {vid: precio de lista}
   async function lotesDe(ids, listaPor) {
     const out = {}; if (!ids.length) return out;
-    const [filas] = await prodPool.query(`SELECT id, product_variation_id AS vid, quantity AS qty, cost_price AS costo,
-        entry_date AS entrada FROM stock_batches WHERE product_variation_id IN (?)`, [ids]);
-    const hist = {}, vivos = {};
-    filas.forEach(l => { (hist[l.vid] = hist[l.vid] || []).push(l); if (Number(l.qty) > 0) (vivos[l.vid] = vivos[l.vid] || []).push(l); });
+    // Los lotes en CONSIGNACIÓN (tiendas de clientes) no cuentan si hay stock propio: al consignar se traslada el lote
+    // más antiguo con su fecha y costo, y la campaña vende desde almacenes propios. Si contaran,
+    // la antigüedad (tramo) y el piso saldrían del lote consignado aunque el producto se venda.
+    const cLoc = await colLocLote();
+    const [filas] = await prodPool.query(cLoc
+      ? `SELECT b.id, b.product_variation_id AS vid, b.quantity AS qty, b.cost_price AS costo, b.entry_date AS entrada,
+          (COALESCE(l.type,'') = 'consignment') AS consig
+         FROM stock_batches b LEFT JOIN locations l ON l.id = b.\`${cLoc}\` WHERE b.product_variation_id IN (?)`
+      : `SELECT id, product_variation_id AS vid, quantity AS qty, cost_price AS costo,
+        entry_date AS entrada, 0 AS consig FROM stock_batches WHERE product_variation_id IN (?)`, [ids]);
+    // Si NO hay stock propio, sí cuentan los de consignación (se puede vender: se recoge o se envía desde la tienda).
+    const hist = {}, vivos = {}, vivosCons = {};
+    filas.forEach(l => { (hist[l.vid] = hist[l.vid] || []).push(l);
+      if (Number(l.qty) > 0) { const m = Number(l.consig) ? vivosCons : vivos; (m[l.vid] = m[l.vid] || []).push(l); } });
+    Object.keys(vivosCons).forEach(vid => { if (!(vivos[vid] && vivos[vid].length)) vivos[vid] = vivosCons[vid]; });
     ids.forEach(vid => {
       const d = depurarLotes(vivos[vid] || [], hist[vid] || [], Number((listaPor || {})[vid]) || 0);
       // lotes para precio: costo ÷ 0.9; crudos: costo real (capital)

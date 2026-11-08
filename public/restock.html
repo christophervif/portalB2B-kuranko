@@ -143,6 +143,7 @@ details.ayuda ul{margin:6px 0 0 18px;line-height:1.6}
 
     <div class="fila">
       <input id="buscar" type="search" placeholder="Buscar SKU o nombre…" oninput="pintar()" style="flex:1;min-width:200px">
+      <label class="chk" title="Oculta los productos con MKP o PCK en el SKU o el nombre"><input type="checkbox" id="ocultar" onchange="guardar('restock_ocultar',this.checked);cargar()"> Ocultar MKP / PCK</label>
     </div>
     <div class="tabla-wrap"><table id="tbl"></table></div>
 
@@ -200,11 +201,12 @@ let FILTRO = '';                                         // '' | 'sin_stock' | '
 let ORDEN = { k: null, dir: 'desc' };
 let CANT = leer('restock_cant', {});                     // vid → cantidad editada
 $('meses').value = String(leer('restock_meses', 2));
+$('ocultar').checked = leer('restock_ocultar', true);
 
 async function cargar(forzar) {
   const b = $('btn-act'); b.disabled = true; b.textContent = 'Cargando…';
   try {
-    const qs = new URLSearchParams({ meses: $('meses').value, vista: VISTA });
+    const qs = new URLSearchParams({ meses: $('meses').value, vista: VISTA, ocultar: $('ocultar').checked ? '1' : '0' });
     if (forzar) qs.set('forzar', '1');
     D = await (await api('/api/restock?' + qs)).json();
     VISTA = D.vista; guardar('restock_vista', VISTA);

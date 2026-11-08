@@ -29,6 +29,8 @@ const COT = require('./cotizador')._puros;
 const VENTANA = 90;              // días de venta que se miran
 const MIN_DIAS_NUEVO = 30;       // un producto nuevo se mide al menos sobre 30 días
 const CACHE_MS = 5 * 60 * 1000;  // los datos se recalculan como máximo cada 5 min (botón Actualizar fuerza)
+// Códigos que se pueden ocultar con la casilla "Ocultar MKP / PCK" (en SKU o nombre, sin importar mayúsculas)
+const OCULTAR_RE = /MKP|PCK/i;
 const MARCAS_APARTE_BASE = ['Magura', 'Fidlock', 'Zerode', 'Kavenz', '77designz'];
 
 const OTROS = (process.env.COTIZADOR_OTROS || process.env.COTIZADOR_NO_VENDIBLES || 'CUARENTENA,EN EXHIBICION,EMBAJADOR')
@@ -279,6 +281,7 @@ module.exports = function registrarRestock({ app, authAdmin, mRestock, prodPool,
   // Arma la respuesta: calcula, filtra por vista y resume cada vista
   async function obtener(q) {
     const meses = Math.min(12, Math.max(0.5, Number(q.meses) || 2));
+    const ocultar = q.ocultar !== '0';   // por defecto se ocultan MKP y PCK (en el SKU o el nombre)
     const [d, cfg] = await Promise.all([cargarDatos(q.forzar === '1'), leerConfig()]);
     const aparte = cfg.marcas_aparte.map(m => ({ nombre: m, k: compacto(m) })).filter(m => m.k);
     const aparteSet = new Set(aparte.map(m => m.k));
@@ -295,7 +298,7 @@ module.exports = function registrarRestock({ app, authAdmin, mRestock, prodPool,
         dias_sin_venta: diasDesde(x.ultima_venta),
         inversion: r2(c.pedir * x.costo)
       };
-    }).filter(x => x.pedir > 0);
+    }).filter(x => x.pedir > 0 && !(ocultar && OCULTAR_RE.test(String(x.sku) + ' ' + x.nombre)));
 
     // Vistas con su conteo (para el selector)
     const cuenta = v => todos.filter(x => x.vista === v).length;

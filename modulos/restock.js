@@ -1,293 +1,372 @@
 // ═══════════════════════════════════════════════════════════════════════════
-//  MÓDULO: Restock (qué reponer y cuánto)
-//  Antes vivía dentro de modulos/inventario.js y admin.html; ahora es una
-//  mini-app propia: backend aquí y frontend en public/restock.html (iframe).
+//  MÓDULO: Restock — qué pedir y cuánto (versión simple, nov 2026)
+//  Frontend: public/restock.html (iframe dentro de admin.html).
 //
-//  Cálculo por variación (solo lectura sobre producción):
-//    demanda/día     = unidades vendidas en la ventana (90 d por defecto) / días
-//    punto reorden   = demanda/día × (lead time + buffer)
-//    posición        = stock propio + en tránsito libre − backorders sin cubrir
-//    reponer si      posición ≤ punto de reorden
-//    sugerido pedir  = demanda/día × (lead + buffer + cobertura) − posición
-//  · Stock propio: almacenes y tiendas. NO cuenta consignación (está en el
-//    cliente) ni ubicaciones no vendibles (cuarentena, exhibición… mismas que
-//    usa el cotizador: COTIZADOR_OTROS).
-//  · En tránsito: envíos 'en_transito' del módulo Seguimiento (base del portal),
-//    solo las unidades que NO están asignadas a backorders ("sobra").
-//  · Backorders sin cubrir: seg_bo_items no comprados ni archivados, menos lo ya
-//    cubierto por envíos. Si el módulo Seguimiento no existe, se omite (0).
-//  Todo el cálculo es configurable desde la pantalla (lead, buffer, cobertura,
-//  ventana) o con variables RESTOCK_LEAD / RESTOCK_BUFFER / RESTOCK_COBERTURA.
+//  Idea: "quiero tener stock para N meses de venta" (por defecto 2).
+//    venta/mes  = unidades vendidas en los últimos 90 días ÷ días × 30
+//                 (si el producto llegó hace menos de 90 días, se mide desde que llegó, mín. 30 d)
+//    disponible = stock propio + en camino libre − clientes esperando (backorders sin comprar)
+//    pedir      = venta/mes × meses − disponible   (redondeado hacia arriba; solo si > 0)
+//
+//  Igual que el Cotizador (sin modificarlo):
+//    · Stock propio = almacenes y tiendas. NO cuenta consignación (está en el cliente) ni
+//      ubicaciones no vendibles (cuarentena, exhibición, embajador: COTIZADOR_OTROS).
+//    · Antigüedad = fecha de ingreso del lote más antiguo con stock en ubicaciones propias
+//      (los lotes en consignación se omiten).
+//    · Marca = primer tramo del nombre ("Magura - Freno - …" → "Magura").
+//    · Bicicleta = misma clasificación por categorías que el Cotizador (tipoProducto).
+//    · En camino = envíos de Seguimiento no recibidos + recepciones pendientes (sin duplicar).
+//
+//  Vistas: "General" (todo menos bicicletas y marcas aparte), "Bicicletas" y una por cada
+//  marca que se compra aparte. La lista de marcas aparte se edita en la misma pantalla y se
+//  guarda en la base del PORTAL (tabla restock_config, se crea sola).
 // ═══════════════════════════════════════════════════════════════════════════
 
-const { nombreTrazable, cabeceraExcel, nombreProdVar, GANANCIA_NORMAL, ES_NORMAL, ES_PEDIDO, ES_FALLA } = require('./comunes');
+const { nombreTrazable, cabeceraExcel } = require('./comunes');
+// Solo LECTURA de funciones puras del Cotizador (clasificación y normalización). No se modifica.
+const COT = require('./cotizador')._puros;
 
-const num = (v, def, min, max) => {
-  const n = Number(v);
-  if (!Number.isFinite(n)) return def;
-  return Math.min(max, Math.max(min, Math.round(n)));
-};
-const DEF = {
-  lead: num(process.env.RESTOCK_LEAD, 21, 1, 365),
-  buffer: num(process.env.RESTOCK_BUFFER, 5, 0, 180),
-  cobertura: num(process.env.RESTOCK_COBERTURA, 30, 0, 365),
-  ventana: 90
-};
-const VENTANAS = [30, 60, 90, 180, 365];
+const VENTANA = 90;              // días de venta que se miran
+const MIN_DIAS_NUEVO = 30;       // un producto nuevo se mide al menos sobre 30 días
+const CACHE_MS = 5 * 60 * 1000;  // los datos se recalculan como máximo cada 5 min (botón Actualizar fuerza)
+const MARCAS_APARTE_BASE = ['Magura', 'Fidlock', 'Zerode', 'Kavenz', '77designz'];
 
 const OTROS = (process.env.COTIZADOR_OTROS || process.env.COTIZADOR_NO_VENDIBLES || 'CUARENTENA,EN EXHIBICION,EMBAJADOR')
   .split(',').map(x => x.trim()).filter(Boolean);
-const normalizar = s => String(s || '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
+const normalizar = COT.normalizar;
+const compacto = COT.compacto;           // sin espacios ni signos: "77 Designz" = "77designz"
 const OTROS_SET = new Set(OTROS.map(normalizar));
-// Igual que en seguimiento.js: para cruzar SKUs escritos a mano con los del ERP
-const cleanSku = v => String(v == null ? '' : v).normalize('NFKD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-const asJson = (v, fb) => { if (v == null) return fb; if (typeof v === 'object') return v; try { return JSON.parse(v); } catch (e) { return fb; } };
+const marcaDe = (producto, nombre) => String(producto || nombre || '').split(' - ')[0].trim();
+const json = v => { if (v == null) return []; if (typeof v === 'object') return v; try { return JSON.parse(v); } catch (e) { return []; } };
+const dia = v => v ? (v instanceof Date ? v.toISOString() : String(v)).slice(0, 10) : null;
+const diasDesde = d => d ? Math.max(0, Math.floor((Date.now() - new Date(d).getTime()) / 864e5)) : null;
 const r1 = n => Math.round(n * 10) / 10;
 const r2 = n => Math.round(n * 100) / 100;
 
-function leerParametros(q) {
-  q = q || {};
-  const ventana = VENTANAS.includes(Number(q.ventana)) ? Number(q.ventana) : DEF.ventana;
-  return {
-    lead: num(q.lead, DEF.lead, 1, 365),
-    buffer: num(q.buffer, DEF.buffer, 0, 180),
-    cobertura: num(q.cobertura, DEF.cobertura, 0, 365),
-    ventana,
-    incluir_consig: q.incluir_consig === '1'
-  };
+// ── Cálculo puro (sin base de datos) — exportado para pruebas ──
+//  f = { und90, dias_desde_ingreso, stock, camino, esperando }
+function calcular(f, meses) {
+  const und = Number(f.und90) || 0;
+  let dias = VENTANA;
+  if (f.dias_desde_ingreso != null && f.dias_desde_ingreso < VENTANA) dias = Math.max(MIN_DIAS_NUEVO, f.dias_desde_ingreso);
+  const ventaMes = und > 0 ? und / dias * 30 : 0;
+  const disponible = (Number(f.stock) || 0) + (Number(f.camino) || 0) - (Number(f.esperando) || 0);
+  const pedir = ventaMes > 0 ? Math.max(0, Math.ceil(ventaMes * meses - disponible - 1e-9)) : 0;
+  const alcanza = ventaMes > 0 ? Math.max(0, disponible) / ventaMes : null;   // meses
+  const estado = (Number(f.stock) || 0) <= 0 ? 'sin_stock' : (alcanza != null && alcanza < 1 ? 'bajo' : 'reponer');
+  return { venta_mes: r1(ventaMes), dias_medidos: dias, disponible, pedir, alcanza: alcanza == null ? null : r1(alcanza), estado };
 }
 
-// Importancia por ganancia histórica (mismos umbrales que antes)
-const importancia = g => g >= 1000 ? 'Alto' : g >= 300 ? 'Medio' : 'Bajo';
-
-// Cálculo puro (sin base de datos) — se exporta para pruebas.
-//  f = { vid, und_ventana, stock_propio, consignacion, transito, bo_pendiente }
-function calcularFila(f, p) {
-  const demanda = (Number(f.und_ventana) || 0) / p.ventana;
-  const stockBase = (Number(f.stock_propio) || 0) + (p.incluir_consig ? (Number(f.consignacion) || 0) : 0);
-  const posicion = stockBase + (Number(f.transito) || 0) - (Number(f.bo_pendiente) || 0);
-  const ciclo = p.lead + p.buffer;
-  const puntoReorden = demanda * ciclo;
-  const reponer = demanda > 0 && posicion <= puntoReorden;
-  const sugerido = demanda > 0 ? Math.max(0, Math.ceil(demanda * (ciclo + p.cobertura) - posicion)) : 0;
-  const diasCobertura = demanda > 0 ? Math.max(0, posicion) / demanda : null;
-  // Urgencia: agotado hoy / no alcanza hasta que llegue un pedido hecho hoy / reponer ya
-  let urgencia = 'Reponer';
-  if (stockBase <= 0) urgencia = 'Agotado';
-  else if (diasCobertura != null && diasCobertura < p.lead) urgencia = 'Crítico';
-  return {
-    reponer,
-    stock_base: stockBase,
-    posicion: r1(posicion),
-    ventas_dia: Math.round(demanda * 10000) / 10000,
-    punto_reorden: r1(puntoReorden),
-    sugerido,
-    dias_cobertura: diasCobertura == null ? null : r1(diasCobertura),
-    urgencia
-  };
+// Vista a la que pertenece un producto
+function vistaDe(marca, esBici, aparteSet) {
+  const k = compacto(marca);
+  if (k && aparteSet.has(k)) return 'marca:' + k;
+  if (esBici) return 'bicicletas';
+  return 'general';
 }
-
-const ORDEN_URG = { 'Agotado': 0, 'Crítico': 1, 'Reponer': 2 };
-const ORDEN_IMP = { 'Alto': 0, 'Medio': 1, 'Bajo': 2 };
 
 module.exports = function registrarRestock({ app, authAdmin, mRestock, prodPool, portalPool, VV }) {
+  VV = VV || "('paid','confirmed','pending_payment')";
 
-  // ── Unidades en tránsito libres y backorders sin cubrir (módulo Seguimiento) ──
-  async function leerSeguimiento() {
-    const transito = {}, bo = {};
-    let disponible = false;
-    if (!portalPool) return { transito, bo, disponible };
+  // ══════════ Configuración (marcas que se compran aparte) ══════════
+  let _tablaLista = null;
+  function tablaConfig() {
+    if (!portalPool) return Promise.resolve(false);
+    if (!_tablaLista) _tablaLista = portalPool.query(`
+      CREATE TABLE IF NOT EXISTS restock_config (
+        id INT PRIMARY KEY,
+        datos JSON NOT NULL,
+        actualizado_por VARCHAR(120) NOT NULL DEFAULT '',
+        actualizado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )`).then(() => true).catch(e => { console.warn('[restock] sin tabla de configuración:', e.message); _tablaLista = null; return false; });
+    return _tablaLista;
+  }
+  async function leerConfig() {
+    const base = { marcas_aparte: MARCAS_APARTE_BASE.slice(), bicis_aparte: true };
     try {
-      const [envs] = await portalPool.query(
-        `SELECT items FROM seg_envios WHERE archivado = 0 AND estado = 'en_transito'`);
-      envs.forEach(ev => (asJson(ev.items, []) || []).forEach(it => {
-        const k = cleanSku(it.sku); if (!k) return;
-        const q = Number(it.cantidad) || 0;
-        // 'sobra' = unidades no asignadas a backorders (lo calcula seguimiento.js)
-        const libre = it.sobra != null && Number.isFinite(Number(it.sobra)) ? Number(it.sobra) : q;
-        if (libre > 0) transito[k] = (transito[k] || 0) + libre;
-      }));
+      if (!(await tablaConfig())) return base;
+      const [[r]] = await portalPool.query('SELECT datos FROM restock_config WHERE id = 1');
+      if (!r) return base;
+      const d = json(r.datos);
+      return {
+        marcas_aparte: Array.isArray(d.marcas_aparte) ? d.marcas_aparte.map(String) : base.marcas_aparte,
+        bicis_aparte: d.bicis_aparte !== false
+      };
+    } catch (e) { return base; }
+  }
+
+  // ══════════ Datos (caché 5 min) ══════════
+  let _datos = null, _datosAt = 0, _cargando = null;
+
+  async function columnaLocLote() {
+    try {
+      const [c] = await prodPool.query('SHOW COLUMNS FROM stock_batches');
+      const n = c.map(x => x.Field);
+      return ['location_id', 'warehouse_id', 'current_location_id'].find(x => n.includes(x)) || '';
+    } catch (e) { return ''; }
+  }
+
+  // Mercadería en camino (misma regla que el Cotizador): SKU compacto → { cant, para_clientes, eta }
+  async function enCamino() {
+    const mapa = new Map();
+    const agregar = (sku, cant, paraClientes, eta) => {
+      const k = compacto(sku); if (!k || !(cant > 0)) return;
+      const e = mapa.get(k) || { cant: 0, para_clientes: 0, eta: null };
+      e.cant += cant; e.para_clientes += paraClientes || 0;
+      if (eta && (!e.eta || eta < e.eta)) e.eta = eta;
+      mapa.set(k, e);
+    };
+    if (!portalPool) return { mapa, ok: false };
+    let ok = true;
+    const facturasEnCamino = new Set();
+    try {
+      const [envs] = await portalPool.query(`SELECT n_factura, eta, fecha_estimada, items
+        FROM seg_envios WHERE archivado = 0 AND estado <> 'recibido' AND fase <> 'recibido'`)
+        .catch(() => portalPool.query(`SELECT n_factura, NULL AS eta, fecha_estimada, items
+          FROM seg_envios WHERE archivado = 0 AND estado <> 'recibido'`));
+      envs.forEach(e => {
+        if (e.n_factura) facturasEnCamino.add(normalizar(e.n_factura));
+        const eta = dia(e.eta) || dia(e.fecha_estimada);
+        json(e.items).forEach(it => {
+          const q = Number(it.cantidad) || 0;
+          agregar(it.sku, q, it.es_backorder ? q : 0, eta);
+        });
+      });
+    } catch (e) { ok = false; }
+    try {
+      const [recs] = await portalPool.query(`SELECT n_factura, items FROM imp_recepciones
+        WHERE estado IN ('pendiente','borrador') AND COALESCE(archivada,0) = 0`)
+        .catch(() => portalPool.query(`SELECT n_factura, items FROM imp_recepciones WHERE estado IN ('pendiente','borrador')`));
+      recs.forEach(r => {
+        if (r.n_factura && facturasEnCamino.has(normalizar(r.n_factura))) return;
+        json(r.items).forEach(it => {
+          const cant = it.cant_recibida != null ? Number(it.cant_recibida) : Number(it.cantidad) || 0;
+          agregar(it.sku_confirmado || it.sku_sugerido, cant, 0, null);
+        });
+      });
+    } catch (e) { /* sin recepciones: no pasa nada */ }
+    return { mapa, ok };
+  }
+
+  // Clientes esperando: backorders gestionados en Seguimiento aún sin comprar (cantidad − cubierto)
+  async function esperando() {
+    const m = new Map();
+    if (!portalPool) return m;
+    try {
       const [bos] = await portalPool.query(
         `SELECT sku, cantidad, cubierto FROM seg_bo_items WHERE archivado = 0 AND comprado = 0`);
       bos.forEach(b => {
-        const k = cleanSku(b.sku); if (!k) return;
+        const k = compacto(b.sku); if (!k) return;
         const falta = Math.max(0, (Number(b.cantidad) || 0) - (Number(b.cubierto) || 0));
-        if (falta > 0) bo[k] = (bo[k] || 0) + falta;
+        if (falta > 0) m.set(k, (m.get(k) || 0) + falta);
       });
-      disponible = true;
-    } catch (e) { /* tablas de seguimiento aún no creadas: se ignora */ }
-    return { transito, bo, disponible };
+    } catch (e) { /* sin seguimiento */ }
+    return m;
   }
 
-  async function obtenerRestock(query) {
-    const p = leerParametros(query);
-
-    const [[catalogo], [stock], [ventas], seg] = await Promise.all([
-      // Variaciones vendibles (activas, no "padre" de variables)
-      prodPool.query(`
-        SELECT pv.id AS vid, pv.sku, pv.name AS variacion, p.name AS producto
-        FROM product_variations pv JOIN products p ON p.id = pv.product_id
-        WHERE pv.deleted_at IS NULL AND p.deleted_at IS NULL
-          AND (pv.status IS NULL OR pv.status = 'active')
-          AND COALESCE(pv.product_type,'') <> 'variable'`),
-      // Stock por ubicación (se agrupa en propio / consignación / otros)
-      prodPool.query(`
-        SELECT ls.product_variation_id AS vid, l.name AS almacen, l.type AS tipo,
-          GREATEST(ls.quantity - ls.reserved_quantity, 0) AS disp
-        FROM location_stocks ls JOIN locations l ON l.id = ls.location_id
-        WHERE ls.quantity > 0`),
-      // Demanda en la ventana
-      prodPool.query(`
-        SELECT si.product_variation_id AS vid, SUM(si.quantity) AS und,
-          SUM(CASE WHEN ${ES_PEDIDO} THEN si.quantity ELSE 0 END) AS und_pedido,
-          SUM(${GANANCIA_NORMAL}) AS ganancia,
-          MAX(s.created_at) AS ultima_venta
-        FROM sale_items si JOIN sales s ON s.id = si.sale_id
-        LEFT JOIN stock_batches sb ON si.stock_batch_id = sb.id
-        WHERE s.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
-          AND s.deleted_at IS NULL AND s.status IN ${VV}
-        GROUP BY si.product_variation_id`, [p.ventana]),
-      leerSeguimiento()
-    ]);
-
-    const stMap = {};
-    stock.forEach(s => {
-      const e = stMap[s.vid] = stMap[s.vid] || { propio: 0, consignacion: 0, otros: 0 };
-      const d = Number(s.disp) || 0;
-      if (s.tipo === 'consignment') e.consignacion += d;
-      else if (OTROS_SET.has(normalizar(s.almacen))) e.otros += d;
-      else e.propio += d;
-    });
-    const vMap = {}; ventas.forEach(v => vMap[v.vid] = v);
-
-    // 1) Filtrar candidatos con el cálculo puro (barato)
-    const candidatos = [];
-    catalogo.forEach(c => {
-      const v = vMap[c.vid]; if (!v || !(Number(v.und) > 0)) return;
-      const st = stMap[c.vid] || { propio: 0, consignacion: 0, otros: 0 };
-      const k = cleanSku(c.sku);
-      const f = {
-        und_ventana: Number(v.und), stock_propio: st.propio, consignacion: st.consignacion,
-        transito: k ? (seg.transito[k] || 0) : 0, bo_pendiente: k ? (seg.bo[k] || 0) : 0
-      };
-      const calc = calcularFila(f, p);
-      if (!calc.reponer) return;
-      candidatos.push({ c, v, st, f, calc });
-    });
-
-    // 2) Solo para los candidatos: ganancia histórica y costo (consultas acotadas)
-    const ids = candidatos.map(x => x.c.vid);
-    const gMap = {}, costoMap = {};
-    if (ids.length) {
-      const [[gan], [costos]] = await Promise.all([
+  async function cargarDatos(forzar) {
+    if (!forzar && _datos && Date.now() - _datosAt < CACHE_MS) return _datos;
+    if (_cargando) return _cargando;
+    _cargando = (async () => {
+      const cLoc = await columnaLocLote();
+      const [[prods], [stock], [cats], [ventas], [lotes], [ultCosto], camino, esp] = await Promise.all([
+        // Solo productos activos (borrador y descontinuado no se reponen)
         prodPool.query(`
-          SELECT si.product_variation_id AS vid, SUM(si.quantity) AS unidades_hist,
-            SUM(CASE WHEN ${ES_NORMAL} THEN si.total ELSE 0 END) AS ingreso_confiable,
-            SUM(${GANANCIA_NORMAL}) AS ganancia_hist,
-            COUNT(CASE WHEN ${ES_PEDIDO} THEN 1 END) AS lineas_pedido,
-            COUNT(CASE WHEN ${ES_FALLA} THEN 1 END) AS lineas_falla
+          SELECT pv.id AS vid, TRIM(pv.sku) AS sku, pv.name AS variacion, pv.product_id AS pid, p.name AS producto
+          FROM product_variations pv LEFT JOIN products p ON p.id = pv.product_id
+          WHERE pv.deleted_at IS NULL AND (p.id IS NULL OR p.deleted_at IS NULL)
+            AND COALESCE(pv.product_type,'') <> 'variable'
+            AND (pv.status IS NULL OR pv.status = 'active')`),
+        prodPool.query(`
+          SELECT ls.product_variation_id AS vid, l.name AS almacen, l.type AS tipo,
+            GREATEST(ls.quantity - ls.reserved_quantity, 0) AS disp
+          FROM location_stocks ls JOIN locations l ON l.id = ls.location_id
+          WHERE ls.quantity > 0`),
+        prodPool.query(`
+          SELECT ppc.product_id AS pid, c.name AS cat, padre.name AS padre
+          FROM product_product_category ppc
+          JOIN product_categories c ON c.id = ppc.product_category_id
+          LEFT JOIN product_categories padre ON padre.id = c.parent_id`).catch(() => [[]]),
+        prodPool.query(`
+          SELECT si.product_variation_id AS vid,
+            SUM(CASE WHEN s.created_at >= DATE_SUB(NOW(), INTERVAL ${VENTANA} DAY) THEN si.quantity ELSE 0 END) AS und90,
+            COUNT(DISTINCT CASE WHEN s.created_at >= DATE_SUB(NOW(), INTERVAL ${VENTANA} DAY) THEN s.id END) AS ventas90,
+            MAX(s.created_at) AS ultima_venta
           FROM sale_items si JOIN sales s ON s.id = si.sale_id
-          LEFT JOIN stock_batches sb ON si.stock_batch_id = sb.id
-          WHERE s.deleted_at IS NULL AND s.status IN ${VV} AND si.product_variation_id IN (?)
-          GROUP BY si.product_variation_id`, [ids]),
-        // Último costo de compra conocido (lote más reciente) para estimar la inversión
+          WHERE s.deleted_at IS NULL AND s.status IN ${VV}
+          GROUP BY si.product_variation_id`),
+        // Lotes en ubicaciones propias (se omiten los de consignación, como en el Cotizador):
+        //  · antigüedad = lote más antiguo CON stock · primer ingreso = lote más antiguo de todos
+        prodPool.query(cLoc ? `
+          SELECT b.product_variation_id AS vid,
+            MIN(CASE WHEN b.quantity > 0 THEN b.entry_date END) AS antiguo,
+            MIN(b.entry_date) AS primer_ingreso
+          FROM stock_batches b LEFT JOIN locations l ON l.id = b.\`${cLoc}\`
+          WHERE COALESCE(l.type,'') <> 'consignment'
+          GROUP BY b.product_variation_id` : `
+          SELECT product_variation_id AS vid,
+            MIN(CASE WHEN quantity > 0 THEN entry_date END) AS antiguo,
+            MIN(entry_date) AS primer_ingreso
+          FROM stock_batches GROUP BY product_variation_id`),
+        // Costo de la última compra (para estimar cuánto cuesta el pedido)
         prodPool.query(`
-          SELECT sb.product_variation_id AS vid, sb.cost_price
-          FROM stock_batches sb
-          JOIN (SELECT product_variation_id, MAX(id) AS mid FROM stock_batches
-                WHERE product_variation_id IN (?) GROUP BY product_variation_id) u ON u.mid = sb.id`, [ids])
+          SELECT b.product_variation_id AS vid, b.cost_price AS costo
+          FROM stock_batches b
+          JOIN (SELECT product_variation_id, MAX(id) AS mid FROM stock_batches WHERE cost_price > 0
+                GROUP BY product_variation_id) u ON u.mid = b.id`),
+        enCamino(),
+        esperando()
       ]);
-      gan.forEach(g => gMap[g.vid] = g);
-      costos.forEach(c => costoMap[c.vid] = Number(c.cost_price) || 0);
-    }
 
-    const items = candidatos.map(({ c, v, st, f, calc }) => {
-      const g = gMap[c.vid] || {};
-      const ganHist = Number(g.ganancia_hist) || 0;
-      const ingreso = Number(g.ingreso_confiable) || 0;
-      const costo = costoMap[c.vid] || 0;
-      const undV = Number(v.und) || 0;
+      // Imágenes (opcional: si falla, no hay miniatura)
+      const imgVar = {}, imgProd = {};
+      try {
+        const [imgs] = await prodPool.query(`
+          SELECT product_id, product_variation_id, path FROM product_images
+          WHERE deleted_at IS NULL AND path IS NOT NULL AND path <> ''
+          ORDER BY is_primary DESC, sort_order ASC, id ASC`);
+        imgs.forEach(im => {
+          if (im.product_variation_id != null) { if (!imgVar[im.product_variation_id]) imgVar[im.product_variation_id] = im.path; }
+          else if (im.product_id != null && !imgProd[im.product_id]) imgProd[im.product_id] = im.path;
+        });
+      } catch (e) { /* sin imágenes */ }
+
+      const stMap = {};
+      stock.forEach(s => {
+        const e = stMap[s.vid] = stMap[s.vid] || { propio: 0, consignacion: 0, otros: 0 };
+        const d = Number(s.disp) || 0;
+        if (s.tipo === 'consignment') e.consignacion += d;
+        else if (OTROS_SET.has(normalizar(s.almacen))) e.otros += d;
+        else e.propio += d;
+      });
+      const catMap = {};
+      cats.forEach(r => { (catMap[r.pid] = catMap[r.pid] || []).push([r.padre, r.cat].filter(Boolean).join(' ')); });
+      const vMap = {}; ventas.forEach(v => vMap[v.vid] = v);
+      const lMap = {}; lotes.forEach(l => lMap[l.vid] = l);
+      const cMap = {}; ultCosto.forEach(c => cMap[c.vid] = Number(c.costo) || 0);
+
+      const items = [];
+      prods.forEach(p => {
+        const v = vMap[p.vid];
+        if (!v || !(Number(v.und90) > 0)) return;          // sin venta en 90 días: no se repone
+        const nombre = (p.variacion || '').trim() || (p.producto || '').trim() || '—';
+        const st = stMap[p.vid] || { propio: 0, consignacion: 0, otros: 0 };
+        const l = lMap[p.vid] || {};
+        const k = compacto(p.sku);
+        const cam = (k && camino.mapa.get(k)) || { cant: 0, para_clientes: 0, eta: null };
+        const categorias = (catMap[p.pid] || []).join(' | ');
+        items.push({
+          vid: p.vid, sku: p.sku || '', nombre,
+          marca: marcaDe(p.producto, nombre) || '—',
+          bici: COT.tipoProducto(categorias, p.producto || nombre) === 'bicicleta',
+          imagen: imgVar[p.vid] || imgProd[p.pid] || null,
+          stock: st.propio, consignacion: st.consignacion, no_vendible: st.otros,
+          camino: Math.max(0, cam.cant - cam.para_clientes), camino_clientes: cam.para_clientes, eta: cam.eta,
+          esperando: (k && esp.get(k)) || 0,
+          und90: Number(v.und90) || 0, ventas90: Number(v.ventas90) || 0,
+          ultima_venta: dia(v.ultima_venta),
+          lote_antiguo: dia(l.antiguo), primer_ingreso: dia(l.primer_ingreso),
+          costo: cMap[p.vid] || 0
+        });
+      });
+      _datos = { items, camino_ok: camino.ok, hora: new Date().toISOString() };
+      _datosAt = Date.now();
+      return _datos;
+    })();
+    try { return await _cargando; } finally { _cargando = null; }
+  }
+
+  // Arma la respuesta: calcula, filtra por vista y resume cada vista
+  async function obtener(q) {
+    const meses = Math.min(12, Math.max(0.5, Number(q.meses) || 2));
+    const [d, cfg] = await Promise.all([cargarDatos(q.forzar === '1'), leerConfig()]);
+    const aparte = cfg.marcas_aparte.map(m => ({ nombre: m, k: compacto(m) })).filter(m => m.k);
+    const aparteSet = new Set(aparte.map(m => m.k));
+
+    const todos = d.items.map(x => {
+      const c = calcular({
+        und90: x.und90, dias_desde_ingreso: diasDesde(x.primer_ingreso),
+        stock: x.stock, camino: x.camino, esperando: x.esperando
+      }, meses);
       return {
-        sku: c.sku || '',
-        producto: nombreProdVar(c.producto, c.variacion),
-        marca: (c.producto || '').trim().split(/\s+/)[0] || '—',
-        stock_propio: st.propio,
-        consignacion: st.consignacion,
-        no_vendible: st.otros,
-        en_transito: f.transito,
-        bo_pendiente: f.bo_pendiente,
-        vendido_ventana: undV,
-        pct_a_pedido: undV > 0 ? Math.round((Number(v.und_pedido) || 0) / undV * 100) : 0,
-        ganancia_ventana: r2(Number(v.ganancia) || 0),
-        ultima_venta: v.ultima_venta || null,
-        unidades_hist: Number(g.unidades_hist) || 0,
-        ganancia_hist: r2(ganHist),
-        margen_pct: ingreso > 0 ? r1(ganHist / ingreso * 100) : null,
-        lineas_pedido: Number(g.lineas_pedido) || 0,
-        lineas_falla: Number(g.lineas_falla) || 0,
-        importancia: importancia(ganHist),
-        costo_ult: r2(costo),
-        inversion: r2(costo * calc.sugerido),
-        ...calc
+        ...x, ...c,
+        vista: vistaDe(x.marca, cfg.bicis_aparte && x.bici, aparteSet),
+        antiguedad_dias: diasDesde(x.lote_antiguo),
+        dias_sin_venta: diasDesde(x.ultima_venta),
+        inversion: r2(c.pedir * x.costo)
       };
-    }).sort((a, b) =>
-      (ORDEN_URG[a.urgencia] - ORDEN_URG[b.urgencia]) ||
-      (ORDEN_IMP[a.importancia] - ORDEN_IMP[b.importancia]) ||
-      (b.ganancia_hist - a.ganancia_hist));
+    }).filter(x => x.pedir > 0);
 
-    const resumen = {
-      total: items.length,
-      agotados: items.filter(x => x.urgencia === 'Agotado').length,
-      criticos: items.filter(x => x.urgencia === 'Crítico').length,
-      unidades_sugeridas: items.reduce((s, x) => s + x.sugerido, 0),
-      inversion: r2(items.reduce((s, x) => s + x.inversion, 0)),
-      sin_costo: items.filter(x => x.sugerido > 0 && !x.costo_ult).length
+    // Vistas con su conteo (para el selector)
+    const cuenta = v => todos.filter(x => x.vista === v).length;
+    const vistas = [{ id: 'general', nombre: 'General', n: cuenta('general') }];
+    if (cfg.bicis_aparte) vistas.push({ id: 'bicicletas', nombre: 'Bicicletas', n: cuenta('bicicletas') });
+    aparte.forEach(m => vistas.push({ id: 'marca:' + m.k, nombre: m.nombre, n: cuenta('marca:' + m.k) }));
+
+    const vista = vistas.some(v => v.id === q.vista) ? q.vista : 'general';
+    const ORD = { sin_stock: 0, bajo: 1, reponer: 2 };
+    const items = todos.filter(x => x.vista === vista)
+      .sort((a, b) => (ORD[a.estado] - ORD[b.estado]) || (b.venta_mes - a.venta_mes));
+
+    return {
+      meses, ventana: VENTANA, vista, vistas, config: cfg,
+      camino_ok: d.camino_ok, actualizado: d.hora,
+      marcas: [...new Set(d.items.map(x => x.marca))].filter(m => m && m !== '—').sort((a, b) => a.localeCompare(b, 'es')),
+      items
     };
-    const marcas = [...new Set(items.map(x => x.marca))].filter(m => m !== '—').sort();
-    return { parametros: p, seguimiento: seg.disponible, resumen, marcas, items };
   }
 
   app.get('/api/restock', authAdmin, mRestock, async (req, res) => {
-    try { res.json(await obtenerRestock(req.query)); }
+    try { res.json(await obtener(req.query)); }
     catch (e) { res.status(500).json({ error: e.message }); }
   });
 
-  app.get('/api/restock-excel', authAdmin, mRestock, async (req, res) => {
+  // Guardar la configuración de vistas (marcas aparte, bicicletas aparte)
+  app.post('/api/restock/config', authAdmin, mRestock, async (req, res) => {
     try {
-      const d = await obtenerRestock(req.query);
-      const p = d.parametros;
-      let items = d.items;
-      // Mismos filtros de pantalla (opcionales)
-      if (req.query.marca) items = items.filter(x => x.marca === req.query.marca);
-      if (req.query.urgencia) items = items.filter(x => x.urgencia === req.query.urgencia);
-      if (req.query.importancia) items = items.filter(x => x.importancia === req.query.importancia);
+      if (!(await tablaConfig())) return res.status(500).json({ error: 'No hay base del portal para guardar.' });
+      const b = req.body || {};
+      const vistos = new Set();
+      const marcas = (Array.isArray(b.marcas_aparte) ? b.marcas_aparte : [])
+        .map(m => String(m || '').trim().slice(0, 60)).filter(m => {
+          const k = compacto(m); if (!k || vistos.has(k)) return false; vistos.add(k); return true;
+        }).slice(0, 40);
+      const datos = { marcas_aparte: marcas, bicis_aparte: b.bicis_aparte !== false };
+      const quien = String((req.admin && req.admin.usuario) || '').slice(0, 120);
+      await portalPool.query(
+        `INSERT INTO restock_config (id, datos, actualizado_por) VALUES (1, ?, ?)
+         ON DUPLICATE KEY UPDATE datos = VALUES(datos), actualizado_por = VALUES(actualizado_por)`,
+        [JSON.stringify(datos), quien]);
+      res.json({ ok: true, config: datos });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  // Excel del pedido: recibe las filas tal como están en pantalla (con las cantidades editadas)
+  app.post('/api/restock/excel', authAdmin, mRestock, async (req, res) => {
+    try {
+      const b = req.body || {};
+      const filas = (Array.isArray(b.filas) ? b.filas : []).slice(0, 5000);
       const ExcelJS = require('exceljs');
       const wb = new ExcelJS.Workbook();
-      const ws = wb.addWorksheet('Restock');
-      const cols = [
-        ['Urgencia', 11], ['Importancia', 11], ['SKU', 18], ['Producto', 46], ['Marca', 14],
-        ['Stock propio', 11], ['Consignación', 12], ['En tránsito', 11], ['Backorders pend.', 14],
-        [`Vendido ${p.ventana}d`, 12], ['Venta/día', 10], ['Pto. reorden', 11], ['Días cobertura', 13],
-        ['Sugerido pedir', 13], ['Último costo (S/)', 14], ['Inversión (S/)', 14],
-        ['Margen %', 10], ['Ganancia hist. (S/)', 16], ['% a pedido', 10]
-      ];
-      const filasCab = cabeceraExcel(ws, 'Restock — productos a reponer', [
-        ['Lead time', p.lead + ' d'], ['Buffer', p.buffer + ' d'], ['Cobertura', p.cobertura + ' d'],
-        ['Ventana', p.ventana + ' d'], ['Consignación', p.incluir_consig ? 'incluida' : 'excluida'],
-        ['Marca', req.query.marca], ['Urgencia', req.query.urgencia], ['Importancia', req.query.importancia]
+      const ws = wb.addWorksheet('Pedido');
+      const cols = [['SKU', 18], ['Producto', 50], ['Marca', 14], ['Stock', 9], ['En camino', 10],
+        ['Venta/mes', 10], ['Alcanza (meses)', 14], ['Antigüedad (días)', 15], ['Pedir', 9], ['Costo unit. (S/)', 14], ['Total (S/)', 14]];
+      const filasCab = cabeceraExcel(ws, 'Restock — pedido ' + String(b.vista || ''), [
+        ['Stock para', (Number(b.meses) || 2) + ' meses'], ['Venta medida', VENTANA + ' días']
       ], cols.length);
       cols.forEach((c, i) => ws.getColumn(i + 1).width = c[1]);
       const hr = ws.addRow(cols.map(c => c[0]));
       hr.font = { bold: true, color: { argb: 'FFFFFFFF' } };
       hr.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000726' } };
-      items.forEach(x => ws.addRow([
-        x.urgencia, x.importancia, x.sku, x.producto, x.marca, x.stock_propio, x.consignacion,
-        x.en_transito, x.bo_pendiente, x.vendido_ventana, x.ventas_dia, x.punto_reorden,
-        x.dias_cobertura, x.sugerido, x.costo_ult, x.inversion, x.margen_pct, x.ganancia_hist, x.pct_a_pedido
-      ]));
+      const n = v => (v === '' || v == null || !Number.isFinite(Number(v))) ? null : Number(v);
+      filas.forEach(x => {
+        const pedir = n(x.pedir) || 0, costo = n(x.costo);
+        ws.addRow([String(x.sku || ''), String(x.nombre || ''), String(x.marca || ''), n(x.stock), n(x.camino),
+          n(x.venta_mes), n(x.alcanza), n(x.antiguedad_dias), pedir, costo || null, costo ? r2(costo * pedir) : null]);
+      });
       ws.views = [{ state: 'frozen', ySplit: filasCab + 1 }];
       ws.autoFilter = { from: { row: filasCab + 1, column: 1 }, to: { row: filasCab + 1, column: cols.length } };
-      [15, 16, 18].forEach(c => ws.getColumn(c).numFmt = '#,##0.00');
+      [10, 11].forEach(c => ws.getColumn(c).numFmt = '#,##0.00');
       const nombre = nombreTrazable('restock');
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename="${nombre}.xlsx"`);
@@ -297,4 +376,4 @@ module.exports = function registrarRestock({ app, authAdmin, mRestock, prodPool,
   });
 };
 
-module.exports._puros = { calcularFila, leerParametros, importancia, cleanSku };
+module.exports._puros = { calcular, vistaDe, marcaDe, VENTANA, MARCAS_APARTE_BASE };

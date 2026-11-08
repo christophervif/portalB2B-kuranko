@@ -5,15 +5,13 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Restock — Kuranko</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <style>
 :root{
   --bg:#0a1030;--surface:#111a44;--surface2:#0e1640;--surface3:#18224e;
   --border:#212b54;--text:#eef1f8;--text2:#c6cee2;--muted:#8a93b4;--muted2:#a2abca;
   --accent:#FFB30D;--accent-text:#000726;--accent-h:#e6a00c;--hover:#1a2450;--white:#ffffff;
   --bg-ok:#163a29;--fg-ok:#6ee59a;--bg-warn:#3d3315;--fg-warn:#ffcb52;--bg-r:#3f1c20;--fg-r:#f79a9a;
-  --bg-v:#2a2766;--fg-v:#cecbf6;
+  --zebra:#0f1846;
   --radius:18px;--radius-sm:12px;
   --shadow-sm:0 2px 8px rgba(0,0,0,.10);
 }
@@ -22,7 +20,7 @@
   --border:#e3e9f5;--text:#1a2140;--text2:#4a5680;--muted:#9aa3c0;--muted2:#727e9f;
   --hover:#f2f5fb;--white:#1a2140;
   --bg-ok:#e8f8ef;--fg-ok:#1f9c56;--bg-warn:#fdf5db;--fg-warn:#9a6b00;--bg-r:#fdeded;--fg-r:#dc4b4b;
-  --bg-v:#eeedfc;--fg-v:#4b43b8;
+  --zebra:#f8fafe;
   --shadow-sm:0 2px 10px rgba(30,45,90,.04);
 }
 *{box-sizing:border-box;margin:0;padding:0}
@@ -30,344 +28,381 @@ html,body{overflow-x:hidden}
 body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px}
 .wrap{max-width:1240px;margin:0 auto;padding:1.25rem}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.1rem;box-shadow:var(--shadow-sm);margin-bottom:16px}
-.card h3{font-size:15px;font-weight:600;color:var(--white);margin-bottom:4px}
+.card h3{font-size:15px;font-weight:600;color:var(--white)}
 .desc{font-size:12px;color:var(--muted);line-height:1.55}
-.fila{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px}
-.campo{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--muted2)}
-.campo input,.campo select,.fila>select,.fila>input{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:8px 10px;font-size:13px}
-.campo input[type=number]{width:84px}
-input:focus,select:focus{outline:none;border-color:var(--accent)}
-.chk{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text2);cursor:pointer;white-space:nowrap;padding-bottom:8px}
-.btn{background:var(--accent);border:none;color:var(--accent-text);border-radius:var(--radius-sm);padding:9px 16px;font-size:13px;cursor:pointer;font-weight:600}
+.fila{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px}
+.btn{background:var(--accent);border:none;color:var(--accent-text);border-radius:var(--radius-sm);padding:9px 16px;font-size:13px;cursor:pointer;font-weight:600;white-space:nowrap}
 .btn:hover{background:var(--accent-h)}
 .btn:disabled{opacity:.6;cursor:wait}
 .btn-sec{background:var(--surface3);border:1px solid var(--border);color:var(--text2)}
-.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:14px}
-.kpi{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:12px;cursor:default}
-.kpi.clic{cursor:pointer}.kpi.clic:hover{border-color:var(--accent)}
+.btn-sm{padding:5px 10px;font-size:12px;border-radius:9px}
+input,select{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:8px 10px;font-size:13px}
+input:focus,select:focus{outline:none;border-color:var(--accent)}
+.meses{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:var(--text2)}
+.meses select{font-weight:700}
+/* Vistas (General · Bicicletas · marcas aparte) */
+.vistas{display:flex;gap:6px;flex-wrap:wrap;margin-top:14px}
+.vista{background:var(--surface2);border:1px solid var(--border);color:var(--text2);border-radius:20px;padding:7px 14px;font-size:13px;cursor:pointer;font-weight:600}
+.vista:hover{border-color:var(--accent)}
+.vista.on{background:var(--accent);border-color:var(--accent);color:var(--accent-text)}
+.vista .n{font-weight:400;opacity:.75;margin-left:4px}
+.vista.cfg{background:transparent;border-style:dashed}
+/* Configuración de vistas */
+.cfgbox{display:none;margin-top:12px;padding:12px;border:1px dashed var(--border);border-radius:12px;background:var(--surface2)}
+.cfgbox.on{display:block}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+.chip-m{display:inline-flex;align-items:center;gap:6px;background:var(--surface3);border:1px solid var(--border);border-radius:16px;padding:4px 6px 4px 12px;font-size:13px}
+.chip-m button{background:none;border:none;color:var(--muted);cursor:pointer;font-size:15px;line-height:1;padding:0 4px}
+.chip-m button:hover{color:var(--fg-r)}
+.chk{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--text2);cursor:pointer}
+/* Indicadores */
+.kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:14px}
+@media(max-width:640px){.kpis{grid-template-columns:1fr}}
+.kpi{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:12px 14px;cursor:pointer}
+.kpi:hover,.kpi.on{border-color:var(--accent)}
 .kpi .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
-.kpi .v{font-size:1.4rem;font-weight:700;color:var(--white);margin-top:4px}
-.kpi .s{font-size:11px;color:var(--muted2);margin-top:2px}
+.kpi .v{font-size:1.5rem;font-weight:700;color:var(--white);margin-top:2px}
+.kpi .s{font-size:12px;color:var(--muted2)}
 .kpi.r .v{color:var(--fg-r)}.kpi.w .v{color:var(--fg-warn)}.kpi.a .v{color:var(--accent)}
 .aviso{font-size:12px;border-radius:10px;padding:8px 10px;margin-top:10px;background:var(--bg-warn);color:var(--fg-warn)}
-.tabla-wrap{overflow:auto;max-height:68vh;margin-top:10px;border:1px solid var(--border);border-radius:12px}
-table{width:100%;border-collapse:collapse;font-size:12.5px}
-th{position:sticky;top:0;background:var(--surface3);text-align:left;padding:8px;color:var(--muted2);font-weight:600;font-size:11px;border-bottom:1px solid var(--border);white-space:nowrap;cursor:pointer;user-select:none;z-index:1}
+/* Tabla (estilo Cotizador) */
+.tabla-wrap{overflow:auto;max-height:70vh;margin-top:10px;border:1px solid var(--border);border-radius:12px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{position:sticky;top:0;z-index:3;background:var(--surface3);text-align:left;padding:8px;color:var(--muted2);font-weight:600;font-size:11px;border-bottom:1px solid var(--border);border-right:1px solid var(--border);white-space:nowrap;cursor:pointer;user-select:none}
 th:hover{color:var(--white)}
+th.asc::after{content:' ↑';color:var(--accent)}th.desc::after{content:' ↓';color:var(--accent)}
+td{padding:7px 8px;border-bottom:1px solid var(--border);border-right:1px solid var(--border);color:var(--text2);vertical-align:middle;background:var(--surface)}
+tr:nth-child(even) td{background:var(--zebra)}
+tr:hover td{background:var(--hover)}
 th.n,td.n{text-align:right}
 td.n{white-space:nowrap}
-#tbl-restock td:first-child{min-width:220px}
-th.asc::after{content:' ↑';color:var(--accent)}th.desc::after{content:' ↓';color:var(--accent)}
-td{padding:8px;border-bottom:1px solid var(--border);color:var(--text2);vertical-align:top}
-tr:hover td{background:var(--hover)}
-td .nom{color:var(--white);font-weight:500;line-height:1.35}
-td .sku{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--muted)}
-td.sug{font-weight:700;color:var(--white);font-size:14px}
-.chip{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:20px;white-space:nowrap}
-.c-r{background:var(--bg-r);color:var(--fg-r)}.c-w{background:var(--bg-warn);color:var(--fg-warn)}.c-ok{background:var(--bg-ok);color:var(--fg-ok)}
-.c-v{background:var(--bg-v);color:var(--fg-v)}.c-g{background:var(--surface3);color:var(--text2);border:1px solid var(--border)}
-.sub{font-size:10.5px;color:var(--muted);margin-top:2px;white-space:nowrap}
-.vacio{color:var(--muted);text-align:center;padding:1.5rem;font-size:13px}
-.leyenda{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font-size:11.5px;color:var(--muted)}
-.leyenda span{display:inline-flex;gap:6px;align-items:center}
-details.ayuda{margin-top:10px;font-size:12px;color:var(--text2)}
+td.pcol,th.pcol{position:sticky;left:0;z-index:2;min-width:260px;max-width:380px}
+th.pcol{z-index:4}
+.pcell{display:flex;gap:8px;align-items:center}
+.pnom{color:var(--white);font-weight:500;line-height:1.3}
+.pmeta{font-size:11px;color:var(--muted);margin-top:2px}
+.thumb{flex:none;width:40px;height:40px;border-radius:8px;background:#fff;border:1px solid var(--border);object-fit:contain;display:block}
+.thumb.vacia{display:flex;align-items:center;justify-content:center;background:var(--surface3);color:var(--muted);font-size:18px}
+.sku{font-family:ui-monospace,Menlo,monospace}
+.cp{cursor:copy;border-bottom:1px dotted var(--muted)}
+.cp:hover{color:var(--accent);border-bottom-color:var(--accent)}
+.chip{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;white-space:nowrap}
+.c-r{background:var(--bg-r);color:var(--fg-r)}.c-w{background:var(--bg-warn);color:var(--fg-warn)}.c-g{background:var(--surface3);color:var(--text2);border:1px solid var(--border)}
+.sub{display:block;font-size:10.5px;color:var(--muted);margin-top:1px}
+td.ped input{width:70px;text-align:right;font-weight:700;font-size:14px;padding:6px 8px}
+td.ped input.mod{border-color:var(--accent);color:var(--accent)}
+.vacio{color:var(--muted);text-align:center;padding:1.75rem;font-size:13px}
+.barra{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px}
+.tot{font-size:13px;color:var(--text2)}.tot b{color:var(--white)}
+details.ayuda{margin-top:12px;font-size:12px;color:var(--text2)}
 details.ayuda summary{cursor:pointer;color:var(--muted2)}
 details.ayuda ul{margin:6px 0 0 18px;line-height:1.6}
 .toast{position:fixed;bottom:20px;right:20px;background:var(--bg-ok);color:var(--fg-ok);padding:12px 18px;border-radius:12px;font-size:13px;display:none;z-index:100;border:1px solid var(--border);max-width:320px}
 .toast.err{background:var(--bg-r);color:var(--fg-r)}
-@media(max-width:640px){.wrap{padding:.75rem}.card{padding:.9rem}.campo input[type=number]{width:70px}}
+@media(max-width:640px){.wrap{padding:.75rem}.card{padding:.9rem}td.pcol,th.pcol{min-width:200px}}
 </style>
 </head>
 <body>
 <div class="toast" id="toast"></div>
 <div class="wrap">
-
-  <!-- ══════════ RESTOCK ══════════ -->
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
       <div>
-        <h3>Productos a reponer</h3>
-        <div class="desc" id="rs-desc">Productos con venta reciente cuyo stock (más lo que viene en camino) ya no alcanza para cubrir el tiempo de reposición.</div>
+        <h3>Restock — qué pedir</h3>
+        <div class="desc">Productos que vendieron en los últimos 90 días y cuyo stock (más lo que viene en camino) no alcanza para el tiempo que elijas.</div>
       </div>
-      <div class="desc" id="rs-hora"></div>
+      <div class="fila" style="margin-top:0">
+        <label class="meses">Tener stock para
+          <select id="meses" onchange="cambiarMeses()">
+            <option value="1">1 mes</option><option value="2" selected>2 meses</option>
+            <option value="3">3 meses</option><option value="4">4 meses</option><option value="6">6 meses</option>
+          </select>
+        </label>
+        <button class="btn" id="btn-act" onclick="cargar(true)">Actualizar</button>
+      </div>
     </div>
+
+    <div class="vistas" id="vistas"></div>
+    <div class="cfgbox" id="cfgbox">
+      <div class="desc">Marcas que compras aparte: no salen en <b>General</b>, cada una tiene su propia vista. Se guarda para todos los usuarios.</div>
+      <div class="chips" id="cfg-chips"></div>
+      <div class="fila" style="margin-top:4px">
+        <input id="cfg-nueva" list="cfg-marcas" placeholder="Agregar marca…" style="min-width:200px" onkeydown="if(event.key==='Enter')agregarMarca()">
+        <datalist id="cfg-marcas"></datalist>
+        <button class="btn btn-sec btn-sm" onclick="agregarMarca()">+ Agregar</button>
+        <label class="chk" style="margin-left:8px"><input type="checkbox" id="cfg-bicis"> Bicicletas en su propia vista</label>
+      </div>
+      <div class="fila">
+        <button class="btn btn-sm" onclick="guardarConfig()">Guardar</button>
+        <button class="btn btn-sec btn-sm" onclick="toggleCfg(false)">Cancelar</button>
+      </div>
+    </div>
+
+    <div class="kpis" id="kpis"></div>
+    <div id="avisos"></div>
 
     <div class="fila">
-      <label class="campo" title="Días que tarda un pedido desde que se hace hasta que llega">Lead time (días)<input type="number" id="p-lead" min="1" max="365" value="21"></label>
-      <label class="campo" title="Días extra de seguridad por demoras o picos de venta">Buffer (días)<input type="number" id="p-buffer" min="0" max="180" value="5"></label>
-      <label class="campo" title="Cuántos días de venta quieres cubrir con el pedido, además del ciclo de reposición">Cobertura pedido (días)<input type="number" id="p-cobertura" min="0" max="365" value="30"></label>
-      <label class="campo" title="Periodo de ventas que se usa para calcular el ritmo de venta">Ritmo de venta según
-        <select id="p-ventana">
-          <option value="30">últimos 30 días</option>
-          <option value="60">últimos 60 días</option>
-          <option value="90" selected>últimos 90 días</option>
-          <option value="180">últimos 180 días</option>
-          <option value="365">últimos 12 meses</option>
-        </select>
-      </label>
-      <label class="chk" title="Por defecto el stock en consignación no cuenta: está en el cliente"><input type="checkbox" id="p-consig"> Contar consignación</label>
-      <button class="btn" id="btn-calc" onclick="cargarRestock()">Calcular</button>
+      <input id="buscar" type="search" placeholder="Buscar SKU o nombre…" oninput="pintar()" style="flex:1;min-width:200px">
+    </div>
+    <div class="tabla-wrap"><table id="tbl"></table></div>
+
+    <div class="barra">
+      <div class="tot" id="tot"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-sec" onclick="restablecer()" title="Vuelve a las cantidades sugeridas">Restablecer cantidades</button>
+        <button class="btn btn-sec" onclick="copiarPedido()">Copiar pedido</button>
+        <button class="btn" onclick="excel()">Excel</button>
+      </div>
     </div>
 
-    <div class="kpis" id="rs-kpis"></div>
-    <div id="rs-aviso"></div>
-
-    <div class="fila">
-      <input id="f-buscar" type="search" placeholder="Buscar SKU o nombre…" oninput="pintarRestock()" style="flex:1;min-width:180px">
-      <select id="f-marca" onchange="pintarRestock()"><option value="">Todas las marcas</option></select>
-      <select id="f-urg" onchange="pintarRestock()">
-        <option value="">Toda urgencia</option><option>Agotado</option><option>Crítico</option><option>Reponer</option>
-      </select>
-      <select id="f-imp" onchange="pintarRestock()">
-        <option value="">Toda importancia</option><option>Alto</option><option>Medio</option><option>Bajo</option>
-      </select>
-      <label class="chk"><input type="checkbox" id="f-pedido" onchange="pintarRestock()"> Ocultar los que se venden sobre todo a pedido</label>
-      <button class="btn btn-sec" onclick="restockExcel()">Excel</button>
-      <button class="btn btn-sec" onclick="restockPDF()">PDF</button>
-    </div>
-    <div class="desc" id="rs-conteo" style="margin-top:8px"></div>
-    <div class="tabla-wrap"><table id="tbl-restock"></table></div>
-
-    <div class="leyenda">
-      <span><span class="chip c-r">Agotado</span> sin stock propio hoy</span>
-      <span><span class="chip c-w">Crítico</span> se agota antes de que llegue un pedido hecho hoy</span>
-      <span><span class="chip c-g">Reponer</span> bajo el punto de reorden</span>
-      <span><span class="chip c-v">Alto</span> ganancia hist. &gt; S/ 1,000 · Medio S/ 300–1,000 · Bajo &lt; S/ 300</span>
-    </div>
     <details class="ayuda">
       <summary>¿Cómo se calcula?</summary>
       <ul>
-        <li><b>Venta/día</b> = unidades vendidas en el periodo elegido ÷ días del periodo.</li>
-        <li><b>Posición</b> = stock propio (almacenes y tiendas, sin consignación ni cuarentena/exhibición) + en tránsito libre − backorders sin cubrir.</li>
-        <li><b>Punto de reorden</b> = venta/día × (lead time + buffer). Aparece en la lista si la posición es menor o igual.</li>
-        <li><b>Sugerido pedir</b> = venta/día × (lead + buffer + cobertura) − posición, redondeado hacia arriba.</li>
-        <li><b>En tránsito</b> y <b>backorders</b> vienen del módulo Seguimiento (envíos "en tránsito" y backorders sin comprar). Solo se cuentan las unidades del envío que no están asignadas a un backorder.</li>
-        <li><b>Inversión</b> = sugerido × último costo de compra conocido (referencial).</li>
+        <li><b>Venta/mes</b>: unidades vendidas en los últimos 90 días, llevado a un mes. Si el producto llegó hace menos de 90 días, se mide desde que llegó (mínimo 30 días), para no subestimarlo.</li>
+        <li><b>Stock</b>: solo almacenes y tiendas propias. No cuenta consignación (está en el cliente) ni cuarentena/exhibición/embajador. La consignación se muestra debajo como referencia.</li>
+        <li><b>En camino</b>: envíos de Seguimiento que aún no llegan y recepciones pendientes. Lo que viene ya vendido a un cliente no cuenta.</li>
+        <li><b>Clientes esperando</b>: backorders de Seguimiento aún sin comprar; se suman a lo que hay que pedir.</li>
+        <li><b>Pedir</b> = venta/mes × meses elegidos − (stock + en camino − clientes esperando). Puedes cambiar la cantidad; Copiar y Excel usan lo que ves.</li>
+        <li><b>Antigüedad</b>: días desde el ingreso del lote más antiguo que aún tiene stock en ubicaciones propias (como en el Cotizador; los lotes en consignación no cuentan).</li>
+        <li><b>Estado</b>: <span class="chip c-r">Sin stock</span> hoy no hay en almacén · <span class="chip c-w">Bajo</span> alcanza menos de 1 mes · <span class="chip c-g">Reponer</span> alcanza, pero menos de lo elegido.</li>
+        <li><b>Costo</b>: costo de la última compra (con IGV), solo referencial.</li>
       </ul>
     </details>
   </div>
-
 </div>
 
 <script>
 // ═══════════════════════════════════════════════════════════════════════════
-//  Restock — frontend (mini-app en iframe dentro de admin.html)
+//  Restock (mini-app en iframe dentro de admin.html). Backend: modulos/restock.js
 //  Comparte token y origen con el panel (localStorage 'admtoken').
-//  Backend: modulos/restock.js  (/api/restock, /api/restock-excel)
 // ═══════════════════════════════════════════════════════════════════════════
 let TOKEN = ''; try { TOKEN = localStorage.getItem('admtoken') || ''; } catch (e) {}
-
 const $ = id => document.getElementById(id);
 function esc(t) { return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
-function showToast(m, e) { const t = $('toast'); t.textContent = m; t.className = 'toast' + (e ? ' err' : ''); t.style.display = 'block'; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', 3500); }
-async function apiCall(ep) {
-  const r = await fetch(ep, { headers: { 'Authorization': 'Bearer ' + TOKEN } });
+function showToast(m, e) { const t = $('toast'); t.textContent = m; t.className = 'toast' + (e ? ' err' : ''); t.style.display = 'block'; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', 3000); }
+async function api(ep, opt) {
+  const r = await fetch(ep, Object.assign({ headers: { 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': 'application/json' } }, opt || {}));
   if (r.status === 401) throw new Error('Sesión del portal expirada — vuelve a entrar al panel.');
-  const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(d.error || 'Error');
-  return d;
+  if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || 'Error'); }
+  return r;
 }
-async function descargar(ep, nombre) {
-  const r = await fetch(ep, { headers: { 'Authorization': 'Bearer ' + TOKEN } });
-  if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || 'No se pudo generar el archivo'); }
-  const blob = await r.blob();
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a'); a.href = url; a.download = nombre; a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-function nombreArchivo(base, ext) {
-  const d = new Date(), p = n => String(n).padStart(2, '0');
-  return `${base}-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.${ext}`;
-}
-const N = (n, dec = 0) => n == null ? '—' : Number(n).toLocaleString('es-PE', { minimumFractionDigits: dec, maximumFractionDigits: dec });
-const S = n => n == null ? '—' : 'S/ ' + N(n, 2);
-const MAX_FILAS = 500; // filas pintadas en pantalla (Excel/PDF traen todo)
+const leer = (k, def) => { try { const v = localStorage.getItem(k); return v == null ? def : JSON.parse(v); } catch (e) { return def; } };
+const guardar = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+const N = (n, d = 0) => n == null ? '—' : Number(n).toLocaleString('es-PE', { minimumFractionDigits: d, maximumFractionDigits: d });
+const S = n => 'S/ ' + N(n, 2);
+const fechaCorta = d => { if (!d) return '—'; const m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${+m[3]}/${+m[2]}/${m[1].slice(2)}` : d; };
+const textoDias = d => d == null ? '—' : d < 60 ? d + ' d' : d < 365 ? Math.round(d / 30) + ' m' : (d / 365).toFixed(1).replace('.0', '') + ' a';
 
-// ══════════════════════════ RESTOCK ══════════════════════════
-const PKEY = 'restock_params';
-let RS = null;                               // última respuesta de /api/restock
-let rsSort = { k: null, dir: 'asc' };        // null = orden del servidor (urgencia → importancia → ganancia)
+// Estado de pantalla (lo que elige el usuario se recuerda en este navegador)
+let D = null;                                            // última respuesta del servidor
+let VISTA = leer('restock_vista', 'general');
+let FILTRO = '';                                         // '' | 'sin_stock' | 'bajo' (clic en indicador)
+let ORDEN = { k: null, dir: 'desc' };
+let CANT = leer('restock_cant', {});                     // vid → cantidad editada
+$('meses').value = String(leer('restock_meses', 2));
 
-function leerParams() {
-  return {
-    lead: $('p-lead').value, buffer: $('p-buffer').value, cobertura: $('p-cobertura').value,
-    ventana: $('p-ventana').value, incluir_consig: $('p-consig').checked ? '1' : ''
-  };
-}
-function paramsQS(extra) {
-  const p = new URLSearchParams();
-  Object.entries({ ...leerParams(), ...(extra || {}) }).forEach(([k, v]) => { if (v !== '' && v != null) p.set(k, v); });
-  return p.toString();
-}
-function restaurarParams() {
+async function cargar(forzar) {
+  const b = $('btn-act'); b.disabled = true; b.textContent = 'Cargando…';
   try {
-    const g = JSON.parse(localStorage.getItem(PKEY) || 'null'); if (!g) return;
-    if (g.lead) $('p-lead').value = g.lead;
-    if (g.buffer !== undefined && g.buffer !== '') $('p-buffer').value = g.buffer;
-    if (g.cobertura !== undefined && g.cobertura !== '') $('p-cobertura').value = g.cobertura;
-    if (g.ventana) $('p-ventana').value = g.ventana;
-    $('p-consig').checked = g.incluir_consig === '1';
-  } catch (e) {}
-}
-
-async function cargarRestock() {
-  const btn = $('btn-calc'); btn.disabled = true; btn.textContent = 'Calculando…';
-  $('rs-conteo').textContent = 'Analizando stock y ventas…';
-  try {
-    RS = await apiCall('/api/restock?' + paramsQS());
-    try { localStorage.setItem(PKEY, JSON.stringify(leerParams())); } catch (e) {}
-    // Reflejar lo que el servidor realmente usó (valores fuera de rango se ajustan)
-    const p = RS.parametros;
-    $('p-lead').value = p.lead; $('p-buffer').value = p.buffer; $('p-cobertura').value = p.cobertura; $('p-ventana').value = p.ventana;
-    $('rs-hora').textContent = 'Actualizado: ' + new Date().toLocaleString('es-PE');
-    $('rs-desc').textContent = `Ciclo de reposición ${p.lead + p.buffer} días (${p.lead} lead time + ${p.buffer} buffer) · ritmo de venta de los últimos ${p.ventana} días · pedido para cubrir ${p.cobertura} días más.`;
-    const selM = $('f-marca'), act = selM.value;
-    selM.innerHTML = '<option value="">Todas las marcas</option>' + RS.marcas.map(m => `<option${m === act ? ' selected' : ''}>${esc(m)}</option>`).join('');
-    pintarKpis();
-    pintarRestock();
+    const qs = new URLSearchParams({ meses: $('meses').value, vista: VISTA });
+    if (forzar) qs.set('forzar', '1');
+    D = await (await api('/api/restock?' + qs)).json();
+    VISTA = D.vista; guardar('restock_vista', VISTA);
+    pintarVistas(); pintarCfg(); pintar();
   } catch (e) {
-    $('rs-conteo').textContent = '';
     showToast(e.message, true);
-  } finally { btn.disabled = false; btn.textContent = 'Calcular'; }
+    if (!D) $('tbl').innerHTML = '<tbody><tr><td class="vacio">' + esc(e.message) + '</td></tr></tbody>';
+  } finally { b.disabled = false; b.textContent = 'Actualizar'; }
+}
+function cambiarMeses() { guardar('restock_meses', Number($('meses').value)); CANT = {}; guardar('restock_cant', CANT); cargar(); }
+function elegirVista(v) { VISTA = v; FILTRO = ''; $('buscar').value = ''; cargar(); }
+
+function pintarVistas() {
+  $('vistas').innerHTML = D.vistas.map(v =>
+    `<button class="vista${v.id === VISTA ? ' on' : ''}" onclick="elegirVista('${esc(v.id)}')">${esc(v.nombre)}<span class="n">${v.n}</span></button>`
+  ).join('') + `<button class="vista cfg" onclick="toggleCfg()" title="Elegir qué marcas se compran aparte">⚙ Vistas</button>`;
 }
 
-function pintarKpis() {
-  const r = RS.resumen;
-  const k = [
-    { l: 'A reponer', v: N(r.total), s: 'productos bajo el punto de reorden', c: 'a', f: '' },
-    { l: 'Agotados', v: N(r.agotados), s: 'sin stock propio hoy', c: 'r', f: 'Agotado' },
-    { l: 'Críticos', v: N(r.criticos), s: 'no llegan al próximo pedido', c: 'w', f: 'Crítico' },
-    { l: 'Unidades sugeridas', v: N(r.unidades_sugeridas), s: 'para el pedido completo', c: '' },
-    { l: 'Inversión estimada', v: S(r.inversion), s: r.sin_costo ? `${r.sin_costo} sin costo conocido` : 'a último costo de compra', c: '' }
-  ];
-  $('rs-kpis').innerHTML = k.map(x => `<div class="kpi ${x.c}${x.f !== undefined ? ' clic' : ''}" ${x.f !== undefined ? `onclick="filtrarUrg('${x.f}')" title="Filtrar"` : ''}>
-    <div class="l">${x.l}</div><div class="v">${x.v}</div><div class="s">${esc(x.s)}</div></div>`).join('');
-  $('rs-aviso').innerHTML = RS.seguimiento ? '' :
-    '<div class="aviso">No se pudo leer el módulo Seguimiento: el cálculo no descuenta mercadería en tránsito ni suma backorders pendientes.</div>';
+// ══════════ Configuración de vistas (en la misma pantalla) ══════════
+let CFG_MARCAS = [];
+function pintarCfg() {
+  if ($('cfgbox').classList.contains('on')) return;          // no pisar lo que se está editando
+  CFG_MARCAS = (D.config.marcas_aparte || []).slice();
+  $('cfg-bicis').checked = D.config.bicis_aparte !== false;
+  $('cfg-marcas').innerHTML = (D.marcas || []).map(m => `<option value="${esc(m)}">`).join('');
+  pintarChips();
 }
-function filtrarUrg(u) { $('f-urg').value = u; pintarRestock(); }
-
-function filasFiltradas() {
-  if (!RS) return [];
-  const q = ($('f-buscar').value || '').toLowerCase().trim();
-  const marca = $('f-marca').value, urg = $('f-urg').value, imp = $('f-imp').value, sinPedido = $('f-pedido').checked;
-  let rows = RS.items.filter(x =>
-    (!q || (x.sku + ' ' + x.producto).toLowerCase().includes(q)) &&
-    (!marca || x.marca === marca) && (!urg || x.urgencia === urg) && (!imp || x.importancia === imp) &&
-    (!sinPedido || x.pct_a_pedido < 50));
-  if (rsSort.k) {
-    const { k, dir } = rsSort, m = dir === 'asc' ? 1 : -1;
-    rows = rows.slice().sort((a, b) => {
-      const x = a[k], y = b[k];
-      if (typeof x === 'number' || typeof y === 'number') return ((x == null ? -Infinity : x) - (y == null ? -Infinity : y)) * m;
-      return String(x || '').localeCompare(String(y || '')) * m;
-    });
-  }
-  return rows;
+function pintarChips() {
+  $('cfg-chips').innerHTML = CFG_MARCAS.length
+    ? CFG_MARCAS.map((m, i) => `<span class="chip-m">${esc(m)}<button title="Quitar" onclick="quitarMarca(${i})">×</button></span>`).join('')
+    : '<span class="desc">Ninguna: todo sale en General.</span>';
 }
-
-const COLS_RS = [
-  { k: 'producto', t: 'Producto' },
-  { k: 'urgencia', t: 'Urgencia' },
-  { k: 'importancia', t: 'Import.' },
-  { k: 'stock_propio', t: 'Stock', n: 1 },
-  { k: 'en_transito', t: 'En camino', n: 1 },
-  { k: 'bo_pendiente', t: 'Backorder', n: 1 },
-  { k: 'ventas_dia', t: 'Venta/día', n: 1 },
-  { k: 'punto_reorden', t: 'Pto. reorden', n: 1 },
-  { k: 'dias_cobertura', t: 'Días cob.', n: 1 },
-  { k: 'sugerido', t: 'Pedir', n: 1 },
-  { k: 'inversion', t: 'Inversión', n: 1 },
-  { k: 'margen_pct', t: 'Margen', n: 1 },
-  { k: 'ganancia_hist', t: 'Ganancia hist.', n: 1 }
-];
-function ordenarRS(k) {
-  if (rsSort.k === k) rsSort.dir = rsSort.dir === 'asc' ? 'desc' : 'asc';
-  else { rsSort.k = k; rsSort.dir = COLS_RS.find(c => c.k === k).n ? 'desc' : 'asc'; }
-  pintarRestock();
+function toggleCfg(on) {
+  const box = $('cfgbox');
+  const abrir = on == null ? !box.classList.contains('on') : on;
+  box.classList.toggle('on', abrir);
+  if (!abrir && D) pintarCfg();
+  if (abrir) $('cfg-nueva').focus();
 }
-
-function pintarRestock() {
-  const t = $('tbl-restock');
-  if (!RS) { t.innerHTML = ''; return; }
-  const rows = filasFiltradas();
-  const p = RS.parametros;
-  const inv = rows.reduce((s, x) => s + x.inversion, 0), und = rows.reduce((s, x) => s + x.sugerido, 0);
-  $('rs-conteo').innerHTML = `<b>${rows.length}</b> de ${RS.items.length} producto(s) · pedir <b>${N(und)}</b> und · inversión <b>${S(inv)}</b>` +
-    (rows.length > MAX_FILAS ? ` · mostrando ${MAX_FILAS} en pantalla (Excel/PDF traen todo)` : '');
-  const chU = { 'Agotado': 'c-r', 'Crítico': 'c-w', 'Reponer': 'c-g' };
-  const chI = { 'Alto': 'c-v', 'Medio': 'c-w', 'Bajo': 'c-g' };
-  const head = '<thead><tr>' + COLS_RS.map(c => {
-    const cls = [c.n ? 'n' : '', rsSort.k === c.k ? rsSort.dir : ''].join(' ').trim();
-    return `<th class="${cls}" onclick="ordenarRS('${c.k}')">${c.t}</th>`;
-  }).join('') + '</tr></thead>';
-  if (!rows.length) {
-    t.innerHTML = head + `<tbody><tr><td colspan="${COLS_RS.length}" class="vacio">${RS.items.length ? 'Sin productos con esos filtros.' : '¡Nada que reponer con estos parámetros!'}</td></tr></tbody>`;
-    return;
-  }
-  t.innerHTML = head + '<tbody>' + rows.slice(0, MAX_FILAS).map(x => {
-    let marcas = '';
-    if (x.pct_a_pedido >= 50) marcas += ` <span class="chip c-w" title="${x.pct_a_pedido}% de lo vendido en el periodo fue a pedido (sin stock): quizá no convenga stockearlo">a pedido ${x.pct_a_pedido}%</span>`;
-    if (x.lineas_falla > 0) marcas += ` <span class="chip c-r" title="Tiene ventas sin lote/costo vinculado: la ganancia y el margen pueden estar subestimados">⚠ costo</span>`;
-    const extraStock = [
-      x.consignacion ? `${N(x.consignacion)} consig.` : '',
-      x.no_vendible ? `${N(x.no_vendible)} no vend.` : ''
-    ].filter(Boolean).join(' · ');
-    const diasCls = x.dias_cobertura == null ? '' : x.dias_cobertura < p.lead ? 'c-r' : 'c-w';
-    return `<tr>
-      <td><div class="nom">${esc(x.producto)}${marcas}</div><div class="sku">${esc(x.sku || '—')}</div></td>
-      <td><span class="chip ${chU[x.urgencia]}">${x.urgencia}</span></td>
-      <td><span class="chip ${chI[x.importancia]}">${x.importancia}</span></td>
-      <td class="n">${N(x.stock_propio)}${extraStock ? `<div class="sub">${extraStock}</div>` : ''}</td>
-      <td class="n">${x.en_transito ? N(x.en_transito) : '—'}</td>
-      <td class="n">${x.bo_pendiente ? `<span class="chip c-r" title="Unidades vendidas a pedido que aún no se compran">${N(x.bo_pendiente)}</span>` : '—'}</td>
-      <td class="n">${N(x.ventas_dia, 2)}<div class="sub">${N(x.vendido_ventana)} en ${p.ventana}d</div></td>
-      <td class="n">${N(x.punto_reorden, 1)}</td>
-      <td class="n">${x.dias_cobertura == null ? '—' : `<span class="chip ${diasCls}">${N(x.dias_cobertura, 0)} d</span>`}</td>
-      <td class="n sug">${N(x.sugerido)}</td>
-      <td class="n">${x.costo_ult ? S(x.inversion) : '<span class="sub" title="Sin lote de compra registrado">sin costo</span>'}</td>
-      <td class="n">${x.margen_pct == null ? '—' : N(x.margen_pct, 1) + '%'}</td>
-      <td class="n">${S(x.ganancia_hist)}</td>
-    </tr>`;
-  }).join('') + '</tbody>';
+const comp = s => String(s || '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9%]/g, '');
+function agregarMarca() {
+  const v = $('cfg-nueva').value.trim(); if (!v) return;
+  if (CFG_MARCAS.some(m => comp(m) === comp(v))) { showToast('Ya está en la lista', true); return; }
+  // Si coincide con una marca del sistema, se usa como está escrita allí
+  const real = (D.marcas || []).find(m => comp(m) === comp(v));
+  CFG_MARCAS.push(real || v); $('cfg-nueva').value = ''; pintarChips();
 }
-
-async function restockExcel() {
+function quitarMarca(i) { CFG_MARCAS.splice(i, 1); pintarChips(); }
+async function guardarConfig() {
+  const pend = $('cfg-nueva').value.trim(); if (pend) agregarMarca();
   try {
-    const extra = { marca: $('f-marca').value, urgencia: $('f-urg').value, importancia: $('f-imp').value };
-    await descargar('/api/restock-excel?' + paramsQS(extra), nombreArchivo('restock', 'xlsx'));
+    await api('/api/restock/config', { method: 'POST', body: JSON.stringify({ marcas_aparte: CFG_MARCAS, bicis_aparte: $('cfg-bicis').checked }) });
+    $('cfgbox').classList.remove('on');
+    showToast('Vistas guardadas ✓');
+    cargar();
   } catch (e) { showToast(e.message, true); }
 }
-function restockPDF() {
-  if (!RS) { showToast('Primero calcula el restock', true); return; }
-  const rows = filasFiltradas();
-  if (!rows.length) { showToast('Sin productos para exportar', true); return; }
-  const p = RS.parametros;
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
-  doc.setFontSize(14); doc.text('Restock — productos a reponer', 40, 40);
-  doc.setFontSize(9); doc.setTextColor(120);
-  doc.text(`${rows.length} productos · lead ${p.lead}d + buffer ${p.buffer}d · cobertura ${p.cobertura}d · ventas ${p.ventana}d · Generado: ${new Date().toLocaleString('es-PE')}`, 40, 56);
-  doc.autoTable({
-    startY: 66,
-    head: [['Urgencia', 'Imp.', 'SKU', 'Producto', 'Stock', 'Camino', 'BO', 'Vta/día', 'Pto.reord.', 'Días cob.', 'Pedir', 'Inversión']],
-    body: rows.map(x => [x.urgencia, x.importancia, x.sku, x.producto, x.stock_propio, x.en_transito || '', x.bo_pendiente || '',
-      N(x.ventas_dia, 2), N(x.punto_reorden, 1), x.dias_cobertura == null ? '—' : N(x.dias_cobertura, 0), x.sugerido, x.costo_ult ? N(x.inversion, 2) : '—']),
-    styles: { fontSize: 7, cellPadding: 2 }, headStyles: { fillColor: [0, 7, 38] },
-    columnStyles: { 3: { cellWidth: 200 } }, margin: { left: 40, right: 40 }
-  });
-  doc.save(nombreArchivo('restock', 'pdf'));
+
+// ══════════ Tabla ══════════
+const cant = x => CANT[x.vid] != null ? CANT[x.vid] : x.pedir;
+function filas() {
+  if (!D) return [];
+  const q = comp($('buscar').value);
+  let r = D.items.filter(x => (!FILTRO || x.estado === FILTRO) && (!q || comp(x.sku + ' ' + x.nombre).includes(q)));
+  if (ORDEN.k) {
+    const m = ORDEN.dir === 'asc' ? 1 : -1, k = ORDEN.k;
+    r = r.slice().sort((a, b) => {
+      const x = k === 'pedir' ? cant(a) : a[k], y = k === 'pedir' ? cant(b) : b[k];
+      if (typeof x === 'string' || typeof y === 'string') return String(x || '').localeCompare(String(y || ''), 'es') * m;
+      return ((x == null ? -1e12 : x) - (y == null ? -1e12 : y)) * m;
+    });
+  }
+  return r;
+}
+const COLS = [
+  { k: 'nombre', t: 'Producto', cls: 'pcol' },
+  { k: 'estado', t: 'Estado' },
+  { k: 'stock', t: 'Stock', n: 1 },
+  { k: 'camino', t: 'En camino', n: 1 },
+  { k: 'venta_mes', t: 'Venta/mes', n: 1 },
+  { k: 'alcanza', t: 'Alcanza', n: 1 },
+  { k: 'antiguedad_dias', t: 'Antigüedad', n: 1 },
+  { k: 'dias_sin_venta', t: 'Últ. venta', n: 1 },
+  { k: 'pedir', t: 'Pedir', n: 1 },
+  { k: 'costo', t: 'Costo', n: 1 }
+];
+function ordenar(k) {
+  if (ORDEN.k === k) { if (ORDEN.dir === 'desc') ORDEN.dir = 'asc'; else ORDEN = { k: null, dir: 'desc' }; }   // 3er clic: orden normal
+  else ORDEN = { k, dir: COLS.find(c => c.k === k).n ? 'desc' : 'asc' };
+  pintar();
+}
+function thumb(x) {
+  if (!x.imagen) return '<div class="thumb vacia">🚲</div>';
+  return '<img class="thumb" loading="lazy" src="' + esc(x.imagen) + '" alt="" onerror="this.outerHTML=\'<div class=&quot;thumb vacia&quot;>🚲</div>\'"/>';
+}
+function pintarKpis(items) {
+  const sin = items.filter(x => x.estado === 'sin_stock').length;
+  const bajo = items.filter(x => x.estado === 'bajo').length;
+  const und = items.reduce((s, x) => s + cant(x), 0);
+  const tot = items.reduce((s, x) => s + cant(x) * (x.costo || 0), 0);
+  const k = [
+    { f: 'sin_stock', c: 'r', l: 'Sin stock', v: N(sin), s: 'se están vendiendo y no hay en almacén' },
+    { f: 'bajo', c: 'w', l: 'Stock bajo', v: N(bajo), s: 'alcanza menos de 1 mes' },
+    { f: '', c: 'a', l: 'Pedido sugerido', v: N(items.length) + ' productos', s: N(und) + ' unidades · ' + S(tot) }
+  ];
+  $('kpis').innerHTML = k.map(x => `<div class="kpi ${x.c}${FILTRO === x.f && x.f ? ' on' : ''}" onclick="FILTRO='${x.f}'===FILTRO?'':'${x.f}';pintar()" title="${x.f ? 'Filtrar' : 'Ver todos'}">
+    <div class="l">${x.l}</div><div class="v">${x.v}</div><div class="s">${esc(x.s)}</div></div>`).join('');
+}
+function pintar() {
+  if (!D) return;
+  pintarKpis(D.items);
+  const meses = D.meses;
+  $('avisos').innerHTML = (D.camino_ok ? '' : '<div class="aviso">No se pudo leer Seguimiento: el cálculo no descuenta la mercadería en camino.</div>') +
+    (FILTRO ? `<div class="aviso" style="background:var(--surface3);color:var(--text2)">Mostrando solo: <b>${FILTRO === 'sin_stock' ? 'Sin stock' : 'Stock bajo'}</b> · <a href="#" onclick="FILTRO='';pintar();return false" style="color:var(--accent)">ver todos</a></div>` : '');
+  const r = filas();
+  const head = '<thead><tr>' + COLS.map(c => `<th class="${[c.cls || '', c.n ? 'n' : '', ORDEN.k === c.k ? ORDEN.dir : ''].join(' ').trim()}" onclick="ordenar('${c.k}')">${c.t}</th>`).join('') + '</tr></thead>';
+  const nomVista = (D.vistas.find(v => v.id === D.vista) || {}).nombre || '';
+  if (!r.length) {
+    $('tbl').innerHTML = head + `<tbody><tr><td colspan="${COLS.length}" class="vacio">${D.items.length ? 'Sin productos con ese filtro.' : `Nada que pedir en <b>${esc(nomVista)}</b> para ${meses} ${meses == 1 ? 'mes' : 'meses'}. 👍`}</td></tr></tbody>`;
+  } else {
+    const chip = { sin_stock: '<span class="chip c-r">Sin stock</span>', bajo: '<span class="chip c-w">Bajo</span>', reponer: '<span class="chip c-g">Reponer</span>' };
+    $('tbl').innerHTML = head + '<tbody>' + r.map(x => {
+      const c = cant(x), mod = CANT[x.vid] != null && CANT[x.vid] !== x.pedir;
+      const extraStock = [x.consignacion ? N(x.consignacion) + ' en consig.' : '', x.no_vendible ? N(x.no_vendible) + ' no vend.' : ''].filter(Boolean).join(' · ');
+      const extraCam = [x.eta ? 'llega ~' + fechaCorta(x.eta) : '', x.camino_clientes ? N(x.camino_clientes) + ' ya vendidas' : ''].filter(Boolean).join(' · ');
+      return `<tr>
+        <td class="pcol"><div class="pcell">${thumb(x)}<div style="min-width:0">
+          <div class="pnom">${esc(x.nombre)}</div>
+          <div class="pmeta"><span class="sku cp" title="Copiar SKU" onclick="copiar('${esc(x.sku).replace(/'/g, '&#39;')}','SKU copiado ✓')">${esc(x.sku || '—')}</span> · ${esc(x.marca)}${x.esperando ? ` · <b style="color:var(--fg-r)">${N(x.esperando)} cliente(s) esperando</b>` : ''}</div>
+        </div></div></td>
+        <td>${chip[x.estado]}</td>
+        <td class="n">${N(x.stock)}${extraStock ? `<span class="sub">${extraStock}</span>` : ''}</td>
+        <td class="n">${x.camino ? N(x.camino) : '—'}${extraCam ? `<span class="sub">${extraCam}</span>` : ''}</td>
+        <td class="n">${N(x.venta_mes, 1)}<span class="sub">${N(x.und90)} und en ${x.dias_medidos < 90 ? x.dias_medidos + ' d (nuevo)' : '90 d'}</span></td>
+        <td class="n">${x.alcanza == null ? '—' : (x.alcanza < 0.1 ? '0' : N(x.alcanza, 1)) + ' m'}</td>
+        <td class="n" title="${x.lote_antiguo ? 'Lote más antiguo con stock: ' + fechaCorta(x.lote_antiguo) : 'Sin lote con stock'}">${textoDias(x.antiguedad_dias)}</td>
+        <td class="n" title="${fechaCorta(x.ultima_venta)}">${x.dias_sin_venta == null ? '—' : x.dias_sin_venta === 0 ? 'hoy' : 'hace ' + textoDias(x.dias_sin_venta)}</td>
+        <td class="n ped"><input type="number" min="0" step="1" value="${c}" class="${mod ? 'mod' : ''}" title="Sugerido: ${x.pedir}" onchange="cambiarCant(${x.vid},this)"></td>
+        <td class="n">${x.costo ? S(x.costo) : '<span class="sub">sin costo</span>'}${x.costo && c ? `<span class="sub">${S(x.costo * c)}</span>` : ''}</td>
+      </tr>`;
+    }).join('') + '</tbody>';
+  }
+  pintarTotal(r);
+}
+function pintarTotal(r) {
+  r = r || filas();
+  const conCant = r.filter(x => cant(x) > 0);
+  const und = conCant.reduce((s, x) => s + cant(x), 0);
+  const tot = conCant.reduce((s, x) => s + cant(x) * (x.costo || 0), 0);
+  $('tot').innerHTML = `Pedido (${esc((D.vistas.find(v => v.id === D.vista) || {}).nombre || '')}): <b>${N(conCant.length)}</b> productos · <b>${N(und)}</b> unidades · <b>${S(tot)}</b>`;
+}
+function cambiarCant(vid, el) {
+  const x = D.items.find(i => i.vid === vid); if (!x) return;
+  const v = Math.max(0, Math.round(Number(el.value) || 0));
+  el.value = v;
+  if (v === x.pedir) delete CANT[vid]; else CANT[vid] = v;
+  el.classList.toggle('mod', CANT[vid] != null);
+  guardar('restock_cant', CANT);
+  pintarKpis(D.items); pintarTotal();
+}
+function restablecer() {
+  if (!D) return;
+  D.items.forEach(x => delete CANT[x.vid]);
+  guardar('restock_cant', CANT); pintar(); showToast('Cantidades sugeridas restablecidas');
 }
 
-// ══════════════════════════ Arranque ══════════════════════════
-// Limpia la corrida guardada del antiguo "Exportar inventario" (ya no existe aquí)
-try { localStorage.removeItem('kuranko_ultima_invex'); localStorage.removeItem('kuranko_ultima_invex_v2'); } catch (e) {}
-restaurarParams();
-if (!TOKEN) {
-  $('rs-conteo').textContent = 'Entra al panel de administración para usar Restock.';
-} else {
-  cargarRestock();
+// ══════════ Salidas: copiar y Excel (usan lo que se ve, con las cantidades editadas) ══════════
+async function copiar(txt, msg) {
+  try { await navigator.clipboard.writeText(txt); }
+  catch (e) { const ta = document.createElement('textarea'); ta.value = txt; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); } catch (_) {} ta.remove(); }
+  showToast(msg || 'Copiado ✓');
 }
+function copiarPedido() {
+  const r = filas().filter(x => cant(x) > 0);
+  if (!r.length) { showToast('No hay cantidades para copiar', true); return; }
+  copiar(r.map(x => `${x.sku}\t${x.nombre}\t${cant(x)}`).join('\n'), `Pedido copiado ✓ (${r.length} productos)`);
+}
+async function excel() {
+  const r = filas().filter(x => cant(x) > 0);
+  if (!r.length) { showToast('No hay cantidades para exportar', true); return; }
+  try {
+    const nomVista = (D.vistas.find(v => v.id === D.vista) || {}).nombre || '';
+    const resp = await api('/api/restock/excel', { method: 'POST', body: JSON.stringify({ vista: nomVista, meses: D.meses,
+      filas: r.map(x => ({ sku: x.sku, nombre: x.nombre, marca: x.marca, stock: x.stock, camino: x.camino, venta_mes: x.venta_mes,
+        alcanza: x.alcanza, antiguedad_dias: x.antiguedad_dias, pedir: cant(x), costo: x.costo })) }) });
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const d = new Date(), p = n => String(n).padStart(2, '0');
+    const a = document.createElement('a'); a.href = url;
+    a.download = `restock-${comp(nomVista).toLowerCase() || 'pedido'}-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}.xlsx`;
+    a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (e) { showToast(e.message, true); }
+}
+
+// ══════════ Arranque ══════════
+try { ['restock_params', 'kuranko_ultima_invex', 'kuranko_ultima_invex_v2'].forEach(k => localStorage.removeItem(k)); } catch (e) {} // claves de versiones anteriores
+if (!TOKEN) $('tbl').innerHTML = '<tbody><tr><td class="vacio">Entra al panel de administración para usar Restock.</td></tr></tbody>';
+else cargar();
 </script>
 </body>
 </html>

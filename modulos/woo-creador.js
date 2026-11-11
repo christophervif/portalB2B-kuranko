@@ -239,6 +239,8 @@ function armarNombre(p, variante = '') {
 // o la columna «tipo» de la lista; el resto es la descripción.
 const sinonimo = w => SINONIMOS[w] || SINONIMOS[w.replace(/s$/, '')] || '';
 function buscarTipo(frase, ctx) {
+  // tus traducciones primero: «Rotor = Disco»
+  const tr = (ctx.trad || []).find(x => norm(x.de) === norm(frase)); if (tr && norm(tr.a) !== norm(frase)) { const t = buscarTipo(tr.a, ctx); if (t) return t; }
   const idx = ctx._raizTipos || (ctx._raizTipos = Object.fromEntries(Object.entries(ctx.tipos).filter(([, t]) => t.n >= 2).map(([k]) => [raiz(k), k])));
   const k = norm(frase); if (!k) return null;
   if (ctx.tipos[k] && ctx.tipos[k].n >= 2) return ctx.tipos[k].tipo;
@@ -256,17 +258,137 @@ function nombreSinIA(f, ctx) {
     const t = buscarTipo(frase.join(' '), ctx) || (n === 1 && sinonimo(frase[0]) ? buscarTipo(sinonimo(frase[0]), ctx) : null);
     if (t) { tipo = t; quitar = frase; }
   }
+  // tus traducciones de la sección «# Tipos» (Jersey = Polo), aunque ese tipo aún no exista en el catálogo
+  if (!tipo) for (const x of (ctx.trad || []).filter(x => x.tipo)) { x.re.lastIndex = 0; if (x.re.test(base)) { tipo = x.a; quitar = palabras(x.de); break; } }
   if (!tipo && f.tipo) { const ft = palabras(f.tipo); tipo = buscarTipo(f.tipo, ctx) || (ft.length === 1 && sinonimo(ft[0]) && buscarTipo(sinonimo(ft[0]), ctx)) || (ft.length <= 3 ? txt(f.tipo, 40) : ''); }
   let desc = base;
   if (quitar) desc = desc.replace(reFrase(quitar), '$1 ');
   if (f.marca) desc = desc.replace(reFrase(palabras(f.marca)), '$1 ');
   // quitar de la descripción los valores de variante (van al final)
   for (const v of Object.values(f.attrs || {})) if (v && String(v).length > 1) desc = desc.replace(reFrase(palabras(v)), '$1 ');
-  return { tipo, descripcion: limpiarSeg(desc), info: '' };
+  return { tipo, descripcion: limpiarSeg(traducir(desc, ctx.trad)), info: '' };
+}
+
+// ── Trabajar sin IA: traducciones (las mantienes tú) y variantes escritas en el nombre ──
+// Formato: una por línea «Black = Negro». Se aplican palabra completa, sin importar mayúsculas.
+// Si el lado derecho es un tipo que ya usas (Cubierta, Guantes…), también sirve para reconocer el tipo.
+const TRAD_BASE = `# Colores
+Black = Negro
+White = Blanco
+Red = Rojo
+Blue = Azul
+Navy = Azul marino
+Green = Verde
+Grey = Gris
+Gray = Gris
+Yellow = Amarillo
+Orange = Naranja
+Pink = Rosado
+Purple = Morado
+Brown = Marrón
+Silver = Plateado
+Gold = Dorado
+Clear = Transparente
+Olive = Verde oliva
+Camo = Camuflado
+# Posición y uso
+Front = delantero
+Rear = trasero
+6-bolt = 6 tornillos
+Links = eslabones
+Left = izquierdo
+Right = derecho
+Pair = par
+Men's = hombre
+Mens = hombre
+Women's = mujer
+Womens = mujer
+Youth = niño
+Kids = niño
+Short Sleeve = manga corta
+Long Sleeve = manga larga
+# Tipos (en inglés → como los llamamos; lo de esta sección también se usa como 2.º segmento del nombre)
+Tire = Cubierta
+Tyre = Cubierta
+Tube = Cámara
+Rotor = Disco
+Brake Pads = Pastillas
+Chain = Cadena
+Cassette = Piñón
+Glove = Guantes
+Gloves = Guantes
+Helmet = Casco
+Saddle = Sillín
+Grips = Puños
+Pedals = Pedales
+Jersey = Polo`;
+const escRe = x => String(x).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function leerTraducciones(texto) {
+  const pares = []; let esTipo = false;
+  for (const l of String(texto || '').split(/\r?\n/)) {
+    const t = l.trim(); if (!t) continue;
+    if (t.startsWith('#')) { esTipo = /tipo/i.test(t); continue; } // la sección «# Tipos» marca tipos de producto
+    const i = t.indexOf('='); if (i < 1) continue;
+    const de = t.slice(0, i).trim(), a = t.slice(i + 1).trim();
+    if (de && a) pares.push([de, a, esTipo]);
+  }
+  pares.sort((x, y) => y[0].length - x[0].length); // primero las frases más largas
+  return pares.map(([de, a, tipo]) => ({ de, a, tipo, re: new RegExp('(^|[^\\p{L}\\p{N}])' + escRe(de) + '(?=$|[^\\p{L}\\p{N}])', 'giu') }));
+}
+function traducir(texto, trad) {
+  let t = String(texto == null ? '' : texto);
+  for (const x of trad || []) t = t.replace(x.re, (m, pre) => pre + x.a);
+  return t;
+}
+// Medidas, tallas, dientes y colores escritos en el nombre de la marca
+const COLORES = new Set(['negro', 'blanco', 'rojo', 'azul', 'azul marino', 'verde', 'gris', 'amarillo', 'naranja', 'rosado', 'morado', 'marron', 'plateado', 'dorado', 'transparente', 'verde oliva', 'camuflado',
+  'black', 'white', 'red', 'blue', 'navy', 'green', 'grey', 'gray', 'yellow', 'orange', 'pink', 'purple', 'brown', 'silver', 'gold', 'clear', 'olive', 'camo']);
+const RE_VAR = [
+  { attr: 'Medida', re: /(^|[^\w.])(\d{2,4}(?:[.,]\d+)?)\s?mm\b/i, val: m => m[2].replace(',', '.') + ' mm' },
+  { attr: 'Dientes', re: /(^|[^\w.])(\d{2})\s?(?:t|dientes|teeth)\b/i, val: m => m[2] + 'T' },
+  { attr: 'Talla', re: /(^|[^\w/])(?:talla|size|sz)?\s*(XXS|XS|S\/M|M\/L|L\/XL|XXXL|XXL|2XL|3XL|XL|S|M|L)(?=$|[^\w/])/, val: m => m[2].toUpperCase() }
+];
+// solo = lista de atributos a sacar (todos si no se indica). Devuelve los valores y el texto sin ellos.
+function variantesEnNombre(texto, solo) {
+  const out = {}; let base = String(texto || '');
+  for (const r of RE_VAR) { if (solo && !solo.includes(r.attr)) continue; const m = base.match(r.re); if (m) { out[r.attr] = r.val(m); base = base.replace(m[0], m[1] + ' '); } }
+  if (!solo || solo.includes('Color')) {
+    const ws = base.split(/\s+/);
+    for (let n = 2; n >= 1 && !out.Color; n--) for (let i = 0; i + n <= ws.length && !out.Color; i++) {
+      const f = ws.slice(i, i + n).join(' ');
+      if (COLORES.has(f.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z ]/g, ''))) { out.Color = f; ws.splice(i, n, ''); }
+    }
+    base = ws.join(' ');
+  }
+  return { attrs: out, base: limpiarSeg(base) };
+}
+// Filas del mismo modelo que solo cambian en una medida / talla / color escrita en el nombre
+// → esa parte pasa a ser la variante (así «Rotor 180mm» y «Rotor 203mm» quedan como un producto).
+// Lo que no cambia entre filas (ej. todas «Negro») queda en la descripción. Una fila sola no se toca.
+function variantesSinIA(filas, trad) {
+  const grupos = new Map();
+  for (const f of filas) {
+    const v = variantesEnNombre(f.descripcion);
+    const k = [f.marca, f.tipo, v.base, f.info].map(norm).join('|');
+    if (!grupos.has(k)) grupos.set(k, []);
+    grupos.get(k).push({ f, v });
+  }
+  for (const g of grupos.values()) {
+    if (g.length < 2) continue;
+    const claves = new Set(g.flatMap(x => Object.keys(x.v.attrs)));
+    const cambian = [...claves].filter(a => new Set(g.map(x => norm(x.v.attrs[a] || ''))).size > 1);
+    if (!cambian.length) continue;
+    for (const { f } of g) {
+      const v = variantesEnNombre(f.descripcion, cambian);
+      for (const [a, val] of Object.entries(v.attrs)) if (!Object.keys(f.attrs).some(k => norm(k) === norm(a))) f.attrs[a] = a === 'Color' ? traducir(val, trad) : val;
+      f.descripcion = v.base;
+    }
+  }
+  return filas;
 }
 
 // ── Precio de venta (S/ con IGV) ──────────────────────────────────────────────
-const OPC_BASE = { moneda: 'USD', tc_usd: 3.8, tc_eur: 4.4, modo_precio: 'pvp', factor_pvp: 1, margen: 35, importacion: 25, igv: 18, redondeo: '1', publicado: 1, a_pedido: true, marca: '' };
+const OPC_BASE = { moneda: 'USD', tc_usd: 3.8, tc_eur: 4.4, modo_precio: 'pvp', factor_pvp: 1, margen: 35, importacion: 25, igv: 18, redondeo: '1', publicado: 1, a_pedido: true, marca: '', usar_ia: true };
 function opcionesLimpias(o = {}) {
   const r = { ...OPC_BASE };
   for (const k of ['tc_usd', 'tc_eur', 'factor_pvp', 'margen', 'importacion', 'igv']) if (o[k] !== undefined && isFinite(+o[k]) && +o[k] >= 0) r[k] = +o[k];
@@ -275,6 +397,7 @@ function opcionesLimpias(o = {}) {
   if (['0.1', '1', '5', '10', '9'].includes(String(o.redondeo))) r.redondeo = String(o.redondeo);
   if (o.publicado !== undefined) r.publicado = o.publicado ? 1 : 0;
   if (o.a_pedido !== undefined) r.a_pedido = !!o.a_pedido;
+  if (o.usar_ia !== undefined) r.usar_ia = !!o.usar_ia;
   if (o.marca !== undefined) r.marca = txt(o.marca, 60);
   r.margen = Math.min(r.margen, 90);
   return r;
@@ -356,7 +479,7 @@ function revisar(p, ctx, lote) {
   if (!txt(p.descripcion)) add('nombre', 'critico', 'Falta la descripción precisa (3.er segmento)');
   if (txt(p.marca) && ctx.marcas && !ctx.marcas[norm(p.marca)]) add('nombre', 'info', `Marca «${p.marca}» nueva en el catálogo: revisa cómo se escribe`);
   if (p.tipo && ctx.tipos && !ctx.tipos[norm(p.tipo)]) add('nombre', 'info', `Tipo «${p.tipo}» no se usa aún en el catálogo`);
-  if (p.sin_ia && !p.nombre_manual) add('nombre', 'aviso', 'Nombre armado sin IA: revísalo');
+  if (p.sin_ia && !p.nombre_manual && op.usar_ia !== false) add('nombre', 'aviso', 'Nombre armado sin IA: revísalo');
   // Categoría
   if (!p.categoria) add('categoria', 'critico', (p.cat_sugerida ? `No calza en ninguna categoría. Sugerida (nueva): «${p.cat_sugerida}»` : 'No calza en ninguna categoría: elige una o crea una nueva') + (p.cat_nota ? ' · ' + p.cat_nota : ''));
   else if (p.cat_nueva || !ctx.catSet.has(p.categoria)) add('categoria', 'aviso', `Categoría NUEVA «${p.categoria}»: créala en el ERP; WooCommerce la creará al importar`);
@@ -440,6 +563,7 @@ function nombrarFila(f, ctx, x) {
     for (const a of Object.keys(attrs)) if (norm(a) === norm(kk)) delete attrs[a]; // la IA traduce («Black» → «Negro»)
     attrs[kk] = txt(v, 60);
   }
+  if (!x) for (const k of Object.keys(attrs)) attrs[k] = traducir(attrs[k], ctx.trad);
   // el tipo se escribe como en el catálogo si ya existe
   const tipoIA = x && txt(x.tipo, 40);
   const tipo = tipoIA ? ((ctx.tipos[norm(tipoIA)] || {}).tipo || tipoIA) : sin.tipo;
@@ -565,7 +689,18 @@ module.exports = function registrarWooCreador({ app, authAdmin, requiereModulo, 
   const prepararTablas = () => tablas || (tablas = portalPool.query(`CREATE TABLE IF NOT EXISTS wc_lotes (
       id INT AUTO_INCREMENT PRIMARY KEY, nombre VARCHAR(200), marca VARCHAR(80), datos LONGTEXT,
       usuario VARCHAR(80), creado DATETIME DEFAULT CURRENT_TIMESTAMP, actualizado DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    ) DEFAULT CHARSET=utf8mb4`).catch(e => { tablas = null; throw e; }));
+    ) DEFAULT CHARSET=utf8mb4`).then(() => portalPool.query(`CREATE TABLE IF NOT EXISTS wc_ajustes (
+      clave VARCHAR(40) PRIMARY KEY, valor LONGTEXT, actualizado DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) DEFAULT CHARSET=utf8mb4`)).catch(e => { tablas = null; throw e; }));
+  // Traducciones (para trabajar sin IA): una sola lista para todas las marcas, en caché hasta que se guarde
+  let tradCache = null;
+  async function traduccionesTexto() {
+    if (tradCache) return tradCache.texto;
+    let texto = TRAD_BASE;
+    try { await prepararTablas(); const [[r]] = await portalPool.query("SELECT valor FROM wc_ajustes WHERE clave='traducciones'"); if (r && r.valor != null) texto = r.valor; } catch (e) {}
+    tradCache = { texto, lista: leerTraducciones(texto) };
+    return texto;
+  }
   async function leerLote(id) {
     await prepararTablas();
     const [[r]] = await portalPool.query('SELECT id, nombre, marca, datos, usuario, creado, actualizado FROM wc_lotes WHERE id=?', [num(id)]);
@@ -606,7 +741,13 @@ module.exports = function registrarWooCreador({ app, authAdmin, requiereModulo, 
 
   // ── Contexto del ERP ──
   let ctxCache = null, ctxProm = null;
+  // Contexto del ERP + tus traducciones
   async function contexto(fresco) {
+    const c = await contextoErp(fresco);
+    await traduccionesTexto(); c.trad = tradCache.lista;
+    return c;
+  }
+  async function contextoErp(fresco) {
     if (!fresco && ctxCache && Date.now() - ctxCache.t < 10 * 60e3) return ctxCache;
     if (ctxProm) return ctxProm;
     ctxProm = (async () => {
@@ -655,7 +796,7 @@ module.exports = function registrarWooCreador({ app, authAdmin, requiereModulo, 
       for (const tanda of tandas) {
         const filas = tanda.flatMap(x => x.filas);
         const r = await nombrarConIA(filas, ctx, marcaLote);
-        if (r.error) { t.errores.push(r.error); if (t.errores.length >= 3 && !t.hechos) break; }
+        if (r.error) { t.errores.push(r.error); t.hechos += filas.length; if (t.errores.length >= 3) break; continue; } // queda lo armado sin IA
         await enCola(id, async () => {
           const L = await leerLote(id);
           const nuevos = [];
@@ -663,7 +804,7 @@ module.exports = function registrarWooCreador({ app, authAdmin, requiereModulo, 
             const i = L.productos.findIndex(p => p.k === x.k); if (i < 0) continue;
             const viejo = L.productos[i];
             if (viejo.nombre_manual) continue; // lo editaste a mano mientras corría
-            const nombradas = x.filas.map(f => nombrarFila(f, ctx, r.porI ? r.porI[f.i] : null));
+            const nombradas = variantesSinIA(x.filas.map(f => nombrarFila(f, ctx, r.porI ? r.porI[f.i] : null)), ctx.trad);
             const grupos = agrupar(nombradas.map(f => ({ ...f, url: f.url || viejo.url })));
             // conserva lo que no es nombre (ficha, categoría manual, precios manuales)
             const reemplazo = grupos.map((g, j) => {
@@ -706,7 +847,7 @@ module.exports = function registrarWooCreador({ app, authAdmin, requiereModulo, 
       const c = await contexto(req.query.fresco === '1');
       res.json({ fuente: c.fuente, aviso: c.aviso, categorias: c.categorias, marcas: [...new Set(Object.values(c.marcas))].sort((a, b) => a.localeCompare(b, 'es')),
         tipos: Object.values(c.tipos).filter(t => t.n >= 2).map(t => t.tipo).sort((a, b) => a.localeCompare(b, 'es')), atributos: c.atributos, tc: c.tc, cat_a_pedido: c.catAPedido,
-        ia: !!process.env.GEMINI_API_KEY, opciones: OPC_BASE });
+        ia: !!process.env.GEMINI_API_KEY, opciones: OPC_BASE, traducciones: await traduccionesTexto() });
     } catch (e) { err(res, e); }
   });
 
@@ -754,7 +895,7 @@ costo = precio de compra/dealer/neto; pvp = precio de venta al público sugerido
       if (!op.marca) { const ms = [...new Set(filas.map(f => f.marca).filter(Boolean))]; if (ms.length === 1) op.marca = ms[0]; }
       op.marca = op.marca ? marcaCanonica(op.marca, ctx) : '';
       // Respaldo sin IA (al instante)
-      const nombradas = filas.map(f => nombrarFila(f, ctx, null));
+      const nombradas = variantesSinIA(filas.map(f => nombrarFila(f, ctx, null)), ctx.trad);
       const productos = agrupar(nombradas).map(p => aplicarCategoria(p, ctx));
       const L = { nombre: txt(b.archivo || 'Lista', 200), marca: op.marca || txt((productos[0] || {}).marca, 80), opciones: op, productos, mapa: b.mapa || null };
       // recuerda qué filas originales tiene cada producto (para la IA)
@@ -763,9 +904,22 @@ costo = precio de compra/dealer/neto; pvp = precio de venta al público sugerido
       const [ins] = await portalPool.query('INSERT INTO wc_lotes (nombre, marca, datos, usuario) VALUES (?,?,?,?)', [L.nombre, txt(L.marca, 80), '{}', usuarioDe(req)]);
       L.id = ins.insertId;
       revisarLote(L, ctx); await guardarLote(L);
-      const conIA = b.ia !== false && !!process.env.GEMINI_API_KEY;
+      const conIA = op.usar_ia && b.ia !== false && !!process.env.GEMINI_API_KEY;
       if (conIA) setImmediate(() => correrIA(L.id, productos.map(p => ({ k: p.k, filas: filasDe[p.k] }))));
       res.json({ lote: vista(L), ia: conIA ? trabajos.get(L.id) || { total: filas.length, hechos: 0, corriendo: true } : null, aviso: ctx.aviso });
+    } catch (e) { err(res, e); }
+  });
+
+  app.get('/admin/woo-creador/traducciones', authAdmin, mAud, async (req, res) => {
+    try { res.json({ texto: await traduccionesTexto(), base: TRAD_BASE }); } catch (e) { err(res, e); }
+  });
+  app.put('/admin/woo-creador/traducciones', authAdmin, mAud, async (req, res) => {
+    try {
+      const texto = String((req.body || {}).texto || '').slice(0, 200000);
+      await prepararTablas();
+      await portalPool.query("INSERT INTO wc_ajustes (clave, valor) VALUES ('traducciones', ?) ON DUPLICATE KEY UPDATE valor=VALUES(valor)", [texto]);
+      tradCache = null; await traduccionesTexto();
+      res.json({ ok: true, reglas: tradCache.lista.length });
     } catch (e) { err(res, e); }
   });
 
@@ -813,6 +967,16 @@ costo = precio de compra/dealer/neto; pvp = precio de venta al público sugerido
             if (c.cat_nueva === undefined) p.cat_nueva = !!p.categoria && !ctx.catSet.has(p.categoria);
           }
           if (c.recategorizar) { p.cat_fuente = ''; aplicarCategoria(p, ctx); }
+          // confirmar la categoría propuesta (deja de ser «dudosa»)
+          if (c.confirmar_categoria && p.categoria) Object.assign(p, { cat_fuente: 'manual', cat_conf: 1, cat_nota: '', cat_nueva: !ctx.catSet.has(p.categoria) });
+          // usar la categoría nueva sugerida
+          if (c.usar_sugerida && !p.categoria && p.cat_sugerida) Object.assign(p, { categoria: p.cat_sugerida, cat_fuente: 'manual', cat_conf: 1, cat_nueva: !ctx.catSet.has(p.cat_sugerida) });
+          // aplicar tus traducciones a lo ya armado (no toca los nombres que editaste a mano)
+          if (c.traducir) {
+            if (!p.nombre_manual) { p.descripcion = limpiarSeg(traducir(p.descripcion, ctx.trad)); p.info = limpiarSeg(traducir(p.info, ctx.trad)); }
+            p.variantes.forEach(v => { for (const a of Object.keys(v.attrs || {})) v.attrs[a] = traducir(v.attrs[a], ctx.trad); });
+          }
+          if (c.tipo_masivo) { p.tipo = txt(c.tipo_masivo, 40); p.nombre_manual = true; p.sin_ia = false; if (p.cat_fuente !== 'manual') aplicarCategoria(p, ctx); }
           if (Array.isArray(c.variantes)) for (const cv of c.variantes) {
             const v = p.variantes.find(x => x.k === cv.k);
             if (!v && cv.nueva) { p.variantes.push({ k: p.k + 'v' + Date.now().toString(36), sku: txt(cv.sku, 80), ean: '', attrs: {}, costo: num(cv.costo), pvp: num(cv.pvp), moneda: L.opciones.moneda, stock: null, fila: 0, peso: '', precio_manual: null }); continue; }
@@ -932,5 +1096,5 @@ costo = precio de compra/dealer/neto; pvp = precio de venta al público sugerido
   });
 };
 
-module.exports._test = { CAMPOS, rutasCategorias, segmentos, aprender, elegirCategoria, porPalabras, armarNombre, textoVariante, nombreSinIA, nombrarFila, limpiarFilas, agrupar,
+module.exports._test = { TRAD_BASE, leerTraducciones, traducir, variantesEnNombre, variantesSinIA, CAMPOS, rutasCategorias, segmentos, aprender, elegirCategoria, porPalabras, armarNombre, textoVariante, nombreSinIA, nombrarFila, limpiarFilas, agrupar,
   revisar, precioVenta, opcionesLimpias, redondear, filasExcel, skuPadre, emparejar, htmlDescripcion, aplicarCategoria, nivelMax };

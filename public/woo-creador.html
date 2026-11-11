@@ -67,6 +67,11 @@ tr.prod td:first-child{border-left:3px solid transparent}tr.prod.n-critico td:fi
 .aviso-box{background:var(--bg-warn);color:var(--fg-warn);border-radius:10px;padding:8px 11px;font-size:12.5px;margin-top:10px}
 .err{color:var(--fg-r)}.ok{color:var(--fg-ok)}.warn{color:var(--fg-warn)}.muted{color:var(--muted)}
 .oculto{display:none!important}
+.rapidos,.masivas{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:10px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface2)}
+.masivas.apagado{opacity:.5}.masivas.apagado button,.masivas.apagado input{pointer-events:none}
+.rap-t{font-size:11.5px;font-weight:600;color:var(--muted2);margin-right:4px}.rap-sep{flex:0 0 1px;align-self:stretch;background:var(--border);margin:0 4px}
+.rap{background:var(--surface3);border:1px solid var(--border);color:var(--text2);border-radius:999px;padding:4px 10px;font-size:12px;cursor:pointer}.rap:hover{border-color:var(--accent)}
+.rap b{color:var(--white);margin-left:3px}.grupo{display:inline-flex;gap:4px}
 details summary{cursor:pointer;font-weight:600;font-size:13px;color:var(--text2)}
 .toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--surface3);border:1px solid var(--border);color:var(--text);padding:10px 16px;border-radius:12px;font-size:13px;z-index:50;max-width:90vw;box-shadow:0 6px 24px rgba(0,0,0,.25)}
 @media(max-width:760px){.grid{grid-template-columns:1fr 1fr}.grid .medio{grid-column:1/-1}.ocultar-movil{display:none}}
@@ -87,6 +92,12 @@ details summary{cursor:pointer;font-weight:600;font-size:13px;color:var(--text2)
       <label class="campo">o seguir con un lote anterior<select id="lotes" style="min-width:260px"><option value="">—</option></select></label>
     </div>
     <div class="nota" id="ctxInfo">Cargando categorías y nombres del catálogo…</div>
+    <details id="detTrad" style="margin-top:12px"><summary>Traducciones (para trabajar sin IA)</summary>
+      <div class="desc" style="margin:6px 0">Una por línea: <b>Black = Negro</b>. Se usan para la descripción y los colores, y las de la sección <b># Tipos</b> también como 2.º segmento del nombre (Jersey = Polo).
+        Sirven para todas las marcas. Las nuevas se aplican al procesar una lista, o con «Aplicar traducciones» sobre los marcados.</div>
+      <textarea id="trad" rows="12" spellcheck="false"></textarea>
+      <div class="fila"><button class="btn btn-sec btn-chico" id="btnTrad">Guardar traducciones</button><button class="btn btn-sec btn-chico" id="btnTradBase">Restaurar la lista base</button><span class="nota" id="tradMsg" style="margin:0"></span></div>
+    </details>
   </div>
 
   <div id="imp"></div>
@@ -114,7 +125,11 @@ let toastT = null;
 function toast(m, ms = 4000) { let t = document.querySelector('.toast'); if (!t) { t = document.createElement('div'); t.className = 'toast'; document.body.appendChild(t); } t.textContent = m; t.classList.remove('oculto'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.add('oculto'), ms); }
 const soles = n => n > 0 ? 'S/ ' + Number(n).toLocaleString('es-PE', { maximumFractionDigits: 2 }) : '—';
 
-let CTX = null, IMP = null, L = null, IA = null, SEL = new Set(), ABIERTO = null, FILTRO = '', Q = '', POLL = null, SUCIO = false;
+let CTX = null, IMP = null, L = null, IA = null, SEL = new Set(), ABIERTO = null, FILTRO = '', Q = '', POLL = null, SUCIO = false, SUMAR = false;
+function contarSel() {
+  const c = $('cuenta'); if (c) c.textContent = c.textContent.replace(/\d+ marcados/, SEL.size + ' marcados');
+  const a = $('acciones'); if (a) { a.classList.toggle('apagado', !SEL.size); a.querySelector('.rap-t').textContent = `Con los ${SEL.size} marcados`; }
+}
 
 // ── Inicio ──
 (async function () {
@@ -125,8 +140,11 @@ let CTX = null, IMP = null, L = null, IA = null, SEL = new Set(), ABIERTO = null
     $('dlTipos').innerHTML = CTX.tipos.map(c => `<option value="${esc(c)}">`).join('');
     $('dlAttrs').innerHTML = CTX.atributos.map(c => `<option value="${esc(c)}">`).join('');
     $('ctxInfo').innerHTML = `${CTX.categorias.length} categorías ${CTX.fuente === 'erp' ? 'del sistema' : 'de la plantilla'} · ${CTX.marcas.length} marcas y ${CTX.tipos.length} tipos aprendidos de los nombres del catálogo · ` +
-      (CTX.ia ? 'IA activa' : '<span class="warn">sin IA (falta GEMINI_API_KEY): se usan reglas</span>') + (CTX.aviso ? `<div class="aviso-box">${esc(CTX.aviso)}</div>` : '');
+      (CTX.ia ? 'IA disponible' : '<span class="warn">sin IA (falta GEMINI_API_KEY): se usan tus traducciones y lo aprendido del catálogo</span>') + (CTX.aviso ? `<div class="aviso-box">${esc(CTX.aviso)}</div>` : '');
+    $('trad').value = CTX.traducciones || '';
   } catch (e) { $('ctxInfo').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+  $('btnTrad').onclick = async () => { try { const j = await api('/admin/woo-creador/traducciones', { method: 'PUT', body: { texto: $('trad').value } }); $('tradMsg').innerHTML = `<span class="ok">Guardadas (${j.reglas} reglas)</span>`; } catch (e) { $('tradMsg').innerHTML = `<span class="err">${esc(e.message)}</span>`; } };
+  $('btnTradBase').onclick = async () => { if (!confirm('¿Reemplazar tus traducciones por la lista base? (no se guarda hasta que toques Guardar)')) return; const j = await api('/admin/woo-creador/traducciones'); $('trad').value = j.base; $('tradMsg').textContent = 'Lista base cargada: toca Guardar.'; };
   await cargarLotes();
   let ult = null; try { ult = localStorage.getItem('woo_lote'); } catch (e) {}
   if (ult && [...$('lotes').options].some(o => o.value === ult)) { $('lotes').value = ult; abrirLote(ult); }
@@ -197,7 +215,8 @@ const OPC_HTML = (op, pre) => `
   <label class="campo">Margen %<input data-op="margen" type="number" value="${op.margen}" style="width:80px"></label>
   <label class="campo">Redondeo<select data-op="redondeo">${[['0.1', 'S/ 0.10'], ['1', 'S/ 1'], ['5', 'S/ 5'], ['10', 'S/ 10'], ['9', 'Terminar en 9']].map(([v, t]) => `<option value="${v}" ${String(op.redondeo) === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
   <label class="chk"><input type="checkbox" data-op="publicado" ${op.publicado ? 'checked' : ''}> Publicar al importar (si no, borrador)</label>
-  <label class="chk"><input type="checkbox" data-op="a_pedido" ${op.a_pedido ? 'checked' : ''}> Agregar «Disponible A pedido»</label>`;
+  <label class="chk"><input type="checkbox" data-op="a_pedido" ${op.a_pedido ? 'checked' : ''}> Agregar «Disponible A pedido»</label>
+  <label class="chk" title="${CTX && !CTX.ia ? 'Falta GEMINI_API_KEY en el servidor' : 'Sin IA se arma con tus traducciones y lo aprendido del catálogo'}"><input type="checkbox" data-op="usar_ia" ${op.usar_ia !== false && CTX && CTX.ia ? 'checked' : ''} ${CTX && !CTX.ia ? 'disabled' : ''}> Usar IA para nombres y categorías</label>`;
 const leerOpc = cont => { const o = {}; cont.querySelectorAll('[data-op]').forEach(x => { o[x.dataset.op] = x.type === 'checkbox' ? x.checked : x.type === 'number' ? +x.value : x.value; }); return o; };
 function pintarImp() {
   const opt = f => `<select data-map="${f}"><option value="">—</option>${IMP.headers.map((h, i) => `<option value="${i}" ${IMP.map[f] === i ? 'selected' : ''}>${esc(h || '(col ' + (i + 1) + ')')}</option>`).join('')}</select>`;
@@ -237,8 +256,28 @@ async function procesar() {
 }
 
 // ── 2) Lote ──
+const sinTexto = h => !String(h || '').replace(/<[^>]+>/g, '').trim();
+const sinFoto = p => !(p.imagenes || []).length;
+const conLink = p => /^https?:\/\//.test(p.url || '');
+// Marcar rápido: cada uno marca TODO el lote que cumple la condición (no solo lo que se ve)
+const RAPIDOS = [
+  ['Sin foto ni descripción', p => sinFoto(p) && sinTexto(p.descripcion_html)],
+  ['Sin foto', sinFoto], ['Sin descripción', p => sinTexto(p.descripcion_html)],
+  ['Con link y sin ficha', p => conLink(p) && (sinFoto(p) || sinTexto(p.descripcion_html))], ['Sin link de la marca', p => !conLink(p)],
+  ['Sin categoría', p => !p.categoria], ['Categoría dudosa', p => p.alertas.some(a => a.t === 'categoria' && /dudosa|Revisa la categoría/.test(a.msg))],
+  ['Categoría nueva', p => !!p.categoria && (p.cat_nueva || p.alertas.some(a => /NUEVA/.test(a.msg)))], ['Con categoría sugerida', p => !p.categoria && !!p.cat_sugerida],
+  ['Sin tipo', p => !p.tipo], ['Armados sin IA', p => p.sin_ia && !p.nombre_manual],
+  ['SKU con problema', p => p.alertas.some(a => a.t === 'sku')], ['Sin precio', p => p.alertas.some(a => a.t === 'precio')],
+  ['Con variantes', p => p.variantes.length > 1], ['Con alertas críticas', p => p._nivel === 'critico'], ['Listos', p => p._nivel !== 'critico']];
+function marcarRapido(i) {
+  const ks = L.productos.filter(RAPIDOS[i][1]).map(p => p.k);
+  if (!$('sumar').checked) SEL.clear();
+  ks.forEach(k => SEL.add(k));
+  FILTRO = 'marcados'; pintarLote();
+  toast(`${ks.length} marcados: ${RAPIDOS[i][0].toLowerCase()}`);
+}
 const FILTROS = [
-  ['', 'Todos', p => true], ['critico', 'Con alertas críticas', p => p._nivel === 'critico'], ['categoria', 'Categoría por revisar', p => p.alertas.some(a => a.t === 'categoria' && a.nivel !== 'info')],
+  ['', 'Todos', p => true], ['marcados', 'Solo los marcados', p => SEL.has(p.k)], ['critico', 'Con alertas críticas', p => p._nivel === 'critico'], ['categoria', 'Categoría por revisar', p => p.alertas.some(a => a.t === 'categoria' && a.nivel !== 'info')],
   ['nueva', 'Categorías nuevas', p => p.alertas.some(a => a.t === 'categoria' && /NUEVA/.test(a.msg))], ['ficha', 'Sin ficha (descripción o fotos)', p => p.alertas.some(a => a.t === 'ficha')],
   ['listos', 'Listos para el Excel', p => p._nivel !== 'critico']];
 function visibles() {
@@ -271,11 +310,22 @@ function pintarLote() {
     <div class="fila">
       <label class="campo">Buscar<input id="q" value="${esc(Q)}" placeholder="nombre, SKU o categoría" style="min-width:220px"></label>
       <label class="campo">Mostrar<select id="filtro">${FILTROS.map(f => `<option value="${f[0]}" ${FILTRO === f[0] ? 'selected' : ''}>${f[1]}</option>`).join('')}</select></label>
-      <span class="nota" style="margin:0 0 8px">${ps.length} de ${L.productos.length} · ${SEL.size} marcados</span>
+      <span class="nota" style="margin:0 0 8px" id="cuenta">${ps.length} de ${L.productos.length} · ${SEL.size} marcados</span>
     </div>
-    <div class="fila" id="acciones">
-      <button class="btn btn-sec btn-chico" data-acc="todos">Marcar visibles</button><button class="btn btn-sec btn-chico" data-acc="ninguno">Desmarcar</button>
-      <input id="catLote" list="dlCats" placeholder="Categoría para los marcados" style="min-width:280px"><button class="btn btn-sec btn-chico" data-acc="categoria">Asignar categoría</button>
+    <div class="rapidos">
+      <span class="rap-t">Marcar rápido</span>
+      ${RAPIDOS.map((r, i) => [r, i, L.productos.filter(r[1]).length]).filter(x => x[2] || x[0][0] === 'Listos').map(([r, i, n]) => `<button class="rap" data-rap="${i}">${esc(r[0])} <b>${n}</b></button>`).join('')}
+      <span class="rap-sep"></span>
+      <button class="rap" data-acc="lote">Todo el lote <b>${L.productos.length}</b></button><button class="rap" data-acc="todos">Los visibles <b>${ps.length}</b></button><button class="rap" data-acc="invertir">Invertir</button><button class="rap" data-acc="ninguno">Ninguno</button>
+      <label class="chk" title="Suma al marcado actual en vez de reemplazarlo"><input type="checkbox" id="sumar" ${SUMAR ? 'checked' : ''}> Sumar</label>
+    </div>
+    <div class="masivas ${SEL.size ? '' : 'apagado'}" id="acciones">
+      <span class="rap-t">Con los ${SEL.size} marcados</span>
+      <span class="grupo"><input id="catLote" list="dlCats" placeholder="Categoría…" style="min-width:250px"><button class="btn btn-sec btn-chico" data-acc="categoria">Asignar</button></span>
+      <button class="btn btn-sec btn-chico" data-acc="confirmar" title="Acepta la categoría propuesta: deja de estar «dudosa»">Confirmar su categoría</button>
+      <button class="btn btn-sec btn-chico" data-acc="sugerida" title="A los que no tienen categoría y tienen una sugerida (nueva)">Usar la sugerida</button>
+      <span class="grupo"><input id="tipoLote" list="dlTipos" placeholder="Tipo…" style="width:130px"><button class="btn btn-sec btn-chico" data-acc="tipo">Cambiar tipo</button></span>
+      <button class="btn btn-sec btn-chico" data-acc="traducir">Aplicar traducciones</button>
       <button class="btn btn-sec btn-chico" data-acc="fichas">Traer fichas de la web</button><button class="btn btn-sec btn-chico" data-acc="ia" ${CTX && !CTX.ia ? 'disabled title="Falta GEMINI_API_KEY"' : ''}>Rehacer con IA</button>
       <button class="btn btn-sec btn-chico" data-acc="unir">Unir como variantes</button><button class="btn btn-chico btn-peligro" data-acc="quitar">Quitar del lote</button>
     </div>
@@ -314,9 +364,11 @@ function pintarLote() {
   $('q').oninput = e => { Q = e.target.value; const pos = e.target.selectionStart; pintarLote(); $('q').focus(); $('q').setSelectionRange(pos, pos); };
   $('filtro').onchange = e => { FILTRO = e.target.value; pintarLote(); };
   $('btnOp').onclick = async () => { try { recibir(await api('/admin/woo-creador/lote/' + L.id, { method: 'PUT', body: { opciones: leerOpc($('loteOp')) } })); toast('Precios recalculados'); } catch (e) { toast(e.message); } };
-  document.querySelectorAll('[data-sel]').forEach(c => { c.onclick = e => e.stopPropagation(); c.onchange = () => { c.checked ? SEL.add(c.dataset.sel) : SEL.delete(c.dataset.sel); }; });
+  document.querySelectorAll('[data-sel]').forEach(c => { c.onclick = e => e.stopPropagation(); c.onchange = () => { c.checked ? SEL.add(c.dataset.sel) : SEL.delete(c.dataset.sel); contarSel(); }; });
   document.querySelectorAll('tr.prod').forEach(tr => tr.onclick = () => { if (SUCIO && !confirm('Tienes cambios sin guardar en el producto abierto. ¿Descartarlos?')) return; SUCIO = false; ABIERTO = ABIERTO === tr.dataset.k ? null : tr.dataset.k; pintarLote(); if (ABIERTO) { const w = document.querySelector('.tabla-wrap'), r = document.querySelector('tr.prod.abierto'); w.scrollTop = r.offsetTop - w.querySelector('thead').offsetHeight; w.scrollIntoView({ block: 'nearest' }); } });
   document.querySelectorAll('[data-acc]').forEach(b => b.onclick = () => accion(b.dataset.acc));
+  document.querySelectorAll('[data-rap]').forEach(b => b.onclick = () => marcarRapido(+b.dataset.rap));
+  $('sumar').onchange = e => { SUMAR = e.target.checked; };
   $('btnExcel').onclick = excel;
   if (ABIERTO) pintarEditor();
 }
@@ -422,7 +474,9 @@ async function traerFicha(p, url) {
 async function accion(a) {
   const ks = [...SEL].filter(k => L.productos.some(p => p.k === k));
   if (a === 'todos') { visibles().forEach(p => SEL.add(p.k)); return pintarLote(); }
-  if (a === 'ninguno') { SEL.clear(); return pintarLote(); }
+  if (a === 'lote') { L.productos.forEach(p => SEL.add(p.k)); return pintarLote(); }
+  if (a === 'invertir') { const n = new Set(L.productos.filter(p => !SEL.has(p.k)).map(p => p.k)); SEL = n; return pintarLote(); }
+  if (a === 'ninguno') { SEL.clear(); if (FILTRO === 'marcados') FILTRO = ''; return pintarLote(); }
   if (!ks.length) return toast('Marca primero uno o más productos');
   const msg = $('accMsg');
   try {
@@ -432,6 +486,11 @@ async function accion(a) {
       if (nueva && !confirm(`«${cat}» no existe en el sistema. ¿Asignarla como categoría NUEVA?`)) return;
       recibir(await api('/admin/woo-creador/lote/' + L.id, { method: 'PUT', body: { cambios: ks.map(k => ({ k, categoria: cat, cat_nueva: nueva })) } })); toast(`Categoría asignada a ${ks.length}`);
     }
+    const masivo = async (cambio, msgOk) => { recibir(await api('/admin/woo-creador/lote/' + L.id, { method: 'PUT', body: { cambios: ks.map(k => ({ k, ...cambio })) } })); toast(msgOk); };
+    if (a === 'confirmar') await masivo({ confirmar_categoria: true }, `Categoría confirmada en ${ks.length}`);
+    if (a === 'sugerida') await masivo({ usar_sugerida: true }, 'Categoría sugerida aplicada donde había');
+    if (a === 'traducir') await masivo({ traducir: true }, `Traducciones aplicadas a ${ks.length} (los editados a mano conservan su nombre)`);
+    if (a === 'tipo') { const t = $('tipoLote').value.trim(); if (!t) return toast('Escribe el tipo (ej. Guantes)'); await masivo({ tipo_masivo: t }, `Tipo «${t}» en ${ks.length}`); }
     if (a === 'quitar') { if (!confirm(`¿Quitar ${ks.length} productos del lote?`)) return; recibir(await api('/admin/woo-creador/lote/' + L.id, { method: 'PUT', body: { borrar: ks } })); SEL.clear(); pintarLote(); }
     if (a === 'unir') { if (ks.length < 2) return toast('Marca al menos dos productos'); if (!confirm(`¿Unir ${ks.length} productos como variantes del primero? Revisa luego sus atributos.`)) return; recibir(await api('/admin/woo-creador/lote/' + L.id, { method: 'PUT', body: { unir: ks } })); SEL.clear(); pintarLote(); }
     if (a === 'ia') { const j = await api(`/admin/woo-creador/lote/${L.id}/ia`, { body: { ks } }); toast(`La IA está rehaciendo ${j.productos} productos`); setTimeout(() => abrirLote(L.id), 1200); }

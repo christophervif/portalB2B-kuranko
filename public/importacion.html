@@ -1389,26 +1389,88 @@ async function cargarSaved(){ try{ const a=await apiGet('/importaciones'); if(Ar
 function persistOne(rec){ apiSend('/importaciones','POST',rec); }
 function persistSaved(){ saved.forEach(persistOne); } // usado por "Importar respaldo": reenvía todo al portal
 function _meta(){return{numImp:$('numImp').value,empresa:$('empresa').value,invoice:$('f_inv').value,fecha_factura:($('f_fecha')&&$('f_fecha').value)||'',proveedor:$('f_prov').value,proveedorNombre:($('f_prov').selectedOptions[0]?$('f_prov').selectedOptions[0].textContent:'')};}
-function guardarImportacion(){
+// Estado ERP de una guardada, igual que la columna «ERP» de Guardadas:
+// 'subida' | 'pendiente' | 'sincodigo' | 'error'. Usa la caché de la lista si
+// está fresca; si no, consulta /erp-subidas solo por los códigos de ese registro.
+async function _estadoErpDe(rec){
+  const cands=_refCands(rec); if(!cands.length) return 'sincodigo';
+  const fresco=(Date.now()-_erpChkAt)<5*60*1000;
+  const faltan=fresco?cands.filter(c=>!(c in _erpChk)):cands;
+  if(faltan.length){
+    try{
+      const ctrl=(typeof AbortController!=='undefined')?new AbortController():null;
+      const to=ctrl?setTimeout(()=>ctrl.abort(),8000):null;
+      const r=await fetch(API+'/erp-subidas',{method:'POST',headers:_authHeaders(true),body:JSON.stringify({refs:faltan}),signal:ctrl?ctrl.signal:undefined});
+      if(to)clearTimeout(to);
+      if(!r.ok) return 'error';
+      const mapa=await r.json();
+      faltan.forEach(c=>{ _erpChk[c]=(mapa&&mapa[c]&&mapa[c].subida)?mapa[c]:false; });
+    }catch(e){ return 'error'; }
+  }
+  return cands.some(c=>_erpChk[c]) ? 'subida' : 'pendiente';
+}
+// Diálogo de 3 opciones para el código duplicado. Resuelve 'reemplazar' | 'nueva' | null.
+function _dialogoDuplicado(texto,puedeReemplazar,motivo){
+  return new Promise(res=>{
+    const ov=document.createElement('div');
+    ov.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+    const b='border:0;border-radius:8px;padding:9px 14px;font-weight:700;cursor:pointer;font-size:14px;';
+    ov.innerHTML='<div style="background:#fff;color:#0f172a;border-radius:12px;max-width:520px;width:100%;padding:18px 20px;box-shadow:0 10px 40px rgba(0,0,0,.3);font-size:14px;line-height:1.45">'
+      +'<div style="white-space:pre-line">'+esc(texto)+'</div>'
+      +(motivo?'<div class="hint" style="margin-top:8px">'+esc(motivo)+'</div>':'')
+      +'<div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:16px">'
+      +(puedeReemplazar?'<button data-r="reemplazar" style="'+b+'background:#dc2626;color:#fff">♻ Reemplazar la guardada</button>':'')
+      +'<button data-r="nueva" style="'+b+'background:#2563eb;color:#fff">Guardar como nueva</button>'
+      +'<button data-r="" style="'+b+'background:#e2e8f0;color:#334155">Cancelar</button>'
+      +'</div></div>';
+    const fin=v=>{ document.removeEventListener('keydown',esc_); ov.remove(); res(v||null); };
+    const esc_=e=>{ if(e.key==='Escape') fin(null); };
+    ov.addEventListener('click',e=>{ const t=e.target.closest('button'); if(t) fin(t.dataset.r); else if(e.target===ov) fin(null); });
+    document.addEventListener('keydown',esc_);
+    document.body.appendChild(ov);
+    const first=ov.querySelector('button'); if(first) first.focus();
+  });
+}
+async function guardarImportacion(){
   updateCodigo();
   const nMax=saved.reduce((m,r)=>Math.max(m,r.n||0),0)+1;
   const codigo=($('imp_codigo')&&$('imp_codigo').value)||codigoImportacion();
-  const dup=saved.find(r=>(r.meta&&r.meta.codigo)===codigo);
-  if(dup&&!confirm('⚠ Ya existe una importación guardada con el código «'+codigo+'» ('+dup.tipo+' · '+(dup.nombre||'')+', guardada '+dup.savedAt+').\n\n¿Guardar de todas formas como una nueva?'))return;
+  // Solo guardadas visibles (los imprec_* internos de recepción no cuentan).
+  const dup=saved.find(r=>(r.meta&&r.meta.codigo)===codigo && !String(r.id).startsWith('imprec_'));
+  let reemplazar=null;
+  if(dup){
+    const st=$('save_status'); if(st) st.textContent='revisando ERP…';
+    const est=await _estadoErpDe(dup);
+    if(st) st.textContent='';
+    const puede=est==='pendiente';
+    const motivo=puede?'Su estado en el ERP es «Pendiente», así que puedes reemplazarla (se conserva su # y su lugar en la lista).'
+      : est==='subida'?'No se puede reemplazar: su ingreso ya está subido al ERP.'
+      : est==='sincodigo'?'No se puede reemplazar: la guardada no tiene código para verificar en el ERP.'
+      : 'No se puede reemplazar: no se pudo verificar el ERP ahora mismo. Intenta de nuevo en un momento.';
+    const op=await _dialogoDuplicado('⚠ Ya existe una importación guardada con el código «'+codigo+'» ('+dup.tipo+' · '+(dup.nombre||'')+', guardada '+dup.savedAt+').',puede,motivo);
+    if(!op) return;
+    if(op==='reemplazar') reemplazar=dup;
+  }
   const meta=_meta();meta.codigo=codigo;
-  const rec={id:'imp_'+nMax,n:nMax,tipo:tipoImportacion(),nombre:$('save_nombre').value||codigo,
+  if(reemplazar&&reemplazar.meta&&reemplazar.meta.recepId&&!meta.recepId) meta.recepId=reemplazar.meta.recepId;
+  const rec={id:reemplazar?reemplazar.id:'imp_'+nMax,n:reemplazar?reemplazar.n:nMax,tipo:tipoImportacion(),nombre:$('save_nombre').value||codigo,
     savedAt:new Date().toISOString().slice(0,16).replace('T',' '),meta,state:buildState()};
   // Congelar también en los ítems EN VIVO las tasas que se guardaron, para que si
   // editas/borras la partida en la tabla, esta importación (ya guardada y abierta)
   // no cambie en pantalla ni al recalcular.
   (rec.state.items||[]).forEach((si,i)=>{ if(items[i]&&!items[i].tasas) items[i].tasas=si.tasas?{...si.tasas}:null; });
-  saved.push(rec);persistOne(rec);renderSavedList();
+  if(reemplazar){
+    const i=saved.findIndex(x=>x.id===reemplazar.id);
+    if(i>=0) saved[i]=rec; else saved.push(rec);
+    _erpRevisadas.delete(rec.id); // contenido nuevo: que se vuelva a verificar si luego se sube
+  } else saved.push(rec);
+  persistOne(rec);renderSavedList();
   // Si esta importación vino de una recepción validada, archívala para que
   // desaparezca de la pestaña Recepción (ya quedó costeada y en Guardadas).
   archivarRecepcionDeImportacion();
   const st=$('save_status');if(st)st.textContent='guardada ✓';
   tab('guard');
-  setTimeout(()=>alert('✓ Importación «'+codigo+'» guardada correctamente.'),50);
+  setTimeout(()=>alert('✓ Importación «'+codigo+'» '+(reemplazar?'reemplazada':'guardada')+' correctamente.'),50);
 }
 function archivarRecepcionDeImportacion(){
   const rid=RECEP_INGRESO&&RECEP_INGRESO.recepId;

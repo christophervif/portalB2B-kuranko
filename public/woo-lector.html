@@ -13,6 +13,9 @@ h1{font-size:18px;margin:0 0 4px}.muted{color:var(--muted)}.card{background:var(
 button{background:var(--accent);color:#141414;border:0;border-radius:6px;padding:9px 14px;cursor:pointer;font:inherit;font-weight:700}button:disabled{opacity:.5;cursor:default}
 button.sec{background:transparent;color:var(--fg);border:1px solid var(--line);padding:5px 10px;font-weight:600}
 table{width:100%;border-collapse:collapse;font-size:13px}td,th{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line);vertical-align:top}td input[type=text]{width:100%}
+.stats{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}.stat{border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:12px;color:var(--muted)}.stat b{display:block;font-size:17px;color:var(--fg)}
+.log{max-height:34vh;overflow:auto;font-size:12.5px;border:1px solid var(--line);border-radius:8px;padding:6px 8px;margin-top:8px}.log div{padding:2px 0;border-bottom:1px solid var(--line)}
+.campo{display:flex;flex-direction:column;gap:3px;font-size:11.5px;color:var(--muted)}details summary{cursor:pointer;font-weight:700}
 .ok{color:var(--ok)}.warn{color:var(--warn)}.err{color:var(--r)}.tbl{max-height:52vh;overflow:auto}
 .chip{display:inline-block;font-size:11.5px;border-radius:999px;padding:1px 7px;margin:1px 0}.chip.si{background:rgba(110,229,154,.15);color:var(--ok)}.chip.no{background:rgba(247,154,154,.15);color:var(--r)}
 </style>
@@ -21,6 +24,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{text-align:left;p
 <h1>Lector Woo Kuranko</h1>
 <p class="muted" style="margin:0">Lee las páginas de la marca desde tu navegador y trae descripción, especificaciones, fotos y peso a tu lote del Creador WooCommerce. No cierres la pestaña de la marca mientras trabaja.</p>
 <div class="card row"><b>Lote</b><select id="lote" style="min-width:300px"></select><span id="loteMsg" class="muted" style="font-size:12.5px"></span></div>
+<div id="rc" class="card" style="display:none"></div>
 <div id="app" class="card">Esperando la página de la marca…</div>
 <script>
 const $ = s => document.querySelector(s);
@@ -62,8 +66,8 @@ async function emparejar() {
   try {
     const j = await api(`/admin/woo-creador/lote/${ST.lote}/emparejar`, { origen: ST.origen, links: ST.links });
     ST.productos = j.productos; ST.pares = j.pares; ST.actual = j.actual; ST.nLinks = j.links;
-    $('#loteMsg').textContent = `${j.productos.length} productos · ${Object.keys(j.pares).length} encontrados en esta página`;
-    pintar();
+    $('#loteMsg').textContent = `${j.productos.length} productos en el lote`;
+    prepararRC(); pintar();
   } catch (err) { $('#app').innerHTML = `<span class="err">${esc(err.message)}</span>`; }
 }
 const linkDe = p => ST.pares[p.k] || p.url || '';
@@ -75,16 +79,19 @@ const visible = p => { const t = tiene(p); return !(ST.ocFotos && t.fotos > 0) &
 function pintar() {
   const P = ST.productos;
   if (!ST.sel) ST.sel = new Set(ST.actual ? [ST.actual] : P.filter(p => ST.pares[p.k] && !completo(p)).map(p => p.k));
-  $('#app').innerHTML = `<div class="card" style="margin:0 0 12px;border-color:var(--accent)"><b>Esta página</b> <span class="muted">${esc(ST.origen)}</span>
+  const vis = P.filter(visible);
+  $('#app').innerHTML = `<details id="detProd" ${ST.abrirProd ? 'open' : ''}><summary>Por producto (link por link)</summary><div style="margin-top:10px">
+  <div class="card" style="margin:0 0 12px;border-color:var(--accent)"><b>Esta página</b> <span class="muted">${esc(ST.origen)}</span>
     <div class="row" style="margin-top:8px"><span>corresponde a</span><select id="unaProd" style="max-width:420px"><option value="">— elige el producto —</option>${P.map(p => `<option value="${p.k}" ${ST.actual === p.k ? 'selected' : ''}>${esc(p.nombre)}${p.sku ? ' · ' + esc(p.sku) : ''}</option>`).join('')}</select><button id="unaIr">Traer solo esta ficha</button></div></div>
   <p class="muted">${ST.nLinks} links en la página · <b>${Object.keys(ST.pares).length}</b> productos encontrados por código o nombre. Pega el link a mano en los que falten.</p>
   <div class="row" style="margin:6px 0"><span class="muted">Marcar:</span><button class="sec" data-q="todos">Todos con link</button><button class="sec" data-q="sinfoto">Sin fotos</button><button class="sec" data-q="sindesc">Sin descripción</button><button class="sec" data-q="inc">Sin fotos o sin descripción</button><button class="sec" data-q="ninguno">Ninguno</button></div>
   <div class="row" style="margin:0 0 6px"><span class="muted">Ocultar:</span><label><input type="checkbox" id="ocFotos" ${ST.ocFotos ? 'checked' : ''}> los que ya tienen fotos</label><label><input type="checkbox" id="ocDesc" ${ST.ocDesc ? 'checked' : ''}> los que ya tienen descripción</label><label><input type="checkbox" id="ocLink" ${ST.ocLink ? 'checked' : ''}> los sin link</label><span class="muted" id="nVis"></span></div>
   <div class="tbl"><table><thead><tr><th></th><th>Producto</th><th>Link en la web de la marca</th><th>Qué tiene</th></tr></thead><tbody>
-  ${P.filter(visible).map(p => `<tr><td><input type="checkbox" data-sel="${p.k}" ${ST.sel.has(p.k) ? 'checked' : ''}></td><td><b>${esc(p.nombre)}</b><br><span class="muted">${esc(p.sku)}</span></td>
+  ${vis.slice(0, 300).map(p => `<tr><td><input type="checkbox" data-sel="${p.k}" ${ST.sel.has(p.k) ? 'checked' : ''}></td><td><b>${esc(p.nombre)}</b><br><span class="muted">${esc(p.sku)}</span></td>
     <td><input type="text" data-url="${p.k}" value="${esc(linkDe(p))}" placeholder="(sin link)"></td><td id="st-${p.k}">${chk(p)}</td></tr>`).join('')}
-  </tbody></table></div>
-  <div class="row" style="margin-top:10px"><button id="ir" ${ST.corriendo ? 'disabled' : ''}>Traer fichas marcadas</button><span id="prog" class="muted"></span></div>`;
+  </tbody></table></div>${vis.length > 300 ? `<p class="muted">Se muestran 300 de ${vis.length}: usa «Ocultar» para acotar.</p>` : ''}
+  <div class="row" style="margin-top:10px"><button id="ir" ${ST.corriendo ? 'disabled' : ''}>Traer fichas marcadas</button><span id="prog" class="muted"></span></div></div></details>`;
+  $('#detProd').ontoggle = e => { ST.abrirProd = e.target.open; };
   $('#unaIr').onclick = () => { const k = $('#unaProd').value; if (!k) { $('#prog').textContent = 'Elige a qué producto corresponde esta página.'; return; } ST.pares[k] = ST.origen; ST.sel = new Set([k]); pintar(); traer(); };
   $('#ir').onclick = traer;
   document.querySelectorAll('[data-sel]').forEach(c => c.onchange = () => { c.checked ? ST.sel.add(c.dataset.sel) : ST.sel.delete(c.dataset.sel); });
@@ -92,8 +99,96 @@ function pintar() {
   const QF = { todos: () => true, inc: p => !completo(p), sinfoto: p => !(tiene(p).fotos > 0), sindesc: p => !tiene(p).descripcion };
   document.querySelectorAll('[data-q]').forEach(b => b.onclick = () => { const q = b.dataset.q; ST.sel = new Set(q === 'ninguno' ? [] : P.filter(p => visible(p) && /^https?:\/\//.test(linkDe(p)) && QF[q](p)).map(p => p.k)); pintar(); });
   for (const [id, k] of [['ocFotos', 'ocFotos'], ['ocDesc', 'ocDesc'], ['ocLink', 'ocLink']]) $('#' + id).onchange = e => { ST[k] = e.target.checked; ST.sel = new Set([...ST.sel].filter(x => visible(P.find(p => p.k === x)))); pintar(); };
-  $('#nVis').textContent = `· se ven ${P.filter(visible).length} de ${P.length}`;
+  $('#nVis').textContent = `· se ven ${vis.length} de ${P.length}`;
 }
+// ════ Recorrer la web y ordenar por SKU ════
+// Lee las páginas de la marca (de a pocas, con pausas), el portal saca el PN de cada una y
+// la asigna al producto cuyo SKU coincide. Los listados no se asignan: se siguen sus links.
+const SALTAR = /\/(cart|checkout|customer|account|cuenta|login|register|wishlist|compare|contact|contacto|blog|noticias|politica|terminos|faq|ayuda|search|buscar|catalogsearch|sendfriend|review)\b|\.(jpe?g|png|gif|webp|svg|pdf|zip|mp4|css|js)(\?|$)/i;
+const RC = { cola: [], vistos: new Set(), leidas: 0, fichas: 0, asignados: 0, ajenos: 0, errores: 0, corriendo: false, pausa: false, log: [], pendientes: null, enCurso: 0,
+  max: 800, simul: 2, pausaMs: 700, prof: 3, seguir: true, reemplazar: false, prefijo: '' };
+const espera = ms => new Promise(r => setTimeout(r, ms));
+function linksDeHtml(html, base) {
+  const out = [];
+  for (const m of String(html || '').matchAll(/href=["']([^"'#]+)["']/gi)) { try { const u = new URL(m[1].replace(/&amp;/g, '&'), base); u.hash = ''; out.push(u.href); } catch (e) {} }
+  return out;
+}
+function admitir(u) {
+  try { const x = new URL(u), o = new URL(ST.origen); return x.origin === o.origin && (!RC.prefijo || x.pathname.includes(RC.prefijo)) && !SALTAR.test(x.pathname + x.search); } catch (e) { return false; }
+}
+function encolar(us, prof) { for (const u of us) { const k = u.replace(/\/$/, ''); if (RC.vistos.has(k) || !admitir(u)) continue; RC.vistos.add(k); RC.cola.push({ u, prof }); } }
+function logRC(cls, u, msg) { RC.log.unshift({ cls, u, msg }); RC.log.length = Math.min(RC.log.length, 60); }
+function prepararRC() {
+  if (!RC.vistos.size) {
+    try { const seg = new URL(ST.origen).pathname.split('/').filter(Boolean)[0] || ''; RC.prefijo = seg && !/\.html?$/.test(seg) ? '/' + seg + '/' : ''; } catch (e) {}
+    encolar([ST.origen], 0); encolar(ST.links, 1);
+  }
+  $('#rc').style.display = ''; pintarRC();
+}
+let pintT = null;
+function pintarRC() {
+  clearTimeout(pintT); pintT = setTimeout(() => {
+    const est = RC.corriendo ? (RC.pausa ? '<span class="warn">en pausa</span>' : '<span class="ok">leyendo…</span>') : '';
+    $('#rc').innerHTML = `<b>Recorrer la web y ordenar por SKU</b> <span class="muted">(recomendado)</span> ${est}
+    <p class="muted" style="margin:6px 0">Lee las páginas de la marca empezando por esta, saca el PN de cada una y la guarda en el producto cuyo SKU coincide. Las páginas de listado no se guardan: se siguen sus links. Si la web deja de responder, se pausa sola.</p>
+    <div class="row">
+      <label class="campo">Solo links que contengan<input id="rcPref" value="${esc(RC.prefijo)}" placeholder="(toda la web)" style="width:170px" ${RC.corriendo ? 'disabled' : ''}></label>
+      <label class="campo">Máx. páginas<input id="rcMax" type="number" value="${RC.max}" style="width:90px"></label>
+      <label class="campo">A la vez<select id="rcSim">${[1, 2, 3].map(n => `<option ${RC.simul === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+      <label class="campo">Pausa (ms)<input id="rcPausa" type="number" value="${RC.pausaMs}" style="width:80px"></label>
+      <label><input type="checkbox" id="rcSeguir" ${RC.seguir ? 'checked' : ''}> seguir listados</label>
+      <label><input type="checkbox" id="rcReemp" ${RC.reemplazar ? 'checked' : ''}> reemplazar fichas ya confirmadas</label>
+    </div>
+    <div class="stats"><div class="stat"><b>${RC.leidas}</b>páginas leídas</div><div class="stat"><b>${RC.cola.length}</b>en cola</div><div class="stat"><b>${RC.fichas}</b>fichas de producto</div>
+      <div class="stat"><b class="ok">${RC.asignados}</b>productos con ficha</div><div class="stat"><b>${RC.ajenos}</b>PN que no están en el lote</div><div class="stat"><b class="${RC.errores ? 'err' : ''}">${RC.errores}</b>sin respuesta</div>
+      ${RC.pendientes != null ? `<div class="stat"><b class="warn">${RC.pendientes}</b>del lote sin ficha confirmada</div>` : ''}</div>
+    <div class="row">${!RC.corriendo ? '<button id="rcIr">Empezar</button>' : RC.pausa ? '<button id="rcSeg">Continuar</button>' : '<button class="sec" id="rcPau">Pausar</button>'}
+      ${RC.corriendo ? '<button class="sec" id="rcStop">Detener</button>' : ''}<span class="muted">${RC.enCurso ? RC.enCurso + ' leyendo ahora' : ''}</span></div>
+    <div class="log">${RC.log.map(l => `<div class="${l.cls}">${esc(l.msg)}${l.u ? ` <span class="muted">· ${esc(l.u.replace(/^https?:\/\/[^/]+/, ''))}</span>` : ''}</div>`).join('') || '<span class="muted">Aquí aparece lo que va encontrando.</span>'}</div>`;
+    const leerCfg = () => { RC.prefijo = ($('#rcPref') || {}).value || ''; RC.max = Math.max(1, +$('#rcMax').value || 800); RC.simul = +$('#rcSim').value || 2; RC.pausaMs = Math.max(0, +$('#rcPausa').value || 0); RC.seguir = $('#rcSeguir').checked; RC.reemplazar = $('#rcReemp').checked; };
+    ['#rcMax', '#rcSim', '#rcPausa', '#rcSeguir', '#rcReemp', '#rcPref'].forEach(id => { const x = $(id); if (x) x.onchange = leerCfg; });
+    if ($('#rcIr')) $('#rcIr').onclick = () => { leerCfg(); if (!RC.cola.length) { RC.vistos.clear(); encolar([ST.origen], 0); encolar(ST.links, 1); } recorrer(); };
+    if ($('#rcSeg')) $('#rcSeg').onclick = () => { leerCfg(); recorrer(); };
+    if ($('#rcPau')) $('#rcPau').onclick = () => { RC.pausa = true; pintarRC(); };
+    if ($('#rcStop')) $('#rcStop').onclick = () => { RC.corriendo = false; RC.pausa = false; logRC('warn', '', 'Detenido.'); pintarRC(); };
+  }, 120);
+}
+async function recorrer() {
+  RC.corriendo = true; RC.pausa = false; pintarRC();
+  let seguidos = 0;
+  const trabajador = async () => {
+    while (RC.corriendo && !RC.pausa && RC.cola.length && RC.leidas < RC.max) {
+      const { u, prof } = RC.cola.shift(); RC.enCurso++; pintarRC();
+      let d = await leer(u);
+      if (d.error) { await espera(5000); d = await leer(u); } // un reintento
+      RC.enCurso--;
+      if (d.error) {
+        RC.errores++; seguidos++; logRC('err', u, d.error);
+        if (seguidos >= 5) { RC.pausa = true; logRC('err', '', 'La web dejó de responder: pausé. Espera unos minutos, revisa que la pestaña de la marca abra, y toca «Continuar».'); }
+        pintarRC(); await espera(RC.pausaMs * 3); continue;
+      }
+      seguidos = 0; RC.leidas++;
+      try {
+        const r = await api(`/admin/woo-creador/lote/${ST.lote}/pagina`, { url: u, texto: d.texto, html: d.html, imgs: d.imgs, reemplazar: RC.reemplazar });
+        if (r.pendientes != null) RC.pendientes = r.pendientes;
+        if (r.asignados && r.asignados.length) {
+          RC.fichas++; RC.asignados += r.asignados.length;
+          r.asignados.forEach(a => logRC('ok', u, `✓ ${a.nombre}${a.estado === 'parecido' ? ' (misma familia)' : ''} · ${a.fotos} fotos`));
+          r.asignados.forEach(a => { ST.res[a.k] = { fotos: a.fotos, descripcion: true }; });
+        } else if (r.ya) RC.fichas++;
+        else if ((r.pns || []).length && !r.listado) { RC.fichas++; RC.ajenos++; logRC('muted', u, `PN ${r.pns[0]}: no está en el lote`); }
+        // listados y páginas sin PN: seguir sus links
+        if (RC.seguir && (r.listado || !(r.pns || []).length) && prof < RC.prof && d.html) encolar(linksDeHtml(d.html, u), prof + 1);
+      } catch (e) { logRC('err', u, e.message); }
+      pintarRC();
+      await espera(RC.pausaMs);
+    }
+  };
+  await Promise.all(Array.from({ length: RC.simul }, trabajador));
+  if (RC.corriendo && !RC.pausa) { RC.corriendo = false; logRC('ok', '', `Terminé: ${RC.asignados} productos con ficha. Vuelve al panel y toca «Recargar».`); }
+  pintarRC();
+}
+
 async function traer() {
   const lista = ST.productos.filter(p => ST.sel.has(p.k) && visible(p) && /^https?:\/\//.test(linkDe(p)));
   if (!lista.length) { $('#prog').textContent = 'Marca al menos un producto con link.'; return; }

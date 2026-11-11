@@ -656,6 +656,20 @@ async function fichaDeTexto(p, url, texto, imgs) {
     descripcion_precisa: txt(r.descripcion_precisa, 160) };
 }
 
+// Ficha de una página: con IA si se puede, si no con reglas (descripción, especificaciones, fotos, peso)
+async function armarFicha(p, url, texto, html, imgs, usarIA) {
+  let desc0 = '', todas = [...(imgs || [])];
+  if (html) { const f = fichaDeHtml(html, url); desc0 = f.descripcion || ''; todas = [...todas, ...(f.imagenes || [])]; }
+  let r = usarIA ? await fichaDeTexto(p, url, texto, todas) : { ok: false, error: 'IA apagada' };
+  if (!r.ok) {
+    const s = fichaSinIA(p, texto, desc0);
+    const cand = [...new Set(todas.map(String).filter(u => /^https?:\/\//i.test(u) && !EXCLUIR_IMG.test(u)))];
+    let pool = elegirImagenes(cand, url); if (pool.length < 2) pool = cand;
+    r = { ...r, html: s.html, peso: s.peso, pool: r.pool && r.pool.length ? r.pool : pool.slice(0, 40) };
+  }
+  return r;
+}
+
 // ── ¿La página es realmente de este producto? (PN / código de la marca) ─────
 // ok: el SKU aparece en la página · parecido: mismo modelo, otra talla/color (comparten página)
 // distinto: la página muestra otro PN → no se guarda · sin_pn: la página no muestra ninguno
@@ -1221,6 +1235,67 @@ costo = precio de compra/dealer/neto; pvp = precio de venta al público sugerido
         return p;
       });
       res.json({ ok: true, producto: out, ia: r.ok, ia_error: r.ok ? null : r.error, pn });
+    } catch (e) { err(res, e); }
+  });
+
+  // ── Recorrer la web y ordenar por SKU ──
+  // El Lector lee páginas de la marca y las manda aquí. Se saca el PN de la página y la ficha
+  // se asigna sola a los productos del lote cuyo SKU coincide (o al mismo modelo en otra talla).
+  // Una página de listado (muchos códigos, ninguno marcado como PN) no se asigna: el Lector sigue sus links.
+  app.post('/admin/woo-creador/lote/:id/pagina', authAdmin, mAud, async (req, res) => {
+    const id = num(req.params.id), b = req.body || {}, url = String(b.url || '').slice(0, 500);
+    try {
+      if (!/^https?:\/\//i.test(url)) return res.status(400).json({ error: 'Falta el link' });
+      const texto = String(b.texto || ''), html = String(b.html || '').slice(0, 3e6);
+      const L0 = await leerLote(id);
+      // índice SKU → producto
+      const porSku = new Map();
+      L0.productos.forEach(p => p.variantes.forEach(v => { const k = norm(v.sku); if (k.length >= 5) porSku.set(k, p.k); }));
+      const pns = pnsDePagina(texto, html).filter(x => /^(?=.*\d)(?=.*[a-z])/i.test(x));
+      const coincide = new Map(); // k → estado
+      for (const pn of pns) { const k = porSku.get(norm(pn)); if (k) coincide.set(k, 'ok'); }
+      // varios PN del lote que no son de la misma familia → es un listado, no una ficha
+      const comun0 = (a, c) => { let i = 0; while (i < a.length && a[i] === c[i]) i++; return i; };
+      const pnLote = pns.map(norm).filter(x => porSku.has(x));
+      if (pnLote.length > 1 && pnLote.some(x => comun0(x, pnLote[0]) < Math.max(8, Math.min(x.length, pnLote[0].length) * 0.7))) {
+        return res.json({ asignados: [], pns: pns.slice(0, 3), listado: true });
+      }
+      // misma familia (otra talla / color de la misma página): inicio largo en común con el PN
+      if (coincide.size && pns.length) {
+        const pn0 = norm(pns.find(x => porSku.has(norm(x))) || pns[0]);
+        const comun = (a, c) => { let i = 0; while (i < a.length && a[i] === c[i]) i++; return i; };
+        for (const [sk, k] of porSku) if (!coincide.has(k) && comun(sk, pn0) >= Math.max(10, Math.min(sk.length, pn0.length) * 0.8) && sk.length === pn0.length) coincide.set(k, 'parecido');
+      }
+      // sin PN marcado: si en el texto aparece UN solo SKU del lote, es su página; si aparecen varios, es un listado
+      let listado = false;
+      if (!coincide.size) {
+        const plano = norm(texto);
+        const vistos = [...new Set([...porSku].filter(([sk]) => plano.includes(sk)).map(([, k]) => k))];
+        if (vistos.length === 1 && !pns.length) coincide.set(vistos[0], 'en_texto');
+        else if (vistos.length > 1) listado = true;
+      }
+      if (!coincide.size) return res.json({ asignados: [], pns: pns.slice(0, 3), listado, pendientes: L0.productos.filter(p => !(p.ficha && /ok|parecido|en_texto/.test(p.ficha.pn || ''))).length });
+      // los que ya tienen ficha confirmada no se tocan (salvo «reemplazar»)
+      const objetivo = [...coincide].filter(([k]) => { const p = L0.productos.find(x => x.k === k); return p && (b.reemplazar || !(p.ficha && /ok|parecido|en_texto/.test(p.ficha.pn || ''))); });
+      if (!objetivo.length) return res.json({ asignados: [], ya: coincide.size, pns: pns.slice(0, 3) });
+      const p0 = L0.productos.find(x => x.k === objetivo[0][0]);
+      const usarIA = !!process.env.GEMINI_API_KEY && L0.opciones.usar_ia !== false && b.ia !== false;
+      const r = await armarFicha(p0, url, texto, html, Array.isArray(b.imgs) ? b.imgs : [], usarIA);
+      const out = await enCola(id, async () => {
+        const L = await leerLote(id); const ctx = await contexto(); const asignados = [];
+        for (const [k, estado] of objetivo) {
+          const p = L.productos.find(x => x.k === k); if (!p) continue;
+          p.url = url;
+          if (r.html) p.descripcion_html = r.html;
+          asignarFotos(p, limpiarFotos(r.pool || [], p), ctx.trad);
+          if (r.peso && !p.peso) p.peso = r.peso;
+          p.ficha = { fecha: new Date().toISOString(), ia: !!r.ok, fuente: 'recorrido', error: r.ok ? '' : r.error, pn: estado, pn_pagina: pns[0] || '' };
+          asignados.push({ k, nombre: armarNombre(p, p.variantes.length === 1 ? textoVariante(p.variantes[0].attrs) : ''), estado, fotos: (p.imagenes || []).length });
+        }
+        revisarLote(L, ctx); await guardarLote(L);
+        return { asignados, pendientes: L.productos.filter(p => !(p.ficha && /ok|parecido|en_texto/.test(p.ficha.pn || ''))).length };
+      });
+      res.json({ ...out, pns: pns.slice(0, 3), ia: r.ok, ia_error: r.ok ? null : r.error });
     } catch (e) { err(res, e); }
   });
 

@@ -976,7 +976,10 @@ function _dupMarcador(){(async()=>{
     }catch(e){say('✖ Error: '+e.message);toast.style.background='#7f1d1d';}
   };
 
-  if(!/^\/admin(\/|$)/.test(location.pathname)){alert('Abre la ERP (Ventas) y vuelve a pulsar «Duplicar Venta».');return;}
+  // Fuera de la ERP: ir directo a «Nueva Cotización» (el navegador no deja llenar otro sitio,
+  // así que ahí se pulsa el marcador una vez más)
+  const ERP='https://kuranko-production-9f83.up.railway.app';
+  if(location.origin!==ERP||!/^\/admin(\/|$)/.test(location.pathname)){location.href=ERP+'/admin/sales/create';return;}
   if(/\/admin\/sales\/create\/?$/.test(location.pathname)){await RUN();return;}
   // Desde otra página de la ERP: abrir Nueva Cotización en otra pestaña y correr ahí
   const m=location.pathname.match(/\/admin\/sales\/(\d+)/);

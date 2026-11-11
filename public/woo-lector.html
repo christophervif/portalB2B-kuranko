@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lector Woo · Kuranko</title>
+<style>
+:root{--bg:#0a1030;--surface:#111a44;--line:#26305e;--fg:#e8ecff;--muted:#9aa3c8;--accent:#FBB911;--ok:#6ee59a;--warn:#ffcb52;--r:#f79a9a}
+@media (prefers-color-scheme:light){:root{--bg:#f6f8fd;--surface:#fff;--line:#dfe4f2;--fg:#141a33;--muted:#5d6687;--ok:#1f9c56;--warn:#9a6b00;--r:#dc4b4b}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:16px}
+h1{font-size:18px;margin:0 0 4px}.muted{color:var(--muted)}.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px;margin-top:12px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}select,input{background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:7px 9px;font:inherit;max-width:100%}
+button{background:var(--accent);color:#141414;border:0;border-radius:6px;padding:9px 14px;cursor:pointer;font:inherit;font-weight:700}button:disabled{opacity:.5;cursor:default}
+button.sec{background:transparent;color:var(--fg);border:1px solid var(--line);padding:5px 10px;font-weight:600}
+table{width:100%;border-collapse:collapse;font-size:13px}td,th{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line);vertical-align:top}td input[type=text]{width:100%}
+.ok{color:var(--ok)}.warn{color:var(--warn)}.err{color:var(--r)}.tbl{max-height:52vh;overflow:auto}
+.chip{display:inline-block;font-size:11.5px;border-radius:999px;padding:1px 7px;margin:1px 0}.chip.si{background:rgba(110,229,154,.15);color:var(--ok)}.chip.no{background:rgba(247,154,154,.15);color:var(--r)}
+</style>
+</head>
+<body>
+<h1>Lector Woo Kuranko</h1>
+<p class="muted" style="margin:0">Lee las páginas de la marca desde tu navegador y trae descripción, especificaciones, fotos y peso a tu lote del Creador WooCommerce. No cierres la pestaña de la marca mientras trabaja.</p>
+<div class="card row"><b>Lote</b><select id="lote" style="min-width:300px"></select><span id="loteMsg" class="muted" style="font-size:12.5px"></span></div>
+<div id="app" class="card">Esperando la página de la marca…</div>
+<script>
+const $ = s => document.querySelector(s);
+const esc = t => String(t == null ? '' : t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+let TOKEN = ''; try { TOKEN = localStorage.getItem('admtoken') || ''; } catch (e) {}
+async function api(ep, body) {
+  const r = await fetch(ep, { method: body ? 'POST' : 'GET', headers: { 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  const j = await r.json().catch(() => ({}));
+  if (r.status === 401) throw new Error('Tu sesión del panel expiró. Vuelve a entrar al panel en este navegador.');
+  if (!r.ok) throw new Error(j.error || ('Error ' + r.status)); return j;
+}
+const ST = { origen: '', links: [], lote: '', productos: [], pares: {}, actual: null, sel: null, res: {}, corriendo: false };
+const pend = new Map(); let idN = 0;
+// Mensajes de la pestaña de la marca (solo de la ventana que abrió el lector)
+addEventListener('message', e => {
+  if (!window.opener || e.source !== window.opener) return; const d = e.data || {};
+  if (d.tipo === 'links' && !ST.origen) { ST.origen = String(d.origen || ''); ST.links = (d.links || []).slice(0, 3000); clearInterval(ping); iniciar(); }
+  if (d.tipo === 'pagina' && pend.has(d.id)) { pend.get(d.id)(d); pend.delete(d.id); }
+});
+const ping = setInterval(() => { if (window.opener) window.opener.postMessage({ tipo: 'listo' }, '*'); }, 700);
+setTimeout(() => { if (!ST.origen) $('#app').innerHTML = '<span class="err">No recibí nada de la página de la marca. Abre la web de la marca y toca el marcador «Lector Woo Kuranko» desde ahí.</span>'; }, 12000);
+function leer(url) { return new Promise(res => { const id = ++idN; pend.set(id, res); window.opener.postMessage({ tipo: 'leer', id, url }, '*'); setTimeout(() => { if (pend.has(id)) { pend.delete(id); res({ error: 'La página tardó demasiado' }); } }, 60000); }); }
+
+async function iniciar() {
+  if (!TOKEN) { $('#app').innerHTML = '<span class="err">Primero entra al panel del portal en este mismo navegador.</span>'; return; }
+  try {
+    const j = await api('/admin/woo-creador/lotes');
+    let ult = ''; try { ult = localStorage.getItem('woo_lote') || ''; } catch (e) {}
+    // el lote cuya marca aparece en el dominio de la página, o el último abierto en el panel
+    const host = (() => { try { return new URL(ST.origen).hostname.replace(/[^a-z0-9]/gi, '').toLowerCase(); } catch (e) { return ''; } })();
+    const porMarca = j.lotes.find(l => l.marca && host.includes(String(l.marca).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '')));
+    ST.lote = String((porMarca || j.lotes.find(l => String(l.id) === ult) || j.lotes[0] || {}).id || '');
+    $('#lote').innerHTML = j.lotes.map(l => `<option value="${l.id}" ${String(l.id) === ST.lote ? 'selected' : ''}>#${l.id} · ${esc(l.marca || '')} · ${esc(l.nombre)}</option>`).join('') || '<option value="">(no hay lotes: sube primero la lista en el panel)</option>';
+    $('#lote').onchange = e => { ST.lote = e.target.value; ST.sel = null; emparejar(); };
+    if (ST.lote) await emparejar(); else $('#app').innerHTML = '<span class="err">No hay lotes. Sube primero la lista de la marca en el panel → Creador WooCommerce.</span>';
+  } catch (err) { $('#app').innerHTML = `<span class="err">${esc(err.message)}</span>`; }
+}
+async function emparejar() {
+  try {
+    const j = await api(`/admin/woo-creador/lote/${ST.lote}/emparejar`, { origen: ST.origen, links: ST.links });
+    ST.productos = j.productos; ST.pares = j.pares; ST.actual = j.actual; ST.nLinks = j.links;
+    $('#loteMsg').textContent = `${j.productos.length} productos · ${Object.keys(j.pares).length} encontrados en esta página`;
+    pintar();
+  } catch (err) { $('#app').innerHTML = `<span class="err">${esc(err.message)}</span>`; }
+}
+const linkDe = p => ST.pares[p.k] || p.url || '';
+const tiene = p => { const r = ST.res[p.k]; return r ? { fotos: r.fotos, descripcion: r.descripcion } : { fotos: p.fotos, descripcion: p.descripcion }; };
+const completo = p => { const t = tiene(p); return t.fotos > 0 && t.descripcion; };
+function chk(p) { const t = tiene(p); return `<span class="chip ${t.fotos ? 'si' : 'no'}">${t.fotos ? '✓' : '✗'} Fotos${t.fotos ? ' ' + t.fotos : ''}</span> <span class="chip ${t.descripcion ? 'si' : 'no'}">${t.descripcion ? '✓' : '✗'} Descripción</span>`; }
+function pintar() {
+  const P = ST.productos;
+  if (!ST.sel) ST.sel = new Set(ST.actual ? [ST.actual] : P.filter(p => ST.pares[p.k] && !completo(p)).map(p => p.k));
+  $('#app').innerHTML = `<div class="card" style="margin:0 0 12px;border-color:var(--accent)"><b>Esta página</b> <span class="muted">${esc(ST.origen)}</span>
+    <div class="row" style="margin-top:8px"><span>corresponde a</span><select id="unaProd" style="max-width:420px"><option value="">— elige el producto —</option>${P.map(p => `<option value="${p.k}" ${ST.actual === p.k ? 'selected' : ''}>${esc(p.nombre)}${p.sku ? ' · ' + esc(p.sku) : ''}</option>`).join('')}</select><button id="unaIr">Traer solo esta ficha</button></div></div>
+  <p class="muted">${ST.nLinks} links en la página · <b>${Object.keys(ST.pares).length}</b> productos encontrados por código o nombre. Pega el link a mano en los que falten.</p>
+  <div class="row" style="margin:6px 0"><span class="muted">Marcar:</span><button class="sec" data-q="todos">Todos con link</button><button class="sec" data-q="ninguno">Ninguno</button><button class="sec" data-q="inc">Solo sin ficha</button></div>
+  <div class="tbl"><table><thead><tr><th></th><th>Producto</th><th>Link en la web de la marca</th><th>Qué tiene</th></tr></thead><tbody>
+  ${P.map(p => `<tr><td><input type="checkbox" data-sel="${p.k}" ${ST.sel.has(p.k) ? 'checked' : ''}></td><td><b>${esc(p.nombre)}</b><br><span class="muted">${esc(p.sku)}</span></td>
+    <td><input type="text" data-url="${p.k}" value="${esc(linkDe(p))}" placeholder="(sin link)"></td><td id="st-${p.k}">${chk(p)}</td></tr>`).join('')}
+  </tbody></table></div>
+  <div class="row" style="margin-top:10px"><button id="ir" ${ST.corriendo ? 'disabled' : ''}>Traer fichas marcadas</button><span id="prog" class="muted"></span></div>`;
+  $('#unaIr').onclick = () => { const k = $('#unaProd').value; if (!k) { $('#prog').textContent = 'Elige a qué producto corresponde esta página.'; return; } ST.pares[k] = ST.origen; ST.sel = new Set([k]); pintar(); traer(); };
+  $('#ir').onclick = traer;
+  document.querySelectorAll('[data-sel]').forEach(c => c.onchange = () => { c.checked ? ST.sel.add(c.dataset.sel) : ST.sel.delete(c.dataset.sel); });
+  document.querySelectorAll('[data-url]').forEach(i => i.onchange = () => { const v = i.value.trim(); if (v) { ST.pares[i.dataset.url] = v; ST.sel.add(i.dataset.url); } else delete ST.pares[i.dataset.url]; pintar(); });
+  document.querySelectorAll('[data-q]').forEach(b => b.onclick = () => { const q = b.dataset.q; ST.sel = new Set(q === 'ninguno' ? [] : P.filter(p => /^https?:\/\//.test(linkDe(p)) && (q === 'todos' || !completo(p))).map(p => p.k)); pintar(); });
+}
+async function traer() {
+  const lista = ST.productos.filter(p => ST.sel.has(p.k) && /^https?:\/\//.test(linkDe(p)));
+  if (!lista.length) { $('#prog').textContent = 'Marca al menos un producto con link.'; return; }
+  ST.corriendo = true; $('#ir').disabled = true; let ok = 0;
+  for (const [i, p] of lista.entries()) {
+    const u = linkDe(p); $('#prog').textContent = `${i + 1} de ${lista.length}: ${p.nombre}…`;
+    const c = document.getElementById('st-' + p.k); if (c) c.innerHTML = '<span class="muted">leyendo…</span>';
+    const d = await leer(u); let txt, cls;
+    if (d.error) { txt = d.error; cls = 'err'; }
+    else {
+      try {
+        const r = await api(`/admin/woo-creador/lote/${ST.lote}/ficha`, { k: p.k, url: u, imgs: d.imgs, texto: d.texto }); ok++;
+        const pr = r.producto || {}; ST.res[p.k] = { fotos: (pr.imagenes || []).length, descripcion: !!String(pr.descripcion_html || '').replace(/<[^>]+>/g, '').trim() };
+        ST.sel.delete(p.k); txt = r.ia ? 'Guardada' : 'Guardada sin IA' + (r.ia_error ? ' (' + r.ia_error + ')' : ''); cls = r.ia ? 'ok' : 'warn';
+      } catch (err) { txt = err.message; cls = 'err'; }
+    }
+    if (c) c.innerHTML = `<span class="${cls}">${esc(txt)}</span><br>${chk(p)}`;
+    const cb = document.querySelector(`[data-sel="${CSS.escape(p.k)}"]`); if (cb) cb.checked = ST.sel.has(p.k);
+    await new Promise(r => setTimeout(r, 800));
+  }
+  ST.corriendo = false; $('#ir').disabled = false;
+  $('#prog').innerHTML = `<span class="ok">Listo: ${ok} de ${lista.length} fichas guardadas.</span> Vuelve al panel y toca «Recargar».`;
+}
+</script>
+</body>
+</html>

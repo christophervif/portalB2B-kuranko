@@ -287,6 +287,7 @@ tr:hover td{background:var(--hover)}
       <button class="tab" onclick="tab('facturacion',this)">Facturación</button>
       <button class="tab" onclick="tab('reportes',this)">Contabilidad</button>
       <button class="tab" onclick="tab('auditoria',this)">Auditoría de catálogo</button>
+      <button class="tab" onclick="tab('woo_creador',this)">Creador WooCommerce</button>
       <button class="tab" onclick="tab('crm',this)">CRM Kommo</button>
       <button class="tab" onclick="tab('importaciones',this)">Importaciones</button>
       <button class="tab" onclick="tab('recepciones',this)">Recepciones <span id="rec-badge" class="rec-badge" style="display:none">0</span></button>
@@ -304,6 +305,13 @@ tr:hover td{background:var(--hover)}
     <div id="tab-auditoria" class="panel">
       <div class="card" style="padding:0;overflow:hidden">
         <iframe id="aud-frame" title="Auditoría de catálogo"
+          style="width:100%;height:calc(100vh - 150px);min-height:560px;border:0;display:block"></iframe>
+      </div>
+    </div>
+
+    <div id="tab-woo_creador" class="panel">
+      <div class="card" style="padding:0;overflow:hidden">
+        <iframe id="woo-frame" title="Creador WooCommerce"
           style="width:100%;height:calc(100vh - 150px);min-height:560px;border:0;display:block"></iframe>
       </div>
     </div>
@@ -745,7 +753,7 @@ const APP_ICONOS={
   clientes_gestion:'👤', ventas_ingresos:'📊', clientes_bi:'👥',
   inventario:'📦', restock:'🔁', reportes:'💰', auditoria:'🔍',
   crm:'📣', sistemas:'⚙️', promociones:'🏷️', importaciones:'🚢', recepciones:'📥', seguimiento:'🚚',
-  conciliacion:'🧾', cuentas_cobrar:'💸', saldo_favor:'💵', cotizador:'🧮', precio_importado:'🌍', bikes:'🚲', asistencia:'⏱️', facturacion:'📄'
+  conciliacion:'🧾', cuentas_cobrar:'💸', saldo_favor:'💵', cotizador:'🧮', precio_importado:'🌍', bikes:'🚲', woo_creador:'🛒', asistencia:'⏱️', facturacion:'📄'
 };
 
 // Genera las tarjetas del launcher a partir de las pestañas visibles (respeta permisos)
@@ -867,6 +875,11 @@ function cargarDatosTab(id){
     // Auditoría de catálogo + chequeo de empresas en iframe (public/auditoria.html); comparte token/origen.
     const fr=document.getElementById('aud-frame');
     if(fr&&!fr.src){fr.src='/auditoria.html?v='+Date.now();}
+  }
+  else if(id==='woo_creador'){
+    // Creador WooCommerce: lista de precios de una marca → Excel para WooCommerce (public/woo-creador.html)
+    const fr=document.getElementById('woo-frame');
+    if(fr&&!fr.src){fr.src='/woo-creador.html?v='+Date.now();}
   }
   else if(id==='clientes_bi'){
     // Clientes BI en iframe (public/clientes-bi.html); comparte token/origen. Carga perezosa.
@@ -1721,7 +1734,7 @@ async function cargarEstadoActualizacion(){
   }catch(e){ if(box)box.style.display='none'; }
 }
 // Nombres legibles de los módulos
-const NOMBRE_MODULO={clientes_gestion:'Gestión de clientes',sync:'Sincronización web (en Sistemas)',auditoria:'Auditoría de catálogo',resumen:'Resumen de ventas (en Ventas e ingresos)',rentabilidad:'Rentabilidad (en Ventas e ingresos)',inventario:'Inventario',restock:'Restock',clientes_bi:'Clientes BI',caja_bi:'Ingresos y caja (en Ventas e ingresos)',crm:'CRM Kommo',reportes:'Contabilidad',pagos:'Métodos de pago (en Sistemas)',importaciones:'Importaciones',recepciones:'Recepciones',seguimiento:'Seguimiento (trackings y backorders)',conciliacion:'Conciliación de pagos online',cuentas_cobrar:'Cuentas por cobrar',saldo_favor:'Créditos',cotizador:'Cotizador rápido',precio_importado:'Precio importado (pedidos especiales)',bikes:'Bikes a pedido (bikes.kuranko.pe)',facturacion:'Facturación electrónica',gastos:'Compras y gastos (en Ventas y compras)',rendimiento:'Rendimiento (en Ventas y compras)',auditoria_vc:'Auditoría de ventas y compras (en Ventas y compras)'};
+const NOMBRE_MODULO={clientes_gestion:'Gestión de clientes',sync:'Sincronización web (en Sistemas)',auditoria:'Auditoría de catálogo',woo_creador:'Creador WooCommerce',resumen:'Resumen de ventas (en Ventas e ingresos)',rentabilidad:'Rentabilidad (en Ventas e ingresos)',inventario:'Inventario',restock:'Restock',clientes_bi:'Clientes BI',caja_bi:'Ingresos y caja (en Ventas e ingresos)',crm:'CRM Kommo',reportes:'Contabilidad',pagos:'Métodos de pago (en Sistemas)',importaciones:'Importaciones',recepciones:'Recepciones',seguimiento:'Seguimiento (trackings y backorders)',conciliacion:'Conciliación de pagos online',cuentas_cobrar:'Cuentas por cobrar',saldo_favor:'Créditos',cotizador:'Cotizador rápido',precio_importado:'Precio importado (pedidos especiales)',bikes:'Bikes a pedido (bikes.kuranko.pe)',facturacion:'Facturación electrónica',gastos:'Compras y gastos (en Ventas y compras)',rendimiento:'Rendimiento (en Ventas y compras)',auditoria_vc:'Auditoría de ventas y compras (en Ventas y compras)'};
 let accesosCache={modulos_disponibles:[],usuarios:[]};
 async function cargarAccesos(){
   try{

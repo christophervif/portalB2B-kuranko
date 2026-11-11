@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<script src="/tema.js"></script>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Crear desde lista de marca — Kuranko</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  --bg:#0a1030;--surface:#111a44;--surface2:#0e1640;--surface3:#18224e;
+  --border:#212b54;--text:#eef1f8;--text2:#c6cee2;--muted:#8a93b4;--muted2:#a2abca;
+  --accent:#FFB30D;--accent-text:#000726;--accent-h:#e6a00c;--hover:#1a2450;--white:#ffffff;
+  --bg-ok:#163a29;--fg-ok:#6ee59a;--bg-warn:#3d3315;--fg-warn:#ffcb52;--bg-r:#3f1c20;--fg-r:#f79a9a;--bg-v:#2a2766;--fg-v:#cecbf6;
+  --radius:18px;--radius-sm:12px;
+}
+[data-theme="light"]{
+  --bg:#f6f8fd;--surface:#ffffff;--surface2:#fbfcff;--surface3:#f2f5fb;
+  --border:#e3e9f5;--text:#1a2140;--text2:#4a5680;--muted:#9aa3c0;--muted2:#727e9f;--hover:#f2f5fb;--white:#1a2140;
+  --bg-ok:#e8f8ef;--fg-ok:#1f9c56;--bg-warn:#fdf5db;--fg-warn:#9a6b00;--bg-r:#fdeded;--fg-r:#dc4b4b;--bg-v:#eeedfc;--fg-v:#4b43b8;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{overflow-x:hidden}
+body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:14px}
+.wrap{max-width:1240px;margin:0 auto;padding:1rem}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:1.1rem;margin-bottom:14px;min-width:0}
+.card h3{font-size:15px;font-weight:600;color:var(--white);margin-bottom:4px}
+.desc{font-size:12px;color:var(--muted);line-height:1.55}
+.fila{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:10px}
+.campo{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--muted2);min-width:0}
+input,select,textarea{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:7px 9px;font:inherit;font-size:13px;max-width:100%}
+textarea{width:100%;resize:vertical;font-family:ui-monospace,Menlo,monospace;font-size:12px}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
+input[type=checkbox]{accent-color:var(--accent);width:auto}
+.btn{background:var(--accent);border:none;color:var(--accent-text);border-radius:var(--radius-sm);padding:8px 14px;font-size:13px;cursor:pointer;font-weight:600;display:inline-block;text-decoration:none;white-space:nowrap}
+.btn:hover{background:var(--accent-h)}.btn:disabled{opacity:.55;cursor:default}
+.btn-sec{background:var(--surface3);border:1px solid var(--border);color:var(--text2)}.btn-sec:hover{background:var(--hover)}
+.btn-chico{padding:4px 9px;font-size:12px}
+.btn-peligro{background:transparent;border:1px solid var(--fg-r);color:var(--fg-r)}
+.chk{display:flex;gap:6px;align-items:center;font-size:12.5px;color:var(--text2);cursor:pointer}
+.nota{font-size:11.5px;color:var(--muted);margin-top:8px;line-height:1.5}
+.kpis{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.kpi{background:var(--surface3);border:1px solid var(--border);border-radius:12px;padding:7px 11px;font-size:12px;color:var(--muted2);cursor:pointer}
+.kpi b{display:block;font-size:17px;color:var(--white)}.kpi.on{border-color:var(--accent)}
+.kpi.r b{color:var(--fg-r)}.kpi.w b{color:var(--fg-warn)}.kpi.ok b{color:var(--fg-ok)}
+.chip{display:inline-block;font-size:11px;border-radius:999px;padding:2px 8px;margin:1px 2px 1px 0;line-height:1.4}
+.chip.critico{background:var(--bg-r);color:var(--fg-r)}.chip.aviso{background:var(--bg-warn);color:var(--fg-warn)}.chip.info{background:var(--bg-v);color:var(--fg-v)}.chip.ok{background:var(--bg-ok);color:var(--fg-ok)}
+.tabla-wrap{overflow:auto;max-height:68vh;border:1px solid var(--border);border-radius:var(--radius-sm);margin-top:10px}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{position:sticky;top:0;background:var(--surface2);text-align:left;font-weight:600;color:var(--muted2);padding:8px;border-bottom:1px solid var(--border);z-index:1;font-size:11.5px}
+td{padding:7px 8px;border-bottom:1px solid var(--border);vertical-align:top}
+tr.prod{cursor:pointer}tr.prod:hover td{background:var(--hover)}tr.prod.abierto td{background:var(--surface3)}
+tr.prod td:first-child{border-left:3px solid transparent}tr.prod.n-critico td:first-child{border-left-color:var(--fg-r)}tr.prod.n-aviso td:first-child{border-left-color:var(--fg-warn)}
+.sub{font-size:11.5px;color:var(--muted);margin-top:2px}
+.thumb{width:44px;height:44px;border-radius:8px;object-fit:contain;background:#fff;border:1px solid var(--border);display:block}
+.thumb.vacia{background:var(--surface3)}
+.editor td{background:var(--surface2);padding:14px}
+.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.grid .ancho{grid-column:1/-1}.grid .medio{grid-column:span 2}
+.prev{font-size:14px;font-weight:600;color:var(--white);background:var(--surface3);border:1px dashed var(--border);border-radius:10px;padding:8px 10px;margin:10px 0;word-break:break-word}
+.prev small{display:block;font-weight:400;color:var(--muted);font-size:11px;margin-bottom:2px}
+.fotos{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}.fotos img{width:64px;height:64px;object-fit:contain;background:#fff;border-radius:8px;border:1px solid var(--border)}
+.html-prev{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:8px 10px;font-size:12.5px;line-height:1.5;max-height:220px;overflow:auto}
+.html-prev ul{padding-left:18px}
+.vt input{width:100%;padding:5px 7px;font-size:12px}.vt td{padding:4px}
+.barra{height:6px;background:var(--surface3);border-radius:4px;overflow:hidden;margin-top:6px}.barra i{display:block;height:100%;background:var(--accent);transition:width .4s}
+.aviso-box{background:var(--bg-warn);color:var(--fg-warn);border-radius:10px;padding:8px 11px;font-size:12.5px;margin-top:10px}
+.err{color:var(--fg-r)}.ok{color:var(--fg-ok)}.warn{color:var(--fg-warn)}.muted{color:var(--muted)}
+.oculto{display:none!important}
+details summary{cursor:pointer;font-weight:600;font-size:13px;color:var(--text2)}
+.toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--surface3);border:1px solid var(--border);color:var(--text);padding:10px 16px;border-radius:12px;font-size:13px;z-index:50;max-width:90vw;box-shadow:0 6px 24px rgba(0,0,0,.25)}
+@media(max-width:760px){.grid{grid-template-columns:1fr 1fr}.grid .medio{grid-column:1/-1}.ocultar-movil{display:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="card">
+    <h3>Crear productos para WooCommerce desde la lista de una marca</h3>
+    <div class="desc">Sube la lista de precios tal como la manda la marca o el distribuidor (repuestos, accesorios, ropa). Cada fila se convierte a nuestro nombre
+      <b>Marca - Tipo - Descripción precisa - Información adicional - Variante</b>, se agrupan las variantes (talla, color, medida) y se asigna una <b>categoría que ya existe</b>.
+      Lo que no calza queda con <span class="chip critico">alerta</span> para que lo elijas a mano o crees una categoría nueva. Al final descargas tu plantilla
+      <i>CREACIÓN PRODUCTOS WOOCOMMERCE</i> lista para importar.</div>
+    <div class="fila">
+      <label class="btn" for="file" style="cursor:pointer">Subir lista de la marca</label>
+      <input type="file" id="file" accept=".xlsx,.xls,.csv" hidden>
+      <label class="campo">o seguir con un lote anterior<select id="lotes" style="min-width:260px"><option value="">—</option></select></label>
+    </div>
+    <div class="nota" id="ctxInfo">Cargando categorías y nombres del catálogo…</div>
+  </div>
+
+  <div id="imp"></div>
+  <div id="lote"></div>
+
+</div>
+<datalist id="dlCats"></datalist><datalist id="dlMarcas"></datalist><datalist id="dlTipos"></datalist><datalist id="dlAttrs"></datalist>
+<script>
+// ════════════════════════════════════════════════════════════════════════════
+//  Creador WooCommerce — frontend (iframe del panel → botón «Creador WooCommerce», permiso woo_creador)
+//  Backend: modulos/woo-creador.js · Lector: public/woo-lector.html
+// ════════════════════════════════════════════════════════════════════════════
+const $ = id => document.getElementById(id);
+const esc = t => String(t == null ? '' : t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+let TOKEN = ''; try { TOKEN = localStorage.getItem('admtoken') || ''; } catch (e) {}
+async function api(ep, opt = {}) {
+  const r = await fetch(ep, { method: opt.method || (opt.body ? 'POST' : 'GET'), headers: { 'Authorization': 'Bearer ' + TOKEN, 'Content-Type': 'application/json' }, body: opt.body ? JSON.stringify(opt.body) : undefined });
+  if (opt.blob && r.ok) return r;
+  const j = await r.json().catch(() => ({}));
+  if (r.status === 401) throw new Error('Tu sesión del panel expiró. Vuelve a entrar.');
+  if (!r.ok) throw new Error(j.error || ('Error ' + r.status));
+  return j;
+}
+let toastT = null;
+function toast(m, ms = 4000) { let t = document.querySelector('.toast'); if (!t) { t = document.createElement('div'); t.className = 'toast'; document.body.appendChild(t); } t.textContent = m; t.classList.remove('oculto'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.add('oculto'), ms); }
+const soles = n => n > 0 ? 'S/ ' + Number(n).toLocaleString('es-PE', { maximumFractionDigits: 2 }) : '—';
+
+let CTX = null, IMP = null, L = null, IA = null, SEL = new Set(), ABIERTO = null, FILTRO = '', Q = '', POLL = null, SUCIO = false;
+
+// ── Inicio ──
+(async function () {
+  try {
+    CTX = await api('/admin/woo-creador/contexto');
+    $('dlCats').innerHTML = CTX.categorias.map(c => `<option value="${esc(c)}">`).join('');
+    $('dlMarcas').innerHTML = CTX.marcas.map(c => `<option value="${esc(c)}">`).join('');
+    $('dlTipos').innerHTML = CTX.tipos.map(c => `<option value="${esc(c)}">`).join('');
+    $('dlAttrs').innerHTML = CTX.atributos.map(c => `<option value="${esc(c)}">`).join('');
+    $('ctxInfo').innerHTML = `${CTX.categorias.length} categorías ${CTX.fuente === 'erp' ? 'del sistema' : 'de la plantilla'} · ${CTX.marcas.length} marcas y ${CTX.tipos.length} tipos aprendidos de los nombres del catálogo · ` +
+      (CTX.ia ? 'IA activa' : '<span class="warn">sin IA (falta GEMINI_API_KEY): se usan reglas</span>') + (CTX.aviso ? `<div class="aviso-box">${esc(CTX.aviso)}</div>` : '');
+  } catch (e) { $('ctxInfo').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+  await cargarLotes();
+  let ult = null; try { ult = localStorage.getItem('woo_lote'); } catch (e) {}
+  if (ult && [...$('lotes').options].some(o => o.value === ult)) { $('lotes').value = ult; abrirLote(ult); }
+})();
+async function cargarLotes() {
+  try {
+    const j = await api('/admin/woo-creador/lotes');
+    $('lotes').innerHTML = '<option value="">—</option>' + j.lotes.map(l => `<option value="${l.id}">#${l.id} · ${esc(l.marca || '')} · ${esc(l.nombre)} · ${new Date(l.actualizado).toLocaleDateString('es-PE')}${l.ia ? ' (IA trabajando)' : ''}</option>`).join('');
+  } catch (e) {}
+}
+$('lotes').onchange = e => { if (e.target.value) abrirLote(e.target.value); };
+async function abrirLote(id) {
+  try { const j = await api('/admin/woo-creador/lote/' + id); recibir(j); $('imp').innerHTML = ''; try { localStorage.setItem('woo_lote', id); } catch (e) {} }
+  catch (e) { toast(e.message); }
+}
+function recibir(j) {
+  L = j.lote; IA = j.ia;
+  SEL = new Set([...SEL].filter(k => L.productos.some(p => p.k === k)));
+  if (!SUCIO) pintarLote(); else pintarCabecera();
+  if (IA && IA.corriendo) { clearTimeout(POLL); POLL = setTimeout(() => abrirLote(L.id), 3000); }
+}
+
+// ── 1) Importar ──
+const FLAB = { marca: 'Marca', nombre: 'Nombre / descripción *', modelo: 'Modelo / serie', tipo: 'Tipo o categoría de la marca', sku: 'Código (SKU / part number) *', ean: 'EAN / UPC',
+  talla: 'Talla', color: 'Color', medida: 'Medida / variante', costo: 'Costo (precio dealer)', moneda: 'Moneda', pvp: 'PVP sugerido', stock: 'Stock de la marca', peso: 'Peso',
+  url_imagen: 'Foto (link)', url_ficha: 'Link de la ficha', descripcion_larga: 'Descripción larga', notas: 'Notas' };
+$('file').onchange = e => { const f = e.target.files[0]; if (f) leerArchivo(f); e.target.value = ''; };
+function leerArchivo(f) {
+  const rd = new FileReader();
+  rd.onload = async ev => {
+    try {
+      const wb = XLSX.read(new Uint8Array(ev.target.result), { type: 'array', cellDates: false });
+      const hojas = wb.SheetNames.map(n => ({ n, rows: XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: '', raw: true }) }));
+      const hoja = hojas.filter(h => !/instruc|reglas|listas|info/i.test(h.n)).sort((a, b) => b.rows.length - a.rows.length)[0] || hojas[0];
+      $('imp').innerHTML = '<div class="card"><p class="muted">Reconociendo columnas…</p></div>';
+      const m = await api('/admin/woo-creador/mapear', { body: { primeras: hoja.rows.slice(0, 25).map(r => r.map(c => c == null ? '' : c)) } });
+      const hi = m.fila_encabezado || 0;
+      const marcaArchivo = (CTX ? CTX.marcas : []).find(b => b.length > 2 && f.name.toLowerCase().includes(b.toLowerCase())) || '';
+      IMP = { archivo: f.name, hoja: hoja.n, headers: hoja.rows[hi].map(h => String(h ?? '').trim()), data: hoja.rows.slice(hi + 1).filter(r => r.some(c => c !== '' && c != null)),
+        map: m.map, conf: m.conf || {}, tallas_cols: m.tallas_cols || [], fuente: m.fuente, nota: m.nota,
+        op: { ...(CTX ? CTX.opciones : {}), marca: marcaArchivo, moneda: m.moneda || 'USD', tc_usd: CTX && CTX.tc ? CTX.tc.usd : 3.8, tc_eur: CTX && CTX.tc ? CTX.tc.eur : 4.4 } };
+      pintarImp();
+    } catch (err) { $('imp').innerHTML = `<div class="card"><p class="err">No pude leer «${esc(f.name)}»: ${esc(err.message)}</p></div>`; }
+  };
+  rd.readAsArrayBuffer(f);
+}
+function filasMapeadas() {
+  const out = []; let seccion = '';
+  const iP = IMP.map.costo ?? IMP.map.pvp;
+  for (const r of IMP.data) {
+    // filas de sección («BRAKES», «TIRES»…): sin precio y un solo texto → tipo de las filas siguientes
+    const llenas = r.filter(c => c !== '' && c != null);
+    if (iP != null && (r[iP] === '' || r[iP] == null) && llenas.length <= 2 && llenas.some(c => typeof c === 'string' && /[a-z]/i.test(c))) { seccion = String(llenas.find(c => typeof c === 'string')).trim(); continue; }
+    const o = {}; for (const [k, i] of Object.entries(IMP.map)) if (i != null && i !== '') o[k] = r[i];
+    if (IMP.map.tipo == null && seccion) o.tipo = seccion;
+    if (IMP.tallas_cols.length) { for (const t of IMP.tallas_cols) { const q = r[t.i]; if (q === '' || q == null) continue; out.push({ ...o, talla: t.talla, stock: q }); } }
+    else out.push(o);
+  }
+  return out;
+}
+const OPC_HTML = (op, pre) => `
+  <label class="campo">Moneda de la lista<select data-op="moneda">${['USD', 'EUR', 'PEN'].map(m => `<option ${op.moneda === m ? 'selected' : ''}>${m}</option>`).join('')}</select></label>
+  <label class="campo">Precio de venta<select data-op="modo_precio"><option value="pvp" ${op.modo_precio === 'pvp' ? 'selected' : ''}>PVP de la marca × TC × factor</option><option value="costo" ${op.modo_precio === 'costo' ? 'selected' : ''}>Costo + importación + margen + IGV</option></select></label>
+  <label class="campo">TC US$<input data-op="tc_usd" type="number" step="0.001" value="${op.tc_usd}" style="width:90px"></label>
+  <label class="campo">TC €<input data-op="tc_eur" type="number" step="0.001" value="${op.tc_eur}" style="width:90px"></label>
+  <label class="campo">Factor PVP<input data-op="factor_pvp" type="number" step="0.01" value="${op.factor_pvp}" style="width:80px"></label>
+  <label class="campo">Importación %<input data-op="importacion" type="number" value="${op.importacion}" style="width:80px"></label>
+  <label class="campo">Margen %<input data-op="margen" type="number" value="${op.margen}" style="width:80px"></label>
+  <label class="campo">Redondeo<select data-op="redondeo">${[['0.1', 'S/ 0.10'], ['1', 'S/ 1'], ['5', 'S/ 5'], ['10', 'S/ 10'], ['9', 'Terminar en 9']].map(([v, t]) => `<option value="${v}" ${String(op.redondeo) === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+  <label class="chk"><input type="checkbox" data-op="publicado" ${op.publicado ? 'checked' : ''}> Publicar al importar (si no, borrador)</label>
+  <label class="chk"><input type="checkbox" data-op="a_pedido" ${op.a_pedido ? 'checked' : ''}> Agregar «Disponible A pedido»</label>`;
+const leerOpc = cont => { const o = {}; cont.querySelectorAll('[data-op]').forEach(x => { o[x.dataset.op] = x.type === 'checkbox' ? x.checked : x.type === 'number' ? +x.value : x.value; }); return o; };
+function pintarImp() {
+  const opt = f => `<select data-map="${f}"><option value="">—</option>${IMP.headers.map((h, i) => `<option value="${i}" ${IMP.map[f] === i ? 'selected' : ''}>${esc(h || '(col ' + (i + 1) + ')')}</option>`).join('')}</select>`;
+  const cf = f => IMP.map[f] == null ? '' : IMP.conf[f] >= 1 ? '<span class="chip ok">seguro</span>' : IMP.conf[f] >= .8 ? '<span class="chip aviso">probable</span>' : '<span class="chip info">IA · revisar</span>';
+  const filas = filasMapeadas();
+  const muestra = filas.slice(0, 6);
+  const cols = Object.keys(FLAB).filter(k => IMP.map[k] != null);
+  $('imp').innerHTML = `<div class="card">
+    <h3>${esc(IMP.archivo)}</h3>
+    <div class="desc">Hoja «${esc(IMP.hoja)}» · ${IMP.data.length} filas · columnas reconocidas por ${esc(IMP.fuente || 'nombres')}${IMP.tallas_cols.length ? ` · tallas en columnas: ${IMP.tallas_cols.map(t => t.talla).join(', ')}` : ''}${IMP.nota ? ' · ' + esc(IMP.nota) : ''}</div>
+    <div class="grid" style="margin-top:12px">${Object.keys(FLAB).map(f => `<label class="campo">${FLAB[f]} ${cf(f)}${opt(f)}</label>`).join('')}</div>
+    <div class="tabla-wrap" style="max-height:220px"><table><thead><tr>${cols.map(k => `<th>${FLAB[k].replace(' *', '')}</th>`).join('')}</tr></thead>
+      <tbody>${muestra.map(r => `<tr>${cols.map(k => `<td>${esc(r[k] ?? '')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
+    <h3 style="margin-top:16px">Marca, precio y publicación</h3>
+    <div class="fila" id="impOp">
+      <label class="campo">Marca (si la lista no la trae)<input data-op="marca" list="dlMarcas" value="${esc(IMP.op.marca || '')}" placeholder="ej. Shimano"></label>
+      ${OPC_HTML(IMP.op)}
+    </div>
+    <div class="nota">El precio sale en soles con IGV en «Precio normal». PVP: PVP de la lista × TC × factor (sin PVP usa el costo). Costo: costo × TC × (1 + importación) ÷ (1 − margen) × 1.18. Todo se puede cambiar después en el lote.</div>
+    <div class="fila"><button class="btn" id="btnProc">Procesar ${filas.length} filas</button><span id="procMsg" class="nota" style="margin:0"></span></div>
+  </div>`;
+  document.querySelectorAll('[data-map]').forEach(s => s.onchange = () => { IMP.map[s.dataset.map] = s.value === '' ? null : +s.value; IMP.conf[s.dataset.map] = 1; IMP.op = { ...IMP.op, ...leerOpc($('impOp')) }; pintarImp(); });
+  $('btnProc').onclick = procesar;
+}
+async function procesar() {
+  const filas = filasMapeadas();
+  if (IMP.map.sku == null && !confirm('No elegiste la columna del código (SKU). WooCommerce lo necesita: cada producto quedará con alerta. ¿Seguir?')) return;
+  $('btnProc').disabled = true; $('procMsg').textContent = 'Armando nombres y categorías…';
+  try {
+    const j = await api('/admin/woo-creador/procesar', { body: { filas, opciones: leerOpc($('impOp')), archivo: IMP.archivo, mapa: IMP.map } });
+    try { localStorage.setItem('woo_lote', j.lote.id); } catch (e) {}
+    $('imp').innerHTML = ''; IMP = null; SEL.clear(); ABIERTO = null; FILTRO = '';
+    await cargarLotes(); $('lotes').value = j.lote.id;
+    recibir(j);
+    if (j.ia && j.ia.corriendo) toast('Listo. La IA está afinando nombres y categorías: la tabla se actualiza sola.');
+  } catch (e) { $('procMsg').innerHTML = `<span class="err">${esc(e.message)}</span>`; $('btnProc').disabled = false; }
+}
+
+// ── 2) Lote ──
+const FILTROS = [
+  ['', 'Todos', p => true], ['critico', 'Con alertas críticas', p => p._nivel === 'critico'], ['categoria', 'Categoría por revisar', p => p.alertas.some(a => a.t === 'categoria' && a.nivel !== 'info')],
+  ['nueva', 'Categorías nuevas', p => p.alertas.some(a => a.t === 'categoria' && /NUEVA/.test(a.msg))], ['ficha', 'Sin ficha (descripción o fotos)', p => p.alertas.some(a => a.t === 'ficha')],
+  ['listos', 'Listos para el Excel', p => p._nivel !== 'critico']];
+function visibles() {
+  const f = (FILTROS.find(x => x[0] === FILTRO) || FILTROS[0])[2], q = Q.toLowerCase();
+  return L.productos.filter(p => f(p) && (!q || (p._nombre + ' ' + p.categoria + ' ' + p.variantes.map(v => v.sku).join(' ')).toLowerCase().includes(q)));
+}
+function pintarCabecera() {
+  if (!L) return;
+  const R = L.resumen, k = (id, n, t, cls) => `<div class="kpi ${cls} ${FILTRO === id ? 'on' : ''}" data-filtro="${id}"><b>${n}</b>${t}</div>`;
+  const ia = IA && IA.corriendo ? `<div class="nota">La IA está afinando nombres y categorías: ${IA.hechos} de ${IA.total} filas…</div><div class="barra"><i style="width:${Math.round(IA.hechos / Math.max(1, IA.total) * 100)}%"></i></div>`
+    : IA && IA.errores && IA.errores.length ? `<div class="aviso-box">La IA tuvo problemas: ${esc(IA.errores.slice(0, 2).join(' · '))}. Los productos sin IA quedan con «Nombre armado sin IA».</div>` : '';
+  $('cab').innerHTML = `<div class="fila" style="margin-top:0;justify-content:space-between;align-items:center">
+      <div><h3>Lote #${L.id} · ${esc(L.marca || '')}</h3><div class="desc">${esc(L.nombre)} · ${R.productos} productos · ${R.variantes} SKU</div></div>
+      <div class="fila" style="margin:0"><button class="btn btn-sec btn-chico" id="btnRecargar">Recargar</button><button class="btn btn-chico btn-peligro" id="btnBorrarLote">Borrar lote</button></div></div>
+    <div class="kpis">${k('', R.productos, 'productos', '')}${k('listos', R.listos, 'listos', 'ok')}${k('critico', R.criticos, 'con alertas críticas', R.criticos ? 'r' : '')}
+      ${k('categoria', R.categoria, 'categoría por revisar', R.categoria ? 'r' : '')}${k('nueva', R.cat_nuevas, 'categorías nuevas', R.cat_nuevas ? 'w' : '')}${k('ficha', R.sin_ficha, 'sin ficha', R.sin_ficha ? 'w' : '')}</div>${ia}`;
+  document.querySelectorAll('[data-filtro]').forEach(x => x.onclick = () => { FILTRO = x.dataset.filtro; pintarLote(); });
+  $('btnRecargar').onclick = () => abrirLote(L.id);
+  $('btnBorrarLote').onclick = async () => { if (!confirm(`¿Borrar el lote #${L.id}? No toca el sistema ni la web.`)) return; await api('/admin/woo-creador/lote/' + L.id, { method: 'DELETE' }); L = null; $('lote').innerHTML = ''; try { localStorage.removeItem('woo_lote'); } catch (e) {} cargarLotes(); };
+}
+function pintarLote() {
+  if (!L) return;
+  const ps = visibles();
+  const precio = p => { const pr = p.variantes.map(v => v._precio).filter(x => x > 0); if (!pr.length) return '<span class="err">—</span>'; const a = Math.min(...pr), b = Math.max(...pr); return a === b ? soles(a) : `${soles(a)} – ${soles(b)}`; };
+  const chips = p => { const al = p.alertas.filter(a => a.nivel !== 'info'); return (al.length ? al.slice(0, 3).map(a => `<span class="chip ${a.nivel}" title="${esc(a.msg)}">${esc(a.msg.length > 46 ? a.msg.slice(0, 44) + '…' : a.msg)}</span>`).join('') + (al.length > 3 ? `<span class="chip info">+${al.length - 3}</span>` : '') : '<span class="chip ok">listo</span>'); };
+  const fuente = p => p.cat_fuente === 'manual' ? 'elegida a mano' : p.cat_fuente ? `${p.cat_fuente.replace('aprendido', 'catálogo').replace('palabras', 'palabras clave')} · ${Math.round(p.cat_conf * 100)}%` : '';
+  $('lote').innerHTML = `<div class="card" id="cab"></div>
+  <div class="card">
+    <details id="detOp"><summary>Precio y publicación del lote</summary><div class="fila" id="loteOp">${OPC_HTML(L.opciones)}<button class="btn btn-sec" id="btnOp">Aplicar</button></div></details>
+    <div class="fila">
+      <label class="campo">Buscar<input id="q" value="${esc(Q)}" placeholder="nombre, SKU o categoría" style="min-width:220px"></label>
+      <label class="campo">Mostrar<select id="filtro">${FILTROS.map(f => `<option value="${f[0]}" ${FILTRO === f[0] ? 'selected' : ''}>${f[1]}</option>`).join('')}</select></label>
+      <span class="nota" style="margin:0 0 8px">${ps.length} de ${L.productos.length} · ${SEL.size} marcados</span>
+    </div>
+    <div class="fila" id="acciones">
+      <button class="btn btn-sec btn-chico" data-acc="todos">Marcar visibles</button><button class="btn btn-sec btn-chico" data-acc="ninguno">Desmarcar</button>
+      <input id="catLote" list="dlCats" placeholder="Categoría para los marcados" style="min-width:280px"><button class="btn btn-sec btn-chico" data-acc="categoria">Asignar categoría</button>
+      <button class="btn btn-sec btn-chico" data-acc="fichas">Traer fichas de la web</button><button class="btn btn-sec btn-chico" data-acc="ia" ${CTX && !CTX.ia ? 'disabled title="Falta GEMINI_API_KEY"' : ''}>Rehacer con IA</button>
+      <button class="btn btn-sec btn-chico" data-acc="unir">Unir como variantes</button><button class="btn btn-chico btn-peligro" data-acc="quitar">Quitar del lote</button>
+    </div>
+    <div class="nota" id="accMsg"></div>
+    <div class="tabla-wrap"><table><thead><tr><th style="width:30px"></th><th style="width:56px" class="ocultar-movil"></th><th>Producto (como quedará en la web)</th><th>Categoría</th><th>Precio</th><th>Estado</th></tr></thead><tbody>
+    ${ps.map(p => `<tr class="prod n-${p._nivel} ${ABIERTO === p.k ? 'abierto' : ''}" data-k="${p.k}">
+        <td><input type="checkbox" data-sel="${p.k}" ${SEL.has(p.k) ? 'checked' : ''}></td>
+        <td class="ocultar-movil">${p.imagenes && p.imagenes[0] ? `<img class="thumb" loading="lazy" src="${esc(p.imagenes[0])}" alt="">` : '<div class="thumb vacia"></div>'}</td>
+        <td><b>${esc(p._nombre)}</b><div class="sub">${p.variantes.length > 1 ? `Variable · ${p.variantes.length} variantes (${esc(p.variantes.map(v => varTexto(v.attrs)).join(', ').slice(0, 90))}) · SKU padre ${esc(p._sku_padre)}` : `SKU ${esc(p.variantes[0].sku || '—')}`}</div></td>
+        <td>${p.categoria ? esc(p.categoria) : '<span class="err">sin categoría</span>'}${p.cat_nueva ? ' <span class="chip aviso">nueva</span>' : ''}<div class="sub">${esc(fuente(p))}</div></td>
+        <td style="white-space:nowrap">${precio(p)}</td>
+        <td>${chips(p)}</td></tr>${ABIERTO === p.k ? `<tr class="editor"><td colspan="6" id="ed"></td></tr>` : ''}`).join('') || '<tr><td colspan="6" class="muted">No hay productos con ese filtro.</td></tr>'}
+    </tbody></table></div>
+  </div>
+  <div class="card">
+    <h3>Excel para WooCommerce</h3>
+    <div class="desc">Tu plantilla con los datos en la pestaña <b>Sistema</b> (las fórmulas de «Para woocommerce» se recalculan al abrir). Simple → 1 fila; con variantes → fila padre + una por variante. Productos a pedido: inventario 0 y reservas «notify».</div>
+    <div class="fila">
+      <label class="chk"><input type="checkbox" id="xSolo"> Solo los marcados</label>
+      <label class="chk"><input type="checkbox" id="xAlertas"> Incluir productos con alertas críticas</label>
+      <button class="btn" id="btnExcel">Descargar Excel para WooCommerce</button>
+    </div>
+    <div class="nota" id="xMsg">${L.resumen.criticos ? `<span class="warn">${L.resumen.criticos === 1 ? '1 producto tiene' : L.resumen.criticos + ' productos tienen'} alertas críticas y quedará${L.resumen.criticos === 1 ? '' : 'n'} fuera (salvo que marques la casilla).</span>` : ''}</div>
+  </div>
+  <div class="card">
+    <h3>Lector Woo Kuranko (marcas que bloquean al portal)</h3>
+    <div class="desc">Trae descripción, especificaciones, fotos y peso desde la web de la marca usando tu navegador, para las marcas que bloquean al portal.</div>
+    <ol class="desc" style="margin:8px 0 0 18px">
+      <li>Muestra la barra de marcadores (<b>Ctrl + Shift + B</b>) y arrastra ahí este botón una sola vez: <a id="lectorBtn" class="btn btn-chico" href="#" style="cursor:grab">Lector Woo Kuranko</a></li>
+      <li>Abre la web de la marca (una página con la lista de productos, o la ficha de uno) y toca el marcador.</li>
+      <li>En la ventana que se abre elige este lote → «Traer fichas». Luego toca «Recargar» aquí.</li>
+    </ol>
+  </div>`;
+  pintarCabecera();
+  prepararLector();
+  $('q').oninput = e => { Q = e.target.value; const pos = e.target.selectionStart; pintarLote(); $('q').focus(); $('q').setSelectionRange(pos, pos); };
+  $('filtro').onchange = e => { FILTRO = e.target.value; pintarLote(); };
+  $('btnOp').onclick = async () => { try { recibir(await api('/admin/woo-creador/lote/' + L.id, { method: 'PUT', body: { opciones: leerOpc($('loteOp')) } })); toast('Precios recalculados'); } catch (e) { toast(e.message); } };
+  document.querySelectorAll('[data-sel]').forEach(c => { c.onclick = e => e.stopPropagation(); c.onchange = () => { c.checked ? SEL.add(c.dataset.sel) : SEL.delete(c.dataset.sel); }; });
+  document.querySelectorAll('tr.prod').forEach(tr => tr.onclick = () => { if (SUCIO && !confirm('Tienes cambios sin guardar en el producto abierto. ¿Descartarlos?')) return; SUCIO = false; ABIERTO = ABIERTO === tr.dataset.k ? null : tr.dataset.k; pintarLote(); if (ABIERTO) { const w = document.querySelector('.tabla-wrap'), r = document.querySelector('tr.prod.abierto'); w.scrollTop = r.offsetTop - w.querySelector('thead').offsetHeight; w.scrollIntoView({ block: 'nearest' }); } });
+  document.querySelectorAll('[data-acc]').forEach(b => b.onclick = () => accion(b.dataset.acc));
+  $('btnExcel').onclick = excel;
+  if (ABIERTO) pintarEditor();
+}
+
+// ── Editor de un producto ──
+const attrsATexto = a => Object.entries(a || {}).map(([k, v]) => `${k}=${v}`).join('; ');
+const textoAAttrs = t => Object.fromEntries(String(t || '').split(/[;\n]/).map(x => x.split('=')).filter(x => x.length >= 2 && x[0].trim() && x.slice(1).join('=').trim()).map(x => [x[0].trim(), x.slice(1).join('=').trim()]));
+function nombrePrev(seg, variante) {
+  const limpio = s => String(s || '').replace(/\s+-\s+/g, ' ').replace(/\s+/g, ' ').trim();
+  const t = limpio(seg.tipo); return [limpio(seg.marca), t ? t[0].toUpperCase() + t.slice(1) : '', limpio(seg.descripcion), limpio(seg.info), ...String(variante || '').split(/\s+-\s+/).map(limpio)].filter(Boolean).join(' - ');
+}
+const ORDEN_ATTR = ['color', 'acabado', 'modelo', 'tipo', 'medida', 'medidas', 'diametro', 'ancho', 'largo', 'longitud', 'dientes', 'tamano', 'talla', 'tallas'];
+const nAttr = k => { const i = ORDEN_ATTR.indexOf(k.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')); return i < 0 ? 50 : i; };
+const varTexto = a => Object.entries(a || {}).filter(([, v]) => String(v).trim()).sort((x, y) => nAttr(x[0]) - nAttr(y[0])).map(([k, v]) => /^tallas?$/i.test(k) && !/^talla/i.test(v) ? 'Talla ' + v : v).join(' - ');
+function pintarEditor() {
+  const p = L.productos.find(x => x.k === ABIERTO); if (!p) return;
+  const v1 = p.variantes.length === 1;
+  $('ed').innerHTML = `
+    <div class="grid">
+      <label class="campo">Marca<input id="e-marca" list="dlMarcas" value="${esc(p.marca)}"></label>
+      <label class="campo">Tipo<input id="e-tipo" list="dlTipos" value="${esc(p.tipo)}" placeholder="Disco, Cubierta, Guantes…"></label>
+      <label class="campo medio">Descripción precisa<input id="e-descripcion" value="${esc(p.descripcion)}" placeholder="modelo, serie, medidas clave"></label>
+      <label class="campo medio">Información adicional<input id="e-info" value="${esc(p.info)}" placeholder="delantero, compatibilidad, (2 unid)…"></label>
+      <label class="campo medio">SKU del padre${v1 ? ' (solo con variantes)' : ''}<input id="e-skubase" value="${esc(p.sku_base || '')}" placeholder="${esc(p._sku_padre || '')}" ${v1 ? 'disabled' : ''}></label>
+    </div>
+    ${p.descripcion_sugerida ? `<div class="aviso-box">La web de la marca lo describe como: <b>${esc(p.descripcion_sugerida)}</b> <button class="btn btn-sec btn-chico" id="e-usarsug">Usar</button></div>` : ''}
+    <div class="prev" id="e-prev"></div>
+    <div class="grid">
+      <label class="campo medio">Categoría<input id="e-cat" list="dlCats" value="${esc(p.categoria)}" placeholder="Ciclismo > Grupo > Subcategoría"></label>
+      <div class="campo medio" style="justify-content:flex-end">
+        <label class="chk"><input type="checkbox" id="e-catnueva" ${p.cat_nueva ? 'checked' : ''}> Es una categoría nueva (crearla en el ERP)</label>
+        <div>${p.cat_sugerida ? `<button class="btn btn-sec btn-chico" id="e-catsug">Usar sugerida: ${esc(p.cat_sugerida)}</button> ` : ''}<button class="btn btn-sec btn-chico" id="e-recat">Volver a calcular</button>${p.cat_nota ? ` <span class="nota">${esc(p.cat_nota)}</span>` : ''}</div>
+      </div>
+      <label class="campo ancho">Link del producto en la web de la marca<input id="e-url" value="${esc(p.url || '')}" placeholder="https://…"></label>
+      <div class="ancho fila" style="margin-top:0"><button class="btn btn-sec btn-chico" id="e-traer">Traer ficha de la web</button><button class="btn btn-sec btn-chico" id="e-lector">Abrir para el Lector</button>
+        <span class="nota" id="e-fmsg" style="margin:0">${p.ficha ? `Ficha leída ${new Date(p.ficha.fecha).toLocaleString('es-PE')} (${p.ficha.fuente}${p.ficha.ia ? ', IA' : ''})${p.ficha.error ? ' · ' + esc(p.ficha.error) : ''}` : ''}</span></div>
+      <label class="campo medio">Descripción (HTML)<textarea id="e-html" rows="8">${esc(p.descripcion_html || '')}</textarea></label>
+      <div class="campo medio">Vista previa<div class="html-prev" id="e-htmlprev"></div></div>
+      <label class="campo medio">Fotos (un link por línea; la primera es la principal)<textarea id="e-imgs" rows="4">${esc((p.imagenes || []).join('\n'))}</textarea><div class="fotos" id="e-fotos"></div></label>
+      <label class="campo">Peso (kg)<input id="e-peso" type="number" step="0.001" value="${esc(p.peso || '')}"></label>
+    </div>
+    <h3 style="margin-top:14px;font-size:13px">${v1 ? 'Precio y código' : 'Variantes'}</h3>
+    <div class="tabla-wrap" style="max-height:none"><table class="vt"><thead><tr><th>SKU</th><th>EAN</th><th>Atributos (Talla=L; Color=Negro)</th><th>Costo</th><th>PVP</th><th>Mon.</th><th>Precio</th><th>Precio a mano</th><th></th></tr></thead><tbody>
+      ${p.variantes.map(v => `<tr data-v="${v.k}"><td><input data-f="sku" value="${esc(v.sku)}"></td><td><input data-f="ean" value="${esc(v.ean || '')}"></td>
+        <td><input data-f="attrs" value="${esc(attrsATexto(v.attrs))}" list="dlAttrs"></td><td><input data-f="costo" type="number" step="0.01" value="${v.costo || ''}"></td><td><input data-f="pvp" type="number" step="0.01" value="${v.pvp || ''}"></td>
+        <td><select data-f="moneda">${['USD', 'EUR', 'PEN'].map(m => `<option ${v.moneda === m ? 'selected' : ''}>${m}</option>`).join('')}</select></td>
+        <td style="white-space:nowrap">${soles(v._precio)}<div class="sub">${esc(v._como || '')}</div></td><td><input data-f="precio_manual" type="number" step="0.1" value="${v.precio_manual || ''}" placeholder="auto"></td>
+        <td style="white-space:nowrap">${p.variantes.length > 1 ? `<button class="btn btn-sec btn-chico" data-separar="${v.k}" title="Sacarla como producto aparte">Separar</button> <button class="btn btn-chico btn-peligro" data-borrarv="${v.k}">×</button>` : ''}</td></tr>`).join('')}
+    </tbody></table></div>
+    <div class="fila"><button class="btn btn-sec btn-chico" id="e-addv">+ Agregar variante</button></div>
+    ${p.alertas.length ? `<div style="margin-top:10px">${p.alertas.map(a => `<span class="chip ${a.nivel}">${esc(a.msg)}</span>`).join(' ')}</div>` : ''}
+    <div class="fila"><button class="btn" id="e-guardar">Guardar</button><button class="btn btn-sec" id="e-cerrar">Cerrar</button><span class="nota" id="e-msg" style="margin:0"></span></div>`;
+  const seg = () => ({ marca: $('e-marca').value, tipo: $('e-tipo').value, descripcion: $('e-descripcion').value, info: $('e-info').value });
+  const prev = () => {
+    const vs = [...document.querySelectorAll('[data-v]')].map(tr => varTexto(textoAAttrs(tr.querySelector('[data-f=attrs]').value)));
+    $('e-prev').innerHTML = (vs.length > 1 ? `<small>Producto padre</small>${esc(nombrePrev(seg()))}<small style="margin-top:6px">Variantes</small>${vs.map(x => esc(nombrePrev(seg(), x))).join('<br>')}` : `<small>Nombre en la web</small>${esc(nombrePrev(seg(), vs[0]))}`);
+    $('e-htmlprev').innerHTML = $('e-html').value.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/\son\w+=/gi, ' data-x=');
+    $('e-fotos').innerHTML = $('e-imgs').value.split(/\s+/).filter(u => /^https?:\/\//.test(u)).slice(0, 12).map(u => `<img src="${esc(u)}" loading="lazy" alt="">`).join('');
+  };
+  prev();
+  $('ed').querySelectorAll('input,textarea,select').forEach(x => x.addEventListener('input', () => { SUCIO = true; prev(); }));
+  $('ed').querySelectorAll('select').forEach(x => x.addEventListener('change', () => { SUCIO = true; }));
+  $('e-cat').addEventListener('input', () => { const v = $('e-cat').value.trim(); $('e-catnueva').checked = !!v && !(CTX && CTX.categorias.includes(v)); });
+  if ($('e-usarsug')) $('e-usarsug').onclick = () => { $('e-descripcion').value = p.descripcion_sugerida; SUCIO = true; prev(); };
+  if ($('e-catsug')) $('e-catsug').onclick = () => { $('e-cat').value = p.cat_sugerida; $('e-catnueva').checked = !(CTX && CTX.categorias.includes(p.cat_sugerida)); SUCIO = true; };
+  $('e-recat').onclick = () => guardar(p, { recategorizar: true });
+  $('e-cerrar').onclick = () => { if (SUCIO && !confirm('¿Descartar los cambios?')) return; SUCIO = false; ABIERTO = null; pintarLote(); };
+  $('e-guardar').onclick = () => guardar(p);
+  $('e-addv').onclick = () => guardar(p, { variantes: [{ nueva: true, sku: '', costo: 0, pvp: 0 }] });
+  $('ed').querySelectorAll('[data-separar]').forEach(b => b.onclick = () => guardar(p, { separar: b.dataset.separar }));
+  $('ed').querySelectorAll('[data-borrarv]').forEach(b => b.onclick = () => { if (confirm('¿Quitar esta variante del lote?')) guardar(p, { variantes: [{ k: b.dataset.borrarv, borrar: true }] }); });
+  $('e-traer').onclick = () => traerFicha(p, $('e-url').value.trim());
+  $('e-lector').onclick = () => { const u = $('e-url').value.trim(); if (!/^https?:\/\//.test(u)) return toast('Pega primero el link del producto en la web de la marca'); window.open(u, '_blank', 'noopener'); toast('En esa página toca el marcador «Lector Woo Kuranko» → «Traer solo esta ficha»', 7000); };
+}
+function cambiosDe(p) {
+  const c = { k: p.k };
+  for (const f of ['marca', 'tipo', 'descripcion', 'info']) { const v = $('e-' + f).value.trim(); if (v !== (p[f] || '')) c[f] = v; }
+  const cat = $('e-cat').value.trim(); if (cat !== (p.categoria || '') || $('e-catnueva').checked !== !!p.cat_nueva) { c.categoria = cat; c.cat_nueva = $('e-catnueva').checked; }
+  const u = $('e-url').value.trim(); if (u !== (p.url || '')) c.url = u;
+  const h = $('e-html').value; if (h !== (p.descripcion_html || '')) c.descripcion_html = h;
+  const im = $('e-imgs').value.split(/\s+/).filter(Boolean); if (im.join(' ') !== (p.imagenes || []).join(' ')) c.imagenes = im;
+  const pe = $('e-peso').value; if (String(pe) !== String(p.peso || '')) c.peso = pe;
+  const sb = $('e-skubase').value.trim(); if (!$('e-skubase').disabled && sb !== (p.sku_base || '')) c.sku_base = sb;
+  c.variantes = [...document.querySelectorAll('[data-v]')].map(tr => { const g = f => tr.querySelector(`[data-f=${f}]`).value; return { k: tr.dataset.v, sku: g('sku').trim(), ean: g('ean'), attrs: textoAAttrs(g('attrs')), costo: +g('costo') || 0, pvp: +g('pvp') || 0, moneda: g('moneda'), precio_manual: +g('precio_manual') || 0 }; });
+  return c;
+}
+async function guardar(p, extra = {}) {
+  const c = { ...cambiosDe(p), ...extra };
+  if (extra.variantes) c.variantes = [...cambiosDe(p).variantes, ...extra.variantes];
+  $('e-msg').textContent = 'Guardando…';
+  try { const j = await api('/admin/woo-creador/lote/' + L.id, { method: 'PUT', body: { cambios: [c] } }); SUCIO = false; recibir(j); toast('Guardado'); }
+  catch (e) { $('e-msg').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+}
+async function traerFicha(p, url) {
+  if (!/^https?:\/\//.test(url)) return toast('Pega el link del producto en la web de la marca');
+  if (SUCIO) await guardar(p);
+  const msg = $('e-fmsg'); if (msg) msg.textContent = 'Leyendo la página de la marca…';
+  try { const j = await api(`/admin/woo-creador/lote/${L.id}/ficha`, { body: { k: p.k, url } }); toast(j.ia ? 'Ficha traída con IA' : 'Ficha traída sin IA: ' + (j.ia_error || '')); await abrirLote(L.id); }
+  catch (e) { if (msg) msg.innerHTML = `<span class="err">${esc(e.message)}</span>`; else toast(e.message); }
+}
+
+// ── Acciones con los marcados ──
+async function accion(a) {
+  const ks = [...SEL].filter(k => L.productos.some(p => p.k === k));
+  if (a === 'todos') { visibles().forEach(p => SEL.add(p.k)); return pintarLote(); }
+  if (a === 'ninguno') { SEL.clear(); return pintarLote(); }
+  if (!ks.length) return toast('Marca primero uno o más productos');
+  const msg = $('accMsg');
+  try {
+    if (a === 'categoria') {
+      const cat = $('catLote').value.trim(); if (!cat) return toast('Escribe o elige la categoría');
+      const nueva = !(CTX && CTX.categorias.includes(cat));
+      if (nueva && !confirm(`«${cat}» no existe en el sistema. ¿Asignarla como categoría NUEVA?`)) return;
+      recibir(await api('/admin/woo-creador/lote/' + L.id, { method: 'PUT', body: { cambios: ks.map(k => ({ k, categoria: cat, cat_nueva: nueva })) } })); toast(`Categoría asignada a ${ks.length}`);
+    }
+    if (a === 'quitar') { if (!confirm(`¿Quitar ${ks.length} productos del lote?`)) return; recibir(await api('/admin/woo-creador/lote/' + L.id, { method: 'PUT', body: { borrar: ks } })); SEL.clear(); pintarLote(); }
+    if (a === 'unir') { if (ks.length < 2) return toast('Marca al menos dos productos'); if (!confirm(`¿Unir ${ks.length} productos como variantes del primero? Revisa luego sus atributos.`)) return; recibir(await api('/admin/woo-creador/lote/' + L.id, { method: 'PUT', body: { unir: ks } })); SEL.clear(); pintarLote(); }
+    if (a === 'ia') { const j = await api(`/admin/woo-creador/lote/${L.id}/ia`, { body: { ks } }); toast(`La IA está rehaciendo ${j.productos} productos`); setTimeout(() => abrirLote(L.id), 1200); }
+    if (a === 'fichas') {
+      const con = ks.map(k => L.productos.find(p => p.k === k)).filter(p => p && /^https?:\/\//.test(p.url || ''));
+      if (!con.length) return toast('Ninguno de los marcados tiene link. Usa el Lector Woo Kuranko desde la web de la marca.');
+      let ok = 0, malos = [];
+      for (const [i, p] of con.entries()) {
+        msg.textContent = `Leyendo ${i + 1} de ${con.length}: ${p._nombre}…`;
+        try { await api(`/admin/woo-creador/lote/${L.id}/ficha`, { body: { k: p.k, url: p.url } }); ok++; } catch (e) { malos.push(`${p._nombre}: ${e.message}`); }
+      }
+      msg.innerHTML = `<span class="ok">${ok} de ${con.length} fichas traídas.</span>${malos.length ? `<br><span class="err">${esc(malos.slice(0, 5).join(' · '))}</span>` : ''}${con.length < ks.length ? ` ${ks.length - con.length} sin link.` : ''}`;
+      await abrirLote(L.id);
+    }
+  } catch (e) { msg.innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+}
+
+// ── Excel ──
+async function excel() {
+  const b = $('btnExcel'); b.disabled = true; b.textContent = 'Generando…';
+  try {
+    const r = await api(`/admin/woo-creador/lote/${L.id}/excel`, { body: { ks: $('xSolo').checked ? [...SEL] : [], incluir_alertas: $('xAlertas').checked }, blob: true });
+    const nombre = ((r.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/) || [])[1] || 'CREACION-PRODUCTOS-WOOCOMMERCE.xlsx';
+    const url = URL.createObjectURL(await r.blob()); const a = document.createElement('a'); a.href = url; a.download = nombre; a.click(); setTimeout(() => URL.revokeObjectURL(url), 5000);
+    const ex = +r.headers.get('X-Excluidos') || 0;
+    $('xMsg').innerHTML = `<span class="ok">${r.headers.get('X-Productos')} productos (${r.headers.get('X-Filas')} filas) en el Excel.</span>${ex ? ` <span class="warn">${ex} quedaron fuera por alertas críticas: filtro «Con alertas críticas».</span>` : ''}`;
+  } catch (e) { $('xMsg').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+  finally { b.disabled = false; b.textContent = 'Descargar Excel para WooCommerce'; }
+}
+
+// ── Marcador del Lector: en la pestaña de la marca junta los links y lee páginas para woo-lector.html ──
+const LECTOR_SRC = "(function(){\nvar P='__ORIGEN__';\nvar w=window.open(P+'/woo-lector.html','kurankoLectorWoo','width=780,height=880');\nif(!w){var d=document.createElement('div');d.textContent='Kuranko: permite las ventanas emergentes de este sitio y vuelve a tocar el marcador.';d.style.cssText='position:fixed;top:10px;left:10px;right:10px;z-index:2147483647;background:#FBB911;color:#141414;padding:12px;font:15px sans-serif;border-radius:8px';document.body.appendChild(d);return}\nvar links=[].slice.call(document.querySelectorAll('[href],[data-url],[data-href]')).map(function(e){return e.getAttribute('data-url')||e.getAttribute('data-href')||e.getAttribute('href')}).filter(Boolean).map(function(u){try{return new URL(u,location.href).href}catch(x){return null}}).filter(function(u){return u&&u.indexOf(location.origin)===0});\nlinks=links.filter(function(u,i){return links.indexOf(u)===i}).slice(0,3000);\nfunction texto(h){return h.replace(/<(script|style|noscript|svg)[\\s\\S]*?<\\/\\1>/gi,' ').replace(/<\\/(p|div|li|tr|h\\d|dt|dd|section|table)>|<br\\s*\\/?>/gi,'\\n').replace(/<\\/t[dh]>/gi,'\\t').replace(/<[^>]+>/g,' ').replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/&quot;/g,'\"').replace(/&#39;/g,\"'\").replace(/[ \\t]+/g,' ').replace(/\\n\\s*\\n+/g,'\\n').trim()}\nfunction fotos(h,base){var out=[];var add=function(u){if(!u)return;try{var a=new URL(u.replace(/&amp;/g,'&'),base).href;if(out.indexOf(a)<0)out.push(a)}catch(x){}};\n(h.match(/<img\\b[^>]*>/gi)||[]).forEach(function(t){var ss=(t.match(/\\b(?:data-)?srcset=[\"']([^\"']+)[\"']/i)||[])[1];if(ss){var b=ss.split(',').map(function(x){return x.trim().split(/\\s+/)}).sort(function(a,c){return(parseInt(c[1])||0)-(parseInt(a[1])||0)})[0];if(b)add(b[0])}\nadd((t.match(/\\b(?:data-src|data-lazy-src|data-original|src)=[\"']([^\"']+\\.(?:jpe?g|png|webp)[^\"']*)[\"']/i)||[])[1])});\n(h.match(/<meta[^>]+og:image[^>]*>/gi)||[]).forEach(function(t){add((t.match(/content=[\"']([^\"']+)[\"']/i)||[])[1])});return out.slice(0,400)}\nwindow.addEventListener('message',function(e){if(e.source!==w||e.origin!==P)return;var d=e.data||{};\nif(d.tipo==='listo')w.postMessage({tipo:'links',origen:location.href,links:links},P);\nif(d.tipo==='leer'){fetch(d.url,{credentials:'include'}).then(function(r){return r.text()}).then(function(h){w.postMessage({tipo:'pagina',id:d.id,imgs:fotos(h,d.url),texto:texto(h).slice(0,200000)},P)}).catch(function(err){w.postMessage({tipo:'pagina',id:d.id,error:'No se pudo leer: '+err.message},P)})}});\n})();\n";
+function prepararLector() {
+  const a = $('lectorBtn'); if (!a) return;
+  a.href = 'javascript:' + encodeURIComponent(LECTOR_SRC.replace('__ORIGEN__', location.origin));
+  a.onclick = e => { e.preventDefault(); toast('Arrástralo a la barra de marcadores y úsalo desde la web de la marca'); };
+}
+</script>
+</body>
+</html>

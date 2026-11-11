@@ -131,7 +131,7 @@ function soloMaestro(req, res, next) {
 // LOGIN ADMIN
 // ════════════════════════════════════════════════════════════════════════════
 // Lista de módulos (pestañas) del admin. Debe coincidir con las pestañas del HTML.
-const MODULOS_ADMIN = ['clientes_gestion', 'sync', 'auditoria', 'resumen', 'rentabilidad', 'inventario', 'restock', 'clientes_bi', 'caja_bi', 'crm', 'reportes', 'pagos', 'importaciones', 'recepciones', 'seguimiento', 'conciliacion', 'cuentas_cobrar', 'saldo_favor', 'cotizador', 'precio_importado', 'asistencia', 'facturacion', 'bikes', 'gastos', 'rendimiento', 'auditoria_vc'];
+const MODULOS_ADMIN = ['clientes_gestion', 'sync', 'auditoria', 'resumen', 'rentabilidad', 'inventario', 'restock', 'clientes_bi', 'caja_bi', 'crm', 'reportes', 'pagos', 'importaciones', 'recepciones', 'seguimiento', 'conciliacion', 'cuentas_cobrar', 'saldo_favor', 'cotizador', 'precio_importado', 'asistencia', 'facturacion', 'bikes', 'gastos', 'rendimiento', 'auditoria_vc', 'woo_creador'];
 
 // Usuarios admin secundarios definidos en variables de entorno (Railway).
 // Formato por usuario (numeradas del 2 en adelante):
@@ -361,6 +361,10 @@ let modPromos = null;
   // ── Módulo Auditoría de catálogo + chequeo de empresa en ventas ──
   //    Frontend propio en public/auditoria.html (iframe dentro del panel).
   modAuditoria = require('./modulos/auditoria')({ app, authAdmin, requiereModulo, prodPool, portalPool, erpWritePool });
+
+  // ── Módulo Creador WooCommerce (permiso 'woo_creador'): lista de precios de una marca →
+  //    Excel con la plantilla CREACIÓN PRODUCTOS WOOCOMMERCE. Frontend: public/woo-creador.html (iframe).
+  require('./modulos/woo-creador')({ app, authAdmin, requiereModulo, prodPool, portalPool });
   const rango = (desde, hasta, campo='s.created_at') =>
     desde && hasta ? `AND ${campo} BETWEEN '${desde}' AND '${hasta} 23:59:59'` : '';
 

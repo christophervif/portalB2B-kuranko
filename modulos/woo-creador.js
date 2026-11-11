@@ -509,6 +509,8 @@ function revisar(p, ctx, lote) {
   const nuevosAttr = [...new Set(p.variantes.flatMap(v => Object.keys(v.attrs || {})))].filter(a => ctx.atributos.length && !ctx.atributos.some(x => norm(x) === norm(a)));
   if (nuevosAttr.length) add('variante', 'info', `Atributo nuevo en la web: ${nuevosAttr.join(', ')}`);
   // Ficha
+  if (p.ficha && p.ficha.pn === 'sin_pn') add('ficha', 'aviso', 'La página no muestra el PN: confirma que la ficha sea de este producto');
+  if (p.ficha && p.ficha.pn === 'distinto') add('ficha', 'critico', `La ficha es de otro PN (${p.ficha.pn_pagina}): revisa el link`);
   if (!String(p.descripcion_html || '').replace(/<[^>]+>/g, '').trim()) add('ficha', 'aviso', 'Sin descripción: tráela de la web de la marca');
   if (!(p.imagenes || []).length) add('ficha', 'aviso', 'Sin fotos');
   if (armarNombre(p, textoVariante((p.variantes[0] || {}).attrs)).length > 200) add('nombre', 'aviso', 'Nombre muy largo (más de 200 caracteres)');
@@ -588,7 +590,7 @@ function promptFicha(p, texto, fotos) {
  "fotos": [0, 3, 5],
  "descripcion_precisa": "modelo y specs que lo distinguen, sin marca ni tipo (solo si el texto lo precisa mejor que el nombre actual; si no, \"\")"}
 · "es_el_producto": false si la página es de otro producto o es un listado.
-· "especificaciones": hasta 12 filas cortas en español (Modelo, Medida, Material, Compatibilidad, Peso, Contenido, Part Number…).
+· "especificaciones": hasta 12 filas cortas en español, SOLO datos técnicos del producto (Modelo, Medida, Material, Compatibilidad, Peso, Contenido…). Nada de teléfonos, televentas, precios, envíos ni datos de la tienda.
 · "fotos": índices de la lista de FOTOS que muestran ESTE modelo, en todos sus colores (máx. 24, la principal primero). [] si no sabes.
 FOTOS:
 ${fotos.map((u, i) => `${i}: ${u.split('?')[0].split('/').slice(-2).join('/')}`).join('\n') || '(ninguna)'}
@@ -598,6 +600,11 @@ ${texto}`;
 // Sin IA: la descripción oficial de la página (JSON-LD / meta) o, si no hay, los párrafos del texto,
 // y las especificaciones escritas como «Clave: valor» o en tablas.
 const BASURA = /cookie|privacidad|privacy|newsletter|suscr|copyright|©|derechos reservados|carrito|cart|login|iniciar sesi|env[ií]o gratis|javascript|navegador|browser/i;
+// Lo que no es dato técnico: contacto de la tienda, precios, envíos, códigos internos
+const NO_TECNICO = /televenta|venta|whats ?app|tel[eé]fono|celular|llam[ae]|contacto|correo|e-?mail|horario|atenci[oó]n|direcci[oó]n|tienda|sucursal|local\b|delivery|env[ií]o|despacho|recojo|precio|stock|disponib|cuota|pago|tarjeta|c[oó]digo|^sku$|^pn$|^p\/n$|^ref|marca|categor[ií]a|compart|s[ií]guenos|redes|cup[oó]n|descuento|oferta|promoci/i;
+const ES_CONTACTO = v => /(\+?\d[\d\s\-().]{7,}\d)/.test(v) && (v.replace(/\D/g, '').length >= 7 && v.replace(/[\d\s\-+().]/g, '').length < 4) || /@|https?:\/\/|www\./i.test(v);
+const esTecnico = (k, v) => !NO_TECNICO.test(k) && !ES_CONTACTO(v) && !BASURA.test(k + ' ' + v) && !/(\+51|televenta|whats ?app)/i.test(v);
+const TITULO_SPECS = /^(especificaciones|especificaciones t[eé]cnicas|caracter[ií]sticas|caracter[ií]sticas t[eé]cnicas|ficha t[eé]cnica|datos t[eé]cnicos|detalles t[eé]cnicos|specifications|tech(nical)? specs?|features|informaci[oó]n adicional)\s*:?$/i;
 function fichaSinIA(p, texto, desc0) {
   const lineas = String(texto || '').split(/\n/).map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
   // zona del producto: desde donde aparece el modelo o el código
@@ -606,15 +613,17 @@ function fichaSinIA(p, texto, desc0) {
   const zona = lineas.slice(i0, i0 + 250);
   let resumen = String(desc0 || '').trim();
   if (resumen.length < 60) {
-    const parr = zona.filter(l => l.length >= 70 && l.length <= 900 && /[.!]/.test(l) && !BASURA.test(l) && !/\t/.test(l));
+    const parr = zona.filter(l => l.length >= 70 && l.length <= 900 && /[.!]/.test(l) && !BASURA.test(l) && !/\t/.test(l) && !/televenta|whats ?app|\+51|post ?venta/i.test(l));
     resumen = parr.slice(0, 2).join(' ');
   }
   const specs = [], vistas = new Set();
-  for (const l of zona) {
+  // si la página tiene una sección «Especificaciones» / «Características», se toma desde ahí
+  const iT = zona.findIndex(l => TITULO_SPECS.test(l));
+  for (const l of iT >= 0 ? zona.slice(iT + 1) : zona) {
     const m = l.match(/^([^:\t]{2,40}?)\s*(?::|\t)\s*([^\t]{1,140})$/);
     if (!m || BASURA.test(l) || /^https?$/i.test(m[1])) continue;
     const k = m[1].trim(), v = m[2].trim().replace(/\t/g, ' ');
-    if (!/[a-záéíóúñ]/i.test(k) || vistas.has(k.toLowerCase()) || v.length < 1) continue;
+    if (!/[a-záéíóúñ]/i.test(k) || vistas.has(k.toLowerCase()) || v.length < 1 || !esTecnico(k, v)) continue;
     vistas.add(k.toLowerCase()); specs.push({ k, v });
     if (specs.length >= 14) break;
   }
@@ -642,9 +651,46 @@ async function fichaDeTexto(p, url, texto, imgs) {
   if (!r || typeof r !== 'object') return { ok: false, error: errorIA() || 'La IA no respondió', pool: fotos };
   if (r.es_el_producto === false) return { ok: false, error: 'La página no parece ser de este producto', fotos: [] };
   const idx = (Array.isArray(r.fotos) ? r.fotos : []).map(Number).filter(i => Number.isInteger(i) && fotos[i]);
-  return { ok: true, html: htmlDescripcion(txt(r.resumen, 900), (Array.isArray(r.especificaciones) ? r.especificaciones : []).slice(0, 14)),
+  return { ok: true, html: htmlDescripcion(txt(r.resumen, 900), (Array.isArray(r.especificaciones) ? r.especificaciones : []).filter(x => x && esTecnico(String(x.k || ''), String(x.v || ''))).slice(0, 14)),
     pool: idx.length ? idx.map(i => fotos[i]) : fotos, peso: num(r.peso_kg) > 0 && num(r.peso_kg) < 40 ? Math.round(num(r.peso_kg) * 1000) / 1000 : '',
     descripcion_precisa: txt(r.descripcion_precisa, 160) };
+}
+
+// ── ¿La página es realmente de este producto? (PN / código de la marca) ─────
+// ok: el SKU aparece en la página · parecido: mismo modelo, otra talla/color (comparten página)
+// distinto: la página muestra otro PN → no se guarda · sin_pn: la página no muestra ninguno
+const RE_PN = /\b(?:P\/?N|part\s*(?:number|no\.?)|mpn|sku|c[oó]digo(?:\s+de\s+(?:producto|fabricante))?|ref(?:erencia)?|model\s*(?:no\.?|number)|art(?:[íi]culo|\.)?\s*(?:no\.?|nr\.?)?)\s*[:#.]?\s*([A-Z0-9][A-Z0-9\-_.\/]{4,40})/gi;
+function pnsDePagina(texto, html) {
+  const out = [];
+  const add = (x, prio) => { x = String(x || '').trim().replace(/[.\/]+$/, ''); if (x.length >= 5 && /\d/.test(x) && /[a-z]/i.test(x) && !out.some(o => o.pn === x)) out.push({ pn: x, prio }); };
+  for (const m of String(texto || '').matchAll(RE_PN)) add(m[1], /^(p\/?n|part|mpn)/i.test(m[0]) ? 0 : 1);
+  for (const m of String(html || '').matchAll(/"(?:sku|mpn|productID)"\s*:\s*"([^"]{5,40})"/gi)) add(m[1], 0);
+  return out.sort((a, b) => a.prio - b.prio).map(o => o.pn);
+}
+function verificarPN(p, texto, html) {
+  const skus = [...new Set((p.variantes || []).map(v => norm(v.sku)).filter(x => x.length >= 5))];
+  if (!skus.length) return { estado: 'sin_sku' };
+  const plano = norm(String(texto || '')) + ' ' + norm(String(html || '').slice(0, 3e6));
+  const v = skus.find(x => plano.includes(x)); if (v) return { estado: 'ok', pn: v.toUpperCase() };
+  const pns = pnsDePagina(texto, html);
+  // mismo modelo en otra talla o color (comparten página): mismo inicio largo
+  const comun = (a, b) => { let i = 0; while (i < a.length && a[i] === b[i]) i++; return i; };
+  for (const pn of pns) { const n = norm(pn); if (skus.some(x => comun(x, n) >= Math.max(8, Math.min(x.length, n.length) * 0.7))) return { estado: 'parecido', pn }; }
+  if (pns.length) return { estado: 'distinto', pn: pns[0] };
+  return { estado: 'sin_pn' };
+}
+// Fotos que no son del producto: logos, sellos, banners, redes, secciones generales del sitio
+const FOTO_BASURA = /logo|sello|seal|badge|promo|banner|slider|wysiwyg|\/demo\/|\/home\/|youtube|\byt\b|whats ?app|facebook|instagram|tiktok|twitter|linkedin|pinterest|icon|payment|pago|visa|mastercard|amex|yape|plin|envio|delivery|garantia|placeholder|sprite|flag|footer|header|menu|newsletter|avatar|rating|estrella|star|loader|spinner|libro.?de.?reclamaciones|reclamo/i;
+function limpiarFotos(pool, p) {
+  const ruta = u => { let x = String(u).split('?')[0]; try { x = decodeURIComponent(x); } catch (e) {} return x.toLowerCase(); };
+  let l = pool.filter(u => !FOTO_BASURA.test(ruta(u).replace(/^https?:\/\/[^/]+/, '')));
+  // las que llevan el código del producto en el archivo, si hay
+  const skus = (p.variantes || []).map(v => norm(v.sku)).filter(x => x.length >= 6);
+  const conPN = l.filter(u => skus.some(s => norm(ruta(u)).includes(s.slice(0, Math.max(6, s.length - 4)))));
+  if (conPN.length) return conPN;
+  // si no, las de la galería de productos de la tienda
+  const galeria = l.filter(u => /\/(catalog\/product|products?|productos?|media\/catalog|images\/products?|uploads\/\d{4})\//i.test(ruta(u)));
+  return galeria.length ? galeria : l;
 }
 
 // ── Fotos de cada color ───────────────────────────────────────────────────────
@@ -1153,6 +1199,9 @@ costo = precio de compra/dealer/neto; pvp = precio de venta al público sugerido
       const usarIA = !!process.env.GEMINI_API_KEY && L0.opciones.usar_ia !== false;
       let r = usarIA ? await fichaDeTexto(p0, url, texto, imgs) : { ok: false, error: process.env.GEMINI_API_KEY ? 'IA apagada en este lote' : 'Sin IA (falta GEMINI_API_KEY)' };
       if (!r.ok && /no parece/.test(r.error || '')) return res.status(422).json({ error: r.error });
+      // ¿la página es de este producto? (si la abriste a propósito con «forzar», se guarda igual)
+      const pn = verificarPN(p0, texto, b.html || '');
+      if (pn.estado === 'distinto' && !b.forzar) return res.status(422).json({ error: `El PN de la página (${pn.pn}) no coincide con el SKU ${p0.variantes.map(v => v.sku).filter(Boolean).slice(0, 2).join(' / ')}: no se guardó`, pn });
       if (!r.ok) {
         const s = fichaSinIA(p0, texto, desc0);
         const cand = [...new Set((imgs || []).map(String).filter(u => /^https?:\/\//i.test(u) && !EXCLUIR_IMG.test(u)))];
@@ -1164,14 +1213,14 @@ costo = precio de compra/dealer/neto; pvp = precio de venta al público sugerido
         const p = L.productos.find(x => x.k === b.k); if (!p) throw Object.assign(new Error('Ese producto ya no está en el lote'), { status: 404 });
         p.url = url;
         if (r.html) p.descripcion_html = r.html;
-        asignarFotos(p, r.pool || [], ctx.trad);
+        asignarFotos(p, limpiarFotos(r.pool || [], p), ctx.trad);
         if (r.peso && !p.peso) p.peso = r.peso;
         if (r.descripcion_precisa && !p.nombre_manual && norm(r.descripcion_precisa) !== norm(p.descripcion)) p.descripcion_sugerida = r.descripcion_precisa;
-        p.ficha = { fecha: new Date().toISOString(), ia: !!r.ok, fuente: b.texto ? 'lector' : 'servidor', error: r.ok ? '' : r.error };
+        p.ficha = { fecha: new Date().toISOString(), ia: !!r.ok, fuente: b.texto ? 'lector' : 'servidor', error: r.ok ? '' : r.error, pn: pn.estado, pn_pagina: pn.pn || '' };
         revisarLote(L, ctx); await guardarLote(L);
         return p;
       });
-      res.json({ ok: true, producto: out, ia: r.ok, ia_error: r.ok ? null : r.error });
+      res.json({ ok: true, producto: out, ia: r.ok, ia_error: r.ok ? null : r.error, pn });
     } catch (e) { err(res, e); }
   });
 
@@ -1201,5 +1250,5 @@ costo = precio de compra/dealer/neto; pvp = precio de venta al público sugerido
   });
 };
 
-module.exports._test = { colorDe, fotosDelColor, asignarFotos, fichaSinIA, TRAD_BASE, leerTraducciones, traducir, variantesEnNombre, variantesSinIA, CAMPOS, rutasCategorias, segmentos, aprender, elegirCategoria, porPalabras, armarNombre, textoVariante, nombreSinIA, nombrarFila, limpiarFilas, agrupar,
+module.exports._test = { verificarPN, pnsDePagina, limpiarFotos, esTecnico, colorDe, fotosDelColor, asignarFotos, fichaSinIA, TRAD_BASE, leerTraducciones, traducir, variantesEnNombre, variantesSinIA, CAMPOS, rutasCategorias, segmentos, aprender, elegirCategoria, porPalabras, armarNombre, textoVariante, nombreSinIA, nombrarFila, limpiarFilas, agrupar,
   revisar, precioVenta, opcionesLimpias, redondear, filasExcel, skuPadre, emparejar, htmlDescripcion, aplicarCategoria, nivelMax };

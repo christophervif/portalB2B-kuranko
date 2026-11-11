@@ -107,7 +107,8 @@ async function traer() {
       try {
         const r = await api(`/admin/woo-creador/lote/${ST.lote}/ficha`, { k: p.k, url: u, imgs: d.imgs, texto: d.texto, html: d.html }); ok++;
         const pr = r.producto || {}; ST.res[p.k] = { fotos: (pr.imagenes || []).length, descripcion: !!String(pr.descripcion_html || '').replace(/<[^>]+>/g, '').trim() };
-        ST.sel.delete(p.k); txt = r.ia ? 'Guardada' : 'Guardada sin IA' + (/cuota/i.test(r.ia_error || '') ? ' (sin cuota de Gemini)' : /apagada/i.test(r.ia_error || '') ? '' : ''); cls = r.ia ? 'ok' : 'warn';
+        const pnTxt = r.pn && r.pn.estado === 'ok' ? ' · PN ✓' : r.pn && r.pn.estado === 'parecido' ? ` · mismo modelo (${r.pn.pn})` : r.pn && r.pn.estado === 'sin_pn' ? ' · PN sin confirmar' : '';
+        ST.sel.delete(p.k); txt = (r.ia ? 'Guardada' : 'Guardada sin IA') + pnTxt + (/cuota/i.test(r.ia_error || '') ? ' (sin cuota de Gemini)' : /apagada/i.test(r.ia_error || '') ? '' : ''); cls = r.ia ? 'ok' : 'warn';
       } catch (err) { txt = err.message; cls = 'err'; }
     }
     if (c) c.innerHTML = `<span class="${cls}">${esc(txt)}</span><br>${chk(p)}`;

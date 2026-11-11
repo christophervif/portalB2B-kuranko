@@ -67,6 +67,11 @@ tr.prod td:first-child{border-left:3px solid transparent}tr.prod.n-critico td:fi
 .aviso-box{background:var(--bg-warn);color:var(--fg-warn);border-radius:10px;padding:8px 11px;font-size:12.5px;margin-top:10px}
 .err{color:var(--fg-r)}.ok{color:var(--fg-ok)}.warn{color:var(--fg-warn)}.muted{color:var(--muted)}
 .oculto{display:none!important}
+.etapas{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}.etapa{flex:1;min-width:200px;text-align:left;background:var(--surface);border:1px solid var(--border);color:var(--text2);border-radius:var(--radius-sm);padding:10px 14px;cursor:pointer;font:inherit;font-weight:600}
+.etapa small{display:block;font-weight:400;color:var(--muted);font-size:11.5px}.etapa.on{border-color:var(--accent);color:var(--white)}.etapa b{color:var(--accent)}
+.grupo-card{border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px;margin-top:8px;background:var(--surface2)}
+.grupo-card .hijos{display:grid;grid-template-columns:minmax(0,1fr) 140px;gap:4px 8px;margin-top:8px;font-size:12px;align-items:center}
+.grupo-card .hijos input{padding:4px 7px;font-size:12px}.grupo-card .cab{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end}
 .rapidos,.masivas{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:10px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface2)}
 .masivas.apagado{opacity:.5}.masivas.apagado button,.masivas.apagado input{pointer-events:none}
 .rap-t{font-size:11.5px;font-weight:600;color:var(--muted2);margin-right:4px}.rap-sep{flex:0 0 1px;align-self:stretch;background:var(--border);margin:0 4px}
@@ -80,6 +85,9 @@ details summary{cursor:pointer;font-weight:600;font-size:13px;color:var(--text2)
 <body>
 <div class="wrap">
 
+  <div class="etapas"><button class="etapa on" data-etapa="1">1 · Revisión <small>lotes de las marcas</small></button><button class="etapa" data-etapa="2">2 · Revisados <small>listos para exportar</small> <b id="nRev"></b></button></div>
+
+  <div id="etapa1">
   <div class="card">
     <h3>Crear productos para WooCommerce desde la lista de una marca</h3>
     <div class="desc">Sube la lista de precios tal como la manda la marca o el distribuidor (repuestos, accesorios, ropa). Cada fila se convierte a nuestro nombre
@@ -102,6 +110,9 @@ details summary{cursor:pointer;font-weight:600;font-size:13px;color:var(--text2)
 
   <div id="imp"></div>
   <div id="lote"></div>
+  </div>
+
+  <div id="etapa2" class="oculto"></div>
 
 </div>
 <datalist id="dlCats"></datalist><datalist id="dlMarcas"></datalist><datalist id="dlTipos"></datalist><datalist id="dlAttrs"></datalist>
@@ -157,6 +168,7 @@ async function cargarLotes() {
 }
 $('lotes').onchange = e => { if (e.target.value) abrirLote(e.target.value); };
 async function abrirLote(id) {
+  if (L && String(L.id) !== String(id)) GRUPOS = null;
   try { const j = await api('/admin/woo-creador/lote/' + id); recibir(j); $('imp').innerHTML = ''; try { localStorage.setItem('woo_lote', id); } catch (e) {} }
   catch (e) { toast(e.message); }
 }
@@ -328,8 +340,12 @@ function pintarLote() {
       <button class="btn btn-sec btn-chico" data-acc="reagrupar" title="Los que solo cambian en talla, medida o color escritas en el nombre quedan como un producto con variantes">Reagrupar variantes</button>
       <button class="btn btn-sec btn-chico" data-acc="traducir">Aplicar traducciones</button>
       <button class="btn btn-sec btn-chico" data-acc="fichas">Traer fichas de la web</button><button class="btn btn-sec btn-chico" data-acc="ia" ${CTX && !CTX.ia ? 'disabled title="Falta GEMINI_API_KEY"' : ''}>Rehacer con IA</button>
+      <button class="btn btn-sec btn-chico" data-acc="padre" title="Los marcados pasan a ser hijos de un padre nuevo: eliges el nombre del padre y el valor de cada hijo">Crear padre con los marcados</button>
       <button class="btn btn-sec btn-chico" data-acc="unir">Unir como variantes</button><button class="btn btn-chico btn-peligro" data-acc="quitar">Quitar del lote</button>
+      <button class="btn btn-chico" data-acc="revisados" title="Salen del lote y quedan en Revisados, listos para exportar">Pasar a Revisados →</button>
     </div>
+    <div class="fila" style="margin-top:8px"><button class="btn btn-sec btn-chico" id="btnGrupos">Buscar grupos de variantes</button><span class="nota" style="margin:0">Propone padres para productos sueltos que solo cambian en talla, color, medida o relación.</span></div>
+    <div id="grupos"></div>
     <div class="nota" id="accMsg"></div>
     <div class="tabla-wrap"><table><thead><tr><th style="width:30px"></th><th style="width:56px" class="ocultar-movil"></th><th>Producto (como quedará en la web)</th><th>Categoría</th><th>Precio</th><th>Estado</th></tr></thead><tbody>
     ${ps.map(p => `<tr class="prod n-${p._nivel} ${ABIERTO === p.k ? 'abierto' : ''}" data-k="${p.k}">
@@ -369,6 +385,8 @@ function pintarLote() {
   document.querySelectorAll('tr.prod').forEach(tr => tr.onclick = () => { if (SUCIO && !confirm('Tienes cambios sin guardar en el producto abierto. ¿Descartarlos?')) return; SUCIO = false; ABIERTO = ABIERTO === tr.dataset.k ? null : tr.dataset.k; pintarLote(); if (ABIERTO) { const w = document.querySelector('.tabla-wrap'), r = document.querySelector('tr.prod.abierto'); w.scrollTop = r.offsetTop - w.querySelector('thead').offsetHeight; w.scrollIntoView({ block: 'nearest' }); } });
   document.querySelectorAll('[data-acc]').forEach(b => b.onclick = () => accion(b.dataset.acc));
   document.querySelectorAll('[data-rap]').forEach(b => b.onclick = () => marcarRapido(+b.dataset.rap));
+  $('btnGrupos').onclick = buscarGruposUI;
+  if (GRUPOS) { GRUPOS = GRUPOS.filter(g => g.hijos.every(h => L.productos.some(p => p.k === h.k))); pintarGrupos(); }
   $('sumar').onchange = e => { SUMAR = e.target.checked; };
   $('btnExcel').onclick = excel;
   if (ABIERTO) pintarEditor();
@@ -501,6 +519,20 @@ async function accion(a) {
     }
     if (a === 'tipo') { const t = $('tipoLote').value.trim(); if (!t) return toast('Escribe el tipo (ej. Guantes)'); await masivo({ tipo_masivo: t }, `Tipo «${t}» en ${ks.length}`); }
     if (a === 'quitar') { if (!confirm(`¿Quitar ${ks.length} productos del lote?`)) return; recibir(await api('/admin/woo-creador/lote/' + L.id, { method: 'PUT', body: { borrar: ks } })); SEL.clear(); pintarLote(); }
+    if (a === 'padre') {
+      if (ks.length < 2) return toast('Marca al menos dos productos (los futuros hijos)');
+      const multi = ks.filter(k => (L.productos.find(p => p.k === k) || { variantes: [] }).variantes.length > 1);
+      if (multi.length) toast('Algunos marcados ya tienen variantes: entran con las suyas', 5000);
+      GRUPOS = [padreDeMarcados(ks)]; pintarGrupos(); $('grupos').scrollIntoView({ block: 'nearest' }); return;
+    }
+    if (a === 'revisados') {
+      const crit = ks.filter(k => (L.productos.find(p => p.k === k) || {})._nivel === 'critico').length;
+      let forzar = false;
+      if (crit) { if (!confirm(`${crit} de los ${ks.length} marcados tienen alertas críticas (categoría, SKU o precio). ¿Pasarlos igual? (Cancelar = pasar solo los que no tienen)`)) forzar = false; else forzar = true; }
+      const j = await api(`/admin/woo-creador/lote/${L.id}/revisados`, { body: { ks, forzar } });
+      SEL.clear(); recibir(j); pintarLote(); await cargarRevisados();
+      toast(`${j.pasados} pasados a Revisados${j.retenidos ? ` · ${j.retenidos} se quedaron por alertas críticas` : ''}`, 6000); return;
+    }
     if (a === 'unir') { if (ks.length < 2) return toast('Marca al menos dos productos'); if (!confirm(`¿Unir ${ks.length} productos como variantes del primero? Revisa luego sus atributos.`)) return; recibir(await api('/admin/woo-creador/lote/' + L.id, { method: 'PUT', body: { unir: ks } })); SEL.clear(); pintarLote(); }
     if (a === 'ia') { const j = await api(`/admin/woo-creador/lote/${L.id}/ia`, { body: { ks } }); toast(`La IA está rehaciendo ${j.productos} productos`); setTimeout(() => abrirLote(L.id), 1200); }
     if (a === 'fichas') {
@@ -516,6 +548,129 @@ async function accion(a) {
     }
   } catch (e) { msg.innerHTML = `<span class="err">${esc(e.message)}</span>`; }
 }
+
+// ════ Grupos de variantes / Crear padre ════
+let GRUPOS = null; // [{ sel, marca, tipo, info, descripcion, atributo, categoria, hijos:[{k,valor,sku,nombre}] }]
+const ATRIBUTOS_SUG = ['Talla', 'Color', 'Medida', 'Relación', 'Dientes', 'Velocidades', 'Variante'];
+async function buscarGruposUI() {
+  try { const j = await api(`/admin/woo-creador/lote/${L.id}/grupos`); GRUPOS = j.grupos.map(g => ({ ...g, sel: true })); pintarGrupos(); if (!GRUPOS.length) toast('No encontré productos sueltos que solo cambien en talla, color o medida. Usa «Crear padre con los marcados».', 6000); }
+  catch (e) { toast(e.message); }
+}
+// Padre a mano con los marcados: lo común del nombre va al padre, lo que cambia a cada hijo
+function padreDeMarcados(ks) {
+  const ps = ks.map(k => L.productos.find(p => p.k === k)).filter(Boolean);
+  const toks = ps.map(p => String(p.descripcion || '').split(/\s+/).filter(Boolean));
+  let a = 0; while (toks.every(t => t[a] !== undefined && t[a].toLowerCase() === toks[0][a].toLowerCase())) a++;
+  let z = 0; while (toks.every(t => t.length - 1 - z >= a && t[t.length - 1 - z].toLowerCase() === toks[0][toks[0].length - 1 - z].toLowerCase())) z++;
+  const comun = [...toks[0].slice(0, a), ...toks[0].slice(toks[0].length - z)].join(' ');
+  const valores = toks.map(t => t.slice(a, t.length - z).join(' '));
+  const guess = v => /^(xxs|xs|s|m|l|xl|xxl|xxxl|2xl|3xl|\d{2}(\.5)?)$/i.test(v) ? 'Talla' : /\d\s?mm$/i.test(v) ? 'Medida' : /^\d{1,2}-\d{2}/.test(v) ? 'Relación' : 'Variante';
+  const p0 = ps[0];
+  return { sel: true, manual: true, marca: p0.marca, tipo: p0.tipo, info: p0.info || '', descripcion: comun || p0.descripcion, atributo: guess(valores[0] || ''), categoria: p0.categoria || '',
+    hijos: ps.map((p, i) => ({ k: p.k, valor: valores[i] || varTexto(p.variantes[0].attrs) || '', sku: p.variantes.map(v => v.sku).join(', '), nombre: p._nombre })) };
+}
+function pintarGrupos() {
+  const box = $('grupos'); if (!box) return;
+  if (!GRUPOS || !GRUPOS.length) { box.innerHTML = ''; return; }
+  box.innerHTML = `<div class="fila" style="justify-content:space-between;margin-top:10px"><b>${GRUPOS.length} ${GRUPOS.length === 1 ? 'padre propuesto' : 'padres propuestos'}</b>
+      <span><button class="btn btn-chico" id="gCrear">Crear los padres marcados</button> <button class="btn btn-sec btn-chico" id="gCerrar">Cerrar</button></span></div>
+    ${GRUPOS.map((g, i) => `<div class="grupo-card" data-g="${i}">
+      <div class="cab"><label class="chk"><input type="checkbox" data-gsel ${g.sel ? 'checked' : ''}></label>
+        <label class="campo">Marca<input data-gf="marca" value="${esc(g.marca)}" style="width:110px" list="dlMarcas"></label>
+        <label class="campo">Tipo<input data-gf="tipo" value="${esc(g.tipo)}" style="width:130px" list="dlTipos"></label>
+        <label class="campo" style="flex:1;min-width:220px">Descripción del padre<input data-gf="descripcion" value="${esc(g.descripcion)}"></label>
+        <label class="campo">Info adicional<input data-gf="info" value="${esc(g.info)}" style="width:130px"></label>
+        <label class="campo">Atributo<input data-gf="atributo" value="${esc(g.atributo)}" list="dlAtrGrp" style="width:110px"></label></div>
+      <div class="sub" style="margin-top:6px">Padre: <b data-gprev>${esc(nombrePrev(g))}</b> · ${esc(g.categoria || 'sin categoría')}</div>
+      <div class="hijos">${g.hijos.map((h, j) => `<span title="${esc(h.sku)}">${esc(h.nombre)} <span class="muted">· ${esc(h.sku)}</span></span><input data-gv="${j}" value="${esc(h.valor)}" placeholder="valor">`).join('')}</div>
+    </div>`).join('')}<datalist id="dlAtrGrp">${ATRIBUTOS_SUG.concat(CTX ? CTX.atributos : []).map(a => `<option value="${esc(a)}">`).join('')}</datalist>`;
+  box.querySelectorAll('.grupo-card').forEach(c => {
+    const g = GRUPOS[+c.dataset.g];
+    c.querySelector('[data-gsel]').onchange = e => { g.sel = e.target.checked; };
+    c.querySelectorAll('[data-gf]').forEach(x => x.oninput = () => { g[x.dataset.gf] = x.value; c.querySelector('[data-gprev]').textContent = nombrePrev(g); });
+    c.querySelectorAll('[data-gv]').forEach(x => x.oninput = () => { g.hijos[+x.dataset.gv].valor = x.value; });
+  });
+  $('gCerrar').onclick = () => { GRUPOS = null; pintarGrupos(); };
+  $('gCrear').onclick = async () => {
+    const sel = GRUPOS.filter(g => g.sel);
+    if (!sel.length) return toast('Marca al menos un grupo');
+    const malos = sel.filter(g => g.hijos.some(h => !String(h.valor).trim()) || new Set(g.hijos.map(h => String(h.valor).trim().toLowerCase())).size < g.hijos.length);
+    if (malos.length) return toast('Cada hijo necesita un valor distinto (ej. M, L, XL)', 5000);
+    try {
+      recibir(await api('/admin/woo-creador/lote/' + L.id, { method: 'PUT', body: { crear_padre: sel.map(g => ({ ks: g.hijos.map(h => h.k), marca: g.marca, tipo: g.tipo, descripcion: g.descripcion, info: g.info, atributo: g.atributo, categoria: g.categoria, valores: Object.fromEntries(g.hijos.map(h => [h.k, h.valor])) })) } }));
+      toast(`${sel.length} ${sel.length === 1 ? 'padre creado' : 'padres creados'}`); GRUPOS = GRUPOS.filter(g => !g.sel); SEL.clear(); pintarLote();
+    } catch (e) { toast(e.message); }
+  };
+}
+
+// ════ Etapa 2: Revisados ════
+let REV = [], RSEL = new Set(), RFILTRO = { estado: 'listo', marca: '', q: '' };
+async function cargarRevisados() {
+  try { const j = await api('/admin/woo-creador/revisados'); REV = j.items; RSEL = new Set([...RSEL].filter(id => REV.some(r => r.id === id))); $('nRev').textContent = REV.filter(r => r.estado === 'listo').length || ''; }
+  catch (e) { toast(e.message); }
+}
+function revVisibles() { const q = RFILTRO.q.toLowerCase(); return REV.filter(r => (!RFILTRO.estado || r.estado === RFILTRO.estado) && (!RFILTRO.marca || r.marca === RFILTRO.marca) && (!q || (r.nombre + ' ' + r.skus.join(' ') + ' ' + r.categoria).toLowerCase().includes(q))); }
+function pintarRevisados() {
+  const vs = revVisibles(), marcas = [...new Set(REV.map(r => r.marca).filter(Boolean))].sort();
+  const n = e => REV.filter(r => r.estado === e).length;
+  const pr = r => r.precio_min == null ? '<span class="err">—</span>' : r.precio_min === r.precio_max ? soles(r.precio_min) : `${soles(r.precio_min)} – ${soles(r.precio_max)}`;
+  $('etapa2').innerHTML = `<div class="card">
+    <h3>Revisados — listos para exportar</h3>
+    <div class="desc">Aquí quedan los productos que ya revisaste en los lotes. No se pierden ni se mezclan con las listas nuevas: si un SKU ya está aquí, el lote lo marca. Descarga el Excel para WooCommerce y márcalos como exportados; si algo está mal, devuélvelo a revisión.</div>
+    <div class="kpis"><div class="kpi ${RFILTRO.estado === 'listo' ? 'on' : ''}" data-rest="listo"><b>${n('listo')}</b>listos</div><div class="kpi ${RFILTRO.estado === 'exportado' ? 'on' : ''}" data-rest="exportado"><b>${n('exportado')}</b>exportados</div><div class="kpi ${!RFILTRO.estado ? 'on' : ''}" data-rest=""><b>${REV.length}</b>todos</div></div>
+    <div class="fila">
+      <label class="campo">Buscar<input id="rq" value="${esc(RFILTRO.q)}" placeholder="nombre, SKU o categoría" style="min-width:220px"></label>
+      <label class="campo">Marca<select id="rmarca"><option value="">Todas</option>${marcas.map(m => `<option ${RFILTRO.marca === m ? 'selected' : ''}>${esc(m)}</option>`).join('')}</select></label>
+      <span class="nota" style="margin:0 0 8px">${vs.length} de ${REV.length} · ${RSEL.size} marcados</span>
+    </div>
+    <div class="rapidos"><span class="rap-t">Marcar</span><button class="rap" id="rTodos">Los visibles <b>${vs.length}</b></button><button class="rap" id="rNinguno">Ninguno</button></div>
+    <div class="masivas ${RSEL.size ? '' : 'apagado'}"><span class="rap-t">Con los ${RSEL.size} marcados</span>
+      <button class="btn btn-chico" id="rExcel">Descargar Excel para WooCommerce</button><label class="chk"><input type="checkbox" id="rMarcar" checked> marcarlos como exportados</label>
+      <button class="btn btn-sec btn-chico" id="rListo">Volver a «listo»</button><button class="btn btn-sec btn-chico" id="rDevolver">← Devolver a revisión</button><button class="btn btn-chico btn-peligro" id="rBorrar">Borrar</button>
+    </div>
+    <div class="nota" id="rMsg"></div>
+    <div class="tabla-wrap"><table><thead><tr><th style="width:30px"></th><th style="width:56px" class="ocultar-movil"></th><th>Producto</th><th>Categoría</th><th>Precio</th><th>Estado</th></tr></thead><tbody>
+      ${vs.slice(0, 1000).map(r => `<tr><td><input type="checkbox" data-rsel="${r.id}" ${RSEL.has(r.id) ? 'checked' : ''}></td>
+        <td class="ocultar-movil">${r.foto ? `<img class="thumb" loading="lazy" src="${esc(r.foto)}" alt="">` : '<div class="thumb vacia"></div>'}</td>
+        <td><b>${esc(r.nombre)}</b><div class="sub">${r.variantes > 1 ? `Variable · ${r.variantes} hijos (${esc(r.hijos.join(', ').slice(0, 90))})` : 'SKU ' + esc(r.skus[0] || '—')} · lote #${r.lote_id || '—'}${r.descripcion ? '' : ' · <span class="warn">sin descripción</span>'}${r.fotos ? '' : ' · <span class="warn">sin fotos</span>'}</div></td>
+        <td>${esc(r.categoria || '—')}${r.cat_nueva ? ' <span class="chip aviso">nueva</span>' : ''}</td><td style="white-space:nowrap">${pr(r)}</td>
+        <td>${r.estado === 'exportado' ? `<span class="chip ok">exportado</span><div class="sub">${new Date(r.exportado).toLocaleDateString('es-PE')}</div>` : '<span class="chip info">listo</span>'}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">No hay productos aquí. En la etapa 1 marca los revisados y toca «Pasar a Revisados →».</td></tr>'}
+    </tbody></table></div>${vs.length > 1000 ? `<div class="nota">Se muestran 1000 de ${vs.length}: usa el buscador o la marca.</div>` : ''}
+  </div>`;
+  document.querySelectorAll('[data-rest]').forEach(k => k.onclick = () => { RFILTRO.estado = k.dataset.rest; pintarRevisados(); });
+  $('rq').oninput = e => { RFILTRO.q = e.target.value; const pos = e.target.selectionStart; pintarRevisados(); $('rq').focus(); $('rq').setSelectionRange(pos, pos); };
+  $('rmarca').onchange = e => { RFILTRO.marca = e.target.value; pintarRevisados(); };
+  document.querySelectorAll('[data-rsel]').forEach(c => c.onchange = () => { const id = +c.dataset.rsel; c.checked ? RSEL.add(id) : RSEL.delete(id); pintarRevisados(); });
+  $('rTodos').onclick = () => { vs.forEach(r => RSEL.add(r.id)); pintarRevisados(); };
+  $('rNinguno').onclick = () => { RSEL.clear(); pintarRevisados(); };
+  const ids = () => [...RSEL];
+  $('rExcel').onclick = async () => {
+    if (!RSEL.size) return toast('Marca los productos a exportar');
+    try {
+      const r = await api('/admin/woo-creador/revisados/excel', { body: { ids: ids(), marcar: $('rMarcar').checked }, blob: true });
+      const nombre = ((r.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/) || [])[1] || 'CREACION-PRODUCTOS-WOOCOMMERCE.xlsx';
+      const url = URL.createObjectURL(await r.blob()); const a = document.createElement('a'); a.href = url; a.download = nombre; a.click(); setTimeout(() => URL.revokeObjectURL(url), 5000);
+      $('rMsg').innerHTML = `<span class="ok">${r.headers.get('X-Productos')} productos (${r.headers.get('X-Filas')} filas) en el Excel.</span>`;
+      if ($('rMarcar').checked) RSEL.clear();
+      await cargarRevisados(); pintarRevisados();
+    } catch (e) { $('rMsg').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+  };
+  $('rListo').onclick = async () => { if (!RSEL.size) return; await api('/admin/woo-creador/revisados/estado', { body: { ids: ids(), estado: 'listo' } }); await cargarRevisados(); pintarRevisados(); };
+  $('rDevolver').onclick = async () => {
+    if (!RSEL.size) return; if (!confirm(`¿Devolver ${RSEL.size} productos a su lote para revisarlos de nuevo?`)) return;
+    try { const j = await api('/admin/woo-creador/revisados/devolver', { body: { ids: ids() } }); RSEL.clear(); await cargarRevisados(); pintarRevisados(); cargarLotes(); toast(`${j.devueltos} devueltos al lote ${j.lotes.map(x => '#' + x).join(', ')}`); }
+    catch (e) { toast(e.message); }
+  };
+  $('rBorrar').onclick = async () => { if (!RSEL.size) return; if (!confirm(`¿Borrar ${RSEL.size} productos de Revisados? No toca el sistema ni la web.`)) return; await api('/admin/woo-creador/revisados/borrar', { body: { ids: ids() } }); RSEL.clear(); await cargarRevisados(); pintarRevisados(); };
+}
+function verEtapa(n) {
+  document.querySelectorAll('.etapa').forEach(b => b.classList.toggle('on', b.dataset.etapa === String(n)));
+  $('etapa1').classList.toggle('oculto', n !== 1); $('etapa2').classList.toggle('oculto', n !== 2);
+  if (n === 2) cargarRevisados().then(pintarRevisados);
+  try { localStorage.setItem('woo_etapa', n); } catch (e) {}
+}
+document.querySelectorAll('.etapa').forEach(b => b.onclick = () => verEtapa(+b.dataset.etapa));
+cargarRevisados();
 
 // ── Excel ──
 async function excel() {

@@ -290,6 +290,8 @@ function nombreSinIA(f, ctx) {
   }
   // tus traducciones de la sección «# Tipos» (Jersey = Polo), aunque ese tipo aún no exista en el catálogo
   if (!tipo) for (const x of (ctx.trad || []).filter(x => x.tipo)) { x.re.lastIndex = 0; if (x.re.test(base)) { tipo = x.a; quitar = palabras(x.de); break; } }
+  // columna «tipo» de la lista en inglés: tus traducciones («Shoes = Zapatillas»)
+  if (!tipo && f.tipo) { const tr = (ctx.trad || []).find(x => norm(x.de) === norm(f.tipo)); if (tr) tipo = buscarTipo(tr.a, ctx) || tr.a; }
   if (!tipo && f.tipo) { const ft = palabras(f.tipo); tipo = buscarTipo(f.tipo, ctx) || (ft.length === 1 && sinonimo(ft[0]) && buscarTipo(sinonimo(ft[0]), ctx)) || (ft.length <= 3 ? txt(f.tipo, 40) : ''); }
   let desc = base;
   if (quitar) desc = desc.replace(reFrase(quitar), '$1 ');
@@ -351,7 +353,20 @@ Helmet = Casco
 Saddle = Sillín
 Grips = Puños
 Pedals = Pedales
-Jersey = Polo`;
+Jersey = Polo
+Shoes = Zapatillas
+Shoe = Zapatillas
+Rear Derailleur = Desviador trasero
+Front Derailleur = Desviador delantero
+Brake Lever = Manubrio de freno
+Crankset = Biela
+Bottom Bracket = Eje de centro
+Shifter = Shifter
+Hub = Maza
+Wheelset = Ruedas
+Handlebar = Manubrio
+Stem = Potencia
+Seatpost = Tija`;
 const escRe = x => String(x).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 function leerTraducciones(texto) {
   const pares = []; let esTipo = false;
@@ -377,7 +392,8 @@ const RE_VAR = [
   { attr: 'Talla', re: /(^|[^\w.])(\d{2}(?:[.,]5)?)\s?(?:EUR|EU)\b\.?/i, val: m => m[2].replace(',', '.') }, // zapatillas: «43 EUR»
   { attr: 'Medida', re: /(^|[^\w.])(\d{2,4}(?:[.,]\d+)?)\s?mm\b/i, val: m => m[2].replace(',', '.') + ' mm' },
   { attr: 'Dientes', re: /(^|[^\w.])(\d{2})\s?(?:t|dientes|teeth)\b/i, val: m => m[2] + 'T' },
-  { attr: 'Talla', re: /(^|[^\w/])(?:talla|size|sz)?\s*(XXS|XS|S\/M|M\/L|L\/XL|XXXL|XXL|2XL|3XL|XL|S|M|L)(?=$|[^\w/])/, val: m => m[2].toUpperCase() }
+  { attr: 'Talla', re: /(^|[^\w.])(?:[Tt]alla|TALLA|[Ss]ize|SIZE|T\.)\s?(\d{2}(?:[.,]5)?)(?=$|[^\w])/, val: m => m[2].replace(',', '.') }, // «T.41», «Talla 42»
+  { attr: 'Talla', re: /(^|[^\w/])(?:(?:[Tt]alla|TALLA|[Ss]ize|SIZE|[Ss]z|SZ|T\.)\s*)?(XXS|XS|S\/M|M\/L|L\/XL|XXXL|XXL|2XL|3XL|XL|S|M|L)(?=$|[^\w/])/, val: m => m[2].toUpperCase() }
 ];
 // solo = lista de atributos a sacar (todos si no se indica). Devuelve los valores y el texto sin ellos.
 function variantesEnNombre(texto, solo) {
@@ -526,6 +542,8 @@ function revisar(p, ctx, lote) {
       if (vistos.has(ks)) add('sku', 'critico', `SKU repetido ${v.sku}` + et);
       vistos.add(ks);
       if ((lote._skusLote || {})[ks] > 1) add('sku', 'critico', `SKU ${v.sku} repetido en otro producto del lote`);
+      const rv = ctx.skusRev && ctx.skusRev.get(ks);
+      if (rv !== undefined) add('sku', 'critico', `El SKU ${v.sku} ya está en Revisados: «${txt(rv, 90)}»`);
       const ex = ctx.skus && ctx.skus.get(ks);
       if (ex !== undefined) add('sku', 'critico', `El SKU ${v.sku} ya existe en el sistema: «${txt(ex, 90)}»`);
     }
@@ -821,6 +839,74 @@ function filasExcel(productos, lote) {
   return filas.map(f => f.map(woo.nl));
 }
 
+// ── Buscar grupos de variantes entre productos sueltos ───────────────────────
+// Productos de la misma marca y tipo cuyo nombre es igual salvo UNA palabra que parece variante
+// (talla, número de zapatilla, color, medida, relación de piñón) → propuesta de producto padre.
+const RE_TALLA_V = /^(xxs|xs|s|m|l|xl|xxl|xxxl|2xl|3xl|4xl|s\/m|m\/l|l\/xl|xs\/s|xl\/xxl|t\.?\s?[smlx]+|t\.?\s?\d{2}(?:[.,]5)?|\d{2}(?:[.,]5)?(?:\/\d{2})?|talla)$/i;
+function tipoValor(v, trad) {
+  const x = String(v).trim(), low = x.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  if (RE_TALLA_V.test(x) && !/^(talla)$/i.test(x)) { const n = parseFloat(x); return isNaN(n) || (n >= 16 && n <= 52) ? 'Talla' : null; }
+  if (COLORES.has(low) || (trad || []).some(t => norm(t.de) === norm(x) && COLORES.has(norm(t.a)))) return 'Color';
+  if (/^\d{2,4}(?:[.,]\d+)?\s?(mm|cm|ml|g|kg)$/i.test(x)) return 'Medida';
+  if (/^\d{1,2}-\d{2}[a-z]?$/i.test(x)) return 'Relación';
+  if (/^\d{1,3}(t|d|v)$/i.test(x)) return /v$/i.test(x) ? 'Velocidades' : 'Dientes';
+  return null;
+}
+function buscarGrupos(productos, trad) {
+  const sueltos = productos.filter(p => p.variantes.length === 1);
+  const tok = p => String(p.descripcion || '').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+  const cubos = new Map();
+  for (const p of sueltos) {
+    const t = tok(p); if (t.length < 2) continue;
+    for (let i = 0; i < t.length; i++) {
+      const v = t[i]; const tipo = tipoValor(v, trad); if (!tipo) continue;
+      const key = [norm(p.marca), norm(p.tipo), norm(p.info), t.length, i, t.map((w, j) => j === i ? '*' : w.toLowerCase()).join(' ')].join('|');
+      if (!cubos.has(key)) cubos.set(key, { i, plantilla: t.map((w, j) => j === i ? '' : w).filter(Boolean).join(' '), miembros: [] });
+      cubos.get(key).miembros.push({ p, valor: v, tipo });
+    }
+  }
+  const grupos = [...cubos.values()].filter(g => g.miembros.length >= 2 && new Set(g.miembros.map(m => norm(m.valor))).size === g.miembros.length)
+    .map(g => { const tipos = {}; g.miembros.forEach(m => tipos[m.tipo] = (tipos[m.tipo] || 0) + 1); return { ...g, atributo: Object.entries(tipos).sort((a, b) => b[1] - a[1])[0][0] }; })
+    .sort((a, b) => b.miembros.length - a.miembros.length);
+  const usados = new Set(), out = [];
+  for (const g of grupos) {
+    const m = g.miembros.filter(x => !usados.has(x.p.k)); if (m.length < 2) continue;
+    m.forEach(x => usados.add(x.p.k));
+    const p0 = m[0].p;
+    const plantilla = g.atributo === 'Talla' ? g.plantilla.replace(/\s*\b(talla|size|sz|t\.)\s*$/i, '').replace(/\b(talla|size)\b\s*/i, '').trim() : g.plantilla;
+    out.push({ marca: p0.marca, tipo: p0.tipo, info: p0.info || '', descripcion: plantilla, atributo: g.atributo, categoria: p0.categoria || '',
+      hijos: m.map(x => ({ k: x.p.k, valor: g.atributo === 'Talla' ? String(x.valor).replace(/^t\.\s?|^t(?=\d)/i, '').toUpperCase() : estilo(x.valor), sku: x.p.variantes[0].sku, nombre: armarNombre(x.p, textoVariante(x.p.variantes[0].attrs)) })) });
+  }
+  return out;
+}
+// Arma un padre con varios productos sueltos (o con variantes): g = { ks, marca, tipo, descripcion, info, atributo, valores:{k:valor}, sku_base, categoria }
+function crearPadre(L, g, ctx) {
+  const ps = (g.ks || []).map(k => L.productos.find(p => p.k === k)).filter(Boolean);
+  if (ps.length < 2) return null;
+  const base = ps.find(p => String(p.descripcion_html || '').replace(/<[^>]+>/g, '').trim()) || ps[0];
+  const k = nuevaK(), atr = txt(g.atributo || 'Variante', 30);
+  const padre = { ...JSON.parse(JSON.stringify(ps[0])), k, marca: txt(g.marca ?? ps[0].marca, 60), tipo: txt(g.tipo ?? ps[0].tipo, 40), descripcion: txt(g.descripcion ?? ps[0].descripcion, 160),
+    info: txt(g.info ?? ps[0].info, 100), nombre_manual: true, sin_ia: false, descripcion_html: base.descripcion_html || '', url: base.url || ps[0].url || '', sku_base: txt(g.sku_base, 80),
+    imagenes: [], variantes: [], alertas: [] };
+  if (g.categoria) Object.assign(padre, { categoria: txt(g.categoria, 200), cat_fuente: 'manual', cat_conf: 1, cat_nueva: !ctx.catSet.has(txt(g.categoria, 200)) });
+  for (const p of ps) {
+    const valor = txt((g.valores || {})[p.k], 60);
+    for (const v of p.variantes) {
+      const attrs = { ...(v.attrs || {}) };
+      if (valor && p.variantes.length === 1) { for (const a of Object.keys(attrs)) if (norm(a) === norm(atr)) delete attrs[a]; attrs[atr] = valor; }
+      const fotos = (v.imagenes || []).length ? v.imagenes : (p.imagenes || []);
+      padre.variantes.push({ ...v, attrs, imagenes: fotos.slice(0, 8), k: k + 'v' + padre.variantes.length });
+      padre.imagenes.push(...fotos);
+    }
+    if (!padre.peso && p.peso) padre.peso = p.peso;
+  }
+  padre.imagenes = [...new Set(padre.imagenes)].slice(0, 16);
+  const i0 = L.productos.indexOf(ps[0]);
+  L.productos = L.productos.filter(p => !ps.includes(p));
+  L.productos.splice(Math.min(i0, L.productos.length), 0, padre);
+  return padre;
+}
+
 // ── Emparejar links de la web de la marca con los productos (Lector) ─────────
 const IGNORAR = new Set(['www', 'http', 'https', 'com', 'es', 'en', 'de', 'html', 'php', 'product', 'products', 'producto', 'productos', 'shop', 'tienda', 'store', 'p', 'item', 'collections', 'category', 'the', 'and', 'for', 'with', 'mm']);
 const tokens = s => palabras(s).filter(w => !IGNORAR.has(w) && (w.length > 1 || /\d/.test(w)));
@@ -855,7 +941,20 @@ module.exports = function registrarWooCreador({ app, authAdmin, requiereModulo, 
       usuario VARCHAR(80), creado DATETIME DEFAULT CURRENT_TIMESTAMP, actualizado DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) DEFAULT CHARSET=utf8mb4`).then(() => portalPool.query(`CREATE TABLE IF NOT EXISTS wc_ajustes (
       clave VARCHAR(40) PRIMARY KEY, valor LONGTEXT, actualizado DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) DEFAULT CHARSET=utf8mb4`)).then(() => portalPool.query(`CREATE TABLE IF NOT EXISTS wc_revisados (
+      id INT AUTO_INCREMENT PRIMARY KEY, lote_id INT, marca VARCHAR(80), nombre VARCHAR(255), skus TEXT, categoria VARCHAR(255),
+      datos LONGTEXT, opciones TEXT, estado VARCHAR(20) DEFAULT 'listo', exportado DATETIME NULL, usuario VARCHAR(80),
+      creado DATETIME DEFAULT CURRENT_TIMESTAMP, actualizado DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX (estado), INDEX (marca)
     ) DEFAULT CHARSET=utf8mb4`)).catch(e => { tablas = null; throw e; }));
+  // SKUs que ya están en Revisados (para alertar en los lotes)
+  let skusRevCache = null;
+  async function skusRevisados() {
+    if (skusRevCache) return skusRevCache;
+    const m = new Map();
+    try { await prepararTablas(); const [rows] = await portalPool.query('SELECT nombre, skus FROM wc_revisados'); rows.forEach(r => String(r.skus || '').split(',').map(x => x.trim().toLowerCase()).filter(Boolean).forEach(x => m.set(x, r.nombre))); } catch (e) {}
+    return (skusRevCache = m);
+  }
   // Traducciones (para trabajar sin IA): una sola lista para todas las marcas, en caché hasta que se guarde
   let tradCache = null;
   async function traduccionesTexto() {
@@ -909,6 +1008,7 @@ module.exports = function registrarWooCreador({ app, authAdmin, requiereModulo, 
   async function contexto(fresco) {
     const c = await contextoErp(fresco);
     await traduccionesTexto(); c.trad = tradCache.lista;
+    c.skusRev = await skusRevisados();
     return c;
   }
   async function contextoErp(fresco) {
@@ -1179,6 +1279,7 @@ costo = precio de compra/dealer/neto; pvp = precio de venta al público sugerido
           }
         }
         // unir productos (ej. la IA dejó dos colores como productos distintos)
+        if (Array.isArray(b.crear_padre)) for (const g of b.crear_padre.slice(0, 500)) crearPadre(L, g, ctx);
         if (Array.isArray(b.unir) && b.unir.length > 1) {
           const ps = b.unir.map(k => L.productos.find(p => p.k === k)).filter(Boolean);
           const dest = ps[0]; for (const p of ps.slice(1)) { p.variantes.forEach(v => dest.variantes.push({ ...v, k: dest.k + 'v' + dest.variantes.length + Date.now().toString(36) })); L.productos = L.productos.filter(x => x !== p); }
@@ -1351,6 +1452,105 @@ costo = precio de compra/dealer/neto; pvp = precio de venta al público sugerido
     } catch (e) { err(res, e); }
   });
 
+  // Propuestas de padre: productos que solo cambian en talla, color, medida…
+  app.get('/admin/woo-creador/lote/:id/grupos', authAdmin, mAud, async (req, res) => {
+    try { const L = await leerLote(req.params.id); const ctx = await contexto(); res.json({ grupos: buscarGrupos(L.productos, ctx.trad) }); } catch (e) { err(res, e); }
+  });
+
+  // ════ Etapa 2: Revisados (listos para exportar) ════
+  const filaRev = r => { let p = {}, op = {}; try { p = JSON.parse(r.datos || '{}'); } catch (e) {} try { op = opcionesLimpias(JSON.parse(r.opciones || '{}')); } catch (e) { op = opcionesLimpias(); }
+    return { id: r.id, lote_id: r.lote_id, estado: r.estado, exportado: r.exportado, creado: r.creado, usuario: r.usuario, p, op }; };
+  // Pasar productos del lote a Revisados (salen del lote)
+  app.post('/admin/woo-creador/lote/:id/revisados', authAdmin, mAud, async (req, res) => {
+    const id = num(req.params.id), b = req.body || {};
+    try {
+      const out = await enCola(id, async () => {
+        const L = await leerLote(id); const ctx = await contexto(); revisarLote(L, ctx);
+        const ks = new Set(Array.isArray(b.ks) ? b.ks : []);
+        const sel = L.productos.filter(p => ks.has(p.k));
+        const conAlerta = sel.filter(p => p.alertas.some(a => a.nivel === 'critico'));
+        const pasan = b.forzar ? sel : sel.filter(p => !conAlerta.includes(p));
+        for (const p of pasan) {
+          const pl = { ...p }; delete pl.alertas;
+          await portalPool.query('INSERT INTO wc_revisados (lote_id, marca, nombre, skus, categoria, datos, opciones, usuario) VALUES (?,?,?,?,?,?,?,?)',
+            [id, txt(p.marca, 80), armarNombre(p).slice(0, 255), p.variantes.map(v => v.sku).filter(Boolean).join(','), txt(p.categoria, 255), JSON.stringify(pl), JSON.stringify(L.opciones), usuarioDe(req)]);
+        }
+        L.productos = L.productos.filter(p => !pasan.includes(p));
+        skusRevCache = null; const ctx2 = await contexto(); revisarLote(L, ctx2); await guardarLote(L);
+        return { L, pasados: pasan.length, retenidos: sel.length - pasan.length };
+      });
+      res.json({ lote: vista(out.L), pasados: out.pasados, retenidos: out.retenidos });
+    } catch (e) { err(res, e); }
+  });
+  app.get('/admin/woo-creador/revisados', authAdmin, mAud, async (req, res) => {
+    try {
+      await prepararTablas();
+      const [rows] = await portalPool.query('SELECT * FROM wc_revisados ORDER BY creado DESC LIMIT 5000');
+      const items = rows.map(filaRev).map(r => { const p = r.p, vs = p.variantes || [];
+        const precios = vs.map(v => precioVenta(v, r.op).precio).filter(x => x > 0);
+        return { id: r.id, lote_id: r.lote_id, estado: r.estado, exportado: r.exportado, creado: r.creado, usuario: r.usuario,
+          nombre: armarNombre(p, vs.length === 1 ? textoVariante(vs[0].attrs) : ''), marca: p.marca, categoria: p.categoria, cat_nueva: !!p.cat_nueva,
+          variantes: vs.length, skus: vs.map(v => v.sku), hijos: vs.length > 1 ? vs.map(v => textoVariante(v.attrs)) : [],
+          precio_min: precios.length ? Math.min(...precios) : null, precio_max: precios.length ? Math.max(...precios) : null,
+          foto: (p.imagenes || [])[0] || ((vs[0] || {}).imagenes || [])[0] || '', fotos: (p.imagenes || []).length, descripcion: !!String(p.descripcion_html || '').replace(/<[^>]+>/g, '').trim() }; });
+      res.json({ items });
+    } catch (e) { err(res, e); }
+  });
+  // Devolver a revisión: vuelven a su lote (o a uno nuevo si ese lote ya no existe)
+  app.post('/admin/woo-creador/revisados/devolver', authAdmin, mAud, async (req, res) => {
+    try {
+      const ids = (Array.isArray((req.body || {}).ids) ? req.body.ids : []).map(num).filter(Boolean);
+      if (!ids.length) return res.status(400).json({ error: 'Marca al menos uno' });
+      await prepararTablas();
+      const [rows] = await portalPool.query('SELECT * FROM wc_revisados WHERE id IN (?)', [ids]);
+      const porLote = new Map(); rows.map(filaRev).forEach(r => { if (!porLote.has(r.lote_id)) porLote.set(r.lote_id, []); porLote.get(r.lote_id).push(r); });
+      const ctx = await contexto();
+      for (const [lid, rs] of porLote) {
+        let destino = lid;
+        const [[ex]] = await portalPool.query('SELECT id FROM wc_lotes WHERE id=?', [lid || 0]);
+        if (!ex) { const [ins] = await portalPool.query('INSERT INTO wc_lotes (nombre, marca, datos, usuario) VALUES (?,?,?,?)', ['Devueltos de Revisados', txt(rs[0].p.marca, 80), JSON.stringify({ opciones: rs[0].op, productos: [] }), usuarioDe(req)]); destino = ins.insertId; }
+        await enCola(destino, async () => { const L = await leerLote(destino); rs.forEach(r => L.productos.push(r.p)); await portalPool.query('DELETE FROM wc_revisados WHERE id IN (?)', [rs.map(r => r.id)]); skusRevCache = null; revisarLote(L, await contexto()); await guardarLote(L); });
+      }
+      res.json({ ok: true, devueltos: rows.length, lotes: [...porLote.keys()] });
+    } catch (e) { err(res, e); }
+  });
+  app.post('/admin/woo-creador/revisados/borrar', authAdmin, mAud, async (req, res) => {
+    try {
+      const ids = (Array.isArray((req.body || {}).ids) ? req.body.ids : []).map(num).filter(Boolean);
+      if (!ids.length) return res.status(400).json({ error: 'Marca al menos uno' });
+      await prepararTablas(); await portalPool.query('DELETE FROM wc_revisados WHERE id IN (?)', [ids]); skusRevCache = null;
+      res.json({ ok: true, borrados: ids.length });
+    } catch (e) { err(res, e); }
+  });
+  app.post('/admin/woo-creador/revisados/estado', authAdmin, mAud, async (req, res) => {
+    try {
+      const b = req.body || {}, ids = (Array.isArray(b.ids) ? b.ids : []).map(num).filter(Boolean);
+      if (!ids.length || !['listo', 'exportado'].includes(b.estado)) return res.status(400).json({ error: 'Faltan datos' });
+      await prepararTablas(); await portalPool.query(`UPDATE wc_revisados SET estado=?, exportado=${b.estado === 'exportado' ? 'NOW()' : 'NULL'} WHERE id IN (?)`, [b.estado, ids]);
+      res.json({ ok: true });
+    } catch (e) { err(res, e); }
+  });
+  // Excel de Revisados (mismo formato); opcionalmente los marca como exportados
+  app.post('/admin/woo-creador/revisados/excel', authAdmin, mAud, async (req, res) => {
+    try {
+      const b = req.body || {}, ids = (Array.isArray(b.ids) ? b.ids : []).map(num).filter(Boolean);
+      if (!ids.length) return res.status(400).json({ error: 'Marca al menos uno' });
+      await prepararTablas();
+      const [rows] = await portalPool.query('SELECT * FROM wc_revisados WHERE id IN (?) ORDER BY id', [ids]);
+      if (!rows.length) return res.status(400).json({ error: 'No hay productos' });
+      if (!fs.existsSync(woo.PLANTILLA)) return res.status(500).json({ error: 'Falta la plantilla plantillas/creacion-productos-woocommerce.xlsx en el servidor.' });
+      const filas = rows.map(filaRev).flatMap(r => filasExcel([r.p], { opciones: r.op }));
+      const { buffer } = await woo.llenarPlantilla(fs.readFileSync(woo.PLANTILLA), filas);
+      if (b.marcar) await portalPool.query("UPDATE wc_revisados SET estado='exportado', exportado=NOW() WHERE id IN (?)", [rows.map(r => r.id)]);
+      const nombre = `CREACION-PRODUCTOS-WOOCOMMERCE-revisados-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="${nombre}"`);
+      res.setHeader('X-Filas', String(filas.length)); res.setHeader('X-Productos', String(rows.length));
+      res.setHeader('Access-Control-Expose-Headers', 'X-Filas, X-Productos, Content-Disposition');
+      res.send(buffer);
+    } catch (e) { err(res, e); }
+  });
+
   // Excel en la plantilla CREACIÓN PRODUCTOS WOOCOMMERCE
   app.post('/admin/woo-creador/lote/:id/excel', authAdmin, mAud, async (req, res) => {
     try {
@@ -1377,5 +1577,5 @@ costo = precio de compra/dealer/neto; pvp = precio de venta al público sugerido
   });
 };
 
-module.exports._test = { estilo, quitarSufijoMarca, verificarPN, pnsDePagina, limpiarFotos, esTecnico, colorDe, fotosDelColor, asignarFotos, fichaSinIA, TRAD_BASE, leerTraducciones, traducir, variantesEnNombre, variantesSinIA, CAMPOS, rutasCategorias, segmentos, aprender, elegirCategoria, porPalabras, armarNombre, textoVariante, nombreSinIA, nombrarFila, limpiarFilas, agrupar,
+module.exports._test = { buscarGrupos, crearPadre, tipoValor, estilo, quitarSufijoMarca, verificarPN, pnsDePagina, limpiarFotos, esTecnico, colorDe, fotosDelColor, asignarFotos, fichaSinIA, TRAD_BASE, leerTraducciones, traducir, variantesEnNombre, variantesSinIA, CAMPOS, rutasCategorias, segmentos, aprender, elegirCategoria, porPalabras, armarNombre, textoVariante, nombreSinIA, nombrarFila, limpiarFilas, agrupar,
   revisar, precioVenta, opcionesLimpias, redondear, filasExcel, skuPadre, emparejar, htmlDescripcion, aplicarCategoria, nivelMax };

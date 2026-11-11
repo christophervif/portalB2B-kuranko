@@ -856,5 +856,139 @@ pintarCarrito();
 if(!TOKEN)document.getElementById('resultados').innerHTML='<div class="vacio">Entra al panel de administración para usar el cotizador.</div>';
 else cargarFiltros().then(()=>{if(restaurarBusqueda())buscar();});
 </script>
+
+<!-- ---------- DUPLICAR VENTA (marcador para la ERP) ----------
+     Rincón escondido abajo a la izquierda: muestra el botón «Duplicar Venta» para arrastrarlo
+     a la barra de marcadores. El marcador se usa DENTRO de la ERP (Filament/Livewire):
+       · En Ventas → Nueva Cotización: pregunta qué venta copiar y llena el formulario.
+       · Dentro de una venta (/admin/sales/493): abre Nueva Cotización en otra pestaña y la copia.
+       · En otra página de la ERP: abre Nueva Cotización en otra pestaña y pregunta.
+     Copia cliente, empresa, productos, cantidades, precios y «A Pedido». Si ya no hay stock,
+     lo agrega «A Pedido». NO guarda: la persona revisa y pulsa «Crear». -->
+<style>
+#dup-rincon{position:fixed;left:8px;bottom:8px;z-index:50;font-size:15px;opacity:.18;cursor:pointer;user-select:none;transition:opacity .2s}
+#dup-rincon:hover{opacity:1}
+#dup-caja{display:none;position:fixed;left:8px;bottom:36px;z-index:51;width:320px;padding:12px 14px;border-radius:var(--radius-sm);
+  background:var(--surface);border:1px solid var(--border);box-shadow:var(--shadow-sm);color:var(--text);font-size:13px;line-height:1.5}
+#dup-caja a.dup-btn{display:inline-block;margin:6px 0;background:var(--accent);color:var(--accent-text);border-radius:8px;padding:5px 14px;font-weight:800;text-decoration:none;cursor:grab}
+</style>
+<div id="dup-rincon" title="Herramientas" onclick="document.getElementById('dup-caja').style.display=document.getElementById('dup-caja').style.display==='block'?'none':'block'">🔖</div>
+<div id="dup-caja">
+  <b>Duplicar venta en la ERP</b>
+  <div>Muestra la barra de marcadores (<b>Ctrl + Shift + B</b>) y <b>arrastra</b> este botón ahí (una sola vez):</div>
+  <a class="dup-btn" id="dup-btn" onclick="alert('Arrástralo a la barra de marcadores; luego púlsalo dentro de la ERP.');return false;">Duplicar Venta</a>
+  <div class="desc" style="color:var(--muted2)">En la ERP: púlsalo en <b>Nueva Cotización</b> (te pregunta qué venta) o dentro de una venta (la copia directo). No guarda nada solo: revisa y pulsa <b>Crear</b>.</div>
+</div>
+<script>
+// Código del marcador: se ejecuta DENTRO de la ERP. Debe ser autocontenido (se serializa con toString).
+function _dupMarcador(){(async()=>{
+  // Lógica que llena «Nueva Cotización». Se serializa para poder correrla también en otra pestaña.
+  const RUN=async function(){
+    const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+    const base=location.origin+'/admin/sales';
+    const buscarForm=()=>[...document.querySelectorAll('[wire\\:id]')].find(e=>e.querySelector('table')&&e.innerText.includes('Productos Cotizados'));
+    for(let i=0;i<150&&!(window.Livewire&&buscarForm());i++)await sleep(100);
+    const formEl=buscarForm();
+    if(!formEl){alert('No encontré el formulario de «Nueva Cotización».');return;}
+    let id=String(window.__dupId||'').replace(/\D/g,'');window.__dupId='';
+    if(!id)id=(prompt('¿Qué venta quieres duplicar? (ej. 493 o VTA-000493)')||'').replace(/\D/g,'');
+    if(!id)return;
+    id=String(parseInt(id,10));
+    const toast=document.createElement('div');
+    toast.style.cssText='position:fixed;z-index:99999;right:16px;bottom:16px;max-width:380px;padding:12px 16px;border-radius:10px;background:#111;color:#fff;font:13px/1.4 system-ui;box-shadow:0 4px 20px #0006;white-space:pre-line;cursor:pointer';
+    document.body.appendChild(toast);toast.onclick=()=>toast.remove();
+    const say=t=>(toast.textContent=t);
+    say('Leyendo venta '+id+'…');
+    try{
+      // Leer la venta original en un iframe oculto (misma sesión de la ERP)
+      const text=await new Promise((res,rej)=>{
+        const f=document.createElement('iframe');
+        f.style.cssText='position:fixed;left:-9999px;width:1200px;height:800px';
+        f.src=base+'/'+id;
+        f.onload=async()=>{await sleep(800);
+          try{const d=f.contentDocument;
+            if(!/\/admin\/sales\/\d+/.test(f.contentWindow.location.pathname))throw new Error('No se pudo abrir la venta '+id);
+            res((d.querySelector('main')||d.body).innerText);
+          }catch(e){rej(e);}finally{f.remove();}};
+        document.body.appendChild(f);
+      });
+      const after=l=>{const r=text.match(new RegExp('\\n'+l+'\\n([^\\n]+)'));return r?r[1].trim():'';};
+      const cliente=after('Cliente'),empresa=after('Empresa Vendedora');
+      const prodBlock=(text.split(/\nProductos\n/)[1]||'').split(/\nResumen\n/)[0]||'';
+      const items=prodBlock.split(/\nProducto\n/).slice(1).map(ch=>{
+        const g=l=>{const r=ch.match(new RegExp('(?:^|\\n)'+l+'\\n([^\\n]+)'));return r?r[1].trim():'';};
+        return{sku:g('SKU'),pedido:/pedido/i.test(g('Stock')),almacen:g('Almacén'),
+          cantidad:parseInt(g('Cantidad'),10)||1,precio:parseFloat(g('Precio Unitario').replace(/[^\d.]/g,''))||0};
+      }).filter(i=>i.sku);
+      if(!items.length)throw new Error('No encontré productos en la venta '+id);
+
+      const c=Livewire.find(formEl.getAttribute('wire:id'));
+      const keyOf=path=>{const s=[...document.querySelectorAll('[x-data]')].map(e=>e.getAttribute('x-data')).find(s=>s.includes("statePath: '"+path+"'"));
+        const m=(s||'').match(/callSchemaComponentMethod\(\s*'([^']+)'/);return m?m[1]:null;};
+      // Busca en el selector; si no busca en servidor, filtra su lista completa
+      const buscar=async(key,q)=>{if(!key||!q)return[];
+        let r=await c.call('callSchemaComponentMethod',key,'getSearchResultsForJs',{search:q});
+        if(!r||!r.length)r=(await c.call('callSchemaComponentMethod',key,'getOptionsForJs'))||[];
+        return r.filter(o=>o.label.toUpperCase().startsWith(q.toUpperCase()));};
+
+      say('Cliente y empresa…');
+      const notas=[];
+      const cli=(await buscar(keyOf('data.customer_id'),cliente))[0];
+      if(cli)await c.set('data.customer_id',cli.value);else notas.push('⚠ Cliente no encontrado: '+cliente);
+      const emp=(await buscar(keyOf('data.company_id'),empresa))[0];
+      if(emp)await c.set('data.company_id',emp.value);else notas.push('⚠ Empresa no encontrada: '+empresa);
+
+      const agregarPedido=async(it,cant)=>{
+        await c.call('mountAction','add_backorder',{},{table:true});
+        const opts=await c.call('callSchemaComponentMethod','mountedActionSchema0.product_variation_id','getSearchResultsForJs',{search:it.sku})||[];
+        const op=opts.find(o=>o.label.includes(it.sku))||opts[0];
+        if(!op){await c.call('unmountAction');notas.push('⚠ No encontré '+it.sku);return;}
+        c.set('mountedActions.0.data.product_variation_id',op.value,false);
+        c.set('mountedActions.0.data.quantity',cant,false);
+        c.set('mountedActions.0.data.unit_price',it.precio,false);
+        await c.call('callMountedAction');
+      };
+
+      for(let n=0;n<items.length;n++){const it=items[n];
+        say('Producto '+(n+1)+'/'+items.length+': '+it.sku);
+        if(it.pedido){await agregarPedido(it,it.cantidad);notas.push(it.sku+': a pedido (igual que la original)');continue;}
+        await c.set('tableSearch',it.sku);await sleep(300);
+        const rows=[...document.querySelectorAll('table tbody tr')].filter(r=>r.innerText.includes(it.sku)&&r.querySelector('button[aria-label="Agregar"]'));
+        rows.sort((a,b)=>b.innerText.includes(it.almacen)-a.innerText.includes(it.almacen)); // mismo almacén primero
+        let falta=it.cantidad;
+        for(const r of rows){if(falta<=0)break;
+          const m=(r.querySelector('button[aria-label="Agregar"]').getAttribute('wire:click')||'').match(/recordKey\\u0022:\\u0022([^\\]+)\\u0022/);
+          if(!m)continue;
+          const antes=Object.keys(c.get('data.items')||{});
+          await c.call('mountAction','add_to_quote',{},{table:true,recordKey:m[1]});
+          const nuevo=Object.keys(c.get('data.items')||{}).find(k=>!antes.includes(k));
+          if(!nuevo)continue;
+          const row=c.get('data.items.'+nuevo),tomar=Math.min(falta,row.available_quantity||1);
+          c.set('data.items.'+nuevo+'.quantity',tomar,false);
+          c.set('data.items.'+nuevo+'.unit_price',it.precio,false);
+          if(row.location_name&&row.location_name!==it.almacen)notas.push(it.sku+': sale de '+row.location_name+' (antes '+it.almacen+')');
+          falta-=tomar;}
+        if(falta>0){await agregarPedido(it,falta);notas.push(it.sku+': '+falta+' u. a pedido (sin stock)');}
+      }
+      await c.set('tableSearch','');
+      await c.$commit(); // refresca totales con los precios copiados
+      say('✔ Venta '+id+' copiada ('+items.length+' productos). Revisa y pulsa «Crear». No se ha guardado nada.'+(notas.length?'\n\n'+notas.join('\n'):''));
+    }catch(e){say('✖ Error: '+e.message);toast.style.background='#7f1d1d';}
+  };
+
+  if(!/^\/admin(\/|$)/.test(location.pathname)){alert('Abre la ERP (Ventas) y vuelve a pulsar «Duplicar Venta».');return;}
+  if(/\/admin\/sales\/create\/?$/.test(location.pathname)){await RUN();return;}
+  // Desde otra página de la ERP: abrir Nueva Cotización en otra pestaña y correr ahí
+  const m=location.pathname.match(/\/admin\/sales\/(\d+)/);
+  const w=window.open(location.origin+'/admin/sales/create','_blank');
+  if(!w){alert('El navegador bloqueó la pestaña nueva. Abre «Nueva Cotización» y pulsa el marcador ahí.');return;}
+  for(let i=0;i<200;i++){await new Promise(r=>setTimeout(r,100));
+    try{if(w.document.readyState==='complete'&&/\/admin\/sales\/create/.test(w.location.pathname)&&w.Livewire)break;}catch(e){}}
+  try{w.__dupId=m?m[1]:'';w.eval('('+RUN.toString()+')()');}
+  catch(e){alert('No pude llenar la pestaña nueva: '+e.message);}
+})();}
+function _dupMarcadorHref(){return 'javascript:'+encodeURIComponent(_dupMarcador.toString().replace(/^function _dupMarcador\(\)\{/,'').replace(/\}$/,''));}
+document.getElementById('dup-btn').href=_dupMarcadorHref();
+</script>
 </body>
 </html>

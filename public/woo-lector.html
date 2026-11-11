@@ -32,7 +32,7 @@ async function api(ep, body) {
   if (r.status === 401) throw new Error('Tu sesión del panel expiró. Vuelve a entrar al panel en este navegador.');
   if (!r.ok) throw new Error(j.error || ('Error ' + r.status)); return j;
 }
-const ST = { origen: '', links: [], lote: '', productos: [], pares: {}, actual: null, sel: null, res: {}, corriendo: false };
+const ST = { origen: '', links: [], lote: '', productos: [], pares: {}, actual: null, sel: null, res: {}, corriendo: false, ocFotos: false, ocDesc: false, ocLink: false };
 const pend = new Map(); let idN = 0;
 // Mensajes de la pestaña de la marca (solo de la ventana que abrió el lector)
 addEventListener('message', e => {
@@ -70,15 +70,18 @@ const linkDe = p => ST.pares[p.k] || p.url || '';
 const tiene = p => { const r = ST.res[p.k]; return r ? { fotos: r.fotos, descripcion: r.descripcion } : { fotos: p.fotos, descripcion: p.descripcion }; };
 const completo = p => { const t = tiene(p); return t.fotos > 0 && t.descripcion; };
 function chk(p) { const t = tiene(p); return `<span class="chip ${t.fotos ? 'si' : 'no'}">${t.fotos ? '✓' : '✗'} Fotos${t.fotos ? ' ' + t.fotos : ''}</span> <span class="chip ${t.descripcion ? 'si' : 'no'}">${t.descripcion ? '✓' : '✗'} Descripción</span>`; }
+// filas que se muestran (las ocultas no se marcan ni se traen)
+const visible = p => { const t = tiene(p); return !(ST.ocFotos && t.fotos > 0) && !(ST.ocDesc && t.descripcion) && !(ST.ocLink && !/^https?:\/\//.test(linkDe(p))); };
 function pintar() {
   const P = ST.productos;
   if (!ST.sel) ST.sel = new Set(ST.actual ? [ST.actual] : P.filter(p => ST.pares[p.k] && !completo(p)).map(p => p.k));
   $('#app').innerHTML = `<div class="card" style="margin:0 0 12px;border-color:var(--accent)"><b>Esta página</b> <span class="muted">${esc(ST.origen)}</span>
     <div class="row" style="margin-top:8px"><span>corresponde a</span><select id="unaProd" style="max-width:420px"><option value="">— elige el producto —</option>${P.map(p => `<option value="${p.k}" ${ST.actual === p.k ? 'selected' : ''}>${esc(p.nombre)}${p.sku ? ' · ' + esc(p.sku) : ''}</option>`).join('')}</select><button id="unaIr">Traer solo esta ficha</button></div></div>
   <p class="muted">${ST.nLinks} links en la página · <b>${Object.keys(ST.pares).length}</b> productos encontrados por código o nombre. Pega el link a mano en los que falten.</p>
-  <div class="row" style="margin:6px 0"><span class="muted">Marcar:</span><button class="sec" data-q="todos">Todos con link</button><button class="sec" data-q="ninguno">Ninguno</button><button class="sec" data-q="inc">Solo sin ficha</button></div>
+  <div class="row" style="margin:6px 0"><span class="muted">Marcar:</span><button class="sec" data-q="todos">Todos con link</button><button class="sec" data-q="sinfoto">Sin fotos</button><button class="sec" data-q="sindesc">Sin descripción</button><button class="sec" data-q="inc">Sin fotos o sin descripción</button><button class="sec" data-q="ninguno">Ninguno</button></div>
+  <div class="row" style="margin:0 0 6px"><span class="muted">Ocultar:</span><label><input type="checkbox" id="ocFotos" ${ST.ocFotos ? 'checked' : ''}> los que ya tienen fotos</label><label><input type="checkbox" id="ocDesc" ${ST.ocDesc ? 'checked' : ''}> los que ya tienen descripción</label><label><input type="checkbox" id="ocLink" ${ST.ocLink ? 'checked' : ''}> los sin link</label><span class="muted" id="nVis"></span></div>
   <div class="tbl"><table><thead><tr><th></th><th>Producto</th><th>Link en la web de la marca</th><th>Qué tiene</th></tr></thead><tbody>
-  ${P.map(p => `<tr><td><input type="checkbox" data-sel="${p.k}" ${ST.sel.has(p.k) ? 'checked' : ''}></td><td><b>${esc(p.nombre)}</b><br><span class="muted">${esc(p.sku)}</span></td>
+  ${P.filter(visible).map(p => `<tr><td><input type="checkbox" data-sel="${p.k}" ${ST.sel.has(p.k) ? 'checked' : ''}></td><td><b>${esc(p.nombre)}</b><br><span class="muted">${esc(p.sku)}</span></td>
     <td><input type="text" data-url="${p.k}" value="${esc(linkDe(p))}" placeholder="(sin link)"></td><td id="st-${p.k}">${chk(p)}</td></tr>`).join('')}
   </tbody></table></div>
   <div class="row" style="margin-top:10px"><button id="ir" ${ST.corriendo ? 'disabled' : ''}>Traer fichas marcadas</button><span id="prog" class="muted"></span></div>`;
@@ -86,22 +89,25 @@ function pintar() {
   $('#ir').onclick = traer;
   document.querySelectorAll('[data-sel]').forEach(c => c.onchange = () => { c.checked ? ST.sel.add(c.dataset.sel) : ST.sel.delete(c.dataset.sel); });
   document.querySelectorAll('[data-url]').forEach(i => i.onchange = () => { const v = i.value.trim(); if (v) { ST.pares[i.dataset.url] = v; ST.sel.add(i.dataset.url); } else delete ST.pares[i.dataset.url]; pintar(); });
-  document.querySelectorAll('[data-q]').forEach(b => b.onclick = () => { const q = b.dataset.q; ST.sel = new Set(q === 'ninguno' ? [] : P.filter(p => /^https?:\/\//.test(linkDe(p)) && (q === 'todos' || !completo(p))).map(p => p.k)); pintar(); });
+  const QF = { todos: () => true, inc: p => !completo(p), sinfoto: p => !(tiene(p).fotos > 0), sindesc: p => !tiene(p).descripcion };
+  document.querySelectorAll('[data-q]').forEach(b => b.onclick = () => { const q = b.dataset.q; ST.sel = new Set(q === 'ninguno' ? [] : P.filter(p => visible(p) && /^https?:\/\//.test(linkDe(p)) && QF[q](p)).map(p => p.k)); pintar(); });
+  for (const [id, k] of [['ocFotos', 'ocFotos'], ['ocDesc', 'ocDesc'], ['ocLink', 'ocLink']]) $('#' + id).onchange = e => { ST[k] = e.target.checked; ST.sel = new Set([...ST.sel].filter(x => visible(P.find(p => p.k === x)))); pintar(); };
+  $('#nVis').textContent = `· se ven ${P.filter(visible).length} de ${P.length}`;
 }
 async function traer() {
-  const lista = ST.productos.filter(p => ST.sel.has(p.k) && /^https?:\/\//.test(linkDe(p)));
+  const lista = ST.productos.filter(p => ST.sel.has(p.k) && visible(p) && /^https?:\/\//.test(linkDe(p)));
   if (!lista.length) { $('#prog').textContent = 'Marca al menos un producto con link.'; return; }
-  ST.corriendo = true; $('#ir').disabled = true; let ok = 0;
+  ST.corriendo = true; $('#ir').disabled = true; let ok = 0; const cache = new Map(); // varias tallas comparten la misma página
   for (const [i, p] of lista.entries()) {
     const u = linkDe(p); $('#prog').textContent = `${i + 1} de ${lista.length}: ${p.nombre}…`;
     const c = document.getElementById('st-' + p.k); if (c) c.innerHTML = '<span class="muted">leyendo…</span>';
-    const d = await leer(u); let txt, cls;
+    const d = cache.get(u) || await leer(u); if (!d.error) cache.set(u, d); let txt, cls;
     if (d.error) { txt = d.error; cls = 'err'; }
     else {
       try {
-        const r = await api(`/admin/woo-creador/lote/${ST.lote}/ficha`, { k: p.k, url: u, imgs: d.imgs, texto: d.texto }); ok++;
+        const r = await api(`/admin/woo-creador/lote/${ST.lote}/ficha`, { k: p.k, url: u, imgs: d.imgs, texto: d.texto, html: d.html }); ok++;
         const pr = r.producto || {}; ST.res[p.k] = { fotos: (pr.imagenes || []).length, descripcion: !!String(pr.descripcion_html || '').replace(/<[^>]+>/g, '').trim() };
-        ST.sel.delete(p.k); txt = r.ia ? 'Guardada' : 'Guardada sin IA' + (r.ia_error ? ' (' + r.ia_error + ')' : ''); cls = r.ia ? 'ok' : 'warn';
+        ST.sel.delete(p.k); txt = r.ia ? 'Guardada' : 'Guardada sin IA' + (/cuota/i.test(r.ia_error || '') ? ' (sin cuota de Gemini)' : /apagada/i.test(r.ia_error || '') ? '' : ''); cls = r.ia ? 'ok' : 'warn';
       } catch (err) { txt = err.message; cls = 'err'; }
     }
     if (c) c.innerHTML = `<span class="${cls}">${esc(txt)}</span><br>${chk(p)}`;

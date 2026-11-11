@@ -146,7 +146,9 @@ function htmlATexto(html) {
 // ── IA (Gemini) ───────────────────────────────────────────────────────────────
 // Prueba el modelo configurado, el que funcionó la última vez y los «flash» que la clave tiene disponibles.
 // Devuelve el texto, o '' y deja el motivo en ultimoError().
-let ultimoErrorIA = '', modeloOk = '', modelos = { t: 0, lista: [] };
+let ultimoErrorIA = '', modeloOk = '', modelos = { t: 0, lista: [] }, sinCuotaHasta = 0;
+const RE_CUOTA = /quota|exceeded|billing|RESOURCE_EXHAUSTED/i;
+const horaLima = t => new Date(t).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Lima' });
 async function modelosDisponibles(key) {
   if (Date.now() - modelos.t < 6 * 3600e3 && modelos.lista.length) return modelos.lista;
   try {
@@ -160,9 +162,11 @@ async function modelosDisponibles(key) {
 }
 async function llamarGemini(prompt, temperatura = 0.2, espera = 40000) {
   const key = process.env.GEMINI_API_KEY; if (!key) { ultimoErrorIA = 'Falta GEMINI_API_KEY'; return ''; }
+  // sin cuota: no se vuelve a intentar por 15 min (cada intento tarda y gasta)
+  if (Date.now() < sinCuotaHasta) { ultimoErrorIA = `Sin cuota de Gemini (se reintenta a las ${horaLima(sinCuotaHasta)})`; return ''; }
   const limpio = m => String(m || '').replace(/^models\//, '').replace(/[^a-zA-Z0-9.\-]/g, '');
   const cola = [process.env.WOO_GEMINI_MODEL, modeloOk, ...(await modelosDisponibles(key)).slice(0, 5)].map(limpio).filter(Boolean);
-  const probados = new Set(), reintentos = {}, errores = [];
+  const probados = new Set(), reintentos = {}, errores = []; let cuota = 0;
   while (cola.length && probados.size < 6) {
     const mdl = cola.shift(); if (probados.has(mdl)) continue; probados.add(mdl);
     try {
@@ -173,6 +177,7 @@ async function llamarGemini(prompt, temperatura = 0.2, espera = 40000) {
       const j = await g.json().catch(() => ({}));
       if (!g.ok || j.error) {
         const msg = (j.error && j.error.message) || 'HTTP ' + g.status;
+        if (RE_CUOTA.test(msg)) { cuota++; errores.push(`${mdl}: sin cuota`); continue; } // sin cuota: no sirve reintentar ese modelo
         // saturado: espera y reintenta el mismo modelo hasta 2 veces
         if ((g.status === 429 || g.status === 503 || /overload|exhausted|try again|high demand/i.test(msg)) && (reintentos[mdl] || 0) < 2) {
           reintentos[mdl] = (reintentos[mdl] || 0) + 1; probados.delete(mdl); cola.unshift(mdl);
@@ -187,7 +192,8 @@ async function llamarGemini(prompt, temperatura = 0.2, espera = 40000) {
       errores.push(`${mdl}: respuesta vacía`);
     } catch (e) { errores.push(`${mdl}: ${e.name === 'AbortError' ? 'tardó demasiado' : e.message}`.slice(0, 120)); }
   }
-  ultimoErrorIA = (errores.length ? 'IA sin respuesta · ' + errores.join(' · ') : 'No hay modelos de Gemini disponibles para la clave').slice(0, 600);
+  if (cuota && cuota === errores.length) { sinCuotaHasta = Date.now() + 15 * 60e3; ultimoErrorIA = `Sin cuota de Gemini (se reintenta a las ${horaLima(sinCuotaHasta)})`; return ''; }
+  ultimoErrorIA = (errores.length ? 'IA sin respuesta · ' + errores.join(' · ') : 'No hay modelos de Gemini disponibles para la clave').slice(0, 300);
   return '';
 }
 

@@ -344,6 +344,7 @@ function traducir(texto, trad) {
 const COLORES = new Set(['negro', 'blanco', 'rojo', 'azul', 'azul marino', 'verde', 'gris', 'amarillo', 'naranja', 'rosado', 'morado', 'marron', 'plateado', 'dorado', 'transparente', 'verde oliva', 'camuflado',
   'black', 'white', 'red', 'blue', 'navy', 'green', 'grey', 'gray', 'yellow', 'orange', 'pink', 'purple', 'brown', 'silver', 'gold', 'clear', 'olive', 'camo']);
 const RE_VAR = [
+  { attr: 'Talla', re: /(^|[^\w.])(\d{2}(?:[.,]5)?)\s?(?:EUR|EU)\b\.?/i, val: m => m[2].replace(',', '.') }, // zapatillas: «43 EUR»
   { attr: 'Medida', re: /(^|[^\w.])(\d{2,4}(?:[.,]\d+)?)\s?mm\b/i, val: m => m[2].replace(',', '.') + ' mm' },
   { attr: 'Dientes', re: /(^|[^\w.])(\d{2})\s?(?:t|dientes|teeth)\b/i, val: m => m[2] + 'T' },
   { attr: 'Talla', re: /(^|[^\w/])(?:talla|size|sz)?\s*(XXS|XS|S\/M|M\/L|L\/XL|XXXL|XXL|2XL|3XL|XL|S|M|L)(?=$|[^\w/])/, val: m => m[2].toUpperCase() }
@@ -351,7 +352,7 @@ const RE_VAR = [
 // solo = lista de atributos a sacar (todos si no se indica). Devuelve los valores y el texto sin ellos.
 function variantesEnNombre(texto, solo) {
   const out = {}; let base = String(texto || '');
-  for (const r of RE_VAR) { if (solo && !solo.includes(r.attr)) continue; const m = base.match(r.re); if (m) { out[r.attr] = r.val(m); base = base.replace(m[0], m[1] + ' '); } }
+  for (const r of RE_VAR) { if ((solo && !solo.includes(r.attr)) || out[r.attr]) continue; const m = base.match(r.re); if (m) { out[r.attr] = r.val(m); base = base.replace(m[0], m[1] + ' '); } }
   if (!solo || solo.includes('Color')) {
     const ws = base.split(/\s+/);
     for (let n = 2; n >= 1 && !out.Color; n--) for (let i = 0; i + n <= ws.length && !out.Color; i++) {
@@ -584,15 +585,42 @@ function promptFicha(p, texto, fotos) {
  "resumen": "2 a 4 frases en español neutro para vender, sin inventar nada que no esté en el texto",
  "especificaciones": [{"k": "Modelo", "v": "…"}],
  "peso_kg": 0.25,
- "fotos": [0, 3],
+ "fotos": [0, 3, 5],
  "descripcion_precisa": "modelo y specs que lo distinguen, sin marca ni tipo (solo si el texto lo precisa mejor que el nombre actual; si no, \"\")"}
 · "es_el_producto": false si la página es de otro producto o es un listado.
 · "especificaciones": hasta 12 filas cortas en español (Modelo, Medida, Material, Compatibilidad, Peso, Contenido, Part Number…).
-· "fotos": índices de la lista de FOTOS que muestran ESTE producto (máx. 8, la principal primero). [] si no sabes.
+· "fotos": índices de la lista de FOTOS que muestran ESTE modelo, en todos sus colores (máx. 24, la principal primero). [] si no sabes.
 FOTOS:
 ${fotos.map((u, i) => `${i}: ${u.split('?')[0].split('/').slice(-2).join('/')}`).join('\n') || '(ninguna)'}
 TEXTO:
 ${texto}`;
+}
+// Sin IA: la descripción oficial de la página (JSON-LD / meta) o, si no hay, los párrafos del texto,
+// y las especificaciones escritas como «Clave: valor» o en tablas.
+const BASURA = /cookie|privacidad|privacy|newsletter|suscr|copyright|©|derechos reservados|carrito|cart|login|iniciar sesi|env[ií]o gratis|javascript|navegador|browser/i;
+function fichaSinIA(p, texto, desc0) {
+  const lineas = String(texto || '').split(/\n/).map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  // zona del producto: desde donde aparece el modelo o el código
+  const claves = [p.descripcion, ...(p.variantes || []).map(v => v.sku)].map(x => String(x || '').split(' ')[0]).filter(x => x.length > 3).map(x => x.toLowerCase());
+  let i0 = lineas.findIndex(l => claves.some(c => l.toLowerCase().includes(c))); if (i0 < 0) i0 = 0;
+  const zona = lineas.slice(i0, i0 + 250);
+  let resumen = String(desc0 || '').trim();
+  if (resumen.length < 60) {
+    const parr = zona.filter(l => l.length >= 70 && l.length <= 900 && /[.!]/.test(l) && !BASURA.test(l) && !/\t/.test(l));
+    resumen = parr.slice(0, 2).join(' ');
+  }
+  const specs = [], vistas = new Set();
+  for (const l of zona) {
+    const m = l.match(/^([^:\t]{2,40}?)\s*(?::|\t)\s*([^\t]{1,140})$/);
+    if (!m || BASURA.test(l) || /^https?$/i.test(m[1])) continue;
+    const k = m[1].trim(), v = m[2].trim().replace(/\t/g, ' ');
+    if (!/[a-záéíóúñ]/i.test(k) || vistas.has(k.toLowerCase()) || v.length < 1) continue;
+    vistas.add(k.toLowerCase()); specs.push({ k, v });
+    if (specs.length >= 14) break;
+  }
+  // primer número con su unidad: «290 g (talla 42)» → 0.29 · «1,2 kg» → 1.2
+  const peso = (() => { const s = specs.find(x => /^(peso|weight)/i.test(x.k)); if (!s) return ''; const m = s.v.match(/(\d+(?:[.,]\d+)?)\s*(kg|g|gr|grs|gramos)?\b/i); if (!m) return ''; const n = parseFloat(m[1].replace(',', '.')); return n > 0 ? (/^kg$/i.test(m[2] || '') || (!m[2] && n < 30) ? n : n / 1000) : ''; })();
+  return { html: htmlDescripcion(txt(resumen, 900), specs), peso: peso > 0 && peso < 40 ? Math.round(peso * 1000) / 1000 : '' };
 }
 // Descripción en el mismo HTML que usan los productos actuales (párrafo + «Especificaciones:» en lista)
 function htmlDescripcion(resumen, specs) {
@@ -611,12 +639,57 @@ async function fichaDeTexto(p, url, texto, imgs) {
   const i0 = clave ? Math.max(0, t.indexOf(clave) - 2500) : Math.min(2500, t.length / 5);
   const trozo = t.slice(i0, i0 + 12000);
   const r = leerJSON(await llamarGemini(promptFicha(p, trozo, fotos), 0.2, 60000));
-  if (!r || typeof r !== 'object') return { ok: false, error: errorIA() || 'La IA no respondió', fotos: fotos.slice(0, 8) };
+  if (!r || typeof r !== 'object') return { ok: false, error: errorIA() || 'La IA no respondió', pool: fotos };
   if (r.es_el_producto === false) return { ok: false, error: 'La página no parece ser de este producto', fotos: [] };
   const idx = (Array.isArray(r.fotos) ? r.fotos : []).map(Number).filter(i => Number.isInteger(i) && fotos[i]);
   return { ok: true, html: htmlDescripcion(txt(r.resumen, 900), (Array.isArray(r.especificaciones) ? r.especificaciones : []).slice(0, 14)),
-    fotos: (idx.length ? idx.map(i => fotos[i]) : fotos).slice(0, 8), peso: num(r.peso_kg) > 0 && num(r.peso_kg) < 40 ? Math.round(num(r.peso_kg) * 1000) / 1000 : '',
+    pool: idx.length ? idx.map(i => fotos[i]) : fotos, peso: num(r.peso_kg) > 0 && num(r.peso_kg) < 40 ? Math.round(num(r.peso_kg) * 1000) / 1000 : '',
     descripcion_precisa: txt(r.descripcion_precisa, 160) };
+}
+
+// ── Fotos de cada color ───────────────────────────────────────────────────────
+// La página de la marca suele mostrar todos los colores juntos. Se eligen las fotos del color:
+//  1) por el código del SKU dentro del archivo de la foto (ESHRX801MCL01… → …ESHRX801MCL01_1.png)
+//  2) por el color escrito en el archivo (Negro ↔ black, con tus traducciones)
+// Si nada distingue a unas fotos de otras, se quedan todas.
+function colorDe(p, v) {
+  const a = Object.entries((v || {}).attrs || {}).find(([k]) => /^(color|colour|acabado)$/i.test(k));
+  return a ? a[1] : (variantesEnNombre(p.descripcion, ['Color']).attrs.Color || variantesEnNombre(p.info, ['Color']).attrs.Color || '');
+}
+function terminosColor(color, trad) {
+  const c = norm(color); if (!c) return [];
+  const t = new Set([c]);
+  for (const x of trad || []) { if (norm(x.a) === c) t.add(norm(x.de)); if (norm(x.de) === c) t.add(norm(x.a)); }
+  return [...t].filter(x => x.length >= 3);
+}
+// minúsculas y separadores como «_», igual para el archivo y el SKU (27162-001-M ↔ 27162_001_blk.jpg)
+const plano_ = x => String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+const archivo = u => { let x = String(u).split('?')[0].split('/').slice(-2).join('/'); try { x = decodeURIComponent(x); } catch (e) {} return plano_(x); };
+function fotosDelColor(fotos, color, skus, trad) {
+  if (fotos.length < 2) return fotos;
+  const F = fotos.map(u => ({ u, n: archivo(u) }));
+  const parte = l => l.length && l.length < F.length;
+  for (const sku of [...new Set((skus || []).map(plano_))].filter(x => x.length >= 6)) {
+    for (let n = sku.length; n >= 6; n--) {
+      const pre = sku.slice(0, n); if (!/[a-z0-9]$/.test(pre)) continue;
+      const re = new RegExp(pre + '(?![a-z0-9])'); // el código termina donde termina en el archivo (…MCL01_side, no …MCL01S)
+      const l = F.filter(x => re.test(x.n));
+      if (l.length) { if (parte(l)) return l.map(x => x.u); break; } // el código más largo que aparece; si está en todas, no distingue
+    }
+  }
+  const ts = terminosColor(color, trad);
+  if (ts.length) { const l = F.filter(x => ts.some(t => norm(x.n).includes(t))); if (parte(l)) return l.map(x => x.u); }
+  return fotos;
+}
+// Reparte las fotos leídas: un solo color → las de ese color al producto;
+// varios colores → todas al producto y a cada variante las de su color.
+function asignarFotos(p, pool, trad) {
+  if (!pool.length) return;
+  const colores = new Set(p.variantes.map(v => norm(colorDe(p, v))).filter(Boolean));
+  if (colores.size > 1) {
+    p.imagenes = pool.slice(0, 10);
+    for (const v of p.variantes) { const f = fotosDelColor(pool, colorDe(p, v), [v.sku], trad); v.imagenes = f.length < pool.length ? f.slice(0, 8) : []; }
+  } else p.imagenes = fotosDelColor(pool, colorDe(p, p.variantes[0]), p.variantes.map(v => v.sku), trad).slice(0, 8);
 }
 
 // ── Filas para la plantilla (mismo formato que el exportador del ERP) ────────
@@ -976,6 +1049,7 @@ costo = precio de compra/dealer/neto; pvp = precio de venta al público sugerido
             if (!p.nombre_manual) { p.descripcion = limpiarSeg(traducir(p.descripcion, ctx.trad)); p.info = limpiarSeg(traducir(p.info, ctx.trad)); }
             p.variantes.forEach(v => { for (const a of Object.keys(v.attrs || {})) v.attrs[a] = traducir(v.attrs[a], ctx.trad); });
           }
+          if (c.marca_masiva) { p.marca = marcaCanonica(c.marca_masiva, ctx); p.nombre_manual = true; p.sin_ia = false; }
           if (c.tipo_masivo) { p.tipo = txt(c.tipo_masivo, 40); p.nombre_manual = true; p.sin_ia = false; if (p.cat_fuente !== 'manual') aplicarCategoria(p, ctx); }
           if (Array.isArray(c.variantes)) for (const cv of c.variantes) {
             const v = p.variantes.find(x => x.k === cv.k);
@@ -991,6 +1065,27 @@ costo = precio de compra/dealer/neto; pvp = precio de venta al público sugerido
           }
           // separar una variante como producto aparte
           if (c.separar) { const v = p.variantes.find(x => x.k === c.separar); if (v && p.variantes.length > 1) { p.variantes = p.variantes.filter(x => x !== v); const n = { ...JSON.parse(JSON.stringify(p)), k: nuevaK(), variantes: [{ ...v }] }; n.variantes[0].k = n.k + 'v0'; L.productos.splice(L.productos.indexOf(p) + 1, 0, n); } }
+        }
+        // reagrupar: entre los marcados, los que solo cambian en talla / medida / color escritas en el nombre
+        // pasan a ser un producto con variantes (se conserva la ficha y la categoría del primero)
+        if (Array.isArray(b.reagrupar) && b.reagrupar.length > 1) {
+          const ps = b.reagrupar.map(k => L.productos.find(p => p.k === k)).filter(Boolean);
+          const filas = ps.flatMap(p => p.variantes.map(v => ({ marca: p.marca, tipo: p.tipo, info: p.info, descripcion: p.descripcion, attrs: { ...(v.attrs || {}) }, _p: p, _v: v })));
+          variantesSinIA(filas, ctx.trad);
+          const grupos = new Map();
+          for (const f of filas) { const k = [f.marca, f.tipo, f.descripcion, f.info].map(norm).join('|'); if (!grupos.has(k)) grupos.set(k, []); grupos.get(k).push(f); }
+          for (const g of grupos.values()) {
+            const prods = [...new Set(g.map(f => f._p))];
+            if (prods.length < 2) continue;
+            const dest = prods.find(p => (p.imagenes || []).length) || prods[0];
+            dest.descripcion = g[0].descripcion; dest.nombre_manual = true; dest.sin_ia = false;
+            dest.variantes = g.map((f, i) => ({ ...f._v, attrs: f.attrs, k: dest.k + 'r' + i + Date.now().toString(36) }));
+            for (const p of prods) if (p !== dest) {
+              if (!String(dest.descripcion_html || '').replace(/<[^>]+>/g, '').trim() && p.descripcion_html) dest.descripcion_html = p.descripcion_html;
+              if (!dest.url && p.url) dest.url = p.url;
+              L.productos = L.productos.filter(x => x !== p);
+            }
+          }
         }
         // unir productos (ej. la IA dejó dos colores como productos distintos)
         if (Array.isArray(b.unir) && b.unir.length > 1) {
@@ -1044,6 +1139,10 @@ costo = precio de compra/dealer/neto; pvp = precio de venta al público sugerido
       const L0 = await leerLote(id); const p0 = L0.productos.find(p => p.k === b.k);
       if (!p0) return res.status(404).json({ error: 'Ese producto ya no está en el lote' });
       let texto = String(b.texto || ''), imgs = Array.isArray(b.imgs) ? b.imgs : null, desc0 = '';
+      if (b.html) { // el Lector nuevo manda también el HTML: descripción oficial (JSON-LD / meta) y más fotos
+        const f = fichaDeHtml(String(b.html).slice(0, 3e6), url); desc0 = f.descripcion || '';
+        imgs = [...(imgs || []), ...(f.imagenes || [])];
+      }
       if (!texto) {
         const { html, url: final } = await leerPagina(url);
         const f = fichaDeHtml(html, final);
@@ -1051,15 +1150,21 @@ costo = precio de compra/dealer/neto; pvp = precio de venta al público sugerido
         imgs = [...(f.imagenes || []), ...[...html.matchAll(/\b(?:data-src|data-lazy-src|src)=["']([^"']+\.(?:jpe?g|png|webp)[^"']*)["']/gi)].map(m => { try { return new URL(m[1], final).href; } catch (e) { return null; } }).filter(Boolean)];
       }
       if (texto.length < 200 && !(imgs || []).length) throw new Error('La página no trajo texto ni fotos' + (b.texto ? '' : '. Si la marca bloquea al portal, usa el Lector Woo Kuranko desde tu navegador.'));
-      let r = process.env.GEMINI_API_KEY ? await fichaDeTexto(p0, url, texto, imgs) : { ok: false, error: 'Sin IA (falta GEMINI_API_KEY)' };
+      const usarIA = !!process.env.GEMINI_API_KEY && L0.opciones.usar_ia !== false;
+      let r = usarIA ? await fichaDeTexto(p0, url, texto, imgs) : { ok: false, error: process.env.GEMINI_API_KEY ? 'IA apagada en este lote' : 'Sin IA (falta GEMINI_API_KEY)' };
       if (!r.ok && /no parece/.test(r.error || '')) return res.status(422).json({ error: r.error });
-      if (!r.ok) r = { ...r, html: desc0 ? `<p>${escHtml(desc0)}</p>` : '', fotos: r.fotos && r.fotos.length ? r.fotos : elegirImagenes((imgs || []).filter(u => !EXCLUIR_IMG.test(u)), url).slice(0, 8) };
+      if (!r.ok) {
+        const s = fichaSinIA(p0, texto, desc0);
+        const cand = [...new Set((imgs || []).map(String).filter(u => /^https?:\/\//i.test(u) && !EXCLUIR_IMG.test(u)))];
+        let pool = elegirImagenes(cand, url); if (pool.length < 2) pool = cand;
+        r = { ...r, html: s.html, peso: s.peso, pool: r.pool && r.pool.length ? r.pool : pool.slice(0, 40) };
+      }
       const out = await enCola(id, async () => {
         const L = await leerLote(id); const ctx = await contexto();
         const p = L.productos.find(x => x.k === b.k); if (!p) throw Object.assign(new Error('Ese producto ya no está en el lote'), { status: 404 });
         p.url = url;
         if (r.html) p.descripcion_html = r.html;
-        if ((r.fotos || []).length) p.imagenes = r.fotos;
+        asignarFotos(p, r.pool || [], ctx.trad);
         if (r.peso && !p.peso) p.peso = r.peso;
         if (r.descripcion_precisa && !p.nombre_manual && norm(r.descripcion_precisa) !== norm(p.descripcion)) p.descripcion_sugerida = r.descripcion_precisa;
         p.ficha = { fecha: new Date().toISOString(), ia: !!r.ok, fuente: b.texto ? 'lector' : 'servidor', error: r.ok ? '' : r.error };
@@ -1096,5 +1201,5 @@ costo = precio de compra/dealer/neto; pvp = precio de venta al público sugerido
   });
 };
 
-module.exports._test = { TRAD_BASE, leerTraducciones, traducir, variantesEnNombre, variantesSinIA, CAMPOS, rutasCategorias, segmentos, aprender, elegirCategoria, porPalabras, armarNombre, textoVariante, nombreSinIA, nombrarFila, limpiarFilas, agrupar,
+module.exports._test = { colorDe, fotosDelColor, asignarFotos, fichaSinIA, TRAD_BASE, leerTraducciones, traducir, variantesEnNombre, variantesSinIA, CAMPOS, rutasCategorias, segmentos, aprender, elegirCategoria, porPalabras, armarNombre, textoVariante, nombreSinIA, nombrarFila, limpiarFilas, agrupar,
   revisar, precioVenta, opcionesLimpias, redondear, filasExcel, skuPadre, emparejar, htmlDescripcion, aplicarCategoria, nivelMax };

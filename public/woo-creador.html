@@ -215,7 +215,6 @@ const OPC_HTML = (op, pre) => `
   <label class="campo">Margen %<input data-op="margen" type="number" value="${op.margen}" style="width:80px"></label>
   <label class="campo">Redondeo<select data-op="redondeo">${[['0.1', 'S/ 0.10'], ['1', 'S/ 1'], ['5', 'S/ 5'], ['10', 'S/ 10'], ['9', 'Terminar en 9']].map(([v, t]) => `<option value="${v}" ${String(op.redondeo) === v ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
   <label class="chk"><input type="checkbox" data-op="publicado" ${op.publicado ? 'checked' : ''}> Publicar al importar (si no, borrador)</label>
-  <label class="chk"><input type="checkbox" data-op="a_pedido" ${op.a_pedido ? 'checked' : ''}> Agregar «Disponible A pedido»</label>
   <label class="chk" title="${CTX && !CTX.ia ? 'Falta GEMINI_API_KEY en el servidor' : 'Sin IA se arma con tus traducciones y lo aprendido del catálogo'}"><input type="checkbox" data-op="usar_ia" ${op.usar_ia !== false && CTX && CTX.ia ? 'checked' : ''} ${CTX && !CTX.ia ? 'disabled' : ''}> Usar IA para nombres y categorías</label>`;
 const leerOpc = cont => { const o = {}; cont.querySelectorAll('[data-op]').forEach(x => { o[x.dataset.op] = x.type === 'checkbox' ? x.checked : x.type === 'number' ? +x.value : x.value; }); return o; };
 function pintarImp() {
@@ -344,7 +343,7 @@ function pintarLote() {
   </div>
   <div class="card">
     <h3>Excel para WooCommerce</h3>
-    <div class="desc">Tu plantilla con los datos en la pestaña <b>Sistema</b> (las fórmulas de «Para woocommerce» se recalculan al abrir). Simple → 1 fila; con variantes → fila padre + una por variante. Productos a pedido: inventario 0 y reservas «notify».</div>
+    <div class="desc">Tu plantilla con los datos en la pestaña <b>Sistema</b> (las fórmulas de «Para woocommerce» se recalculan al abrir). Simple → 1 fila; con variantes → fila padre + una por variante. Sin categorías de estado (Disponible A pedido, etc.); inventario 0 y reservas «notify».</div>
     <div class="fila">
       <label class="chk"><input type="checkbox" id="xSolo"> Solo los marcados</label>
       <label class="chk"><input type="checkbox" id="xAlertas"> Incluir productos con alertas críticas</label>

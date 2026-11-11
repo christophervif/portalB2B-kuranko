@@ -76,6 +76,8 @@ const CAMPOS = {
   notas: ['notas', 'notes', 'nota', 'comentario', 'comments', 'bemerkung', 'observaciones']
 };
 
+// Al exportar no van categorías de estado (el stock y las reservas ya lo indican)
+const CAT_ESTADO_EXPORT = /^(disponible\s*a\s*pedido|a\s*pedido|bajo\s*pedido|por\s*encargo|pre-?venta|pr[oó]ximamente(\s*en\s*llegar)?|rebajas|ofertas?|outlet|nuevo|novedades|uncategorized|sin\s*categor[ií]a)$/i;
 // Categorías que en realidad son etiquetas o estados (no se eligen como categoría del producto)
 const CATS_ESTADO = /^(rebajas|disponible a pedido|proximamente en llegar|uncategorized|sin categoria|marketplace|ofertas?|outlet|nuevo|novedades)$/i;
 const CAT_A_PEDIDO = 'Disponible A pedido';
@@ -221,18 +223,46 @@ function elegirCategoria(p, ctx, ia) {
 const limpiarSeg = s => String(s == null ? '' : s).replace(/\s+-\s+/g, ' ').replace(/\s*[–—]\s*/g, ' ').replace(/\s+/g, ' ').replace(/^[\s,;.\-]+|[\s,;\-]+$/g, '').trim();
 function textoVariante(attrs) {
   return Object.entries(attrs || {}).filter(([, v]) => String(v || '').trim()).sort((a, b) => ordenAttr(a[0]) - ordenAttr(b[0]))
-    .map(([k, v]) => /^tallas?$/i.test(k) && !/^talla/i.test(String(v)) ? `Talla ${String(v).trim()}` : String(v).trim()).join(' - ');
+    .map(([k, v]) => /^tallas?$/i.test(k) && !/^talla/i.test(String(v)) ? `Talla ${String(v).trim()}` : estilo(String(v).trim())).join(' - ');
 }
 // Marca como la escribimos en el catálogo (Sram/SRAM: la forma más usada)
-const marcaCanonica = (m, ctx) => (ctx && ctx.marcas[norm(m)]) || txt(m, 60);
+// Marca sin la línea de producto de la lista («SHIMANO SOFTGOODS» → Shimano)
+const SUFIJO_MARCA = /\s+(soft\s*goods?|softgoods?|apparel|components?|componentes|accesorios|accessories|footwear|calzado|clothing|ropa|parts|bikes?|cycling|ciclismo|division|div\.?|europe|usa|inc\.?|ltd\.?|s\.?a\.?c?\.?|gmbh)$/i;
+const quitarSufijoMarca = m => { let x = String(m || '').trim(), prev; do { prev = x; x = x.replace(SUFIJO_MARCA, '').trim(); } while (x !== prev && x); return x || String(m || '').trim(); };
+const marcaCanonica = (m, ctx) => { const b = quitarSufijoMarca(m); return (ctx && (ctx.marcas[norm(b)] || ctx.marcas[norm(m)])) || estilo(txt(b, 60), true); };
+
+// ── Mayúsculas: los nombres en estilo título, los códigos en mayúsculas ──
+// Se aplica solo a segmentos escritos casi todo en MAYÚSCULAS (como vienen de las listas);
+// lo que ya está en mayúsculas y minúsculas se respeta.
+const SIGLAS = new Set(['xt', 'xtr', 'slx', 'grx', 'gs', 'sgs', 'ss', 'di2', 'mtb', 'boa', 'eur', 'ust', 'tr', 'tlr', 'exo', 'dd', 'cl', 'is', 'pm', 'bb', 'hg', 'ms', 'led', 'usb', 'gps', 'co2', 'xc', 'dh', 'am', 'emtb', 'ep8', 'ep6', 'gx', 'nx', 'sx', 'xx', 'xx1', 'x01', 'axs', 'udh', 'dub', 'xd', 'cx', 'rd', 'fd', 'st', 'br', 'bl', 'sm', 'sh', 'wh', 'cs', 'cn', 'fc', 'pd', 'rt', 'hb', 'fh', 'sp', 'ii', 'iii', 'iv', 'pro', 'kg', 'xs', 's', 'm', 'l', 'xl', 'xxl', 'xxxl', 'ml', 'l/xl', 's/m', 'm/l', 'e-bike', 'ebike', 'tpu', 'abs', 'pvc', 'cnc', 'n/a', 'ar', 'bmx', 'eps', 'mips', 'spf', 'uv', 'dpi', 'rpm', 'kmh', 'cm', 'mm', 'oz', 'lb']);
+const MINUS = new Set(['de', 'del', 'la', 'las', 'el', 'los', 'y', 'e', 'o', 'u', 'a', 'al', 'en', 'con', 'sin', 'para', 'por', 'x', 'of', 'and', 'the', 'for', 'with']);
+const UNIDADES = { mm: 'mm', cm: 'cm', kg: 'kg', g: 'g', gr: 'g', ml: 'ml', v: 'V', t: 'T', d: 'D' };
+function estiloPalabra(w, i) {
+  if (!/[a-záéíóúñü]/i.test(w)) return w;
+  const low = w.toLowerCase();
+  // con números: código (CS-M8000, 11V, 46D, 29x2.40) → mayúsculas; medida con unidad (180MM → 180mm)
+  if (/\d/.test(w)) { const m = w.match(/^(\d+(?:[.,]\d+)?)(mm|cm|kg|g|gr|ml)$/i); return m ? m[1] + UNIDADES[m[2].toLowerCase()] : w.toUpperCase(); }
+  if (/^[a-z]{1,4}-[a-z0-9]/i.test(w) || SIGLAS.has(low)) return w.toUpperCase();      // RD-R8000, SH-RX801, GS
+  if (!/[aeiouáéíóú]/i.test(w) && w.length <= 4) return w.toUpperCase();              // siglas sin vocales (BB, RPM)
+  if (i > 0 && MINUS.has(low)) return low;
+  return low.charAt(0).toUpperCase() + low.slice(1);
+}
+function estilo(seg, forzar) {
+  const t = String(seg || '');
+  const letras = t.replace(/[^a-záéíóúñü]/gi, ''); if (!letras) return t;
+  const mayus = letras.replace(/[^A-ZÁÉÍÓÚÑÜ]/g, '').length / letras.length;
+  if (!forzar && mayus < 0.7) return t; // ya tiene mayúsculas y minúsculas: se respeta
+  return t.split(/(\s+|\/(?=[a-z]{3,}))/i).map((w, i) => /^\s+$/.test(w) ? w : w.split(/(\(|\))/).map(x => estiloPalabra(x, i)).join('')).join('');
+}
 function armarNombre(p, variante = '') {
-  const marca = limpiarSeg(p.marca);
-  let desc = limpiarSeg(p.descripcion);
+  const marca = limpiarSeg(estilo(quitarSufijoMarca(p.marca), true));
+  let desc = limpiarSeg(estilo(p.descripcion));
   // sin repetir la marca ni el tipo al inicio de la descripción
   for (const x of [p.marca, p.tipo]) { const re = new RegExp('^' + String(x || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b\\s*', 'i'); if (x) desc = desc.replace(re, '').trim(); }
-  const tipo = limpiarSeg(p.tipo);
-  const vari = String(variante || '').split(/\s+-\s+/).map(limpiarSeg).filter(Boolean); // la variante puede traer varias partes («Negro - Talla M»)
-  return [marca, tipo ? tipo.charAt(0).toUpperCase() + tipo.slice(1) : '', desc, limpiarSeg(p.info), ...vari].filter(Boolean).join(' - ').slice(0, 240);
+  const tipo = limpiarSeg(estilo(p.tipo));
+  const yaEsta = x => new RegExp('(^|\\s)' + x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(\\s|$)', 'i').test(desc + ' ' + (p.info || ''));
+  const vari = String(variante || '').split(/\s+-\s+/).map(x => limpiarSeg(estilo(x))).filter(x => x && !yaEsta(x)); // varias partes («Negro - Talla M»); sin repetir lo que ya dice el nombre
+  return [marca, tipo ? tipo.charAt(0).toUpperCase() + tipo.slice(1) : '', desc, limpiarSeg(estilo(p.info)), ...vari].filter(Boolean).join(' - ').slice(0, 240);
 }
 
 // Sin IA: tipo = el primer tipo conocido que aparece en el nombre (en inglés también: Rotor → Disco, Glove → Guantes)
@@ -436,7 +466,7 @@ function limpiarFilas(crudas, op) {
     if (txt(r.medida)) attrs.Medida = txt(r.medida, 60);
     if (txt(r.talla)) attrs.Talla = txt(r.talla, 20).toUpperCase().replace(/^SMALL$/, 'S').replace(/^MEDIUM$/, 'M').replace(/^LARGE$/, 'L');
     return {
-      i, marca: txt(r.marca || op.marca, 60), nombre: txt(r.nombre, 300), modelo: txt(r.modelo, 120), tipo: txt(r.tipo, 80), sku: txt(r.sku, 80).replace(/\s+/g, ''),
+      i, marca: quitarSufijoMarca(txt(r.marca || op.marca, 60)), nombre: txt(r.nombre, 300), modelo: txt(r.modelo, 120), tipo: txt(r.tipo, 80), sku: txt(r.sku, 80).replace(/\s+/g, ''),
       ean: String(r.ean == null ? '' : r.ean).replace(/\D/g, '').slice(0, 14), attrs, costo: Math.round(aNumero(r.costo) * 100) / 100, pvp: Math.round(aNumero(r.pvp) * 100) / 100,
       moneda: monedaDe(r, op), stock: r.stock === undefined || r.stock === '' ? null : Math.round(aNumero(r.stock)), peso: pesoKg(r.peso),
       url_imagen: /^https?:\/\//i.test(String(r.url_imagen || '')) ? String(r.url_imagen).trim().slice(0, 500) : '',
@@ -763,16 +793,17 @@ function skuPadre(p) {
 }
 function filasExcel(productos, lote) {
   const op = lote.opciones, filas = [], fs_ = woo.filaSistema, dec = woo.decimal;
-  const cats = p => [op.a_pedido && lote._catAPedido ? lote._catAPedido : '', p.categoria].filter(Boolean).join(', ');
+  // sin categorías de estado (Disponible A pedido, Próximamente, Rebajas…): solo la categoría del producto
+  const cats = p => String(p.categoria || '').split(',').map(x => x.trim()).filter(x => x && !CAT_ESTADO_EXPORT.test(x.split(' > ').pop()) && !/a\s*pedido/i.test(x)).join(', ');
   const imgs = l => [...new Set((l || []).filter(u => /^https?:\/\//i.test(u)))].join(', ');
-  const comun = { publicado: op.publicado ? 1 : 0, destacado: 0, visibilidad: 'visible', existencias: 0, inventario: 0, bajo: '', reservas: 1, longitud: '', anchura: '', altura: '', rebajado: '', etiquetas: '' };
+  const comun = { publicado: op.publicado ? 1 : 0, destacado: 0, visibilidad: 'visible', existencias: 0, inventario: 0, bajo: '', reservas: 'notify', longitud: '', anchura: '', altura: '', rebajado: '', etiquetas: '' };
   for (const p of productos) {
     const vs = p.variantes;
     if (vs.length === 1) {
       const v = vs[0];
       const attr = Object.entries(v.attrs || {}).filter(([, x]) => txt(x)).map(([k, x]) => ({ nombre: k, valores: [txt(x, 60)], visible: true }));
       filas.push(fs_({ ...comun, id: '', tipo: 'simple', sku: v.sku, gtin: v.ean || '', nombre: armarNombre(p, textoVariante(v.attrs)), descripcion: p.descripcion_html || '',
-        peso: dec(v.peso || p.peso), normal: dec(precioVenta(v, op).precio), categorias: cats(p), imagenes: imgs(p.imagenes), superior: '' }).concat(woo.atributos(attr)));
+        peso: dec(v.peso || p.peso), normal: dec(precioVenta(v, op).precio), categorias: cats(p), imagenes: imgs([...(v.imagenes || []), ...(p.imagenes || [])]), superior: '' }).concat(woo.atributos(attr)));
       continue;
     }
     const padre = skuPadre(p);
@@ -780,7 +811,7 @@ function filasExcel(productos, lote) {
     vs.forEach(v => Object.entries(v.attrs || {}).forEach(([k, x]) => { if (!txt(x)) return; const u = union[k] = union[k] || { nombre: k, valores: [], visible: true }; if (!u.valores.includes(txt(x, 60))) u.valores.push(txt(x, 60)); }));
     const ordenUnion = Object.values(union).sort((a, b) => ordenAttr(a.nombre) - ordenAttr(b.nombre));
     filas.push(fs_({ ...comun, id: '', tipo: 'variable', sku: padre, gtin: '', nombre: armarNombre(p), descripcion: p.descripcion_html || '',
-      peso: dec(p.peso || vs[0].peso), normal: '', categorias: cats(p), imagenes: imgs(p.imagenes), superior: '' }).concat(woo.atributos(ordenUnion)));
+      peso: dec(p.peso || vs[0].peso), normal: '', categorias: cats(p), imagenes: imgs([...(p.imagenes || []), ...vs.flatMap(v => v.imagenes || [])]), superior: '' }).concat(woo.atributos(ordenUnion)));
     for (const v of vs) {
       const attr = ordenUnion.map(u => ({ nombre: u.nombre, valores: [txt((v.attrs || {})[u.nombre], 60)].filter(Boolean), visible: true })).filter(a => a.valores.length);
       filas.push(fs_({ ...comun, id: '', tipo: 'variation', sku: v.sku, gtin: v.ean || '', nombre: armarNombre(p, textoVariante(v.attrs)), descripcion: '',
@@ -1276,7 +1307,18 @@ costo = precio de compra/dealer/neto; pvp = precio de venta al público sugerido
       }
       if (!coincide.size) return res.json({ asignados: [], pns: pns.slice(0, 3), listado, pendientes: L0.productos.filter(p => !(p.ficha && /ok|parecido|en_texto/.test(p.ficha.pn || ''))).length });
       // los que ya tienen ficha confirmada no se tocan (salvo «reemplazar»)
-      const objetivo = [...coincide].filter(([k]) => { const p = L0.productos.find(x => x.k === k); return p && (b.reemplazar || !(p.ficha && /ok|parecido|en_texto/.test(p.ficha.pn || ''))); });
+      // variantes de la página: SKU igual a un PN, o la misma familia (otra talla del mismo color)
+      const pnN = pns.map(norm), comunV = (a, c) => { let i = 0; while (i < a.length && a[i] === c[i]) i++; return i; };
+      // hijos de la página: el SKU es un PN de la página; y los demás hijos del mismo color (las otras tallas)
+      const hijosDe = p => {
+        const exactos = p.variantes.filter(v => pnN.includes(norm(v.sku)));
+        if (!exactos.length) return p.variantes.filter(v => { const s = norm(v.sku); return s.length >= 5 && pnN.some(n => n.length === s.length && comunV(s, n) >= Math.max(10, s.length * 0.75)); });
+        const colores = new Set(exactos.map(v => norm(colorDe(p, v))));
+        if (colores.has('')) return exactos;
+        return p.variantes.filter(v => exactos.includes(v) || colores.has(norm(colorDe(p, v))));
+      };
+      const hijoSinFoto = p => p.variantes.length > 1 && hijosDe(p).some(v => !(v.imagenes || []).length);
+      const objetivo = [...coincide].filter(([k]) => { const p = L0.productos.find(x => x.k === k); return p && (b.reemplazar || hijoSinFoto(p) || !(p.ficha && /ok|parecido|en_texto/.test(p.ficha.pn || ''))); });
       if (!objetivo.length) return res.json({ asignados: [], ya: coincide.size, pns: pns.slice(0, 3) });
       const p0 = L0.productos.find(x => x.k === objetivo[0][0]);
       const usarIA = !!process.env.GEMINI_API_KEY && L0.opciones.usar_ia !== false && b.ia !== false;
@@ -1285,9 +1327,19 @@ costo = precio de compra/dealer/neto; pvp = precio de venta al público sugerido
         const L = await leerLote(id); const ctx = await contexto(); const asignados = [];
         for (const [k, estado] of objetivo) {
           const p = L.productos.find(x => x.k === k); if (!p) continue;
-          p.url = url;
-          if (r.html) p.descripcion_html = r.html;
-          asignarFotos(p, limpiarFotos(r.pool || [], p), ctx.trad);
+          const fotos = limpiarFotos(r.pool || [], p);
+          const hijos = p.variantes.length > 1 ? hijosDe(p) : [];
+          if (hijos.length && hijos.length < p.variantes.length) {
+            // la página es de algunos hijos (un color): sus fotos van a esos hijos y se suman al padre
+            for (const v of hijos) v.imagenes = fotosDelColor(fotos, colorDe(p, v), [v.sku], ctx.trad).slice(0, 8);
+            p.imagenes = [...new Set([...(p.imagenes || []), ...hijos.flatMap(v => v.imagenes)])].slice(0, 16);
+            if (!String(p.descripcion_html || '').replace(/<[^>]+>/g, '').trim() || b.reemplazar) p.descripcion_html = r.html || p.descripcion_html;
+            if (!p.url) p.url = url;
+          } else {
+            p.url = url;
+            if (r.html) p.descripcion_html = r.html;
+            asignarFotos(p, fotos, ctx.trad);
+          }
           if (r.peso && !p.peso) p.peso = r.peso;
           p.ficha = { fecha: new Date().toISOString(), ia: !!r.ok, fuente: 'recorrido', error: r.ok ? '' : r.error, pn: estado, pn_pagina: pns[0] || '' };
           asignados.push({ k, nombre: armarNombre(p, p.variantes.length === 1 ? textoVariante(p.variantes[0].attrs) : ''), estado, fotos: (p.imagenes || []).length });
@@ -1325,5 +1377,5 @@ costo = precio de compra/dealer/neto; pvp = precio de venta al público sugerido
   });
 };
 
-module.exports._test = { verificarPN, pnsDePagina, limpiarFotos, esTecnico, colorDe, fotosDelColor, asignarFotos, fichaSinIA, TRAD_BASE, leerTraducciones, traducir, variantesEnNombre, variantesSinIA, CAMPOS, rutasCategorias, segmentos, aprender, elegirCategoria, porPalabras, armarNombre, textoVariante, nombreSinIA, nombrarFila, limpiarFilas, agrupar,
+module.exports._test = { estilo, quitarSufijoMarca, verificarPN, pnsDePagina, limpiarFotos, esTecnico, colorDe, fotosDelColor, asignarFotos, fichaSinIA, TRAD_BASE, leerTraducciones, traducir, variantesEnNombre, variantesSinIA, CAMPOS, rutasCategorias, segmentos, aprender, elegirCategoria, porPalabras, armarNombre, textoVariante, nombreSinIA, nombrarFila, limpiarFilas, agrupar,
   revisar, precioVenta, opcionesLimpias, redondear, filasExcel, skuPadre, emparejar, htmlDescripcion, aplicarCategoria, nivelMax };

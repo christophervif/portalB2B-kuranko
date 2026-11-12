@@ -24,6 +24,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td,th{text-align:left;p
 <h1>Lector Woo Kuranko</h1>
 <p class="muted" style="margin:0">Lee las páginas de la marca desde tu navegador y trae descripción, especificaciones, fotos y peso a tu lote del Creador WooCommerce. No cierres la pestaña de la marca mientras trabaja.</p>
 <div class="card row"><b>Lote</b><select id="lote" style="min-width:300px"></select><span id="loteMsg" class="muted" style="font-size:12.5px"></span></div>
+<div id="web" class="card" style="display:none"></div>
 <div id="rc" class="card" style="display:none"></div>
 <div id="app" class="card">Esperando la página de la marca…</div>
 <script>
@@ -58,8 +59,9 @@ async function iniciar() {
     const porMarca = j.lotes.find(l => l.marca && host.includes(String(l.marca).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '')));
     ST.lote = String((porMarca || j.lotes.find(l => String(l.id) === ult) || j.lotes[0] || {}).id || '');
     $('#lote').innerHTML = j.lotes.map(l => `<option value="${l.id}" ${String(l.id) === ST.lote ? 'selected' : ''}>#${l.id} · ${esc(l.marca || '')} · ${esc(l.nombre)}</option>`).join('') || '<option value="">(no hay lotes: sube primero la lista en el panel)</option>';
-    $('#lote').onchange = e => { ST.lote = e.target.value; ST.sel = null; emparejar(); };
-    if (ST.lote) await emparejar(); else $('#app').innerHTML = '<span class="err">No hay lotes. Sube primero la lista de la marca en el panel → Creador WooCommerce.</span>';
+    $('#lote').onchange = e => { ST.lote = e.target.value; ST.sel = null; RC.modo = ''; emparejar(); };
+    pintarWeb();
+    if (ST.lote) await emparejar(); else $('#app').innerHTML = '<span class="muted">No hay lotes todavía. Si la marca no te pasó lista, usa «Crear lote desde esta web» (arriba).</span>';
   } catch (err) { $('#app').innerHTML = `<span class="err">${esc(err.message)}</span>`; }
 }
 async function emparejar() {
@@ -101,6 +103,55 @@ function pintar() {
   for (const [id, k] of [['ocFotos', 'ocFotos'], ['ocDesc', 'ocDesc'], ['ocLink', 'ocLink']]) $('#' + id).onchange = e => { ST[k] = e.target.checked; ST.sel = new Set([...ST.sel].filter(x => visible(P.find(p => p.k === x)))); pintar(); };
   $('#nVis').textContent = `· se ven ${vis.length} de ${P.length}`;
 }
+// ════ Crear lote desde esta web (marca sin lista) ════
+// Primero prueba el catálogo de Shopify (/products.json: todo el catálogo con variantes y SKU);
+// si la tienda no es Shopify, recorre la web y arma un producto por cada ficha que encuentra.
+function pintarWeb() {
+  const host = (() => { try { return new URL(ST.origen).hostname.replace(/^www\./, ''); } catch (e) { return ''; } })();
+  const marca = host.split('.')[0].replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  $('#web').style.display = '';
+  $('#web').innerHTML = `<b>Crear lote desde esta web</b> <span class="muted">(marca sin lista)</span>
+    <p class="muted" style="margin:6px 0">Saca los productos de la web de la marca: nombre, código (SKU), precio, variantes (talla, color), descripción y fotos. Queda un lote nuevo que revisas igual que una lista.
+      El precio es el <b>público de su web</b> (se usa como PVP). Empieza desde la página principal o una categoría de la tienda.</p>
+    <div class="row"><label class="campo">Marca<input id="wMarca" value="${esc(marca)}" style="width:160px"></label>
+      <label class="campo">Moneda de la web<select id="wMon"><option>PEN</option><option>USD</option><option>EUR</option></select></label>
+      <label class="campo">Solo links que contengan<input id="wPref" placeholder="(toda la web)" style="width:150px"></label>
+      <label class="campo">Máx. páginas<input id="wMax" type="number" value="600" style="width:90px"></label>
+      <button id="wIr">Crear lote y sacar productos</button></div><div id="wMsg" class="muted" style="margin-top:6px"></div>`;
+  $('#wIr').onclick = crearDesdeWeb;
+}
+async function crearDesdeWeb() {
+  if (RC.corriendo) return;
+  $('#wIr').disabled = true;
+  try {
+    const j = await api('/admin/woo-creador/web-lote', { marca: $('#wMarca').value.trim(), url: ST.origen, opciones: { moneda: $('#wMon').value } });
+    ST.lote = String(j.id);
+    $('#lote').insertAdjacentHTML('afterbegin', `<option value="${j.id}" selected>#${j.id} · ${esc($('#wMarca').value)} · ${esc(j.nombre)}</option>`); $('#lote').value = ST.lote;
+    try { localStorage.setItem('woo_lote', ST.lote); } catch (e) {}
+    Object.assign(RC, { modo: 'crear', cola: [], vistos: new Set(), leidas: 0, fichas: 0, asignados: 0, errores: 0, log: [], prefijo: $('#wPref').value.trim(), max: Math.max(1, +$('#wMax').value || 600), prof: 6 });
+    $('#rc').style.display = ''; RC.corriendo = true; pintarRC();
+    // 1) ¿Shopify?
+    const origen = new URL(ST.origen).origin; let total = 0, esShopify = false;
+    for (let page = 1; page <= 40 && RC.corriendo; page++) {
+      $('#wMsg').textContent = `Probando el catálogo de la tienda (página ${page})…`;
+      const d = await leer(`${origen}/products.json?limit=250&page=${page}`);
+      let lista = null; try { lista = JSON.parse(d.html || '').products; } catch (e) {}
+      if (!Array.isArray(lista)) break;
+      esShopify = true; if (!lista.length) break;
+      for (let i = 0; i < lista.length; i += 25) {
+        const w = await api(`/admin/woo-creador/lote/${ST.lote}/web-producto`, { shopify: lista.slice(i, i + 25), origen });
+        total += w.agregados; RC.asignados = total; RC.pendientes = w.total; (w.nombres || []).slice(0, 5).forEach(n => logRC('ok', '', '＋ ' + n)); pintarRC();
+      }
+      RC.leidas++; await espera(800);
+    }
+    if (esShopify) { RC.corriendo = false; logRC('ok', '', `Catálogo de la tienda leído: ${total} productos en el lote #${ST.lote}. Ábrelo en el panel para revisar.`); $('#wMsg').textContent = 'Tienda Shopify: se leyó el catálogo completo.'; pintarRC(); return; }
+    // 2) recorrer la web
+    $('#wMsg').textContent = 'No es una tienda Shopify: recorro las páginas y saco cada ficha.';
+    RC.corriendo = false; encolar([ST.origen], 0); encolar(ST.links, 1); recorrer();
+  } catch (e) { $('#wMsg').innerHTML = `<span class="err">${esc(e.message)}</span>`; }
+  finally { $('#wIr').disabled = false; }
+}
+
 // ════ Recorrer la web y ordenar por SKU ════
 // Lee las páginas de la marca (de a pocas, con pausas), el portal saca el PN de cada una y
 // la asigna al producto cuyo SKU coincide. Los listados no se asignan: se siguen sus links.
@@ -129,7 +180,13 @@ let pintT = null;
 function pintarRC() {
   clearTimeout(pintT); pintT = setTimeout(() => {
     const est = RC.corriendo ? (RC.pausa ? '<span class="warn">en pausa</span>' : '<span class="ok">leyendo…</span>') : '';
-    $('#rc').innerHTML = `<b>Recorrer la web y ordenar por SKU</b> <span class="muted">(recomendado)</span> ${est}
+    const crear = RC.modo === 'crear';
+    $('#rc').innerHTML = crear ? `<b>Creando el lote #${esc(ST.lote)} desde la web</b> ${est}
+    <div class="stats"><div class="stat"><b>${RC.leidas}</b>páginas leídas</div><div class="stat"><b>${RC.cola.length}</b>en cola</div><div class="stat"><b class="ok">${RC.asignados}</b>productos agregados</div><div class="stat"><b class="${RC.errores ? 'err' : ''}">${RC.errores}</b>sin respuesta</div></div>
+    <div class="row">${!RC.corriendo ? '' : RC.pausa ? '<button id="rcSeg">Continuar</button>' : '<button class="sec" id="rcPau">Pausar</button>'}${RC.corriendo ? '<button class="sec" id="rcStop">Detener</button>' : ''}<span class="muted">${RC.enCurso ? RC.enCurso + ' leyendo ahora' : ''}</span></div>
+    <div class="log">${RC.log.map(l => `<div class="${l.cls}">${esc(l.msg)}${l.u ? ` <span class="muted">· ${esc(l.u.replace(/^https?:\/\/[^/]+/, ''))}</span>` : ''}</div>`).join('') || '<span class="muted">Aquí aparece lo que va encontrando.</span>'}</div>
+    <input type="hidden" id="rcMax" value="${RC.max}"><input type="hidden" id="rcSim" value="${RC.simul}"><input type="hidden" id="rcPausa" value="${RC.pausaMs}">`
+    : `<b>Recorrer la web y ordenar por SKU</b> <span class="muted">(recomendado)</span> ${est}
     <p class="muted" style="margin:6px 0">Lee las páginas de la marca empezando por esta, saca el PN de cada una y la guarda en el producto cuyo SKU coincide. Las páginas de listado no se guardan: se siguen sus links. Si la web deja de responder, se pausa sola.</p>
     <div class="row">
       <label class="campo">Solo links que contengan<input id="rcPref" value="${esc(RC.prefijo)}" placeholder="(toda la web)" style="width:170px" ${RC.corriendo ? 'disabled' : ''}></label>
@@ -145,7 +202,7 @@ function pintarRC() {
     <div class="row">${!RC.corriendo ? '<button id="rcIr">Empezar</button>' : RC.pausa ? '<button id="rcSeg">Continuar</button>' : '<button class="sec" id="rcPau">Pausar</button>'}
       ${RC.corriendo ? '<button class="sec" id="rcStop">Detener</button>' : ''}<span class="muted">${RC.enCurso ? RC.enCurso + ' leyendo ahora' : ''}</span></div>
     <div class="log">${RC.log.map(l => `<div class="${l.cls}">${esc(l.msg)}${l.u ? ` <span class="muted">· ${esc(l.u.replace(/^https?:\/\/[^/]+/, ''))}</span>` : ''}</div>`).join('') || '<span class="muted">Aquí aparece lo que va encontrando.</span>'}</div>`;
-    const leerCfg = () => { RC.prefijo = ($('#rcPref') || {}).value || ''; RC.max = Math.max(1, +$('#rcMax').value || 800); RC.simul = +$('#rcSim').value || 2; RC.pausaMs = Math.max(0, +$('#rcPausa').value || 0); RC.seguir = $('#rcSeguir').checked; RC.reemplazar = $('#rcReemp').checked; };
+    const leerCfg = () => { if (crear) return; RC.prefijo = ($('#rcPref') || {}).value || ''; RC.max = Math.max(1, +$('#rcMax').value || 800); RC.simul = +$('#rcSim').value || 2; RC.pausaMs = Math.max(0, +$('#rcPausa').value || 0); RC.seguir = $('#rcSeguir').checked; RC.reemplazar = $('#rcReemp').checked; };
     ['#rcMax', '#rcSim', '#rcPausa', '#rcSeguir', '#rcReemp', '#rcPref'].forEach(id => { const x = $(id); if (x) x.onchange = leerCfg; });
     if ($('#rcIr')) $('#rcIr').onclick = () => { leerCfg(); if (!RC.cola.length) { RC.vistos.clear(); encolar([ST.origen], 0); encolar(ST.links, 1); } recorrer(); };
     if ($('#rcSeg')) $('#rcSeg').onclick = () => { leerCfg(); recorrer(); };
@@ -169,6 +226,13 @@ async function recorrer() {
       }
       seguidos = 0; RC.leidas++;
       try {
+        if (RC.modo === 'crear') {
+          const w = await api(`/admin/woo-creador/lote/${ST.lote}/web-producto`, { url: u, texto: d.texto, html: d.html, imgs: d.imgs });
+          if (w.producto) { RC.fichas++; RC.asignados += w.agregados; (w.nombres || []).forEach(n => logRC('ok', u, '＋ ' + n)); if (!w.agregados && w.repetidos) logRC('muted', u, 'ya estaba en el lote'); RC.pendientes = w.total; }
+          // sin lista que acote: se siguen los links de todas las páginas (también de las fichas: productos relacionados)
+          if (prof < RC.prof && d.html) encolar(linksDeHtml(d.html, u), prof + 1);
+          pintarRC(); await espera(RC.pausaMs); continue;
+        }
         const r = await api(`/admin/woo-creador/lote/${ST.lote}/pagina`, { url: u, texto: d.texto, html: d.html, imgs: d.imgs, reemplazar: RC.reemplazar });
         if (r.pendientes != null) RC.pendientes = r.pendientes;
         if (r.asignados && r.asignados.length) {
@@ -185,7 +249,7 @@ async function recorrer() {
     }
   };
   await Promise.all(Array.from({ length: RC.simul }, trabajador));
-  if (RC.corriendo && !RC.pausa) { RC.corriendo = false; logRC('ok', '', `Terminé: ${RC.asignados} productos con ficha. Vuelve al panel y toca «Recargar».`); }
+  if (RC.corriendo && !RC.pausa) { RC.corriendo = false; logRC('ok', '', RC.modo === 'crear' ? `Terminé: ${RC.asignados} productos en el lote #${ST.lote}. Ábrelo en el panel para revisar nombres y categorías.` : `Terminé: ${RC.asignados} productos con ficha. Vuelve al panel y toca «Recargar».`); }
   pintarRC();
 }
 

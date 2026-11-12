@@ -229,7 +229,7 @@ function textoVariante(attrs) {
 // Marca sin la línea de producto de la lista («SHIMANO SOFTGOODS» → Shimano)
 const SUFIJO_MARCA = /\s+(soft\s*goods?|softgoods?|apparel|components?|componentes|accesorios|accessories|footwear|calzado|clothing|ropa|parts|bikes?|cycling|ciclismo|division|div\.?|europe|usa|inc\.?|ltd\.?|s\.?a\.?c?\.?|gmbh)$/i;
 const quitarSufijoMarca = m => { let x = String(m || '').trim(), prev; do { prev = x; x = x.replace(SUFIJO_MARCA, '').trim(); } while (x !== prev && x); return x || String(m || '').trim(); };
-const marcaCanonica = (m, ctx) => { const b = quitarSufijoMarca(m); return (ctx && (ctx.marcas[norm(b)] || ctx.marcas[norm(m)])) || estilo(txt(b, 60), true); };
+const marcaCanonica = (m, ctx) => { const b = quitarSufijoMarca(m); return (ctx && (ctx.marcas[norm(b)] || ctx.marcas[norm(m)])) || estilo(txt(b, 60)); }; // «MARCA X» → Marca X; «MarcaY» se respeta
 
 // ── Mayúsculas: los nombres en estilo título, los códigos en mayúsculas ──
 // Se aplica solo a segmentos escritos casi todo en MAYÚSCULAS (como vienen de las listas);
@@ -255,7 +255,7 @@ function estilo(seg, forzar) {
   return t.split(/(\s+|\/(?=[a-z]{3,}))/i).map((w, i) => /^\s+$/.test(w) ? w : w.split(/(\(|\))/).map(x => estiloPalabra(x, i)).join('')).join('');
 }
 function armarNombre(p, variante = '') {
-  const marca = limpiarSeg(estilo(quitarSufijoMarca(p.marca), true));
+  const marca = limpiarSeg(estilo(quitarSufijoMarca(p.marca)));
   let desc = limpiarSeg(estilo(p.descripcion));
   // sin repetir la marca ni el tipo al inicio de la descripción
   for (const x of [p.marca, p.tipo]) { const re = new RegExp('^' + String(x || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b\\s*', 'i'); if (x) desc = desc.replace(re, '').trim(); }
@@ -366,7 +366,12 @@ Hub = Maza
 Wheelset = Ruedas
 Handlebar = Manubrio
 Stem = Potencia
-Seatpost = Tija`;
+Seatpost = Tija
+Pump = Inflador
+Light = Luz
+Lights = Luces
+Bottle = Caramañola
+Bag = Bolso`;
 const escRe = x => String(x).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 function leerTraducciones(texto) {
   const pares = []; let esTipo = false;
@@ -451,7 +456,8 @@ function opcionesLimpias(o = {}) {
 }
 function redondear(v, modo) {
   if (!(v > 0)) return null;
-  if (modo === '0.1') return Math.ceil(v * 10) / 10;
+  v = Math.round(v * 1e6) / 1e6; // sin restos de coma flotante (89.9 × 1 no debe subir a 90)
+  if (modo === '0.1') return Math.ceil(v * 10 - 1e-9) / 10;
   if (modo === '9') return Math.max(9, Math.ceil((v + 1) / 10) * 10 - 1); // 123 → 129 · 120 → 129
   const m = num(modo) || 1; return Math.ceil(v / m) * m;
 }
@@ -653,14 +659,14 @@ const NO_TECNICO = /televenta|venta|whats ?app|tel[eé]fono|celular|llam[ae]|con
 const ES_CONTACTO = v => /(\+?\d[\d\s\-().]{7,}\d)/.test(v) && (v.replace(/\D/g, '').length >= 7 && v.replace(/[\d\s\-+().]/g, '').length < 4) || /@|https?:\/\/|www\./i.test(v);
 const esTecnico = (k, v) => !NO_TECNICO.test(k) && !ES_CONTACTO(v) && !BASURA.test(k + ' ' + v) && !/(\+51|televenta|whats ?app)/i.test(v);
 const TITULO_SPECS = /^(especificaciones|especificaciones t[eé]cnicas|caracter[ií]sticas|caracter[ií]sticas t[eé]cnicas|ficha t[eé]cnica|datos t[eé]cnicos|detalles t[eé]cnicos|specifications|tech(nical)? specs?|features|informaci[oó]n adicional)\s*:?$/i;
-function fichaSinIA(p, texto, desc0) {
+function fichaSinIA(p, texto, desc0, minDesc = 60) {
   const lineas = String(texto || '').split(/\n/).map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean);
   // zona del producto: desde donde aparece el modelo o el código
   const claves = [p.descripcion, ...(p.variantes || []).map(v => v.sku)].map(x => String(x || '').split(' ')[0]).filter(x => x.length > 3).map(x => x.toLowerCase());
   let i0 = lineas.findIndex(l => claves.some(c => l.toLowerCase().includes(c))); if (i0 < 0) i0 = 0;
   const zona = lineas.slice(i0, i0 + 250);
   let resumen = String(desc0 || '').trim();
-  if (resumen.length < 60) {
+  if (resumen.length < minDesc) {
     const parr = zona.filter(l => l.length >= 70 && l.length <= 900 && /[.!]/.test(l) && !BASURA.test(l) && !/\t/.test(l) && !/televenta|whats ?app|\+51|post ?venta/i.test(l));
     resumen = parr.slice(0, 2).join(' ');
   }
@@ -839,6 +845,83 @@ function filasExcel(productos, lote) {
   return filas.map(f => f.map(woo.nl));
 }
 
+// ── Crear el lote desde la web de la marca (sin lista) ───────────────────────
+// Cada producto sale como filas «de lista» (una por variante) + su ficha (descripción, fotos),
+// y pasa por el mismo camino que una lista: nombre con tu formato, categoría, alertas.
+const decHtml = t => String(t == null ? '' : t).replace(/&quot;/g, '"').replace(/&#0?39;|&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+function precioDe(v) { if (v == null || v === '') return 0; if (typeof v === 'number') return v; return aNumero(v); }
+const MONEDA = c => /pen|s\/|sol/i.test(c || '') ? 'PEN' : /eur|€/i.test(c || '') ? 'EUR' : /usd|us\$|\$/i.test(c || '') ? 'USD' : '';
+// opciones de Shopify / Woo → atributo (Talla, Color…)
+const nombreAtr = n => { const x = norm(n); return /talla|size|tamano|grosse/.test(x) ? 'Talla' : /color|colour|farbe/.test(x) ? 'Color' : /medida|largo|length|diametro|ancho|width/.test(x) ? 'Medida' : txt(String(n || '').replace(/^(attribute_)?(pa_)?/i, '').replace(/[-_]/g, ' '), 30).replace(/^./, c => c.toUpperCase()); };
+function productoShopify(pr, origen) {
+  if (!pr || !Array.isArray(pr.variants)) return null;
+  const url = pr.handle ? `${origen}/products/${pr.handle}` : '';
+  const imgs = (pr.images || []).map(i => typeof i === 'string' ? i : i && i.src).filter(Boolean).map(u => u.startsWith('//') ? 'https:' + u : u);
+  const imgDe = {}; (pr.images || []).forEach(i => (i && i.variant_ids || []).forEach(id => { imgDe[id] = i.src; }));
+  const opciones = (pr.options || []).map(o => typeof o === 'string' ? o : o.name);
+  // precio: en la página Shopify viene en centavos (número); en /products.json, como texto
+  const filas = pr.variants.map(v => {
+    const r = { marca: pr.vendor || '', nombre: pr.title, tipo: pr.product_type || '', sku: v.sku || '', ean: v.barcode || '', pvp: typeof v.price === 'number' ? v.price / 100 : precioDe(v.price), peso: v.grams ? v.grams + ' g' : '', url_ficha: url, url_imagen: (v.featured_image && v.featured_image.src) || imgDe[v.id] || '' };
+    [v.option1, v.option2, v.option3].forEach((val, i) => { if (val && !/^default title$/i.test(val)) { const a = nombreAtr(opciones[i] || 'Variante'); if (a === 'Talla') r.talla = val; else if (a === 'Color') r.color = val; else r.medida = val; } });
+    return r;
+  });
+  return { filas, html: pr.body_html || pr.description || '', imagenes: imgs, url };
+}
+function productoDePagina(texto, html, url) {
+  const H = String(html || '');
+  // 1) Shopify: JSON del producto en la página
+  for (const m of H.matchAll(/<script[^>]*(?:id=["'][^"']*product[^"']*json[^"']*["']|data-product-json)[^>]*>([\s\S]*?)<\/script>/gi)) { try { const j = JSON.parse(m[1]); const r = productoShopify(j.product || j, new URL(url).origin); if (r) return { ...r, url }; } catch (e) {} }
+  // 2) WooCommerce: variaciones en el formulario
+  const ld = ldProducto(H);
+  const woo = H.match(/data-product_variations=(["'])([\s\S]*?)\1/);
+  if (woo) {
+    try {
+      const vars = JSON.parse(decHtml(woo[2]));
+      if (Array.isArray(vars) && vars.length) {
+        const nombre = (ld && ld.name) || (H.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i) || [])[1]?.replace(/<[^>]+>/g, '').trim() || '';
+        const filas = vars.map(v => { const r = { marca: ld && ld.marca || '', nombre, sku: v.sku || '', pvp: precioDe(v.display_regular_price || v.display_price), url_ficha: url, url_imagen: v.image && (v.image.full_src || v.image.src) || '', peso: v.weight ? v.weight + ' kg' : '' };
+          for (const [k, val] of Object.entries(v.attributes || {})) { if (!val) continue; const a = nombreAtr(k), vv = decodeURIComponent(String(val)).replace(/-/g, ' '); if (a === 'Talla') r.talla = vv; else if (a === 'Color') r.color = vv; else r.medida = vv; }
+          return r; });
+        return { filas, html: (ld && ld.description) || '', imagenes: (ld && ld.imagenes) || [], url, moneda: ld && ld.moneda };
+      }
+    } catch (e) {}
+  }
+  // 3) JSON-LD Product (con o sin variantes / ofertas)
+  if (ld && (ld.sku || ld.variantes.length || ld.precio)) {
+    const filas = ld.variantes.length ? ld.variantes.map(v => ({ marca: ld.marca, nombre: ld.name, sku: v.sku || '', pvp: v.precio, url_ficha: url, url_imagen: v.imagen || '', talla: v.talla, color: v.color }))
+      : [{ marca: ld.marca, nombre: ld.name, sku: ld.sku || '', ean: ld.gtin || '', pvp: ld.precio, url_ficha: url }];
+    return { filas, html: ld.description || '', imagenes: ld.imagenes, url, moneda: ld.moneda };
+  }
+  // 4) Página sin datos estructurados: título + PN + precio visibles
+  const pns = pnsDePagina(texto, H);
+  const precio = (String(texto).match(/(?:S\/|US\$|\$|€)\s?\d[\d.,]*/) || [])[0];
+  const h1 = (H.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i) || [])[1];
+  if (pns.length && h1) return { filas: [{ nombre: h1.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(), sku: pns[0], pvp: precio ? aNumero(precio) : 0, url_ficha: url }], html: '', imagenes: [], url, moneda: MONEDA(precio) };
+  return null;
+}
+function ldProducto(H) {
+  let out = null;
+  for (const b of String(H).matchAll(/<script[^>]+application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi)) {
+    try {
+      const visitar = o => { if (!o || typeof o !== 'object' || out) return; if (Array.isArray(o)) return o.forEach(visitar);
+        const t = [].concat(o['@type'] || []).join();
+        if (/ProductGroup|Product/i.test(t)) {
+          const ofs = [].concat(o.offers || []).flatMap(x => x && x['@type'] === 'AggregateOffer' ? [].concat(x.offers || x) : [x]).filter(Boolean);
+          const vs = [].concat(o.hasVariant || []).filter(Boolean).map(v => { const of = [].concat(v.offers || [])[0] || {}; return { sku: v.sku || of.sku || '', precio: precioDe(of.price || of.lowPrice), imagen: [].concat(v.image || [])[0] || '', talla: v.size || '', color: v.color || '' }; });
+          const of0 = ofs[0] || {};
+          out = { name: decHtml(o.name || ''), sku: o.sku || o.mpn || of0.sku || '', gtin: o.gtin13 || o.gtin || '', marca: decHtml((o.brand && (o.brand.name || o.brand)) || ''), description: decHtml(o.description || ''),
+            precio: precioDe(of0.price || of0.lowPrice), moneda: MONEDA(of0.priceCurrency), imagenes: [].concat(o.image || []).map(i => typeof i === 'string' ? i : i && (i.url || i.contentUrl)).filter(Boolean),
+            variantes: vs.length ? vs : ofs.length > 1 && ofs.every(x => x.sku) ? ofs.map(x => ({ sku: x.sku, precio: precioDe(x.price), imagen: '', talla: '', color: '' })) : [] };
+          return;
+        }
+        if (o['@graph']) visitar(o['@graph']); };
+      visitar(JSON.parse(b[1].trim()));
+    } catch (e) {}
+    if (out) break;
+  }
+  return out;
+}
+
 // ── Buscar grupos de variantes entre productos sueltos ───────────────────────
 // Productos de la misma marca y tipo cuyo nombre es igual salvo UNA palabra que parece variante
 // (talla, número de zapatilla, color, medida, relación de piñón) → propuesta de producto padre.
@@ -881,6 +964,26 @@ function buscarGrupos(productos, trad) {
 }
 // Arma un padre con varios productos sueltos (o con variantes): g = { ks, marca, tipo, descripcion, info, atributo, valores:{k:valor}, sku_base, categoria }
 function crearPadre(L, g, ctx) {
+  // agregar hijos a un padre que ya existe (te olvidaste uno)
+  if (g.padre) {
+    const padre = L.productos.find(p => p.k === g.padre); if (!padre) return null;
+    const nuevos = (g.ks || []).filter(k => k !== g.padre).map(k => L.productos.find(p => p.k === k)).filter(Boolean);
+    const atr = txt(g.atributo || Object.keys((padre.variantes[0] || {}).attrs || {})[0] || 'Variante', 30);
+    for (const p of nuevos) {
+      const valor = txt((g.valores || {})[p.k], 60);
+      for (const v of p.variantes) {
+        const attrs = { ...(v.attrs || {}) };
+        if (valor && p.variantes.length === 1) { for (const a of Object.keys(attrs)) if (norm(a) === norm(atr)) delete attrs[a]; attrs[atr] = valor; }
+        const fotos = (v.imagenes || []).length ? v.imagenes : (p.imagenes || []);
+        padre.variantes.push({ ...v, attrs, imagenes: fotos.slice(0, 8), k: padre.k + 'a' + padre.variantes.length + Date.now().toString(36) });
+        padre.imagenes = [...new Set([...(padre.imagenes || []), ...fotos])].slice(0, 16);
+      }
+    }
+    for (const f of ['marca', 'tipo', 'descripcion', 'info']) if (g[f] !== undefined && txt(g[f])) padre[f] = txt(g[f], f === 'descripcion' ? 160 : 100);
+    padre.nombre_manual = true; padre.sin_ia = false;
+    L.productos = L.productos.filter(p => !nuevos.includes(p));
+    return padre;
+  }
   const ps = (g.ks || []).map(k => L.productos.find(p => p.k === k)).filter(Boolean);
   if (ps.length < 2) return null;
   const base = ps.find(p => String(p.descripcion_html || '').replace(/<[^>]+>/g, '').trim()) || ps[0];
@@ -1171,6 +1274,67 @@ costo = precio de compra/dealer/neto; pvp = precio de venta al público sugerido
       const conIA = op.usar_ia && b.ia !== false && !!process.env.GEMINI_API_KEY;
       if (conIA) setImmediate(() => correrIA(L.id, productos.map(p => ({ k: p.k, filas: filasDe[p.k] }))));
       res.json({ lote: vista(L), ia: conIA ? trabajos.get(L.id) || { total: filas.length, hechos: 0, corriendo: true } : null, aviso: ctx.aviso });
+    } catch (e) { err(res, e); }
+  });
+
+  // ════ Lote desde la web de la marca (sin lista) ════
+  // 1) crear el lote vacío · 2) el Lector manda cada página (o el catálogo Shopify) y se agregan los productos
+  app.post('/admin/woo-creador/web-lote', authAdmin, mAud, async (req, res) => {
+    try {
+      const b = req.body || {}; const ctx = await contexto();
+      const op = opcionesLimpias({ moneda: 'PEN', modo_precio: 'pvp', factor_pvp: 1, redondeo: '0.1', ...(b.opciones || {}), usar_ia: false }); // el precio de la web tal cual
+      op.marca = b.marca ? marcaCanonica(b.marca, ctx) : '';
+      let host = ''; try { host = new URL(String(b.url || '')).hostname.replace(/^www\./, ''); } catch (e) {}
+      await prepararTablas();
+      const L = { nombre: txt(`Web ${host || op.marca}`, 200), marca: op.marca, opciones: op, productos: [], mapa: { origen: 'web', url: txt(b.url, 300) } };
+      const [ins] = await portalPool.query('INSERT INTO wc_lotes (nombre, marca, datos, usuario) VALUES (?,?,?,?)', [L.nombre, txt(L.marca, 80), '{}', usuarioDe(req)]);
+      L.id = ins.insertId; await guardarLote(L);
+      res.json({ id: L.id, nombre: L.nombre });
+    } catch (e) { err(res, e); }
+  });
+  // Agrega productos al lote: { url, texto, html, imgs } (una página) o { shopify:[productos], origen } (catálogo)
+  app.post('/admin/woo-creador/lote/:id/web-producto', authAdmin, mAud, async (req, res) => {
+    const id = num(req.params.id), b = req.body || {};
+    try {
+      const out = await enCola(id, async () => {
+        const L = await leerLote(id); const ctx = await contexto(); const op = L.opciones;
+        let origen = String(b.origen || b.url || ''); try { origen = new URL(origen).origin; } catch (e) {}
+        const items = Array.isArray(b.shopify) ? b.shopify.slice(0, 300).map(pr => productoShopify(pr, origen)).filter(Boolean)
+          : [productoDePagina(String(b.texto || ''), String(b.html || '').slice(0, 3e6), String(b.url || ''))].filter(Boolean);
+        if (!items.length) return { producto: false, agregados: 0 };
+        const skusLote = new Set(L.productos.flatMap(p => p.variantes.map(v => norm(v.sku))).filter(Boolean));
+        let agregados = 0, repetidos = 0; const nombres = [];
+        for (const it of items) {
+          const filasR = it.filas.filter(f => f.nombre || f.sku);
+          const nuevos = filasR.filter(f => !f.sku || !skusLote.has(norm(f.sku)));
+          repetidos += filasR.length - nuevos.length;
+          if (!nuevos.length) continue;
+          // la marca que escribiste al crear el lote manda; las fotos con link relativo se completan
+          const abs = u => { try { return u ? new URL(u, it.url || b.url).href : ''; } catch (e) { return ''; } };
+          const filas = limpiarFilas(nuevos.map(f => ({ ...f, marca: op.marca || f.marca, url_imagen: abs(f.url_imagen), moneda: it.moneda || op.moneda })), op);
+          const prods = agrupar(variantesSinIA(filas.map(f => nombrarFila(f, ctx, null)), ctx.trad)).map(p => aplicarCategoria(p, ctx));
+          // ficha: descripción + especificaciones de la página, fotos por color
+          const textoP = String(b.texto || '') || htmlATexto(it.html || '');
+          for (const p of prods) {
+            const desc0 = String(it.html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+            const s = fichaSinIA(p, textoP, desc0.slice(0, 1500), 15); // la descripción oficial del producto, aunque sea corta
+            if (s.html) p.descripcion_html = s.html;
+            if (s.peso && !p.peso) p.peso = s.peso;
+            const pool = [...new Set([...(it.imagenes || []).map(abs), ...filas.map(f => f.url_imagen).filter(Boolean), ...(Array.isArray(b.imgs) ? b.imgs : [])].filter(Boolean))];
+            if (pool.length) asignarFotos(p, limpiarFotos(pool, p), ctx.trad);
+            // fotos que trae cada variante
+            p.variantes.forEach(v => { const f = filas.find(x => x.sku && x.sku === v.sku); if (f && f.url_imagen && !(v.imagenes || []).length && p.variantes.length > 1) v.imagenes = [f.url_imagen]; });
+            p.url = it.url || p.url;
+            p.ficha = { fecha: new Date().toISOString(), ia: false, fuente: 'web', pn: 'ok', pn_pagina: '' };
+            p.variantes.forEach(v => v.sku && skusLote.add(norm(v.sku)));
+            L.productos.push(p); agregados++; nombres.push(armarNombre(p));
+          }
+        }
+        if (!L.marca && L.productos[0]) L.marca = L.productos[0].marca;
+        revisarLote(L, ctx); await guardarLote(L);
+        return { producto: true, agregados, repetidos, nombres: nombres.slice(0, 20), total: L.productos.length };
+      });
+      res.json(out);
     } catch (e) { err(res, e); }
   });
 
@@ -1577,5 +1741,5 @@ costo = precio de compra/dealer/neto; pvp = precio de venta al público sugerido
   });
 };
 
-module.exports._test = { buscarGrupos, crearPadre, tipoValor, estilo, quitarSufijoMarca, verificarPN, pnsDePagina, limpiarFotos, esTecnico, colorDe, fotosDelColor, asignarFotos, fichaSinIA, TRAD_BASE, leerTraducciones, traducir, variantesEnNombre, variantesSinIA, CAMPOS, rutasCategorias, segmentos, aprender, elegirCategoria, porPalabras, armarNombre, textoVariante, nombreSinIA, nombrarFila, limpiarFilas, agrupar,
+module.exports._test = { productoDePagina, productoShopify, ldProducto, buscarGrupos, crearPadre, tipoValor, estilo, quitarSufijoMarca, verificarPN, pnsDePagina, limpiarFotos, esTecnico, colorDe, fotosDelColor, asignarFotos, fichaSinIA, TRAD_BASE, leerTraducciones, traducir, variantesEnNombre, variantesSinIA, CAMPOS, rutasCategorias, segmentos, aprender, elegirCategoria, porPalabras, armarNombre, textoVariante, nombreSinIA, nombrarFila, limpiarFilas, agrupar,
   revisar, precioVenta, opcionesLimpias, redondear, filasExcel, skuPadre, emparejar, htmlDescripcion, aplicarCategoria, nivelMax };

@@ -340,7 +340,7 @@ function pintarLote() {
       <button class="btn btn-sec btn-chico" data-acc="reagrupar" title="Los que solo cambian en talla, medida o color escritas en el nombre quedan como un producto con variantes">Reagrupar variantes</button>
       <button class="btn btn-sec btn-chico" data-acc="traducir">Aplicar traducciones</button>
       <button class="btn btn-sec btn-chico" data-acc="fichas">Traer fichas de la web</button><button class="btn btn-sec btn-chico" data-acc="ia" ${CTX && !CTX.ia ? 'disabled title="Falta GEMINI_API_KEY"' : ''}>Rehacer con IA</button>
-      <button class="btn btn-sec btn-chico" data-acc="padre" title="Los marcados pasan a ser hijos de un padre nuevo: eliges el nombre del padre y el valor de cada hijo">Crear padre con los marcados</button>
+      <button class="btn btn-sec btn-chico" data-acc="padre" title="Los marcados pasan a ser hijos de un padre nuevo. Si entre los marcados hay UN padre ya hecho, los demás se agregan a ese padre.">Crear padre / agregar al padre</button>
       <button class="btn btn-sec btn-chico" data-acc="unir">Unir como variantes</button><button class="btn btn-chico btn-peligro" data-acc="quitar">Quitar del lote</button>
       <button class="btn btn-chico" data-acc="revisados" title="Salen del lote y quedan en Revisados, listos para exportar">Pasar a Revisados →</button>
     </div>
@@ -520,9 +520,11 @@ async function accion(a) {
     if (a === 'tipo') { const t = $('tipoLote').value.trim(); if (!t) return toast('Escribe el tipo (ej. Guantes)'); await masivo({ tipo_masivo: t }, `Tipo «${t}» en ${ks.length}`); }
     if (a === 'quitar') { if (!confirm(`¿Quitar ${ks.length} productos del lote?`)) return; recibir(await api('/admin/woo-creador/lote/' + L.id, { method: 'PUT', body: { borrar: ks } })); SEL.clear(); pintarLote(); }
     if (a === 'padre') {
-      if (ks.length < 2) return toast('Marca al menos dos productos (los futuros hijos)');
+      if (ks.length < 2) return toast('Marca al menos dos productos (los futuros hijos, o un padre + los hijos que le faltan)');
       const multi = ks.filter(k => (L.productos.find(p => p.k === k) || { variantes: [] }).variantes.length > 1);
-      if (multi.length) toast('Algunos marcados ya tienen variantes: entran con las suyas', 5000);
+      // un padre ya hecho + sueltos → se agregan a ese padre
+      if (multi.length === 1) { GRUPOS = [agregarAPadre(multi[0], ks.filter(k => k !== multi[0]))]; pintarGrupos(); $('grupos').scrollIntoView({ block: 'nearest' }); return; }
+      if (multi.length) toast('Varios marcados ya tienen variantes: entran con las suyas', 5000);
       GRUPOS = [padreDeMarcados(ks)]; pintarGrupos(); $('grupos').scrollIntoView({ block: 'nearest' }); return;
     }
     if (a === 'revisados') {
@@ -569,6 +571,16 @@ function padreDeMarcados(ks) {
   return { sel: true, manual: true, marca: p0.marca, tipo: p0.tipo, info: p0.info || '', descripcion: comun || p0.descripcion, atributo: guess(valores[0] || ''), categoria: p0.categoria || '',
     hijos: ps.map((p, i) => ({ k: p.k, valor: valores[i] || varTexto(p.variantes[0].attrs) || '', sku: p.variantes.map(v => v.sku).join(', '), nombre: p._nombre })) };
 }
+// Agregar hijos a un padre que ya existe: el padre y sus hijos se mantienen; los nuevos piden su valor
+function agregarAPadre(kPadre, ks) {
+  const padre = L.productos.find(p => p.k === kPadre);
+  const atr = Object.keys((padre.variantes[0] || {}).attrs || {})[0] || 'Variante';
+  const pdesc = String(padre.descripcion || '').toLowerCase().split(/\s+/);
+  return { sel: true, padre: kPadre, marca: padre.marca, tipo: padre.tipo, info: padre.info || '', descripcion: padre.descripcion, atributo: atr, categoria: padre.categoria || '',
+    existentes: padre.variantes.map(v => varTexto(v.attrs)),
+    hijos: ks.map(k => { const p = L.productos.find(x => x.k === k); const resto = String(p.descripcion || '').split(/\s+/).filter(w => !pdesc.includes(w.toLowerCase())).join(' ');
+      return { k, valor: resto || varTexto(p.variantes[0].attrs) || '', sku: p.variantes.map(v => v.sku).join(', '), nombre: p._nombre }; }) };
+}
 function pintarGrupos() {
   const box = $('grupos'); if (!box) return;
   if (!GRUPOS || !GRUPOS.length) { box.innerHTML = ''; return; }
@@ -581,7 +593,7 @@ function pintarGrupos() {
         <label class="campo" style="flex:1;min-width:220px">Descripción del padre<input data-gf="descripcion" value="${esc(g.descripcion)}"></label>
         <label class="campo">Info adicional<input data-gf="info" value="${esc(g.info)}" style="width:130px"></label>
         <label class="campo">Atributo<input data-gf="atributo" value="${esc(g.atributo)}" list="dlAtrGrp" style="width:110px"></label></div>
-      <div class="sub" style="margin-top:6px">Padre: <b data-gprev>${esc(nombrePrev(g))}</b> · ${esc(g.categoria || 'sin categoría')}</div>
+      <div class="sub" style="margin-top:6px">${g.padre ? 'Agregar al padre' : 'Padre'}: <b data-gprev>${esc(nombrePrev(g))}</b> · ${esc(g.categoria || 'sin categoría')}${g.padre ? ` · ya tiene: ${esc(g.existentes.join(', '))}` : ''}</div>
       <div class="hijos">${g.hijos.map((h, j) => `<span title="${esc(h.sku)}">${esc(h.nombre)} <span class="muted">· ${esc(h.sku)}</span></span><input data-gv="${j}" value="${esc(h.valor)}" placeholder="valor">`).join('')}</div>
     </div>`).join('')}<datalist id="dlAtrGrp">${ATRIBUTOS_SUG.concat(CTX ? CTX.atributos : []).map(a => `<option value="${esc(a)}">`).join('')}</datalist>`;
   box.querySelectorAll('.grupo-card').forEach(c => {
@@ -597,7 +609,10 @@ function pintarGrupos() {
     const malos = sel.filter(g => g.hijos.some(h => !String(h.valor).trim()) || new Set(g.hijos.map(h => String(h.valor).trim().toLowerCase())).size < g.hijos.length);
     if (malos.length) return toast('Cada hijo necesita un valor distinto (ej. M, L, XL)', 5000);
     try {
-      recibir(await api('/admin/woo-creador/lote/' + L.id, { method: 'PUT', body: { crear_padre: sel.map(g => ({ ks: g.hijos.map(h => h.k), marca: g.marca, tipo: g.tipo, descripcion: g.descripcion, info: g.info, atributo: g.atributo, categoria: g.categoria, valores: Object.fromEntries(g.hijos.map(h => [h.k, h.valor])) })) } }));
+      const ya = g => (g.existentes || []).map(x => String(x).toLowerCase());
+      const choque = sel.find(g => g.padre && g.hijos.some(h => ya(g).includes(String(h.valor).trim().toLowerCase()) || ya(g).includes(('talla ' + String(h.valor).trim()).toLowerCase())));
+      if (choque) return toast('Un valor nuevo ya existe en ese padre (ej. otra talla M)', 5000);
+      recibir(await api('/admin/woo-creador/lote/' + L.id, { method: 'PUT', body: { crear_padre: sel.map(g => ({ padre: g.padre || undefined, ks: g.padre ? [g.padre, ...g.hijos.map(h => h.k)] : g.hijos.map(h => h.k), marca: g.marca, tipo: g.tipo, descripcion: g.descripcion, info: g.info, atributo: g.atributo, categoria: g.categoria, valores: Object.fromEntries(g.hijos.map(h => [h.k, h.valor])) })) } }));
       toast(`${sel.length} ${sel.length === 1 ? 'padre creado' : 'padres creados'}`); GRUPOS = GRUPOS.filter(g => !g.sel); SEL.clear(); pintarLote();
     } catch (e) { toast(e.message); }
   };

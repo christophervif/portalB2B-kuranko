@@ -565,6 +565,7 @@ function revisar(p, ctx, lote) {
   // Ficha
   if (p.ficha && p.ficha.pn === 'sin_pn') add('ficha', 'aviso', 'La página no muestra el PN: confirma que la ficha sea de este producto');
   if (p.ficha && p.ficha.pn === 'distinto') add('ficha', 'critico', `La ficha es de otro PN (${p.ficha.pn_pagina}): revisa el link`);
+  if (String(p.descripcion_html || '').replace(/<[^>]+>/g, '').trim() && idiomaDe(p.descripcion_html) !== 'es') add('ficha', 'aviso', p.desc_trad_error ? `Descripción en otro idioma: no se pudo traducir (${p.desc_trad_error})` : 'Descripción en otro idioma: se traduce con IA');
   if (!String(p.descripcion_html || '').replace(/<[^>]+>/g, '').trim()) add('ficha', 'aviso', 'Sin descripción: tráela de la web de la marca');
   if (!(p.imagenes || []).length) add('ficha', 'aviso', 'Sin fotos');
   if (armarNombre(p, textoVariante((p.variantes[0] || {}).attrs)).length > 200) add('nombre', 'aviso', 'Nombre muy largo (más de 200 caracteres)');
@@ -685,6 +686,26 @@ function fichaSinIA(p, texto, desc0, minDesc = 60) {
   const peso = (() => { const s = specs.find(x => /^(peso|weight)/i.test(x.k)); if (!s) return ''; const m = s.v.match(/(\d+(?:[.,]\d+)?)\s*(kg|g|gr|grs|gramos)?\b/i); if (!m) return ''; const n = parseFloat(m[1].replace(',', '.')); return n > 0 ? (/^kg$/i.test(m[2] || '') || (!m[2] && n < 30) ? n : n / 1000) : ''; })();
   return { html: htmlDescripcion(txt(resumen, 900), specs), peso: peso > 0 && peso < 40 ? Math.round(peso * 1000) / 1000 : '' };
 }
+// ── Idioma de la descripción ──
+// Cuenta palabras frecuentes de cada idioma; «es» si domina el español o el texto es muy corto para saber.
+const PAL_ES = new Set('de la el los las y en con para por del que una un es se su sus al como más sin o muy desde sobre entre este esta diseñado diseño ideal permite mayor medida peso material uso incluye'.split(' '));
+const PAL_OTRO = new Set('the and with for of to is are your this that from on in it its designed design features feature made our you can will provides weight size use includes without into more than all new high low better each mit und der die das für ist von zu le les des et pour avec dans est une il della per con è'.split(' '));
+function idiomaDe(html) {
+  const ws = String(html || '').replace(/<[^>]+>/g, ' ').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').split(/[^a-zñ]+/).filter(Boolean);
+  let es = 0, ot = 0; for (const w of ws) { if (PAL_ES.has(w)) es++; else if (PAL_OTRO.has(w)) ot++; }
+  if (es + ot < 3) return 'es';
+  return ot > es * 1.2 ? 'otro' : 'es';
+}
+function promptTraduccion(items) {
+  return `Traduce al español neutro (Perú) estas descripciones de productos de ciclismo para la tienda Kuranko.
+Reglas: mantén EXACTAMENTE las etiquetas HTML (<p>, <ul>, <li>, <strong>…) y su orden; traduce solo el texto.
+No traduzcas nombres de modelo, marcas, códigos ni tecnologías (Shimano, Deore XT, SH-RX801, BOA, MIPS, Tubeless). Convierte las medidas solo de formato (mm, g, kg, V).
+En la lista «Especificaciones» traduce también la clave (Weight → Peso, Size → Talla, Color → Color…). No agregues ni quites información.
+Responde SOLO un JSON: [{"i":0,"html":"…"}]
+DESCRIPCIONES:
+${JSON.stringify(items.map(x => ({ i: x.i, html: x.html })))}`;
+}
+
 // Descripción en el mismo HTML que usan los productos actuales (párrafo + «Especificaciones:» en lista)
 function htmlDescripcion(resumen, specs) {
   let h = resumen ? `<p>${escHtml(resumen)}</p>` : '';
@@ -1148,6 +1169,41 @@ module.exports = function registrarWooCreador({ app, authAdmin, requiereModulo, 
 
   // ── IA en segundo plano (por lote) ──
   const trabajos = new Map(); // id → { total, hechos, corriendo, errores[] }
+  // Traducción de descripciones al español (IA), por lote, de a 6 por llamada
+  const trads = new Map(); // id → { total, hechos, corriendo, error }
+  const necesitaTrad = p => String(p.descripcion_html || '').replace(/<[^>]+>/g, '').trim() && idiomaDe(p.descripcion_html) !== 'es';
+  async function traducirLote(id, forzar) {
+    if (!process.env.GEMINI_API_KEY) return;
+    const t0 = trads.get(id); if (t0 && t0.corriendo) { if (forzar) t0.extra = [...new Set([...(t0.extra || []), ...forzar])]; return; }
+    const t = { total: 0, hechos: 0, corriendo: true, error: '', extra: forzar || [] }; trads.set(id, t);
+    const intentados = new Set();
+    try {
+      for (let vuelta = 0; vuelta < 200; vuelta++) {
+        const L = await leerLote(id);
+        const extra = new Set(t.extra);
+        const pend = L.productos.filter(p => !intentados.has(p.k) && (extra.has(p.k) ? String(p.descripcion_html || '').trim() : (necesitaTrad(p) && !p.desc_trad_error)));
+        t.total = t.hechos + pend.length;
+        if (!pend.length) break;
+        const tanda = pend.slice(0, 6); tanda.forEach(p => intentados.add(p.k));
+        const resp = leerJSON(await llamarGemini(promptTraduccion(tanda.map((p, i) => ({ i, html: p.descripcion_html }))), 0.1, 90000));
+        const err0 = Array.isArray(resp) ? '' : (errorIA() || 'la IA no respondió');
+        await enCola(id, async () => {
+          const L2 = await leerLote(id); const ctx = await contexto();
+          tanda.forEach((p0, i) => {
+            const p = L2.productos.find(x => x.k === p0.k); if (!p || p.descripcion_html !== p0.descripcion_html) return; // cambió mientras tanto
+            const r = Array.isArray(resp) && resp.find(x => x && Number(x.i) === i);
+            if (r && String(r.html || '').replace(/<[^>]+>/g, '').trim()) { p.descripcion_html = String(r.html).slice(0, 20000); p.desc_trad_error = ''; p.desc_traducida = new Date().toISOString(); }
+            else p.desc_trad_error = /cuota/i.test(err0) ? 'sin cuota de Gemini' : (err0 || 'sin respuesta').slice(0, 80);
+          });
+          revisarLote(L2, ctx); await guardarLote(L2);
+        });
+        t.hechos += tanda.length; t.extra = t.extra.filter(k => !tanda.some(p => p.k === k));
+        if (err0) { t.error = /cuota/i.test(err0) ? 'Sin cuota de Gemini: se reintenta con «Traducir descripción»' : err0; if (/cuota/i.test(err0)) break; }
+      }
+    } catch (e) { t.error = e.message; }
+    t.corriendo = false;
+  }
+  const lanzarTrad = (id, ks) => { if (process.env.GEMINI_API_KEY) setImmediate(() => traducirLote(id, ks).catch(() => {})); };
   async function correrIA(id, filasPorProducto) {
     // filasPorProducto: [{ k, filas:[filaLimpia…] }] — se renombra cada producto con sus filas
     const t = { total: filasPorProducto.reduce((a, x) => a + x.filas.length, 0), hechos: 0, corriendo: true, errores: [], inicio: Date.now() };
@@ -1334,6 +1390,7 @@ costo = precio de compra/dealer/neto; pvp = precio de venta al público sugerido
         revisarLote(L, ctx); await guardarLote(L);
         return { producto: true, agregados, repetidos, nombres: nombres.slice(0, 20), total: L.productos.length };
       });
+      if (out.agregados) lanzarTrad(id);
       res.json(out);
     } catch (e) { err(res, e); }
   });
@@ -1362,7 +1419,7 @@ costo = precio de compra/dealer/neto; pvp = precio de venta al público sugerido
     try {
       const L = await leerLote(req.params.id); const ctx = await contexto();
       revisarLote(L, ctx);
-      res.json({ lote: vista(L), ia: trabajos.get(L.id) || null });
+      res.json({ lote: vista(L), ia: trabajos.get(L.id) || null, trad: trads.get(L.id) || null });
     } catch (e) { err(res, e); }
   });
   app.delete('/admin/woo-creador/lote/:id', authAdmin, mAud, async (req, res) => {
@@ -1400,6 +1457,7 @@ costo = precio de compra/dealer/neto; pvp = precio de venta al público sugerido
           // usar la categoría nueva sugerida
           if (c.usar_sugerida && !p.categoria && p.cat_sugerida) Object.assign(p, { categoria: p.cat_sugerida, cat_fuente: 'manual', cat_conf: 1, cat_nueva: !ctx.catSet.has(p.cat_sugerida) });
           // aplicar tus traducciones a lo ya armado (no toca los nombres que editaste a mano)
+          if (c.traducir_desc) { p.desc_trad_error = ''; (L._tradForzar = L._tradForzar || []).push(p.k); }
           if (c.traducir) {
             if (!p.nombre_manual) { p.descripcion = limpiarSeg(traducir(p.descripcion, ctx.trad)); p.info = limpiarSeg(traducir(p.info, ctx.trad)); }
             p.variantes.forEach(v => { for (const a of Object.keys(v.attrs || {})) v.attrs[a] = traducir(v.attrs[a], ctx.trad); });
@@ -1451,7 +1509,13 @@ costo = precio de compra/dealer/neto; pvp = precio de venta al público sugerido
         revisarLote(L, ctx); await guardarLote(L);
         return L;
       });
-      res.json({ lote: vista(out), ia: trabajos.get(id) || null });
+      let trad = trads.get(id) || null;
+      if ((out._tradForzar || []).length) {
+        if (!process.env.GEMINI_API_KEY) return res.status(400).json({ error: 'Falta la clave de Gemini (GEMINI_API_KEY) en el servidor' });
+        const n = out._tradForzar.length; lanzarTrad(id, out._tradForzar); delete out._tradForzar;
+        if (!trad || !trad.corriendo) trad = { corriendo: true, hechos: 0, total: n, error: '' };
+      }
+      res.json({ lote: vista(out), ia: trabajos.get(id) || null, trad });
     } catch (e) { err(res, e); }
   });
 
@@ -1530,6 +1594,7 @@ costo = precio de compra/dealer/neto; pvp = precio de venta al público sugerido
         revisarLote(L, ctx); await guardarLote(L);
         return p;
       });
+      if (necesitaTrad(out)) lanzarTrad(id);
       res.json({ ok: true, producto: out, ia: r.ok, ia_error: r.ok ? null : r.error, pn });
     } catch (e) { err(res, e); }
   });
@@ -1612,6 +1677,7 @@ costo = precio de compra/dealer/neto; pvp = precio de venta al público sugerido
         revisarLote(L, ctx); await guardarLote(L);
         return { asignados, pendientes: L.productos.filter(p => !(p.ficha && /ok|parecido|en_texto/.test(p.ficha.pn || ''))).length };
       });
+      if ((out.asignados || []).length) lanzarTrad(id);
       res.json({ ...out, pns: pns.slice(0, 3), ia: r.ok, ia_error: r.ok ? null : r.error });
     } catch (e) { err(res, e); }
   });
@@ -1741,5 +1807,5 @@ costo = precio de compra/dealer/neto; pvp = precio de venta al público sugerido
   });
 };
 
-module.exports._test = { productoDePagina, productoShopify, ldProducto, buscarGrupos, crearPadre, tipoValor, estilo, quitarSufijoMarca, verificarPN, pnsDePagina, limpiarFotos, esTecnico, colorDe, fotosDelColor, asignarFotos, fichaSinIA, TRAD_BASE, leerTraducciones, traducir, variantesEnNombre, variantesSinIA, CAMPOS, rutasCategorias, segmentos, aprender, elegirCategoria, porPalabras, armarNombre, textoVariante, nombreSinIA, nombrarFila, limpiarFilas, agrupar,
+module.exports._test = { idiomaDe, promptTraduccion, productoDePagina, productoShopify, ldProducto, buscarGrupos, crearPadre, tipoValor, estilo, quitarSufijoMarca, verificarPN, pnsDePagina, limpiarFotos, esTecnico, colorDe, fotosDelColor, asignarFotos, fichaSinIA, TRAD_BASE, leerTraducciones, traducir, variantesEnNombre, variantesSinIA, CAMPOS, rutasCategorias, segmentos, aprender, elegirCategoria, porPalabras, armarNombre, textoVariante, nombreSinIA, nombrarFila, limpiarFilas, agrupar,
   revisar, precioVenta, opcionesLimpias, redondear, filasExcel, skuPadre, emparejar, htmlDescripcion, aplicarCategoria, nivelMax };

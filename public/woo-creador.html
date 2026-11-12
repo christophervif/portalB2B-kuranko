@@ -136,7 +136,7 @@ let toastT = null;
 function toast(m, ms = 4000) { let t = document.querySelector('.toast'); if (!t) { t = document.createElement('div'); t.className = 'toast'; document.body.appendChild(t); } t.textContent = m; t.classList.remove('oculto'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.add('oculto'), ms); }
 const soles = n => n > 0 ? 'S/ ' + Number(n).toLocaleString('es-PE', { maximumFractionDigits: 2 }) : '—';
 
-let CTX = null, IMP = null, L = null, IA = null, SEL = new Set(), ABIERTO = null, FILTRO = '', Q = '', POLL = null, SUCIO = false, SUMAR = false;
+let TRAD = null, CTX = null, IMP = null, L = null, IA = null, SEL = new Set(), ABIERTO = null, FILTRO = '', Q = '', POLL = null, SUCIO = false, SUMAR = false;
 function contarSel() {
   const c = $('cuenta'); if (c) c.textContent = c.textContent.replace(/\d+ marcados/, SEL.size + ' marcados');
   const a = $('acciones'); if (a) { a.classList.toggle('apagado', !SEL.size); a.querySelector('.rap-t').textContent = `Con los ${SEL.size} marcados`; }
@@ -176,7 +176,8 @@ function recibir(j) {
   L = j.lote; IA = j.ia;
   SEL = new Set([...SEL].filter(k => L.productos.some(p => p.k === k)));
   if (!SUCIO) pintarLote(); else pintarCabecera();
-  if (IA && IA.corriendo) { clearTimeout(POLL); POLL = setTimeout(() => abrirLote(L.id), 3000); }
+  TRAD = j.trad || (TRAD && TRAD.corriendo ? TRAD : null);
+  if ((IA && IA.corriendo) || (TRAD && TRAD.corriendo)) { clearTimeout(POLL); POLL = setTimeout(() => abrirLote(L.id), 3000); }
 }
 
 // ── 1) Importar ──
@@ -273,7 +274,7 @@ const conLink = p => /^https?:\/\//.test(p.url || '');
 // Marcar rápido: cada uno marca TODO el lote que cumple la condición (no solo lo que se ve)
 const RAPIDOS = [
   ['Sin foto ni descripción', p => sinFoto(p) && sinTexto(p.descripcion_html)],
-  ['Sin foto', sinFoto], ['Sin descripción', p => sinTexto(p.descripcion_html)],
+  ['Sin foto', sinFoto], ['Sin descripción', p => sinTexto(p.descripcion_html)], ['Descripción en otro idioma', p => p.alertas.some(a => /otro idioma/.test(a.msg))],
   ['Con link y sin ficha', p => conLink(p) && (sinFoto(p) || sinTexto(p.descripcion_html))], ['Sin link de la marca', p => !conLink(p)],
   ['Sin categoría', p => !p.categoria], ['Categoría dudosa', p => p.alertas.some(a => a.t === 'categoria' && /dudosa|Revisa la categoría/.test(a.msg))],
   ['Categoría nueva', p => !!p.categoria && (p.cat_nueva || p.alertas.some(a => /NUEVA/.test(a.msg)))], ['Con categoría sugerida', p => !p.categoria && !!p.cat_sugerida],
@@ -298,8 +299,10 @@ function visibles() {
 function pintarCabecera() {
   if (!L) return;
   const R = L.resumen, k = (id, n, t, cls) => `<div class="kpi ${cls} ${FILTRO === id ? 'on' : ''}" data-filtro="${id}"><b>${n}</b>${t}</div>`;
-  const ia = IA && IA.corriendo ? `<div class="nota">La IA está afinando nombres y categorías: ${IA.hechos} de ${IA.total} filas…</div><div class="barra"><i style="width:${Math.round(IA.hechos / Math.max(1, IA.total) * 100)}%"></i></div>`
-    : IA && IA.errores && IA.errores.length ? `<div class="aviso-box">La IA tuvo problemas: ${esc(IA.errores.slice(0, 2).join(' · '))}. Los productos sin IA quedan con «Nombre armado sin IA».</div>` : '';
+  const tr = TRAD && TRAD.corriendo ? `<div class="nota">La IA está traduciendo descripciones al español: ${TRAD.hechos} de ${TRAD.total || '…'}…</div><div class="barra"><i style="width:${Math.round(TRAD.hechos / Math.max(1, TRAD.total) * 100)}%"></i></div>`
+    : TRAD && TRAD.error ? `<div class="aviso-box">Traducción de descripciones: ${esc(TRAD.error)}</div>` : '';
+  const ia = tr + (IA && IA.corriendo ? `<div class="nota">La IA está afinando nombres y categorías: ${IA.hechos} de ${IA.total} filas…</div><div class="barra"><i style="width:${Math.round(IA.hechos / Math.max(1, IA.total) * 100)}%"></i></div>`
+    : IA && IA.errores && IA.errores.length ? `<div class="aviso-box">La IA tuvo problemas: ${esc(IA.errores.slice(0, 2).join(' · '))}. Los productos sin IA quedan con «Nombre armado sin IA».</div>` : '');
   $('cab').innerHTML = `<div class="fila" style="margin-top:0;justify-content:space-between;align-items:center">
       <div><h3>Lote #${L.id} · ${esc(L.marca || '')}</h3><div class="desc">${esc(L.nombre)} · ${R.productos} productos · ${R.variantes} SKU</div></div>
       <div class="fila" style="margin:0"><button class="btn btn-sec btn-chico" id="btnRecargar">Recargar</button><button class="btn btn-chico btn-peligro" id="btnBorrarLote">Borrar lote</button></div></div>
@@ -339,6 +342,7 @@ function pintarLote() {
       <span class="grupo"><input id="marcaLote" list="dlMarcas" placeholder="Marca…" style="width:130px"><button class="btn btn-sec btn-chico" data-acc="marca">Cambiar marca</button></span>
       <button class="btn btn-sec btn-chico" data-acc="reagrupar" title="Los que solo cambian en talla, medida o color escritas en el nombre quedan como un producto con variantes">Reagrupar variantes</button>
       <button class="btn btn-sec btn-chico" data-acc="traducir">Aplicar traducciones</button>
+      <button class="btn btn-sec btn-chico" data-acc="traducir_desc" ${CTX && !CTX.ia ? 'disabled title="Falta GEMINI_API_KEY"' : 'title="Traduce al español la descripción de los marcados (aunque parezca estar ya en español)"'}>Traducir descripción (IA)</button>
       <button class="btn btn-sec btn-chico" data-acc="fichas">Traer fichas de la web</button><button class="btn btn-sec btn-chico" data-acc="ia" ${CTX && !CTX.ia ? 'disabled title="Falta GEMINI_API_KEY"' : ''}>Rehacer con IA</button>
       <button class="btn btn-sec btn-chico" data-acc="padre" title="Los marcados pasan a ser hijos de un padre nuevo. Si entre los marcados hay UN padre ya hecho, los demás se agregan a ese padre.">Crear padre / agregar al padre</button>
       <button class="btn btn-sec btn-chico" data-acc="unir">Unir como variantes</button><button class="btn btn-chico btn-peligro" data-acc="quitar">Quitar del lote</button>
@@ -508,6 +512,7 @@ async function accion(a) {
     const masivo = async (cambio, msgOk) => { recibir(await api('/admin/woo-creador/lote/' + L.id, { method: 'PUT', body: { cambios: ks.map(k => ({ k, ...cambio })) } })); toast(msgOk); };
     if (a === 'confirmar') await masivo({ confirmar_categoria: true }, `Categoría confirmada en ${ks.length}`);
     if (a === 'sugerida') await masivo({ usar_sugerida: true }, 'Categoría sugerida aplicada donde había');
+    if (a === 'traducir_desc') { const n = ks.filter(k => { const p = L.productos.find(x => x.k === k); return p && !sinTexto(p.descripcion_html); }).length; if (!n) return toast('Los marcados no tienen descripción'); await masivo({ traducir_desc: true }, `Traduciendo ${n} descripciones con IA: la tabla se actualiza sola`); }
     if (a === 'traducir') await masivo({ traducir: true }, `Traducciones aplicadas a ${ks.length} (los editados a mano conservan su nombre)`);
     if (a === 'marca') { const m = $('marcaLote').value.trim(); if (!m) return toast('Escribe la marca (ej. Shimano)'); await masivo({ marca_masiva: m }, `Marca «${m}» en ${ks.length}`); }
     if (a === 'reagrupar') {
